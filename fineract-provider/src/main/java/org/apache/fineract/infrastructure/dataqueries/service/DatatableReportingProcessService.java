@@ -219,7 +219,6 @@ public class DatatableReportingProcessService implements ReportingProcessService
                 } else if (field.getType() == LocalDate.class) {
                     field.set(loanDetails, LocalDate.parse(value, formatter));
                 }else if (field.getType() == LocalDateTime.class) {
-                    System.out.println("date format:"+value);
                     field.set(loanDetails, LocalDateTime.parse(value, dateTimeFormatter));
                 }
                 else if (field.getType() == BigDecimal.class) {
