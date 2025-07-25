@@ -72,12 +72,6 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
     private final CommandProcessingService processAndLogCommandService;
     private final SchedulerJobRunnerReadService schedulerJobRunnerReadService;
     private final ConfigurationDomainService configurationDomainService;
-    private final MakerCheckerNotificationService notificationService;
-    private final NoteRepository noteRepository;
-    private final LoanRepositoryWrapper loanRepositoryWrapper;
-    private final ClientRepositoryWrapper clientRepositoryWrapper;
-    private final GroupRepositoryWrapper groupRepositoryWrapper;
-    private final SavingsAccountRepositoryWrapper savingsAccountRepositoryWrapper;
 
     @Override
     @SuppressWarnings("AvoidHidingCauseException")
@@ -169,6 +163,8 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
         }
 
     }
+
+
 
     @Override
     public CommandProcessingResult approveEntry(final Long makerCheckerId, final String note) {
