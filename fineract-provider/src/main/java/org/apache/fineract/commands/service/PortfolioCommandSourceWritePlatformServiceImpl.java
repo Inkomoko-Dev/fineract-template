@@ -26,7 +26,6 @@ import java.time.ZonedDateTime;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.commands.domain.CommandProcessingResultType;
 import org.apache.fineract.commands.domain.CommandSource;
 import org.apache.fineract.commands.domain.CommandSourceRepository;
@@ -72,6 +71,7 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
     private final CommandProcessingService processAndLogCommandService;
     private final SchedulerJobRunnerReadService schedulerJobRunnerReadService;
     private final ConfigurationDomainService configurationDomainService;
+    private final MakerCheckerNotificationService notificationService;
 
     @Override
     @SuppressWarnings("AvoidHidingCauseException")
@@ -164,8 +164,6 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
 
     }
 
-
-
     @Override
     public CommandProcessingResult approveEntry(final Long makerCheckerId, final String note) {
 
@@ -188,7 +186,7 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
                 commandSourceInput.getOrganisationCreditBureauId());
 
         final boolean makerCheckerApproval = true;
-        this.notificationService.notifyMaker(commandSourceInput, CommandProcessingResultType.PROCESSED,noteText);
+        this.notificationService.notifyMaker(commandSourceInput, CommandProcessingResultType.PROCESSED);
         return this.processAndLogCommandService.processAndLogCommand(wrapper, command, makerCheckerApproval);
     }
 
@@ -273,7 +271,7 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
         final AppUser maker = this.context.authenticatedUser();
         commandSourceInput.markAsRejected(maker, ZonedDateTime.now(DateUtils.getDateTimeZoneOfTenant()));
         this.commandSourceRepository.save(commandSourceInput);
-        this.notificationService.notifyMaker(commandSourceInput, CommandProcessingResultType.REJECTED,noteText);
+        this.notificationService.notifyMaker(commandSourceInput, CommandProcessingResultType.REJECTED);
         return makerCheckerId;
     }
 }
