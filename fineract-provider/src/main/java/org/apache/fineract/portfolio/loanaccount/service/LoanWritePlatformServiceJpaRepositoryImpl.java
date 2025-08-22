@@ -1415,6 +1415,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             if (transactionAmountAsMoney.isGreaterThan(receivableInterest)) {
                 interestComponent = receivableInterest;
                 unrecognizedIncome = transactionAmountAsMoney.minus(receivableInterest);
+
             }
         }
         final LoanTransaction waiveInterestTransaction = LoanTransaction.waiver(loan.getOffice(), loan, interestComponent,
