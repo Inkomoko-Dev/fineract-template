@@ -100,7 +100,14 @@ ORDER BY ounder.id, ls.duedate, l.account_no
             <where>id = 216</where>
         </update>
     </changeSet>
-    <changeSet id="add-language-parameter-mapping-216" author="niceta@inkomoko.com">
+    <changeSet id="add-language-parameter-mapping-216-fix" author="niceta@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM fineract_default.stretchy_report_parameter
+                WHERE report_id = 216
+                AND parameter_id = (SELECT id FROM fineract_default.stretchy_parameter WHERE parameter_name = 'language')
+            </sqlCheck>
+        </preConditions>
         <sql>
             INSERT INTO fineract_default.stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
             VALUES (
