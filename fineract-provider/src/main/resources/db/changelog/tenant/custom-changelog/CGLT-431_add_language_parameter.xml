@@ -22,7 +22,12 @@
 <databaseChangeLog xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
-    <changeSet id="add-language-parameter" author="niceta@inkomoko.com">
+    <changeSet id="add-language-parameter-fix" author="niceta@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM fineract_default.stretchy_parameter WHERE parameter_name = 'language'
+            </sqlCheck>
+        </preConditions>
         <insert tableName="stretchy_parameter" schemaName="fineract_default">
             <column name="parameter_name" value="language"/>
             <column name="parameter_variable" value="language"/>
