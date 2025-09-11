@@ -18,6 +18,8 @@
  */
 package org.apache.fineract.portfolio.loanaccount.rescheduleloan;
 
+import liquibase.pro.packaged.S;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -30,8 +32,11 @@ public final class RescheduleLoansApiConstants {
     }
 
     public static final String ENTITY_NAME = "RESCHEDULELOAN";
+    public static final String WAIVE_CHARGES = "Waive All Charges";
+    public static final String CARRY_CHARGES_FORWARD = "Carry Charges Forward";
 
     public static final String LOAN_RESCHEDULE_REASON = "LoanRescheduleReason";
+    public static final String CHARGE_HANDLING_METHOD = "ChargeHandlingMethod";
 
     // general
     public static final String localeParamName = "locale";
@@ -58,6 +63,8 @@ public final class RescheduleLoansApiConstants {
     public static final String rejectCommandParamName = "reject";
     public static final String endDateParamName = "endDate";
     public static final String emiParamName = "emi";
+    public static final String overdueChargeHandlingParamName = "overdueChargeHandling";
+    public static final String carryForwardChargeIdParamName = "carryForwardChargeId";
 
     // reject action request parameters
     public static final String rejectedOnDateParam = "rejectedOnDate";
