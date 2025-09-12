@@ -34,5 +34,7 @@ public class JournalData {
     private String clientDisplayName;
     private String transactionTypeName;
     private String transactionTypeUniqueId;
+    private Boolean isCorrection;
+    private String correctionDate;
     private List<JournalItemData> journalItems;
 }

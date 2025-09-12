@@ -540,6 +540,11 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
 
                 journalItemData = new  JournalItemData(entry, accountId);
                 journalItems.add(journalItemData);
+
+                if (entry.isCorrection()){
+                    journalData.setIsCorrection(true);
+                    journalData.setCorrectionDate(entry.getCorrectionDate().toString());
+                }
             }
 
             journalData.setRef("Journal Entry made by CBS for Loan ID : " + loanId +"; Transaction ID : L" + transactionId);
