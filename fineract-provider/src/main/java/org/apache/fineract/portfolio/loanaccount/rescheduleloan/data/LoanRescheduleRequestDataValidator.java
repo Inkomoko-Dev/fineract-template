@@ -226,20 +226,20 @@ public class LoanRescheduleRequestDataValidator {
         }
     }
 
-    private void validateForOverdueCharges(DataValidatorBuilder dataValidatorBuilder, final Loan loan,
-            final LoanRepaymentScheduleInstallment installment) {
-        if (installment != null) {
-            LocalDate rescheduleFromDate = installment.getFromDate();
-            Collection<LoanCharge> charges = loan.getLoanCharges();
-            for (LoanCharge loanCharge : charges) {
-                if (loanCharge.isOverdueInstallmentCharge() && loanCharge.getDueLocalDate().isAfter(rescheduleFromDate)
-                        && !loanCharge.isWaived() && !loanCharge.isPaid()) {
-                    dataValidatorBuilder.failWithCodeNoParameterAddedToErrorCode("not.allowed.due.to.overdue.charges");
-                    break;
-                }
-            }
-        }
-    }
+//    private void validateForOverdueCharges(DataValidatorBuilder dataValidatorBuilder, final Loan loan,
+//            final LoanRepaymentScheduleInstallment installment) {
+//        if (installment != null) {
+//            LocalDate rescheduleFromDate = installment.getFromDate();
+//            Collection<LoanCharge> charges = loan.getLoanCharges();
+//            for (LoanCharge loanCharge : charges) {
+//                if (loanCharge.isOverdueInstallmentCharge() && loanCharge.getDueLocalDate().isAfter(rescheduleFromDate)
+//                        && !loanCharge.isWaived() && !loanCharge.isPaid()) {
+//                    dataValidatorBuilder.failWithCodeNoParameterAddedToErrorCode("not.allowed.due.to.overdue.charges");
+//                    break;
+//                }
+//            }
+//        }
+//    }
 
     private void validateForOverdueCharges(DataValidatorBuilder dataValidatorBuilder, final Loan loan,
             final LoanRepaymentScheduleInstallment installment, final JsonCommand command) {

@@ -18,8 +18,6 @@
  */
 package org.apache.fineract.portfolio.loanaccount.rescheduleloan;
 
-import liquibase.pro.packaged.S;
-
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
