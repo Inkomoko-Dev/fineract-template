@@ -61,7 +61,7 @@ public class LoanRescheduleRequestDataValidator {
             RescheduleLoansApiConstants.adjustedDueDateParamName, RescheduleLoansApiConstants.recalculateInterestParamName,
             RescheduleLoansApiConstants.endDateParamName, RescheduleLoansApiConstants.emiParamName,
             RescheduleLoansApiConstants.newPrincipalDueFixedAmount, RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment,
-            RescheduleLoansApiConstants.overdueChargeHandlingParamName, RescheduleLoansApiConstants.carryForwardChargeIdParamName));
+            RescheduleLoansApiConstants.overdueChargeHandlingParamName, RescheduleLoansApiConstants.carryForwardChargeIdParamName, RescheduleLoansApiConstants.carryForwardChargeDueDateParamName));
 
     private static final Set<String> REJECT_REQUEST_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList(RescheduleLoansApiConstants.localeParamName, RescheduleLoansApiConstants.dateFormatParamName,

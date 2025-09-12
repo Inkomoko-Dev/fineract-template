@@ -66,6 +66,8 @@ public final class RescheduleLoansApiConstants {
     public static final String overdueChargeHandlingParamName = "overdueChargeHandling";
     public static final String carryForwardChargeIdParamName = "carryForwardChargeId";
 
+    public static final String carryForwardChargeDueDateParamName ="carryForwardChargeDueDate";
+
     // reject action request parameters
     public static final String rejectedOnDateParam = "rejectedOnDate";
 

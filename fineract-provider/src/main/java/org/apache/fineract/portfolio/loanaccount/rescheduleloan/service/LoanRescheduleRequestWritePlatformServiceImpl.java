@@ -285,9 +285,12 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
 
             Long carryForwardChargeId = jsonCommand.longValueOfParameterNamed(
                     RescheduleLoansApiConstants.carryForwardChargeIdParamName);
+            LocalDate carryForwardChargeDueDate = jsonCommand.localDateValueOfParameterNamed(
+                    RescheduleLoansApiConstants.carryForwardChargeDueDateParamName);
 
             loanRescheduleRequest.setChargeHandling(chargeHandling);
             loanRescheduleRequest.setCarryForwardChargeId(carryForwardChargeId);
+            loanRescheduleRequest.setCarryForwardChargeDueDate(carryForwardChargeDueDate);
 
             this.loanRescheduleRequestRepository.saveAndFlush(loanRescheduleRequest);
 
@@ -535,7 +538,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
 
             if (chargeHandling == ChargeHandlingOption.CARRY) {
                 Long carryForwardChargeDefId = loanRescheduleRequest.getCarryForwardChargeId();
-                createCarryForwardCharge(loan, carryForwardChargeDefId, loanRescheduleRequest.getSubmittedOnDate(), jsonCommand, totalChargesOutstanding);
+                createCarryForwardCharge(loan, carryForwardChargeDefId, loanRescheduleRequest.getCarryForwardChargeDueDate(), jsonCommand, totalChargesOutstanding);
             }
 
             loan.updateLoanSummaryDerivedFields();

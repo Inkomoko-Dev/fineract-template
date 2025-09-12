@@ -101,6 +101,10 @@ public class LoanRescheduleRequest extends AbstractPersistableCustom {
     @Column(name = "carry_forward_charge_id")
     private Long carryForwardChargeId;
 
+    @Column(name = "carry_forward_charge_due_date")
+    private LocalDate carryForwardChargeDueDate;
+
+
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER, mappedBy = "loanRescheduleRequest")
     private Set<LoanRescheduleRequestToTermVariationMapping> loanRescheduleRequestToTermVariationMappings = new HashSet<>();
 
