@@ -26,8 +26,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
 
-import javax.persistence.Column;
-
 @RequiredArgsConstructor
 @Getter
 public class LoanTransactionDTO {
