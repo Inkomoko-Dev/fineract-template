@@ -568,6 +568,7 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
     }
 
     public static JsonObject convertJournalDataToJson(JournalData requestData, AppUser currentUser){
+        log.info("Posting transaction "+ requestData.getTransactionId() +" to odoo");
 
         JsonObject payload = new JsonObject();
         JsonObject request = new JsonObject();
@@ -597,6 +598,8 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
         HookEvent hookEvent = new HookEvent(new HookEventSource("JOURNALENTRY", "CREATE"), payload.toString(), currentUser, context);
         // Publish the event
         eventPublisher.publishEvent(hookEvent);
+
+        log.info("Posted transaction to odoo");
     }
 
     @Transactional
