@@ -48,7 +48,6 @@
     <parameter name="PRODUCT_FILTER" class="java.lang.String" isForPrompting="false"/>
     <parameter name="APPROVED_BY" class="java.lang.String" isForPrompting="false"/>
 
-
     <!-- ========== QUERY ========== -->
     <queryString language="SQL">
         <![CDATA[
