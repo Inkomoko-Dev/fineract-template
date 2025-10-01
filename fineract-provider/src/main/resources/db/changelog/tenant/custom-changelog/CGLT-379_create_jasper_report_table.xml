@@ -36,7 +36,7 @@
                 <constraints primaryKey="true" nullable="false"/>
             </column>
 
-            <column name="report_name" type="VARCHAR(100)">
+            <column name="report_name" type="VARCHAR(255)">
                 <constraints nullable="false"/>
             </column>
 
@@ -50,7 +50,7 @@
 
             <column name="parameters" type="JSON"/>
 
-            <column name="status" type="VARCHAR(20)">
+            <column name="status" type="VARCHAR(30)">
                 <constraints nullable="false"/>
             </column>
 
@@ -58,10 +58,45 @@
 
             <column name="approved_on" type="TIMESTAMP"/>
 
-            <column name="file_format" type="VARCHAR(20)"/>
+            <column name="file_format" type="VARCHAR(255)"/>
 
             <column name="file_path" type="VARCHAR(255)"/>
         </createTable>
     </changeSet>
+
+    <changeSet id="add-jasper-report-permissions" author="nnyachoti@inkomoko.com">
+        <insert tableName="m_permission">
+            <column name="grouping" value="report"/>
+            <column name="code" value="CREATE_JASPER_REPORT"/>
+            <column name="entity_name" value="JASPER_REPORT"/>
+            <column name="action_name" value="CREATE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="report"/>
+            <column name="code" value="READ_JASPER_REPORT"/>
+            <column name="entity_name" value="JASPER_REPORT"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="report"/>
+            <column name="code" value="APPROVE_JASPER_REPORT"/>
+            <column name="entity_name" value="JASPER_REPORT"/>
+            <column name="action_name" value="APPROVE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="report"/>
+            <column name="code" value="DOWNLOAD_JASPER_REPORT"/>
+            <column name="entity_name" value="JASPER_REPORT"/>
+            <column name="action_name" value="DOWNLOAD"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
 </databaseChangeLog>
 
