@@ -198,6 +198,12 @@ public class AddressWritePlatformServiceImpl implements AddressWritePlatformServ
             addobj.setCity(city);
         }
 
+        if (!command.stringValueOfParameterNamed("location").isEmpty()) {
+            is_address_update = true;
+            final String location = command.stringValueOfParameterNamed("location");
+            addobj.setLocation(location);
+        }
+
         if (!command.stringValueOfParameterNamed("countyDistrict").isEmpty()) {
             is_address_update = true;
             final String countyDistrict = command.stringValueOfParameterNamed("countyDistrict");
