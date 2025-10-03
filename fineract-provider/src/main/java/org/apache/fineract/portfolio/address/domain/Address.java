@@ -38,6 +38,8 @@ import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.portfolio.client.domain.ClientAddress;
 
 @Entity
+@Getter
+@Setter
 @Table(name = "m_address")
 public class Address extends AbstractPersistableCustom {
 
@@ -48,6 +50,9 @@ public class Address extends AbstractPersistableCustom {
 
     @OneToMany(mappedBy = "address", cascade = CascadeType.ALL)
     private Set<ClientAddress> clientaddress;
+
+    @Column(name = "location")
+    private String location;
 
     @Column(name = "street")
     private String street;
@@ -109,17 +114,16 @@ public class Address extends AbstractPersistableCustom {
     @Column(name = "physical_address_cell")
     private String physicalAddressCell;
 
-    @Getter
-    @Setter
     @Column(name = "at_address_since")
     private LocalDate atAddressSince;
 
-    private Address(final String street, final String addressLine1, final String addressLine2, final String addressLine3,
-            final String townVillage, final String city, final String countyDistrict, final CodeValue stateProvince,
-            final CodeValue country, final String postalCode, final BigDecimal latitude, final BigDecimal longitude, final String createdBy,
-            final LocalDate createdOn, final String updatedBy, final LocalDate updatedOn, final CodeValue lga,
-            final LocalDate atAddressSince, final String physicalAddressDistrict, final String physicalAddressSector,
-            final String physicalAddressCell) {
+    private Address(final String location, final String street, final String addressLine1, final String addressLine2, final String addressLine3,
+                    final String townVillage, final String city, final String countyDistrict, final CodeValue stateProvince,
+                    final CodeValue country, final String postalCode, final BigDecimal latitude, final BigDecimal longitude, final String createdBy,
+                    final LocalDate createdOn, final String updatedBy, final LocalDate updatedOn, final CodeValue lga,
+                    final LocalDate atAddressSince, final String physicalAddressDistrict, final String physicalAddressSector,
+                    final String physicalAddressCell) {
+        this.location = location;
         this.street = street;
         this.addressLine1 = addressLine1;
         this.addressLine2 = addressLine2;
@@ -158,6 +162,8 @@ public class Address extends AbstractPersistableCustom {
 
     public static Address fromJson(final JsonCommand command, final CodeValue stateProvince, final CodeValue country) {
 
+        final String location = command.stringValueOfParameterNamed("location");
+
         final String street = command.stringValueOfParameterNamed("street");
 
         final String addressLine1 = command.stringValueOfParameterNamed("addressLine1");
@@ -192,13 +198,14 @@ public class Address extends AbstractPersistableCustom {
         final String physicalAddressSector = command.stringValueOfParameterNamed("physicalAddressSector");
         final String physicalAddressCell = command.stringValueOfParameterNamed("physicalAddressCell");
 
-        return new Address(street, addressLine1, addressLine2, addressLine3, townVillage, city, countyDistrict, stateProvince, country,
+        return new Address(location, street, addressLine1, addressLine2, addressLine3, townVillage, city, countyDistrict, stateProvince, country,
                 postalCode, latitude, longitude, createdBy, createdOn, updatedBy, updatedOn, null, atAddressSince, physicalAddressDistrict,
                 physicalAddressSector, physicalAddressCell);
     }
 
     public static Address fromJsonObject(final JsonObject jsonObject, final CodeValue state_province, final CodeValue country,
-            final CodeValue lga) {
+                                         final CodeValue lga) {
+        String location = "";
         String street = "";
         String addressLine1 = "";
         String addressLine2 = "";
@@ -217,6 +224,10 @@ public class Address extends AbstractPersistableCustom {
         String physicalAddressDistrict = "";
         String physicalAddressSector = "";
         String physicalAddressCell = "";
+
+        if (jsonObject.has("location")) {
+            location = jsonObject.get("location").getAsString();
+        }
 
         if (jsonObject.has("street")) {
             street = jsonObject.get("street").getAsString();
@@ -287,176 +298,8 @@ public class Address extends AbstractPersistableCustom {
             physicalAddressCell = jsonObject.get("physicalAddressCell").getAsString();
         }
 
-        return new Address(street, addressLine1, addressLine2, addressLine3, townVillage, city, countyDistrict, state_province, country,
+        return new Address(location, street, addressLine1, addressLine2, addressLine3, townVillage, city, countyDistrict, state_province, country,
                 postalCode, latitude, longitude, createdBy, createdOnDate, updatedBy, updatedOnDate, lga, atAddressSince,
                 physicalAddressDistrict, physicalAddressSector, physicalAddressCell);
-    }
-
-    public Set<ClientAddress> getClientaddress() {
-        return this.clientaddress;
-    }
-
-    public void setClientaddress(Set<ClientAddress> clientaddress) {
-        this.clientaddress = clientaddress;
-    }
-
-    public String getStreet() {
-        return this.street;
-    }
-
-    public void setStreet(String street) {
-        this.street = street;
-    }
-
-    public String getAddressLine1() {
-        return this.addressLine1;
-    }
-
-    public void setAddressLine1(String addressLine1) {
-        this.addressLine1 = addressLine1;
-    }
-
-    public String getAddressLine2() {
-        return this.addressLine2;
-    }
-
-    public void setAddressLine2(String addressLine2) {
-        this.addressLine2 = addressLine2;
-    }
-
-    public String getAddressLine3() {
-        return this.addressLine3;
-    }
-
-    public void setAddressLine3(String addressLine3) {
-        this.addressLine3 = addressLine3;
-    }
-
-    public String getTownVillage() {
-        return this.townVillage;
-    }
-
-    public void setTownVillage(String townVillage) {
-        this.townVillage = townVillage;
-    }
-
-    public String getCity() {
-        return this.city;
-    }
-
-    public void setCity(String city) {
-        this.city = city;
-    }
-
-    public String getCountyDistrict() {
-        return this.countyDistrict;
-    }
-
-    public void setCountyDistrict(String countyDistrict) {
-        this.countyDistrict = countyDistrict;
-    }
-
-    public CodeValue getStateProvince() {
-        return this.stateProvince;
-    }
-
-    public void setStateProvince(CodeValue stateProvince) {
-        this.stateProvince = stateProvince;
-    }
-
-    public CodeValue getCountry() {
-        return this.country;
-    }
-
-    public void setCountry(CodeValue country) {
-        this.country = country;
-    }
-
-    public String getPostalCode() {
-        return this.postalCode;
-    }
-
-    public void setPostalCode(String postalCode) {
-        this.postalCode = postalCode;
-    }
-
-    public BigDecimal getLatitude() {
-        return this.latitude;
-    }
-
-    public void setLatitude(BigDecimal latitude) {
-        this.latitude = latitude;
-    }
-
-    public BigDecimal getLongitude() {
-        return this.longitude;
-    }
-
-    public void setLongitude(BigDecimal longitude) {
-        this.longitude = longitude;
-    }
-
-    public String getCreatedBy() {
-        return this.createdBy;
-    }
-
-    public void setCreatedBy(String createdBy) {
-        this.createdBy = createdBy;
-    }
-
-    public LocalDate getCreatedOn() {
-        return this.createdOn;
-    }
-
-    public void setCreatedOn(LocalDate createdOn) {
-        this.createdOn = createdOn;
-    }
-
-    public String getUpdatedBy() {
-        return this.updatedBy;
-    }
-
-    public void setUpdatedBy(String updatedBy) {
-        this.updatedBy = updatedBy;
-    }
-
-    public LocalDate getUpdatedOn() {
-        return this.updatedOn;
-    }
-
-    public void setUpdatedOn(LocalDate updatedOn) {
-        this.updatedOn = updatedOn;
-    }
-
-    public CodeValue getLga() {
-        return lga;
-    }
-
-    public void setLga(CodeValue lga) {
-        this.lga = lga;
-    }
-
-    public String getPhysicalAddressDistrict() {
-        return physicalAddressDistrict;
-    }
-
-    public void setPhysicalAddressDistrict(String physicalAddressDistrict) {
-        this.physicalAddressDistrict = physicalAddressDistrict;
-    }
-
-    public String getPhysicalAddressSector() {
-        return physicalAddressSector;
-    }
-
-    public void setPhysicalAddressSector(String physicalAddressSector) {
-        this.physicalAddressSector = physicalAddressSector;
-    }
-
-    public String getPhysicalAddressCell() {
-        return physicalAddressCell;
-    }
-
-    public void setPhysicalAddressCell(String physicalAddressCell) {
-        this.physicalAddressCell = physicalAddressCell;
     }
 }
