@@ -30,7 +30,7 @@
     <changeSet id="add-location-to-field-mapping" author="niceta@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
-                SELECT COUNT(*) FROM fineract_default.m_field_configuration
+                SELECT COUNT(*) FROM m_field_configuration
                 WHERE entity = 'ADDRESS' AND subentity='CLIENT' AND field ='location'
             </sqlCheck>
         </preConditions>
