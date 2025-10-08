@@ -30,7 +30,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -62,7 +61,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminderRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -74,7 +72,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSummaryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariationType;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariations;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.LoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleDTO;
@@ -713,28 +710,6 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
 
         throw new PlatformDataIntegrityException("error.msg.loan.reschedule.unknown.data.integrity.issue",
                 "Unknown data integrity issue with resource.");
-    }
-
-    private void deleteLoanRepaymentRemindersAssociatedToThisLoanAccount(Loan loan) {
-        // delete dependencies on m_loan_repayment_reminder associated with this Loan Account
-        this.namedParameterJdbcTemplate.getJdbcTemplate().update("DELETE FROM m_loan_repayment_reminder WHERE loan_id = ?", loan.getId());
-    }
-
-    private void deleteOverdueInstallmentChargesAssociatedToThisLoanAccount(Loan loan) {
-        Long loanId = loan.getId();
-        String query = "SELECT loan_charge_id FROM m_loan_overdue_installment_charge WHERE loan_schedule_id IN (SELECT id FROM m_loan_repayment_schedule WHERE loan_id = ? AND completed_derived = false)";
-        // Select the chargeIds
-        List<Long> chargeIds = this.namedParameterJdbcTemplate.getJdbcTemplate().queryForList(query, Long.class, loanId);
-        if (!chargeIds.isEmpty()) {
-            Map<String, Object> params = new HashMap<>();
-            params.put("chargeIds", chargeIds);
-            // Delete loan charges associated with overdue installments
-            this.namedParameterJdbcTemplate.update("DELETE FROM m_loan_charge_paid_by WHERE loan_charge_id IN (:chargeIds)", params);
-            this.namedParameterJdbcTemplate.update("DELETE FROM m_loan_overdue_installment_charge WHERE loan_charge_id IN (:chargeIds)",
-                    params);
-            // Delete chargeIds
-            this.namedParameterJdbcTemplate.update("DELETE FROM m_loan_charge WHERE id IN (:chargeIds)", params);
-        }
     }
 
     private BigDecimal getTotalOutstandingOverdueCharges(Loan loan, LocalDate rescheduleDate) {
