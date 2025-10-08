@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -61,6 +62,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminderRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -274,8 +276,8 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
 
             String chargeHandlingEnum;
 
-            if (RescheduleLoansApiConstants.WAIVE_CHARGES.equalsIgnoreCase(chargeHandlingParam))
-                chargeHandlingEnum = "WAIVE";
+            if (RescheduleLoansApiConstants.IGNORE_CHARGES.equalsIgnoreCase(chargeHandlingParam))
+                chargeHandlingEnum = "IGNORE";
             else if  (RescheduleLoansApiConstants.CARRY_CHARGES_FORWARD.equalsIgnoreCase(chargeHandlingParam))
                 chargeHandlingEnum = "CARRY";
             else chargeHandlingEnum = "";
@@ -411,7 +413,8 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             List<LoanRescheduleRequestToTermVariationMapping> loanRescheduleRequestToTermVariationMappings, final Boolean isActive,
             final boolean isSpecificToInstallment, final BigDecimal decimalValue, LoanTermVariations parent) {
         LoanTermVariations loanTermVariation = new LoanTermVariations(termType, rescheduleFromDate, decimalValue, adjustedDueDate,
-                isSpecificToInstallment, loan, loan.status().getValue(), isActive, parent);
+                isSpecificToInstallment, loan, loan.getLoanStatus(), isActive, parent);
+        loan.getLoanTermVariations().add(loanTermVariation);
         loanRescheduleRequestToTermVariationMappings
                 .add(LoanRescheduleRequestToTermVariationMapping.createNew(loanRescheduleRequest, loanTermVariation));
         return loanTermVariation;
@@ -447,9 +450,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             final List<Long> existingTransactionIds = new ArrayList<>(loan.findExistingTransactionIds());
             final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
 
-            ChargeHandlingOption chargeHandling = loanRescheduleRequest.getChargeHandling();
-
-            BigDecimal totalChargesOutstanding =  waiveAllOutstandingCharges(loan);
+            BigDecimal totalChargesOutstanding = getTotalOutstandingOverdueCharges(loan, loanRescheduleRequest.getRescheduleFromDate());
 
             ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan,
                     loanRescheduleRequest.getRescheduleFromDate());
@@ -488,6 +489,9 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     }
                 }
             }
+            if (rescheduleFromDate == null) {
+                rescheduleFromDate = loanRescheduleRequest.getRescheduleFromDate();
+            }
             for (LoanRescheduleRequestToTermVariationMapping mapping : loanRescheduleRequest
                     .getLoanRescheduleRequestToTermVariationMappings()) {
                 mapping.getLoanTermVariations().updateIsActive(true);
@@ -516,16 +520,19 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             final LoanScheduleGenerator loanScheduleGenerator = this.loanScheduleFactory.create(loanApplicationTerms.getInterestMethod());
             final LoanLifecycleStateMachine loanLifecycleStateMachine = null;
             loan.setHelpers(loanLifecycleStateMachine, this.loanSummaryWrapper, this.loanRepaymentScheduleTransactionProcessorFactory);
-            final LoanScheduleDTO loanSchedule = loanScheduleGenerator.rescheduleNextInstallments(mathContext, loanApplicationTerms, loan,
+            final LoanScheduleDTO loanScheduleDTO = loanScheduleGenerator.rescheduleNextInstallments(mathContext, loanApplicationTerms, loan,
                     loanApplicationTerms.getHolidayDetailDTO(), loanRepaymentScheduleTransactionProcessor, rescheduleFromDate);
 
-            loan.updateLoanSchedule(loanSchedule.getInstallments());
+            // Either the installments got recalculated or the model
+            if (loanScheduleDTO.getInstallments() != null) {
+                loan.updateLoanSchedule(loanScheduleDTO.getInstallments());
+            } else {
+                loan.updateLoanSchedule(loanScheduleDTO.getLoanScheduleModel());
+            }
             loan.recalculateAllCharges();
             ChangedTransactionDetail changedTransactionDetail = loan.processTransactions();
 
-            for (LoanRepaymentScheduleHistory loanRepaymentScheduleHistory : loanRepaymentScheduleHistoryList) {
-                this.loanRepaymentScheduleHistoryRepository.save(loanRepaymentScheduleHistory);
-            }
+            this.loanRepaymentScheduleHistoryRepository.saveAll(loanRepaymentScheduleHistoryList);
 
             loan.updateRescheduledByUser(appUser);
             loan.updateRescheduledOnDate(DateUtils.getBusinessLocalDate());
@@ -533,31 +540,25 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             // update the status of the request
             loanRescheduleRequest.approve(appUser, approvedOnDate);
 
-            deleteOverdueInstallmentChargesAssociatedToThisLoanAccount(loan);
-            deleteLoanRepaymentRemindersAssociatedToThisLoanAccount(loan);
+            ChargeHandlingOption chargeHandling = loanRescheduleRequest.getChargeHandling();
 
             if (chargeHandling == ChargeHandlingOption.CARRY) {
                 Long carryForwardChargeDefId = loanRescheduleRequest.getCarryForwardChargeId();
                 createCarryForwardCharge(loan, carryForwardChargeDefId, loanRescheduleRequest.getCarryForwardChargeDueDate(), jsonCommand, totalChargesOutstanding);
             }
 
-            loan.updateLoanSummaryDerivedFields();
-
-            // clear arrears if any, the job will rerun to update the loan arrears state
-            this.jdbcTemplate.update("DELETE FROM m_loan_arrears_aging WHERE loan_id = ?", loan.getId());
-
             // update the loan object
-            saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+            loan = saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
-            if (changedTransactionDetail != null) {
-                for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
-                    this.loanTransactionRepository.save(mapEntry.getValue());
-                    // update loan with references to the newly created
-                    // transactions
-                    loan.addLoanTransaction(mapEntry.getValue());
-                    this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
-                }
-            }
+//            if (changedTransactionDetail != null) {
+//                for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
+//                    this.loanTransactionRepository.save(mapEntry.getValue());
+//                    // update loan with references to the newly created
+//                    // transactions
+//                    loan.addLoanTransaction(mapEntry.getValue());
+//                    this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
+//                }
+//            }
             postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
 
             this.loanAccountDomainService.recalculateAccruals(loan, true);
@@ -575,8 +576,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             return CommandProcessingResult.empty();
         }
     }
-
-    private void saveAndFlushLoanWithDataIntegrityViolationChecks(final Loan loan) {
+    private Loan saveAndFlushLoanWithDataIntegrityViolationChecks(final Loan loan) {
         try {
             List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
             for (LoanRepaymentScheduleInstallment installment : installments) {
@@ -589,7 +589,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             } else {
                 loan.setTotal_extensions(1);
             }
-            this.loanRepositoryWrapper.saveAndFlush(loan);
+            return this.loanRepositoryWrapper.saveAndFlush(loan);
         } catch (final JpaSystemException | DataIntegrityViolationException e) {
             final Throwable realCause = e.getCause();
             final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
@@ -601,6 +601,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                 throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
                         dataValidationErrors, e);
             }
+            throw e;
         }
     }
 
@@ -736,37 +737,14 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
         }
     }
 
-    private BigDecimal waiveAllOutstandingCharges(Loan loan) {
+    private BigDecimal getTotalOutstandingOverdueCharges(Loan loan, LocalDate rescheduleDate) {
+
         BigDecimal totalChargesOutstanding = BigDecimal.ZERO;
 
-        JsonObject waiveJson = new JsonObject();
-        waiveJson.addProperty("locale", "en");
-        waiveJson.addProperty("dateFormat", "dd MMMM yyyy");
-        final String jsonBody = waiveJson.toString();
-
-        final JsonElement parsedCommand = this.fromApiJsonHelper.parse(jsonBody);
-
         for (LoanCharge charge : loan.getLoanCharges()) {
-            if (charge.isOverdueInstallmentCharge() && charge.isChargePending()) {
+            if (charge.isOverdueInstallmentCharge() && charge.isChargePending() && charge.getDueLocalDate().isAfter(rescheduleDate)) {
                 totalChargesOutstanding = totalChargesOutstanding.add(charge.amountOutstanding());
-                JsonCommand waiveCommand = JsonCommand.from(
-                        jsonBody,                  // raw JSON string
-                        parsedCommand,                        // parsed JSON
-                        fromApiJsonHelper,           // injected helper
-                        "LOANCHARGE",                // entityName (for audit)
-                        charge.getId(),                   // resourceId (loanChargeId)
-                        null,                             // subresourceId
-                        null,                             // groupId
-                        loan.getClientId(),               // clientId
-                        loan.getId(),                     // loanId
-                        null,                             // savingsId
-                        null,                             // transactionId
-                        null,                             // url
-                        loan.productId(),                 // productId
-                        null,                             // creditBureauId
-                        null                              // organisationCreditBureauId
-                );
-                loanWritePlatformService.waiveLoanCharge(loan.getId(), charge.getId(), waiveCommand);
+                charge.markAsInactive();
             }
         }
 

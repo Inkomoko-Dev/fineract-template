@@ -30,7 +30,7 @@ public final class RescheduleLoansApiConstants {
     }
 
     public static final String ENTITY_NAME = "RESCHEDULELOAN";
-    public static final String WAIVE_CHARGES = "Waive All Charges";
+    public static final String IGNORE_CHARGES = "Ignore Charges";
     public static final String CARRY_CHARGES_FORWARD = "Carry Charges Forward";
 
     public static final String LOAN_RESCHEDULE_REASON = "LoanRescheduleReason";

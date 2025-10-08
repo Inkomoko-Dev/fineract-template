@@ -19,7 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.rescheduleloan.data;
 
 public enum ChargeHandlingOption {
-    WAIVE("WAIVE"),
+    IGNORE("IGNORE"),
     CARRY("CARRY");
 
     private final String value;

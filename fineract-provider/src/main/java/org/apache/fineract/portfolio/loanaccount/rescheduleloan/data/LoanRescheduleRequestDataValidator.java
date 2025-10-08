@@ -272,7 +272,7 @@ public class LoanRescheduleRequestDataValidator {
             }
 
             if (hasOverdueCharges) {
-                if (!RescheduleLoansApiConstants.WAIVE_CHARGES.equalsIgnoreCase(chargeHandling) &&
+                if (!RescheduleLoansApiConstants.IGNORE_CHARGES.equalsIgnoreCase(chargeHandling) &&
                         !RescheduleLoansApiConstants.CARRY_CHARGES_FORWARD.equalsIgnoreCase(chargeHandling)) {
                     // force user to choose
                     dataValidatorBuilder.failWithCodeNoParameterAddedToErrorCode(
