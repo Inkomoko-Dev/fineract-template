@@ -20,11 +20,16 @@ package org.apache.fineract.infrastructure.dataqueries.service;
 
 import org.apache.fineract.infrastructure.dataqueries.domain.JasperReport;
 
+import java.io.InputStream;
 import java.util.Collection;
 
 public interface ReadJasperReportingService {
     Collection<JasperReport> retrieveReportList(String status);
 
     JasperReport retrieveSignedReport(String reportId);
+
+    InputStream downloadReport(String reportId);
+
+    JasperReport retrieveReport(String reportId);
 
 }

@@ -51,6 +51,7 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.UriInfo;
 import javax.ws.rs.core.HttpHeaders;
+import java.io.InputStream;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -188,19 +189,20 @@ public class JasperReportApiResource {
     @Path("{reportId}/view")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getPresignedDocument(@PathParam("reportId") final String reportId,@Context final UriInfo uriInfo){
+    public Response getPresignedDocument(@PathParam("reportId") final String reportId,@Context final UriInfo uriInfo){
 
         String resourceNameForPermissions = "READ_JASPER_REPORT";
 
         this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
 
-        final JasperReport result = this.readReportingService.retrieveSignedReport(reportId);
+        JasperReport jasperReport = this.readReportingService.retrieveReport(reportId);
 
-        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        InputStream resource = readReportingService.downloadReport(reportId);
 
-        return this.toApiJsonSerializer.serialize(settings, result, this.responseDataParameters);
+        return Response.ok(resource,jasperReport.getFileFormat())
+                .header("Content-Disposition", "inline; filename=\"" + jasperReport.getReportName() + getFileExtension(jasperReport.getFileFormat()) + "\"")
+                .build();
     }
-
 
 
 }
