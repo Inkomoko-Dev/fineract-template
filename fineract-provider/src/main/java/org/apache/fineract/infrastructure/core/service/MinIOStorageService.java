@@ -19,19 +19,22 @@
 package org.apache.fineract.infrastructure.core.service;
 
 
-
+import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.BucketExistsArgs;
-import io.minio.MakeBucketArgs;
 import io.minio.PutObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.GetObjectArgs;
 import io.minio.http.Method;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 
 @Service
+@Slf4j
 public class MinIOStorageService {
 
     private final MinioClient minioClient;
@@ -86,6 +89,20 @@ public class MinIOStorageService {
             );
         }catch (Exception e) {
             throw new RuntimeException("Error getting presigned document", e);
+        }
+    }
+
+    public InputStream downloadReport(String objectName) {
+        log.info("Downloading from MinIO: bucket={}, object={}", bucket, objectName);
+        try {
+            return minioClient.getObject(
+                    GetObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(objectName)
+                            .build()
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to download report from MinIO", e);
         }
     }
 }

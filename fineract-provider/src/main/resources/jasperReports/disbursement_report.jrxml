@@ -56,7 +56,7 @@
             c.display_name AS client_name,
             c.account_no AS client_uid,
             mcoi.national_identification_number AS national_id,
-            mcoi.strata_cv_id AS client_strata,
+            mcv.code_value AS client_strata,
             dp.code_value  AS department,
             ma.city  AS location,
             p.name AS loan_product,

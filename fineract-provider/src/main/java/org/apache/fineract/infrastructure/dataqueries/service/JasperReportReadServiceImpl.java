@@ -26,6 +26,7 @@ import org.apache.fineract.infrastructure.dataqueries.domain.JasperReportReposit
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.springframework.stereotype.Service;
 
+import java.io.InputStream;
 import java.util.Collection;
 import java.util.Objects;
 
@@ -59,4 +60,24 @@ public class JasperReportReadServiceImpl implements ReadJasperReportingService{
 
         return jasperReport;
     }
+
+    @Override
+    public InputStream downloadReport(String reportId) {
+        this.context.authenticatedUser();
+        JasperReport jasperReport = retrieveReport(reportId);
+
+        if (Objects.equals(jasperReport.getStatus(), "APPROVED")){
+            log.info("Downloading report {}", jasperReport.getFilePath());
+            return minIOStorageService.downloadReport(jasperReport.getFilePath());
+        }
+
+        return null;
+    }
+
+    @Override
+    public JasperReport retrieveReport(String reportId) {
+        this.context.authenticatedUser();
+        return jasperReportRepository.findById(Long.valueOf(reportId)).orElseThrow();
+    }
 }
+
