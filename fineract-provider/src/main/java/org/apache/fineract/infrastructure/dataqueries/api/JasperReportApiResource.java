@@ -185,22 +185,43 @@ public class JasperReportApiResource {
     }
 
 
+
     @GET
     @Path("{reportId}/view")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public Response getPresignedDocument(@PathParam("reportId") final String reportId,@Context final UriInfo uriInfo){
+    public String getJasperReport(@PathParam("reportId") final String reportId,@Context final UriInfo uriInfo){
 
         String resourceNameForPermissions = "READ_JASPER_REPORT";
 
         this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
 
-        JasperReport jasperReport = this.readReportingService.retrieveReport(reportId);
+        final JasperReport result = this.readReportingService.retrieveReport(reportId);
 
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+
+        return this.toApiJsonSerializer.serialize(settings, result, this.responseDataParameters);
+    }
+
+    @GET
+    @Path("{reportId}/view/download")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_OCTET_STREAM})
+    public Response getFileFromMinio(
+            @PathParam("reportId") final String reportId,
+            @Context final UriInfo uriInfo) {
+
+        final String resourceNameForPermissions = "READ_JASPER_REPORT";
+        this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
+
+        JasperReport jasperReport = this.readReportingService.retrieveReport(reportId);
         InputStream resource = readReportingService.downloadReport(reportId);
 
-        return Response.ok(resource,jasperReport.getFileFormat())
-                .header("Content-Disposition", "inline; filename=\"" + jasperReport.getReportName() + getFileExtension(jasperReport.getFileFormat()) + "\"")
+        // Send file as inline PDF / excel so browser displays it
+        return Response.ok(resource, jasperReport.getFileFormat())
+                .header("Content-Disposition",
+                        "inline; filename=\"" + jasperReport.getReportName()
+                                + getFileExtension(jasperReport.getFileFormat()) + "\"")
                 .build();
     }
 

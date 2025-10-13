@@ -64,9 +64,10 @@ public class JasperReportReadServiceImpl implements ReadJasperReportingService{
     @Override
     public InputStream downloadReport(String reportId) {
         this.context.authenticatedUser();
-        JasperReport jasperReport = retrieveSignedReport(reportId);
+        JasperReport jasperReport = retrieveReport(reportId);
 
         if (Objects.equals(jasperReport.getStatus(), "APPROVED")){
+            log.info("Downloading report {}", jasperReport.getFilePath());
             return minIOStorageService.downloadReport(jasperReport.getFilePath());
         }
 
