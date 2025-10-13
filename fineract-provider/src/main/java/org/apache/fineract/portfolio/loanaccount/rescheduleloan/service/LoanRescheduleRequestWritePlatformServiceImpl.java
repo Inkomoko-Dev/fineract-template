@@ -544,6 +544,9 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                 createCarryForwardCharge(loan, carryForwardChargeDefId, loanRescheduleRequest.getCarryForwardChargeDueDate(), jsonCommand, totalChargesOutstanding);
             }
 
+            // clear arrears if any, the job will rerun to update the loan arrears state
+            this.jdbcTemplate.update("DELETE FROM m_loan_arrears_aging WHERE loan_id = ?", loan.getId());
+
             // update the loan object
             loan = saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
