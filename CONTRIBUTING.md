@@ -8,9 +8,9 @@ Our [JIRA Dashboard](https://issues.apache.org/jira/secure/Dashboard.jspa?select
 
 Here are a few additional useful pointers:
 
-* https://github.com/apache/fineract/#pull-requests
-* https://github.com/apache/fineract/#checkstyle-and-spotless
-* https://github.com/apache/fineract/#logging-guidelines
-* https://github.com/apache/fineract/#error-handling-guidelines
+* https://github.com/apache/fineract/#pull-requests.
+* https://github.com/apache/fineract/#checkstyle-and-spotless.
+* https://github.com/apache/fineract/#logging-guidelines.
+* https://github.com/apache/fineract/#error-handling-guidelines.
 
 Note also [our Code of Conduct](CODE_OF_CONDUCT.md).
