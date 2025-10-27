@@ -384,7 +384,7 @@ public class LoansApiResource {
             final String errorMsg = "Loan template type must be provided";
             throw new LoanTemplateTypeRequiredException(errorMsg);
         } else if (templateType.equals("approval")) {
-            loanApprovalTemplate = this.loanReadPlatformService.retrieveApprovalTemplate(loanId);
+            loanApprovalTemplate = this.loanReadPlatformService.retrieveApprovalTemplate(loanId, true);
         } else if (templateType.equals("icreview")) {
             loanApprovalTemplate = this.loanReadPlatformService.retrieveICReviewTemplate(loanId);
         }

@@ -678,7 +678,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     }
 
     @Override
-    public LoanApprovalData retrieveApprovalTemplate(final Long loanId) {
+    public LoanApprovalData retrieveApprovalTemplate(final Long loanId, boolean paymentDetailsRequired) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
         BigDecimal approvedAmount;
@@ -688,7 +688,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         } else {
             approvedAmount = loan.getProposedPrincipal();
         }
-        return new LoanApprovalData(approvedAmount, DateUtils.getBusinessLocalDate(), loan.getNetDisbursalAmount());
+        Collection<PaymentTypeData> paymentOptions = null;
+
+        if (paymentDetailsRequired) {
+            paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
+        }
+        return new LoanApprovalData(approvedAmount, DateUtils.getBusinessLocalDate(), loan.getNetDisbursalAmount(), paymentOptions);
     }
 
     @Override

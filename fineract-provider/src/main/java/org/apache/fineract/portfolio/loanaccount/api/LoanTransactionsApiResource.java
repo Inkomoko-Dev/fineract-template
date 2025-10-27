@@ -162,7 +162,7 @@ public class LoanTransactionsApiResource {
         } else if (is(commandParam, "close")) {
             transactionData = this.loanReadPlatformService.retrieveNewClosureDetails();
         } else if (is(commandParam, "disburse")) {
-            transactionData = this.loanReadPlatformService.retrieveDisbursalTemplate(loanId, true);
+            transactionData = this.loanReadPlatformService.retrieveDisbursalTemplate(loanId, false);
             transactionData.setNumberOfRepayments(this.loanReadPlatformService.retrieveNumberOfRepayments(loanId));
             final List<LoanRepaymentScheduleInstallmentData> loanRepaymentScheduleInstallmentData = this.loanReadPlatformService
                     .getRepaymentDataResponse(loanId);
