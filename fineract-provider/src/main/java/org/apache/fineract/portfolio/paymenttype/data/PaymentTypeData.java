@@ -31,27 +31,30 @@ public class PaymentTypeData implements Serializable {
     private String description;
     @SuppressWarnings("unused")
     private Boolean isCashPayment;
+    private Boolean isMobileMoney;
     @SuppressWarnings("unused")
     private Long position;
 
-    public PaymentTypeData(final Long id, final String name, final String description, final Boolean isCashPayment, final Long position) {
+    public PaymentTypeData(final Long id, final String name, final String description, final Boolean isCashPayment, final Boolean isMobileMoney, final Long position) {
         this.id = id;
         this.name = name;
         this.description = description;
         this.isCashPayment = isCashPayment;
+        this.isMobileMoney = isMobileMoney;
         this.position = position;
     }
 
     public static PaymentTypeData instance(final Long id, final String name, final String description, final Boolean isCashPayment,
-            final Long position) {
-        return new PaymentTypeData(id, name, description, isCashPayment, position);
+                                           final Boolean isMobileMoney, final Long position) {
+        return new PaymentTypeData(id, name, description, isCashPayment, isMobileMoney, position);
     }
 
     public static PaymentTypeData instance(final Long id, final String name) {
         String description = null;
         Boolean isCashPayment = null;
+        Boolean isMobileMoney = null;
         Long position = null;
-        return new PaymentTypeData(id, name, description, isCashPayment, position);
+        return new PaymentTypeData(id, name, description, isCashPayment, isMobileMoney, position);
     }
 
     public Long getId() {

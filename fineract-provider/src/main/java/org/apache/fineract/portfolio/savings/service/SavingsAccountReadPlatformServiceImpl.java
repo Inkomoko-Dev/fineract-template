@@ -1101,7 +1101,7 @@ public class SavingsAccountReadPlatformServiceImpl implements SavingsAccountRead
                         final Long paymentTypeId = JdbcSupport.getLong(rs, "paymentType");
                         if (paymentTypeId != null) {
                             final String typeName = rs.getString("paymentTypeName");
-                            final PaymentTypeData paymentTypeData = new PaymentTypeData(paymentTypeId, typeName, null, false, null);
+                            final PaymentTypeData paymentTypeData = new PaymentTypeData(paymentTypeId, typeName, null, false, false, null);
                             paymentDetailData = new PaymentDetailData(id, paymentTypeData, null, null, null, null, null);
                         }
                     }
