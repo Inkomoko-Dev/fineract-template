@@ -16,25 +16,29 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.accounting.journalentry.data;
+package org.apache.fineract.infrastructure.dataqueries.service;
 
-import lombok.Data;
+import com.ibm.icu.text.RuleBasedNumberFormat;
 
-import java.util.List;
+import java.math.BigDecimal;
+import java.util.Locale;
 
-@Data
-public class JournalData {
+public class NumberToWordsConverter {
+    public static String convert(Double amount) {
+        if (amount == null) {
+            return "Zero";
+        }
 
-    private String transactionId;
-    private String ref;
-    private Boolean reversed;
-    private String entryDate;
-    private Long officeId;
-    private Long clientId;
-    private String clientDisplayName;
-    private String transactionTypeName;
-    private String transactionTypeUniqueId;
-    private Boolean isCorrection;
-    private String correctionDate;
-    private List<JournalItemData> journalItems;
+        // Round to nearest whole number
+        BigDecimal wholeNumber = BigDecimal.valueOf(amount);
+
+        RuleBasedNumberFormat formatter = new RuleBasedNumberFormat(Locale.ENGLISH, RuleBasedNumberFormat.SPELLOUT);
+        String words = formatter.format(wholeNumber);
+
+        if (words.isEmpty()) {
+            return "Zero";
+        }
+
+        return words.substring(0, 1).toUpperCase() + words.substring(1);
+    }
 }

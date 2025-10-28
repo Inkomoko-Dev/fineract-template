@@ -206,4 +206,8 @@ public final class DateUtils {
         return currentDate.equals(lastDayOfCurrentMonth) ? currentDate : YearMonth.now(getSystemZoneId()).minusMonths(1).atEndOfMonth();
 
     }
+
+    public static boolean isBefore(LocalDate first, LocalDate second) {
+        return second != null && (first == null || first.isBefore(second));
+    }
 }

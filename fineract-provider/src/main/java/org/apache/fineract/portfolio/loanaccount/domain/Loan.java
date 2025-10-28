@@ -1297,24 +1297,27 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     }
 
-    public void updateLoanSchedule(final Collection<LoanRepaymentScheduleInstallment> installments) {
-        List<LoanRepaymentScheduleInstallment> existingInstallments = new ArrayList<>(this.repaymentScheduleInstallments);
-        repaymentScheduleInstallments.clear();
-        for (final LoanRepaymentScheduleInstallment installment : installments) {
-            LoanRepaymentScheduleInstallment existingInstallment = findByInstallmentNumber(existingInstallments,
+    public void updateLoanSchedule(final Collection<LoanRepaymentScheduleInstallment> newInstallments) {
+
+        for (final LoanRepaymentScheduleInstallment installment : newInstallments) {
+            LoanRepaymentScheduleInstallment existingInstallment = findByInstallmentNumber(getRepaymentScheduleInstallments(),
                     installment.getInstallmentNumber());
             if (existingInstallment != null) {
-                Set<LoanInstallmentCharge> existingCharges = existingInstallment.getInstallmentCharges();
-                installment.getInstallmentCharges().addAll(existingCharges);
-                existingCharges.forEach(c -> c.setInstallment(installment));
-                existingInstallment.getInstallmentCharges().clear();
+                existingInstallment.copyFrom(installment);
+            } else {
+              addLoanRepaymentScheduleInstallment(installment);
             }
-            addLoanRepaymentScheduleInstallment(installment);
         }
+        // Review Installments removed
+        getRepaymentScheduleInstallments().removeIf(i -> !existInstallment(newInstallments, i.getInstallmentNumber()));
+
         updateLoanScheduleDependentDerivedFields();
         updateLoanSummaryDerivedFields();
         applyAccurals();
+    }
 
+    private boolean existInstallment(final Collection<LoanRepaymentScheduleInstallment> installments, final Integer installmentNumber) {
+        return installments.stream().anyMatch(i -> installmentNumber.compareTo(i.getInstallmentNumber()) == 0);
     }
 
     private LoanRepaymentScheduleInstallment findByInstallmentNumber(Collection<LoanRepaymentScheduleInstallment> installments,
@@ -1831,7 +1834,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     private void recalculateLoanCharge(final LoanCharge loanCharge, final int penaltyWaitPeriod) {
         BigDecimal amount = BigDecimal.ZERO;
-        BigDecimal chargeAmt = BigDecimal.ZERO;
+        BigDecimal chargeAmt;
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
         if (loanCharge.getChargeCalculation().isPercentageBased()) {
             if (loanCharge.isOverdueInstallmentCharge()) {
