@@ -26,9 +26,15 @@ import javax.persistence.Entity;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.Table;
+
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
 
+@Getter
+@Setter
 @Entity
 @Table(name = "m_loan_disbursement_detail")
 public class LoanDisbursementDetails extends AbstractPersistableCustom {
@@ -46,8 +52,39 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
     @Column(name = "principal", scale = 6, precision = 19, nullable = false)
     private BigDecimal principal;
 
+    @Setter
+    @Getter
     @Column(name = "net_disbursal_amount", scale = 6, precision = 19)
     private BigDecimal netDisbursalAmount;
+
+    @ManyToOne
+    @JoinColumn(name = "payment_type_id")
+    private PaymentType paymentType;
+
+    @Column(name = "account_number", length = 100)
+    private String accountNumber;
+
+    @Column(name = "check_number", length = 100)
+    private String checkNumber;
+
+    @Column(name = "routing_code", length = 100)
+    private String routingCode;
+
+    @Column(name = "receipt_number", length = 100)
+    private String receiptNumber;
+
+    @Column(name = "bank_number", length = 100)
+    private String bankNumber;
+
+    @Column(name = "client_phone_number", length = 50)
+    private String clientPhoneNumber;
+
+    @Column(name = "client_account_number", length = 150)
+    private String clientAccountNumber;
+
+    @Column(name = "client_bank_name", length = 150)
+    private String clientBankName;
+
 
     protected LoanDisbursementDetails() {
 
@@ -127,14 +164,6 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
 
     public void updateActualDisbursementDate(LocalDate actualDisbursementDate) {
         this.actualDisbursementDate = actualDisbursementDate;
-    }
-
-    public BigDecimal getNetDisbursalAmount() {
-        return this.netDisbursalAmount;
-    }
-
-    public void setNetDisbursalAmount(BigDecimal netDisbursalAmount) {
-        this.netDisbursalAmount = netDisbursalAmount;
     }
 
     public void updateExpectedDisbursementDateAndAmount(LocalDate expectedDisbursementDate, BigDecimal principal) {
