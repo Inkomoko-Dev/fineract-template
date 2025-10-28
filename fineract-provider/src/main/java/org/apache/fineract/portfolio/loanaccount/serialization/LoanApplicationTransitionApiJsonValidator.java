@@ -67,7 +67,9 @@ public final class LoanApplicationTransitionApiJsonValidator {
                 Arrays.asList(LoanApiConstants.loanIdTobeApproved, LoanApiConstants.approvedLoanAmountParameterName,
                         LoanApiConstants.approvedOnDateParameterName, LoanApiConstants.disbursementNetDisbursalAmountParameterName,
                         LoanApiConstants.noteParameterName, LoanApiConstants.localeParameterName, LoanApiConstants.dateFormatParameterName,
-                        LoanApiConstants.disbursementDataParameterName, LoanApiConstants.disbursementDateParameterName));
+                        LoanApiConstants.disbursementDataParameterName, LoanApiConstants.disbursementDateParameterName,
+                        "paymentTypeId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
+                        "clientPhoneNumber", "clientAccountNumber","clientBankName"));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, disbursementParameters);
@@ -97,6 +99,9 @@ public final class LoanApplicationTransitionApiJsonValidator {
 
         final String note = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.noteParameterName, element);
         baseDataValidator.reset().parameter(LoanApiConstants.noteParameterName).value(note).notExceedingLengthOf(1000);
+
+        final Long paymentTypeId = this.fromApiJsonHelper.extractLongNamed("paymentTypeId", element);
+        baseDataValidator.reset().parameter("paymentTypeId").value(paymentTypeId).notNull();
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }

@@ -48,6 +48,8 @@ public class DisbursementRequestData {
         this.clientBankName = clientBankName;
         this.origin = origin;
         this.paymentTypeId = paymentTypeId;
+        //country/office
+        //client name
     }
 
     public String getRequestId() {
