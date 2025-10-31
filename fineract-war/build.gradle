@@ -47,6 +47,7 @@ dependencies {
 
 war {
     archiveFileName = 'fineract-provider.war'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from("$rootDir/licenses/binary/") {
         // notice the parens
         into "WEB-INF/licenses/binary/" // no leading slash
