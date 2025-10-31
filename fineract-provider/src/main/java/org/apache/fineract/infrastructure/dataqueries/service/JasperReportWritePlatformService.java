@@ -16,25 +16,15 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.accounting.journalentry.data;
+package org.apache.fineract.infrastructure.dataqueries.service;
 
-import lombok.Data;
+import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 
-import java.util.List;
 
-@Data
-public class JournalData {
+public interface JasperReportWritePlatformService {
 
-    private String transactionId;
-    private String ref;
-    private Boolean reversed;
-    private String entryDate;
-    private Long officeId;
-    private Long clientId;
-    private String clientDisplayName;
-    private String transactionTypeName;
-    private String transactionTypeUniqueId;
-    private Boolean isCorrection;
-    private String correctionDate;
-    private List<JournalItemData> journalItems;
+    CommandProcessingResult createReport(JsonCommand command);
+
+    CommandProcessingResult approveReport(final Long reportId,JsonCommand command);
 }

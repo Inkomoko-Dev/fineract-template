@@ -16,25 +16,15 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.accounting.journalentry.data;
+package org.apache.fineract.infrastructure.dataqueries.domain;
 
-import lombok.Data;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.stereotype.Repository;
 
-import java.util.List;
+import java.util.Collection;
 
-@Data
-public class JournalData {
-
-    private String transactionId;
-    private String ref;
-    private Boolean reversed;
-    private String entryDate;
-    private Long officeId;
-    private Long clientId;
-    private String clientDisplayName;
-    private String transactionTypeName;
-    private String transactionTypeUniqueId;
-    private Boolean isCorrection;
-    private String correctionDate;
-    private List<JournalItemData> journalItems;
+@Repository
+public interface JasperReportRepository extends JpaRepository<JasperReport, Long> , JpaSpecificationExecutor<JasperReport> {
+    Collection<JasperReport> findAllByStatus(String status);
 }

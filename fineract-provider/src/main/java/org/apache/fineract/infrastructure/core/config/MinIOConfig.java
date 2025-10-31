@@ -16,25 +16,29 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.accounting.journalentry.data;
+package org.apache.fineract.infrastructure.core.config;
 
-import lombok.Data;
+import org.springframework.beans.factory.annotation.Value;
+import io.minio.MinioClient;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
-import java.util.List;
+@Configuration
+public class MinIOConfig {
+    @Value("${minio.url}")
+    private String minioUrl;
 
-@Data
-public class JournalData {
+    @Value("${minio.access-key}")
+    private String accessKey;
 
-    private String transactionId;
-    private String ref;
-    private Boolean reversed;
-    private String entryDate;
-    private Long officeId;
-    private Long clientId;
-    private String clientDisplayName;
-    private String transactionTypeName;
-    private String transactionTypeUniqueId;
-    private Boolean isCorrection;
-    private String correctionDate;
-    private List<JournalItemData> journalItems;
+    @Value("${minio.secret-key}")
+    private String secretKey;
+
+    @Bean
+    public MinioClient minioClient() {
+        return MinioClient.builder()
+                .endpoint(minioUrl)
+                .credentials(accessKey, secretKey)
+                .build();
+    }
 }

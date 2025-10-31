@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
@@ -31,11 +32,16 @@ import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.OneToMany;
 import javax.persistence.Table;
+
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecks;
 
+@Getter
+@Setter
 @Entity
 @Table(name = "m_loan_repayment_schedule")
 public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCustom
@@ -387,6 +393,19 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         this.interestAccrued = null;
         this.feeAccrued = null;
         this.penaltyAccrued = null;
+    }
+
+    public void resetChargesCharged() {
+        this.feeChargesCharged = null;
+        this.penaltyCharges = null;
+    }
+
+    public void resetInterestDue() {
+        this.interestCharged = null;
+    }
+
+    public void resetPrincipalDue() {
+        this.principal = null;
     }
 
     public Money payPenaltyChargesComponent(final LocalDate transactionDate, final Money transactionAmountRemaining) {
@@ -850,5 +869,56 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     public Set<LoanInstallmentCharge> getInstallmentCharges() {
         return installmentCharges;
+    }
+
+    public void resetBalances() {
+        resetDerivedComponents();
+        resetPrincipalDue();
+        resetChargesCharged();
+        resetInterestDue();
+    }
+    public void copyFrom(final LoanRepaymentScheduleInstallment installment) {
+        if (nonNullAndEqual(getId(), installment.getId())) {
+            return;
+        }
+        // Reset balances
+        resetBalances();
+        // Dates
+        setFromDate(installment.getFromDate());
+        setDueDate(installment.getDueDate());
+        setObligationsMetOnDate(installment.getObligationsMetOnDate());
+        // Flags
+        setObligationsMet(installment.isObligationsMet());
+        // Principal
+        setPrincipal(installment.getPrincipal());
+        setPrincipalCompleted(installment.getPrincipalCompleted());
+        setPrincipalWrittenOff(installment.getPrincipalWrittenOff());
+        // Interest
+        setInterestCharged(installment.getInterestCharged());
+        setInterestAccrued(installment.getInterestAccrued());
+        setInterestPaid(installment.getInterestPaid());
+        setInterestWaived(installment.getInterestWaived());
+        setInterestWrittenOff(installment.getInterestWrittenOff());
+        setRescheduleInterestPortion(installment.getRescheduleInterestPortion());
+        setRecalculatedInterestComponent(installment.isRecalculatedInterestComponent());
+        // Fee
+        setFeeChargesCharged(installment.getFeeChargesCharged());
+        setFeeChargesPaid(installment.getFeeChargesPaid());
+        setFeeAccrued(installment.getFeeAccrued());
+        setFeeChargesWaived(installment.getFeeChargesWaived());
+        setFeeChargesWrittenOff(installment.getFeeChargesWrittenOff());
+        // Penalty
+        setPenaltyCharges(installment.getPenaltyCharges());
+        setPenaltyAccrued(installment.getPenaltyAccrued());
+        setPenaltyChargesWaived(installment.getPenaltyChargesWaived());
+        setPenaltyChargesPaid(installment.getPenaltyChargesPaid());
+        setPenaltyChargesWrittenOff(installment.getPenaltyChargesWrittenOff());
+        // paid in advance / late
+        setTotalPaidInAdvance(installment.getTotalPaidInAdvance());
+        setTotalPaidLate(installment.getTotalPaidLate());
+    }
+
+    private static boolean nonNullAndEqual(Object a, Object b) {
+        return a != null && b != null && Objects.equals(a, b);
     }
 }

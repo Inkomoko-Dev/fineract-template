@@ -16,25 +16,20 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.accounting.journalentry.data;
+package org.apache.fineract.infrastructure.dataqueries.service;
 
-import lombok.Data;
+import org.apache.fineract.infrastructure.dataqueries.domain.JasperReport;
 
-import java.util.List;
+import java.io.InputStream;
+import java.util.Collection;
 
-@Data
-public class JournalData {
+public interface ReadJasperReportingService {
+    Collection<JasperReport> retrieveReportList(String status);
 
-    private String transactionId;
-    private String ref;
-    private Boolean reversed;
-    private String entryDate;
-    private Long officeId;
-    private Long clientId;
-    private String clientDisplayName;
-    private String transactionTypeName;
-    private String transactionTypeUniqueId;
-    private Boolean isCorrection;
-    private String correctionDate;
-    private List<JournalItemData> journalItems;
+    JasperReport retrieveSignedReport(String reportId);
+
+    InputStream downloadReport(String reportId);
+
+    JasperReport retrieveReport(String reportId);
+
 }
