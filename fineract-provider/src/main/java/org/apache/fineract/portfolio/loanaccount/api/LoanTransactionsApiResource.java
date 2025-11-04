@@ -162,14 +162,7 @@ public class LoanTransactionsApiResource {
         } else if (is(commandParam, "close")) {
             transactionData = this.loanReadPlatformService.retrieveNewClosureDetails();
         } else if (is(commandParam, "disburse")) {
-            transactionData = this.loanReadPlatformService.retrieveDisbursalTemplate(loanId, false);
-            transactionData.setNumberOfRepayments(this.loanReadPlatformService.retrieveNumberOfRepayments(loanId));
-            final List<LoanRepaymentScheduleInstallmentData> loanRepaymentScheduleInstallmentData = this.loanReadPlatformService
-                    .getRepaymentDataResponse(loanId);
-            transactionData.setLoanRepaymentScheduleInstallments(loanRepaymentScheduleInstallmentData);
-            final GlobalConfigurationPropertyData enableLoanDisbursementRequest = this.configurationReadPlatformService
-                    .retrieveGlobalConfiguration("Enable-loan-disbursement-request");
-            transactionData.setLoanDisbursementRequestEnabled(enableLoanDisbursementRequest.isEnabled());
+            transactionData = this.loanReadPlatformService.retrieveDisbursalTemplate(loanId, true);
         } else if (is(commandParam, "disburseToSavings")) {
             transactionData = this.loanReadPlatformService.retrieveDisbursalTemplate(loanId, false);
         } else if (is(commandParam, "recoverypayment")) {

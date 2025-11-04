@@ -25,6 +25,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -160,9 +161,9 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         }
     }
 
-    private static BigDecimal getDisbursementChargeAmount(Loan loan) {
+    public static BigDecimal getDisbursementChargeAmount(Loan loan) {
         BigDecimal chargeAmount = BigDecimal.ZERO;
-        final Set<LoanCharge> loanCharges = loan.charges();
+        final Collection<LoanCharge> loanCharges = loan.getLoanCharges();
 
         for (final LoanCharge loanCharge : loanCharges) {
             if (loanCharge.isDueAtDisbursement() && loanCharge.isChargePending()) {

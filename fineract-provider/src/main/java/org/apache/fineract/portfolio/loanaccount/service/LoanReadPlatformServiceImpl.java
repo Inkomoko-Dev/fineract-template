@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import static org.apache.fineract.portfolio.loanaccount.service.DisbursementRequestServiceImpl.getDisbursementChargeAmount;
 import static org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations.interestType;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -37,11 +38,14 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.fineract.accounting.common.AccountingRuleType;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.codes.service.CodeValueReadPlatformService;
+import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.configuration.service.ConfigurationReadPlatformService;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
@@ -119,6 +123,7 @@ import org.apache.fineract.portfolio.loanaccount.data.RepaymentScheduleRelatedLo
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -183,7 +188,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final CalendarReadPlatformService calendarReadPlatformService;
     private final StaffReadPlatformService staffReadPlatformService;
     private final PaginationHelper paginationHelper;
-    private final LoanMapper loaanLoanMapper;
+    private final LoanMapper loanMapper;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
     private final LoanRepaymentScheduleTransactionProcessorFactory loanRepaymentScheduleTransactionProcessorFactory;
@@ -240,7 +245,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.configurationDomainService = configurationDomainService;
         this.accountDetailsReadPlatformService = accountDetailsReadPlatformService;
         this.columnValidator = columnValidator;
-        this.loaanLoanMapper = new LoanMapper(sqlGenerator);
+        this.loanMapper = new LoanMapper(sqlGenerator);
         this.sqlGenerator = sqlGenerator;
         this.paginationHelper = paginationHelper;
         this.portfolioAccountReadPlatformService = portfolioAccountReadPlatformService;
@@ -365,7 +370,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loaanLoanMapper.loanSchema());
+        sqlBuilder.append(this.loanMapper.loanSchema());
 
         // TODO - for time being this will data scope list of loans returned to
         // only loans that have a client associated.
@@ -434,7 +439,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
         final Object[] objectArray = extraCriterias.toArray();
         final Object[] finalObjectArray = Arrays.copyOf(objectArray, arrayPos);
-        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), finalObjectArray, this.loaanLoanMapper);
+        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), finalObjectArray, this.loanMapper);
     }
 
     @Override
@@ -447,7 +452,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loaanLoanMapper.loanSchema());
+        sqlBuilder.append(this.loanMapper.loanSchema());
 
         // TODO - for time being this will data scope list of loans returned to
         // only loans that have a client associated.
@@ -511,7 +516,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
         final Object[] objectArray = extraCriterias.toArray();
         final Object[] finalObjectArray = Arrays.copyOf(objectArray, arrayPos);
-        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), finalObjectArray, this.loaanLoanMapper);
+        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), finalObjectArray, this.loanMapper);
     }
 
     @Override
@@ -733,9 +738,70 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         }
 
-        return LoanTransactionData.loanTransactionDataForDisbursalTemplate(transactionType,
-                loan.getExpectedDisbursedOnLocalDateForTemplate(), loan.getDisburseAmountForTemplate(), loan.getNetDisbursalAmount(),
-                paymentOptions, loan.retriveLastEmiAmount(), loan.getNextPossibleRepaymentDateForRescheduling(), null);
+        LoanDisbursementDetails disbursementDetail = null;
+        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
+            disbursementDetail = loan.getDisbursementDetails().iterator().next();
+        }
+
+        Long paymentTypeId = null;
+        String accountNumber = null;
+        Integer checkNumber = null;
+        Integer routingCode = null;
+        Integer receiptNumber = null;
+        Integer bankNumber = null;
+        String clientAccountNumber = null;
+        String clientBankName = null;
+        String clientPhoneNumber = null;
+
+        if (disbursementDetail != null) {
+            if (disbursementDetail.getPaymentType() != null) {
+                paymentTypeId = disbursementDetail.getPaymentType().getId();
+            }
+            accountNumber = disbursementDetail.getAccountNumber();
+            clientPhoneNumber = disbursementDetail.getClientPhoneNumber();
+            clientAccountNumber = disbursementDetail.getClientAccountNumber();
+            clientBankName = disbursementDetail.getClientBankName();
+            // optional fields if added in entity
+            if (disbursementDetail.getCheckNumber() != null) {
+                checkNumber = Integer.valueOf(disbursementDetail.getCheckNumber());
+            }
+            if (disbursementDetail.getRoutingCode() != null) {
+                routingCode = Integer.valueOf(disbursementDetail.getRoutingCode());
+            }
+            if (disbursementDetail.getReceiptNumber() != null) {
+                receiptNumber = Integer.valueOf(disbursementDetail.getReceiptNumber());
+            }
+            if (disbursementDetail.getBankNumber() != null) {
+                bankNumber = Integer.valueOf(disbursementDetail.getBankNumber());
+            }
+        }
+        BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
+
+        BigDecimal netDisbursalAmount= loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);;
+        LoanTransactionData loanTransactionData = LoanTransactionData.loanTransactionDataForDisbursalTemplate(transactionType,
+                loan.getExpectedDisbursedOnLocalDateForTemplate(), loan.getDisburseAmountForTemplate(), netDisbursalAmount,
+                paymentOptions, loan.retriveLastEmiAmount(), loan.getNextPossibleRepaymentDateForRescheduling(), null,
+                loan.getApprovedPrincipal(), loan.getInterestRateDifferential(), totalDisbursementCharge);
+
+        loanTransactionData.setNumberOfRepayments(retrieveNumberOfRepayments(loanId));
+        final List<LoanRepaymentScheduleInstallmentData> loanRepaymentScheduleInstallmentData = getRepaymentDataResponse(loanId);
+        loanTransactionData.setLoanRepaymentScheduleInstallments(loanRepaymentScheduleInstallmentData);
+        final GlobalConfigurationPropertyData enableLoanDisbursementRequest = this.configurationReadPlatformService
+                .retrieveGlobalConfiguration("Enable-loan-disbursement-request");
+        loanTransactionData.setLoanDisbursementRequestEnabled(enableLoanDisbursementRequest.isEnabled());
+
+
+        loanTransactionData.setPaymentTypeId(paymentTypeId);
+        loanTransactionData.setAccountNumber(accountNumber);
+        loanTransactionData.setCheckNumber(checkNumber);
+        loanTransactionData.setRoutingCode(routingCode);
+        loanTransactionData.setReceiptNumber(receiptNumber);
+        loanTransactionData.setBankNumber(bankNumber);
+        loanTransactionData.setClientAccountNumber(clientAccountNumber);
+        loanTransactionData.setClientBankName(clientBankName);
+        loanTransactionData.setClientPhoneNumber(clientPhoneNumber);
+
+        return loanTransactionData;
 
     }
 
@@ -1043,7 +1109,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final boolean isEqualAmortization = rs.getBoolean("isEqualAmortization");
             final EnumOptionData amortizationType = LoanEnumerations.amortizationType(amortizationTypeInt);
             final BigDecimal fixedPrincipalPercentagePerInstallment = rs.getBigDecimal("fixedPrincipalPercentagePerInstallment");
-            final EnumOptionData interestType = LoanEnumerations.interestType(interestTypeInt);
+            final EnumOptionData interestType = interestType(interestTypeInt);
             final EnumOptionData interestCalculationPeriodType = LoanEnumerations
                     .interestCalculationPeriodType(interestCalculationPeriodTypeInt);
             final Boolean allowPartialPeriodInterestCalcualtion = rs.getBoolean("allowPartialPeriodInterestCalcualtion");
