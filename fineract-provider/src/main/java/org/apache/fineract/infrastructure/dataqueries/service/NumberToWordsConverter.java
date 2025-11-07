@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.dataqueries.service;
 import com.ibm.icu.text.RuleBasedNumberFormat;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Locale;
 
 public class NumberToWordsConverter {
@@ -28,17 +29,16 @@ public class NumberToWordsConverter {
         if (amount == null) {
             return "Zero";
         }
-
-        // Round to nearest whole number
-        BigDecimal wholeNumber = BigDecimal.valueOf(amount);
+        BigDecimal wholeNumber = BigDecimal.valueOf(amount).setScale(0, RoundingMode.HALF_UP);
+        long number = wholeNumber.longValue();
 
         RuleBasedNumberFormat formatter = new RuleBasedNumberFormat(Locale.ENGLISH, RuleBasedNumberFormat.SPELLOUT);
-        String words = formatter.format(wholeNumber);
+        String words = formatter.format(number);
 
-        if (words.isEmpty()) {
+        if (words.trim().isEmpty()) {
             return "Zero";
         }
-
+        words = words.trim();
         return words.substring(0, 1).toUpperCase() + words.substring(1);
     }
 }
