@@ -34,6 +34,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanScheduleData;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface LoanWritePlatformService {
 
@@ -127,6 +128,9 @@ public interface LoanWritePlatformService {
     CommandProcessingResult runCloneJobForLoanPenalty(Long loanId);
 
     CommandProcessingResult payOffLoan(Long loanId, JsonCommand command);
+
+    @Transactional
+    CommandProcessingResult disbursePreApproval(Long loanId, JsonCommand command);
 
     CommandProcessingResult disburseRequestLoan(Long loanId, JsonCommand command);
 }

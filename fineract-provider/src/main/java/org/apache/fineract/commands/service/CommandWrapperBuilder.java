@@ -3963,6 +3963,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder disbursePreApprovalRequestLoanApplication(final Long loanId) {
+        this.actionName = "DISBURSEMENTPREAPPROVAL";
+        this.entityName = "LOAN";
+        this.entityId = loanId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId;
+        return this;
+    }
+
     public CommandWrapperBuilder verifyLoanReportJsonOnMetropolKenya(final long loanId) {
         this.actionName = "VERIFYLOANREPORTJSONONMETROPOLCRBKENYA";
         this.entityName = "LOAN";
