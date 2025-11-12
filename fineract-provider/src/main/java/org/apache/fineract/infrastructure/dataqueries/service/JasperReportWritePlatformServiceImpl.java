@@ -152,6 +152,7 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
 
         Map<String,Object> parameters =  report.getParameters();
         parameters.put("APPROVED_BY", this.context.authenticatedUser().getFirstname() + " " + this.context.authenticatedUser().getLastname());
+        parameters.put("REQUESTED_BY",report.getRequestedBy());
 
         byte[] reportBytes = this.jasperReadWriteReportService.generateReport(
                 "disbursement_report",
