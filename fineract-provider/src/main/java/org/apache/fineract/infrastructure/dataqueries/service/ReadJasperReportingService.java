@@ -32,4 +32,5 @@ public interface ReadJasperReportingService {
 
     JasperReport retrieveReport(String reportId);
 
+    Collection<Object> retrieveReportApprovers();
 }

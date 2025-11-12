@@ -18,10 +18,15 @@
  */
 package org.apache.fineract.infrastructure.dataqueries.service;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.domain.EmailDetail;
+import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
+import org.apache.fineract.infrastructure.core.service.GmailBackedPlatformEmailService;
 import org.apache.fineract.infrastructure.core.service.MinIOStorageService;
 import org.apache.fineract.infrastructure.dataqueries.domain.JasperReport;
 import org.apache.fineract.infrastructure.dataqueries.domain.JasperReportRepository;
@@ -29,10 +34,14 @@ import org.apache.fineract.infrastructure.dataqueries.exception.ReportNotFoundEx
 import org.apache.fineract.infrastructure.dataqueries.serialization.JasperReportRequestFromApiJsonDeserializer;
 import org.apache.fineract.infrastructure.report.provider.ReportingProcessServiceProvider;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.useradministration.domain.AppUser;
+import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.apache.fineract.useradministration.domain.PermissionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,18 +59,24 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
     private final ReportingProcessServiceProvider reportingProcessServiceProvider;
     private final MinIOStorageService minIOStorageService;
     private final JasperReportService jasperReadWriteReportService;
+    private final AppUserRepository appUserRepository;
+    private final GmailBackedPlatformEmailService emailNotificationService;
 
+    @Value("${mifos.system.base-url}")
+    private String baseUrl;
 
     @Autowired
     public JasperReportWritePlatformServiceImpl(final PlatformSecurityContext context,
                                                 final JasperReportRequestFromApiJsonDeserializer fromApiJsonDeserializer, JasperReportRepository jasperReportRepository,
-                                                final PermissionRepository permissionRepository, final ReportingProcessServiceProvider reportingProcessServiceProvider, MinIOStorageService minIOStorageService, JasperReportService jasperReadWriteReportService) {
+                                                final PermissionRepository permissionRepository, final ReportingProcessServiceProvider reportingProcessServiceProvider, MinIOStorageService minIOStorageService, JasperReportService jasperReadWriteReportService, AppUserRepository appUserRepository, GmailBackedPlatformEmailService emailNotificationService) {
         this.context = context;
         this.fromApiJsonDeserializer = fromApiJsonDeserializer;
         this.jasperReportRepository = jasperReportRepository;
         this.reportingProcessServiceProvider = reportingProcessServiceProvider;
         this.minIOStorageService = minIOStorageService;
         this.jasperReadWriteReportService = jasperReadWriteReportService;
+        this.appUserRepository = appUserRepository;
+        this.emailNotificationService = emailNotificationService;
     }
 
     @Transactional
@@ -77,11 +92,30 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
 
             report.setRequestedBy(this.context.authenticatedUser().getFirstname() + " " + this.context.authenticatedUser().getLastname());
 
-            this.jasperReportRepository.saveAndFlush(report);
+            JasperReport savedReport = this.jasperReportRepository.saveAndFlush(report);
+            final JsonElement parametersElement = command.parsedJson().getAsJsonObject().get("parameters");
+            Long notifyUserId = null;
+            if (parametersElement != null && parametersElement.isJsonObject()) {
+                JsonObject parameters = parametersElement.getAsJsonObject();
+                if (parameters.has("notifyUserId") && !parameters.get("notifyUserId").isJsonNull()) {
+                    notifyUserId = parameters.get("notifyUserId").getAsLong();
+                }
+            }
+            if (notifyUserId != null) {
+                log.info("Notify user {} has been sent to jasper report", notifyUserId);
+                try {
+                    final AppUser notifyUser = this.appUserRepository.findById(notifyUserId)
+                            .orElseThrow(() -> new PlatformDataIntegrityException("error.user.not.found", "Notify user not found"));
+                    sendEmailToApprover(savedReport,notifyUser);
+                    log.info("Notification sent to user: {}", notifyUser.getUsername());
+                } catch (Exception e) {
+                    log.warn("Failed to send notification to userId: {}", notifyUserId, e);
+                }
+            }
 
             return new CommandProcessingResultBuilder()
                     .withCommandId(command.commandId())
-                    .withEntityId(report.getId()) //
+                    .withEntityId(report.getId())
                     .build();
         } catch (final JpaSystemException | DataIntegrityViolationException | PersistenceException dve) {
             return CommandProcessingResult.empty();
@@ -150,4 +184,43 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
             default -> ".bin";
         };
     }
+
+    @Async
+    protected void sendEmailToApprover(JasperReport report, AppUser approver){
+        Map<String,Object> parameters =  report.getParameters();
+        byte[] reportBytes = this.jasperReadWriteReportService.generateReport(
+                "disbursement_report",
+                parameters,
+                report.getFileFormat()
+        );
+
+        String urlLink = this.baseUrl + "/disbursement-reports/";
+
+        String body = String.format(
+                """
+                        Dear %s,<br><br>
+
+                        A new report <b>%s</b> has been generated by %s and requires your approval.<br><br>
+                        Bellow is an attached report.<br><br>
+
+                        Please <a href="%s">log in </a> to the system to review and take the next action.<br><br>
+                       \s
+                        Kind Regards.
+               \s""",
+                approver.getDisplayName(),
+                report.getReportName(),
+                report.getRequestedBy(),
+                urlLink
+        );
+
+        EmailDetail email = new EmailDetail("Approval Required: " + report.getReportName(),body, approver.getEmail(), approver.getDisplayName());
+
+        email.setAttachment(reportBytes);
+        email.setAttachmentName(report.getReportName() + report.getFileFormat());
+
+        this.emailNotificationService.sendDefinedEmail(email);
+
+
+    }
+
 }
