@@ -98,6 +98,14 @@ public class GmailBackedPlatformEmailService implements PlatformEmailService {
             helper.setSubject(emailDetails.getSubject());
             helper.setText(emailDetails.getBody(), true); // 'true' indicates HTML content
 
+            if (emailDetails.getAttachment() != null && emailDetails.getAttachment().length > 0) {
+                helper.addAttachment(
+                        emailDetails.getAttachmentName(),
+                        new javax.mail.util.ByteArrayDataSource(emailDetails.getAttachment(), emailDetails.getAttachmentMimeType())
+                );
+            }
+
+
             mailSender.send(message);
 
             log.info("Email successfully sent to: {}. Subject: {}", emailDetails.getAddress(), emailDetails.getSubject());
