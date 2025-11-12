@@ -41,20 +41,20 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           touch ~/.ssh/known_hosts
-          ssh-keyscan -p ${{ secrets.PORT2 }} -t rsa ${{ secrets.HOST2 }} >> ~/.ssh/known_hosts
+          ssh-keyscan -p ${{ secrets.VM_PORT_DEV }} -t rsa ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
 
       - name: Copy file using SCP
         run: |
-          HOST=${{ secrets.HOST2 }}
-          USER=${{ secrets.USER2 }}
+          HOST=${{ secrets.VM_HOST }}
+          USER=${{ secrets.VM_USER_DEV }}
           SOURCE_FILE=./fineract-provider/build/libs/fineract-provider-0.0.0-${{ steps.shortened_sha.outputs.shortened_sha }}.jar
           DESTINATION_DIR=/home/mifosdev/fineract_deployment/fineract/
           PENTAHO_FILE_SOURCE=./fineract-provider/pentahoReports/
           PENTAHO_FILE_DESTINATION=/home/mifosdev/fineract_deployment/fineract/pentaho/          
           echo "${{ secrets.VM_KEY_DEV }}" > key.pem
           chmod 400 key.pem
-          scp -i key.pem -P ${{ secrets.PORT2}} -o StrictHostKeyChecking=no $SOURCE_FILE ${{ secrets.USER2 }}@${{ secrets.HOST2 }}:$DESTINATION_DIR
-          scp -r -i key.pem -P ${{ secrets.PORT2}} -o StrictHostKeyChecking=no $PENTAHO_FILE_SOURCE ${{ secrets.USER2 }}@${{ secrets.HOST2 }}:$PENTAHO_FILE_DESTINATION
+          scp -i key.pem -P ${{ secrets.VM_PORT_DEV}} -o StrictHostKeyChecking=no $SOURCE_FILE ${{ secrets.VM_USER_DEV }}@${{ secrets.VM_HOST }}:$DESTINATION_DIR
+          scp -r -i key.pem -P ${{ secrets.VM_PORT_DEV}} -o StrictHostKeyChecking=no $PENTAHO_FILE_SOURCE ${{ secrets.VM_USER_DEV }}@${{ secrets.VM_HOST }}:$PENTAHO_FILE_DESTINATION
 
       - name: Build image on server and deploy
-        run: ssh -i key.pem -p ${{ secrets.PORT2}} -o StrictHostKeyChecking=no -l ${{ secrets.USER2}} ${{ secrets.HOST2 }} '/home/mifosdev/fineract_deployment/fineract/build.sh'
+        run: ssh -i key.pem -p ${{ secrets.VM_PORT_DEV}} -o StrictHostKeyChecking=no -l ${{ secrets.VM_USER_DEV}} ${{ secrets.VM_HOST }} '/home/mifosdev/fineract_deployment/fineract/build.sh'
