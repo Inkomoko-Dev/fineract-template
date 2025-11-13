@@ -48,7 +48,7 @@ jobs:
         run: |
           echo "${{ secrets.VM_KEY_DEV }}" > key.pem
           chmod 400 key.pem
-          ls
+          ls -al
       #echo "Testing SSH connection to ${{ secrets.VM_HOST }} on port ${{ secrets.VM_PORT_DEV }}..."
       #ssh -i key.pem -p ${{ secrets.VM_PORT_DEV }} -o StrictHostKeyChecking=no -v ${{ secrets.VM_USER_DEV }}@${{ secrets.VM_HOST }} "echo '✅ SSH connection successful!'"
         continue-on-error: false
@@ -58,10 +58,10 @@ jobs:
           # Save SSH key to writable location
           echo "${{ secrets.VM_KEY_DEV }}" > $HOME/key.pem
           chmod 400 $HOME/key.pem
-          echo "Checking permissions on target directory..."
-          ssh -i $HOME/key.pem -p ${{ secrets.VM_PORT_DEV }} -o StrictHostKeyChecking=no \
-            ${{ secrets.VM_USER_DEV }}@${{ secrets.VM_HOST }} \
-            "ls -ld /home/mifosdev/fineract_deployment/fineract/ && whoami && groups && touch /home/mifosdev/fineract_deployment/fineract/test_file && rm -f /home/mifosdev/fineract_deployment/fineract/test_file"
+        # echo "Checking permissions on target directory..."
+        # ssh -i $HOME/key.pem -p ${{ secrets.VM_PORT_DEV }} -o StrictHostKeyChecking=no \
+        #   ${{ secrets.VM_USER_DEV }}@${{ secrets.VM_HOST }} \
+        #   "ls -ld /home/mifosdev/fineract_deployment/fineract/ && whoami && groups && touch /home/mifosdev/fineract_deployment/fineract/test_file && rm -f /home/mifosdev/fineract_deployment/fineract/test_file"
             
       - name: Copy file using SCP
         run: |
