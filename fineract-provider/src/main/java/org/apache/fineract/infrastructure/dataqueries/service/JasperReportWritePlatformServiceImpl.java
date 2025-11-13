@@ -196,9 +196,7 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
                 parameters,
                 report.getFileFormat()
         );
-
         String urlLink = this.baseUrl + "/disbursement-reports/";
-
         String body = String.format(
                 """
                         Dear %s,<br><br>
@@ -215,16 +213,11 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
                 report.getRequestedBy(),
                 urlLink
         );
-
         EmailDetail email = new EmailDetail("Approval Required: " + report.getReportName(),body, approver.getEmail(), approver.getDisplayName());
-
         email.setAttachment(reportBytes);
-
-
+        log.info("Sending email to approver: {}", report.getReportName() + extension);
         email.setAttachmentName(report.getReportName() + extension);
-
         this.emailNotificationService.sendDefinedEmail(email);
-
 
     }
 
