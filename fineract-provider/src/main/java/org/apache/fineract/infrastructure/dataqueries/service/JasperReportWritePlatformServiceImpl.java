@@ -163,7 +163,7 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
         // Upload to MinIO
         String extension = getFileExtension(report.getFileFormat());
         String objectName = "disbursement/" + report.getId() + "-" + report.getReportName() + extension;
-        String fileUrl = this.minIOStorageService.upload(objectName, reportBytes, report.getFileFormat());
+        this.minIOStorageService.upload(objectName, reportBytes, report.getFileFormat());
 
         // Mark as approved + store file path
         report.approve(this.context.authenticatedUser().getUsername());
@@ -189,6 +189,8 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
     @Async
     protected void sendEmailToApprover(JasperReport report, AppUser approver){
         Map<String,Object> parameters =  report.getParameters();
+
+        String extension = getFileExtension(report.getFileFormat());
         byte[] reportBytes = this.jasperReadWriteReportService.generateReport(
                 "disbursement_report",
                 parameters,
@@ -217,7 +219,9 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
         EmailDetail email = new EmailDetail("Approval Required: " + report.getReportName(),body, approver.getEmail(), approver.getDisplayName());
 
         email.setAttachment(reportBytes);
-        email.setAttachmentName(report.getReportName() + report.getFileFormat());
+
+
+        email.setAttachmentName(report.getReportName() + extension);
 
         this.emailNotificationService.sendDefinedEmail(email);
 
