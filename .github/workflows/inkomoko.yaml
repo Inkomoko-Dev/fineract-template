@@ -73,8 +73,10 @@ jobs:
           PENTAHO_FILE_DESTINATION=/home/mifosdev/fineract_deployment/fineract/pentaho/  
           echo "${{ secrets.VM_KEY_DEV }}" > /tmp/key.pem
           chmod 400 /tmp/key.pem
-          scp -i /tmp/key.pem -P ${{ secrets.VM_PORT_DEV }} -o StrictHostKeyChecking=no $SOURCE_FILE $USER@$HOST:$DESTINATION_DIR
-          scp -r -i /tmp/key.pem -P ${{ secrets.VM_PORT_DEV }} -o StrictHostKeyChecking=no $PENTAHO_FILE_SOURCE $USER@$HOST:$PENTAHO_FILE_DESTINATION
+          ls -al $HOME/
+          ls -al /tmp/
+        #scp -i /tmp/key.pem -P ${{ secrets.VM_PORT_DEV }} -o StrictHostKeyChecking=no $SOURCE_FILE $USER@$HOST:$DESTINATION_DIR
+        # scp -r -i /tmp/key.pem -P ${{ secrets.VM_PORT_DEV }} -o StrictHostKeyChecking=no $PENTAHO_FILE_SOURCE $USER@$HOST:$PENTAHO_FILE_DESTINATION
           
-      - name: Build image on server and deploy
-        run: ssh -i $HOME/key.pem -p ${{ secrets.VM_PORT_DEV}} -o StrictHostKeyChecking=no -l ${{ secrets.VM_USER_DEV}} ${{ secrets.VM_HOST }} '/home/mifosdev/fineract_deployment/fineract/build.sh'
+      #- name: Build image on server and deploy
+      #  run: ssh -i $HOME/key.pem -p ${{ secrets.VM_PORT_DEV}} -o StrictHostKeyChecking=no -l ${{ secrets.VM_USER_DEV}} ${{ secrets.VM_HOST }} '/home/mifosdev/fineract_deployment/fineract/build.sh'
