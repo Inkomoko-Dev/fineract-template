@@ -3669,9 +3669,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         String sql = "select " + rm.loanTransactionNotPostedToOdoo();
 
         if (fromDate != null)
-            sql = sql + "AND mlt.transaction_date >= '" + fromDate + "' ";
+            sql = sql + "AND (mlt.transaction_date >= '" + fromDate + "' OR mlt.correction_date >= '" + fromDate + "') ";
         if (fromDate != null)
-            sql = sql + "AND mlt.transaction_date <= '" + toDate + "' ";
+            sql = sql + "AND mlt.transaction_date <= '" + toDate + "' OR mlt.correction_date <= '" + toDate + "' ";
         if (officeId != null)
             sql =  sql + "AND mc.office_id = " + officeId + " ";
         if (currency != null)
