@@ -217,7 +217,6 @@ public class JasperReportApiResource {
         JasperReport jasperReport = this.readReportingService.retrieveReport(reportId);
         InputStream resource = readReportingService.downloadReport(reportId);
 
-        // Send file as inline PDF / excel so browser displays it
         return Response.ok(resource, jasperReport.getFileFormat())
                 .header("Content-Disposition",
                         "inline; filename=\"" + jasperReport.getReportName()

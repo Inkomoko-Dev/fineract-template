@@ -75,7 +75,7 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
 
             final JasperReport report = JasperReport.fromJson(command);
 
-            report.setRequestedBy(this.context.authenticatedUser().getUsername());
+            report.setRequestedBy(this.context.authenticatedUser().getFirstname() + " " + this.context.authenticatedUser().getLastname());
 
             this.jasperReportRepository.saveAndFlush(report);
 
@@ -117,7 +117,7 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
                 .orElseThrow(() -> new ReportNotFoundException(reportId));
 
         Map<String,Object> parameters =  report.getParameters();
-        parameters.put("APPROVED_BY", this.context.authenticatedUser().getUsername());
+        parameters.put("APPROVED_BY", this.context.authenticatedUser().getFirstname() + " " + this.context.authenticatedUser().getLastname());
 
         byte[] reportBytes = this.jasperReadWriteReportService.generateReport(
                 "disbursement_report",
@@ -129,8 +129,6 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
         String extension = getFileExtension(report.getFileFormat());
         String objectName = "disbursement/" + report.getId() + "-" + report.getReportName() + extension;
         String fileUrl = this.minIOStorageService.upload(objectName, reportBytes, report.getFileFormat());
-
-        log.info("generated file path:"+objectName);
 
         // Mark as approved + store file path
         report.approve(this.context.authenticatedUser().getUsername());
