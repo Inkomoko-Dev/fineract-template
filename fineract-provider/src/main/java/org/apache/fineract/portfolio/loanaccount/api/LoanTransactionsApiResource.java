@@ -161,9 +161,10 @@ public class LoanTransactionsApiResource {
             transactionData = this.loanReadPlatformService.retrieveNewClosureDetails();
         } else if (is(commandParam, "close")) {
             transactionData = this.loanReadPlatformService.retrieveNewClosureDetails();
-        } else if (is(commandParam, "disburse")) {
+        } else if (is(commandParam, "disburse") || is(commandParam, "disbursementpreapprovalrequest") ||
+                is(commandParam, "disbursementapproval")) {
             transactionData = this.loanReadPlatformService.retrieveDisbursalTemplate(loanId, true);
-        } else if (is(commandParam, "disburseToSavings")) {
+        }else if (is(commandParam, "disburseToSavings")) {
             transactionData = this.loanReadPlatformService.retrieveDisbursalTemplate(loanId, false);
         } else if (is(commandParam, "recoverypayment")) {
             transactionData = this.loanReadPlatformService.retrieveRecoveryPaymentTemplate(loanId);

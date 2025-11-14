@@ -53,6 +53,7 @@ import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrat
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigurableAttributes;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductValueConditionType;
 import org.apache.fineract.portfolio.note.data.NoteData;
+import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
 import org.apache.fineract.portfolio.rate.data.RateData;
 import org.apache.fineract.useradministration.data.AppUserData;
 import org.springframework.util.CollectionUtils;
@@ -272,6 +273,10 @@ public final class LoanAccountData {
     private Double allowableDscr;
     private BigDecimal loanWithAnotherInstitutionAmount;
     private Integer clientLegalForm;
+    private String clientUid;
+    private LocalDate expectedDisburseDate;
+    private BigDecimal expectedNetDisbursalAmount;
+    private PaymentTypeData paymentType;
 
     public static LoanAccountData importInstanceIndividual(EnumOptionData loanTypeEnumOption, Long clientId, Long productId,
             Long loanOfficerId, LocalDate submittedOnDate, Long fundId, BigDecimal principal, Integer numberOfRepayments,
@@ -2280,4 +2285,21 @@ public final class LoanAccountData {
     public EnumOptionData getloanDecisionState(){
        return this.loanDecisionState;
     }
+
+    public void setClientUid(String clientUid) {
+        this.clientUid = clientUid;
+    }
+
+    public void setExpectedDisburseDate(LocalDate expectedDisburseDate) {
+        this.expectedDisburseDate = expectedDisburseDate;
+    }
+
+    public void setExpectedNetDisbursalAmount(BigDecimal expectedNetDisbursalAmount) {
+        this.expectedNetDisbursalAmount = expectedNetDisbursalAmount;
+    }
+
+    public void setPaymentType(PaymentTypeData paymentType) {
+        this.paymentType = paymentType;
+    }
+
 }

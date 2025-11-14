@@ -23,16 +23,16 @@ package org.apache.fineract.portfolio.loanaccount.domain;
  */
 public enum LoanDecisionState {
 
-    INVALID(0, "loanStatusType.invalid"), REVIEW_APPLICATION(1000, "loanDecisionStateType.submitted.and.review.Pending"), DUE_DILIGENCE(
-            1200, "loanDecisionStateType.submitted.and.due.diligence.Pending"), COLLATERAL_REVIEW(1300,
-                    "loanDecisionStateType.submitted.and.collateral.review.Pending"), IC_REVIEW_LEVEL_ONE(1400,
-                            "loanDecisionStateType.submitted.and.ic.level.one.Pending"), IC_REVIEW_LEVEL_TWO(1500,
-                                    "loanDecisionStateType.submitted.and.ic.level.two.Pending"), IC_REVIEW_LEVEL_THREE(1600,
-                                            "loanDecisionStateType.submitted.and.ic.level.three.Pending"), IC_REVIEW_LEVEL_FOUR(1700,
-                                                    "loanDecisionStateType.submitted.and.ic.four.Pending"), IC_REVIEW_LEVEL_FIVE(1800,
-                                                            "loanDecisionStateType.submitted.and.ic.five.Pending"), PREPARE_AND_SIGN_CONTRACT(
-                                                                    1900,
-                                                                    "loanDecisionStateType.submitted.and.prepare.sign.contract.Pending"),;
+    INVALID(0, "loanStatusType.invalid"),
+    REVIEW_APPLICATION(1000, "loanDecisionStateType.submitted.and.review.Pending"),
+    DUE_DILIGENCE(1200, "loanDecisionStateType.submitted.and.due.diligence.Pending"),
+    COLLATERAL_REVIEW(1300, "loanDecisionStateType.submitted.and.collateral.review.Pending"),
+    IC_REVIEW_LEVEL_ONE(1400, "loanDecisionStateType.submitted.and.ic.level.one.Pending"),
+    IC_REVIEW_LEVEL_TWO(1500,"loanDecisionStateType.submitted.and.ic.level.two.Pending"),
+    IC_REVIEW_LEVEL_THREE(1600, "loanDecisionStateType.submitted.and.ic.level.three.Pending"),
+    IC_REVIEW_LEVEL_FOUR(1700, "loanDecisionStateType.submitted.and.ic.four.Pending"),
+    IC_REVIEW_LEVEL_FIVE(1800, "loanDecisionStateType.submitted.and.ic.five.Pending"),
+    PREPARE_AND_SIGN_CONTRACT(1900, "loanDecisionStateType.submitted.and.prepare.sign.contract.Pending"),;
 
     private final Integer value;
     private final String code;
@@ -43,31 +43,31 @@ public enum LoanDecisionState {
         switch (statusValue) {
             case 1000:
                 enumeration = LoanDecisionState.REVIEW_APPLICATION;
-            break;
+                break;
             case 1200:
                 enumeration = LoanDecisionState.DUE_DILIGENCE;
-            break;
+                break;
             case 1300:
                 enumeration = LoanDecisionState.COLLATERAL_REVIEW;
-            break;
+                break;
             case 1400:
                 enumeration = LoanDecisionState.IC_REVIEW_LEVEL_ONE;
-            break;
+                break;
             case 1500:
                 enumeration = LoanDecisionState.IC_REVIEW_LEVEL_TWO;
-            break;
+                break;
             case 1600:
                 enumeration = LoanDecisionState.IC_REVIEW_LEVEL_THREE;
-            break;
+                break;
             case 1700:
                 enumeration = LoanDecisionState.IC_REVIEW_LEVEL_FOUR;
-            break;
+                break;
             case 1800:
                 enumeration = LoanDecisionState.IC_REVIEW_LEVEL_FIVE;
-            break;
+                break;
             case 1900:
                 enumeration = LoanDecisionState.PREPARE_AND_SIGN_CONTRACT;
-            break;
+                break;
         }
         return enumeration;
     }

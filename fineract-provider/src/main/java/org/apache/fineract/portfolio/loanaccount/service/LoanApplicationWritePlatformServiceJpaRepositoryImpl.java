@@ -182,6 +182,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
+import static org.apache.fineract.portfolio.loanaccount.service.DisbursementRequestServiceImpl.getDisbursementChargeAmount;
+
 @Service
 @RequiredArgsConstructor
 public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements LoanApplicationWritePlatformService {
@@ -1530,7 +1532,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         final AppUser currentUser = getAppUserIfPresent();
         LocalDate expectedDisbursementDate = null;
 
-        this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json());final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
+        this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json());
+        final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
 
         // fetch the payment type entity from DB
         final PaymentType paymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(paymentTypeId);
@@ -1668,12 +1671,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
             final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
 
+            BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
+            BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
+
             // Create new disbursement detail entry
             LoanDisbursementDetails disbursementDetail = new LoanDisbursementDetails(
                    expectedDisbursementDate,
                     null, // actual disbursement date (will be filled later)
                     loan.getProposedPrincipal(),
-                    loan.getProposedPrincipal() // can also use net disbursal amount if applicable
+                    netDisbursementAmount
             );
 
             disbursementDetail.updateLoan(loan);

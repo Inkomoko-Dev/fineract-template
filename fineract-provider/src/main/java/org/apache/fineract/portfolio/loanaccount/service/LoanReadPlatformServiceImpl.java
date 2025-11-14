@@ -38,6 +38,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
@@ -245,7 +246,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.configurationDomainService = configurationDomainService;
         this.accountDetailsReadPlatformService = accountDetailsReadPlatformService;
         this.columnValidator = columnValidator;
-        this.loanMapper = new LoanMapper(sqlGenerator);
+        this.loanMapper = new LoanMapper(sqlGenerator,paymentTypeReadPlatformService);
         this.sqlGenerator = sqlGenerator;
         this.paginationHelper = paginationHelper;
         this.portfolioAccountReadPlatformService = portfolioAccountReadPlatformService;
@@ -265,7 +266,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final String hierarchy = currentUser.getOffice().getHierarchy();
             final String hierarchySearchString = hierarchy + "%";
 
-            final LoanMapper rm = new LoanMapper(sqlGenerator);
+            final LoanMapper rm = new LoanMapper(sqlGenerator, paymentTypeReadPlatformService);
 
             final StringBuilder sqlBuilder = new StringBuilder();
             sqlBuilder.append("select ");
@@ -285,7 +286,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         // final AppUser currentUser = this.context.authenticatedUser();
         this.context.authenticatedUser();
-        final LoanMapper rm = new LoanMapper(sqlGenerator);
+        final LoanMapper rm = new LoanMapper(sqlGenerator,paymentTypeReadPlatformService);
 
         final String sql = "select " + rm.loanSchema() + " where l.account_no=?";
 
@@ -296,7 +297,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public List<LoanAccountData> retrieveGLIMChildLoansByGLIMParentAccount(String parentloanAccountNumber) {
         this.context.authenticatedUser();
-        final LoanMapper rm = new LoanMapper(sqlGenerator);
+        final LoanMapper rm = new LoanMapper(sqlGenerator,paymentTypeReadPlatformService);
 
         final String sql = "select " + rm.loanSchema()
                 + " left join glim_parent_child_mapping as glim on glim.glim_child_account_id=l.account_no "
@@ -309,7 +310,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public List<LoanAccountData> retrieveOverDueLoansForClient(Long clientId, Long savingsAccountId) {
         this.context.authenticatedUser();
-        final LoanMapper rm = new LoanMapper(sqlGenerator);
+        PaymentTypeReadPlatformService p;
+        final LoanMapper rm = new LoanMapper(sqlGenerator,paymentTypeReadPlatformService);
 
         final String sql = "select " + rm.loanSchema()
                 + " where l.client_id=? and l.total_outstanding_derived > 0 and paa.linked_savings_account_id=? and paa.is_active=true and paa.association_type_enum=1";
@@ -698,7 +700,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         if (paymentDetailsRequired) {
             paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         }
-        return new LoanApprovalData(approvedAmount, DateUtils.getBusinessLocalDate(), loan.getNetDisbursalAmount(), paymentOptions);
+
+        BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
+        BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
+
+        return new LoanApprovalData(approvedAmount, DateUtils.getBusinessLocalDate(), netDisbursementAmount, paymentOptions);
     }
 
     @Override
@@ -842,9 +848,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private static final class LoanMapper implements RowMapper<LoanAccountData> {
 
         private final DatabaseSpecificSQLGenerator sqlGenerator;
+        private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
 
-        LoanMapper(DatabaseSpecificSQLGenerator sqlGenerator) {
+
+        LoanMapper(DatabaseSpecificSQLGenerator sqlGenerator, PaymentTypeReadPlatformService paymentTypeReadPlatformService ) {
             this.sqlGenerator = sqlGenerator;
+            this.paymentTypeReadPlatformService = paymentTypeReadPlatformService;
         }
 
         public String loanSchema() {
@@ -932,7 +941,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " topup.topup_amount as topupAmount ,l.department_cv_id as departmentId,departmentV.code_value as departmentCode, "
                     + " ds.loan_decision_state as loanDecisionState , ds.next_loan_ic_review_decision_state as nextLoanIcReviewDecisionState, "
                     + " l.description as description , l.kiva_id as kivaId , l.kiva_uuid as kivaUUId , lp.allowable_dscr as allowableDscr, "
-                    + " l.loan_with_another_institution_amount as loanWithAnotherInstitutionAmount ,c.legal_form_enum as clientLegalForm "
+                    + " l.loan_with_another_institution_amount as loanWithAnotherInstitutionAmount ,c.legal_form_enum as clientLegalForm, c.external_id as clientUid, "
+                    + " lds.expected_disburse_date AS expectedDisburseDate, lds.net_disbursal_amount AS expectedNetDisbursalAmount, lds.payment_type_id AS paymentType "
                     + " from m_loan l" //
                     + " join m_product_loan lp on lp.id = l.product_id" //
                     + " left join m_loan_recalculation_details lir on lir.loan_id = l.id " + " join m_currency rc on rc."
@@ -954,7 +964,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " left join m_loan_topup as topup on l.id = topup.loan_id"
                     + " left join m_loan as topuploan on topuploan.id = topup.closure_loan_id"
                     + " left join m_portfolio_account_associations as paa on l.id = paa.loan_account_id"
-                    + " left join m_loan_decision as ds on l.id = ds.loan_id";
+                    + " left join m_loan_decision as ds on l.id = ds.loan_id"
+                    + " left join m_loan_disbursement_detail as lds on l.id = lds.loan_id";
 
         }
 
@@ -1060,6 +1071,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final String departmentCode = rs.getString("departmentCode");
             final CodeValueData department = CodeValueData.instance(departmentId, departmentCode);
             final Integer clientLegalForm = JdbcSupport.getInteger(rs, "clientLegalForm");
+            final String clientUid = rs.getString("clientUid");
 
             final LoanApplicationTimelineData timeline = new LoanApplicationTimelineData(applicationDate, submittedOnDate,
                     submittedByUsername, submittedByFirstname, submittedByLastname, rejectedOnDate, rejectedByUsername, rejectedByFirstname,
@@ -1287,6 +1299,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 nextLoanIcReviewDecisionStateEnumData = LoanEnumerations.loanDecisionState(nextLoanIcReviewDecisionStateId.intValue());
             }
 
+            final LocalDate expectedDisburseDate = JdbcSupport.getLocalDate(rs, "expectedDisburseDate");
+            final BigDecimal expectedNetDisbursalAmount = rs.getBigDecimal("expectedNetDisbursalAmount");
+            final Long paymentTypeId = rs.getLong("paymentType");
+
+            PaymentTypeData paymentType = null;
+            if (!Objects.equals(paymentTypeId, Long.valueOf(0L))) {
+                paymentType = this.paymentTypeReadPlatformService.retrieveOne(paymentTypeId);
+            }
+
             LoanAccountData loanAccountData = LoanAccountData.basicLoanDetails(id, accountNo, status, externalId, clientId, clientAccountNo,
                     clientName, clientOfficeId, groupData, loanType, loanProductId, loanProductName, loanProductDescription,
                     isLoanProductLinkedToFloatingRate, fundId, fundName, loanPurposeId, loanPurposeName, loanOfficerId, loanOfficerName,
@@ -1315,6 +1336,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanAccountData.setAllowableDscr(allowableDscr);
             loanAccountData.setLoanWithAnotherInstitutionAmount(loanWithAnotherInstitutionAmount);
             loanAccountData.setClientLegalForm(clientLegalForm);
+            loanAccountData.setClientUid(clientUid);
+            loanAccountData.setPaymentType(paymentType);
+            loanAccountData.setExpectedDisburseDate(expectedDisburseDate);
+            loanAccountData.setExpectedNetDisbursalAmount(expectedNetDisbursalAmount);
             return loanAccountData;
         }
     }
@@ -3344,7 +3369,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     public Collection<LoanAccountData> getAllLoansPendingDecisionEngine(Integer loanDecisionState) {
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
-        final LoanMapper rm = new LoanMapper(sqlGenerator);
+        final LoanMapper rm = new LoanMapper(sqlGenerator,paymentTypeReadPlatformService);
         final StringBuilder sqlBuilder = new StringBuilder(200);
 
         String sql = "select " + rm.loanSchema();

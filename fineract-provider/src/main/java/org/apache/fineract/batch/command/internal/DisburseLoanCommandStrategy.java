@@ -51,25 +51,24 @@ public class DisburseLoanCommandStrategy implements CommandStrategy {
     public BatchResponse execute(final BatchRequest request, @SuppressWarnings("unused") UriInfo uriInfo) {
 
         final BatchResponse response = new BatchResponse();
-        final String responseBody;
-
         response.setRequestId(request.getRequestId());
         response.setHeaders(request.getHeaders());
 
         final List<String> pathParameters = Splitter.on('/').splitToList(request.getRelativeUrl());
-        Long loanId = Long.parseLong(pathParameters.get(1).substring(0, pathParameters.get(1).indexOf("?")));
+        Long loanId = Long.parseLong(pathParameters.get(1).split("\\?")[0]);
 
-        // Calls 'disburse' function from 'LoansApiResource' to disburse a
-        // loan
-        responseBody = loansApiResource.stateTransitions(loanId, "disburse", request.getBody());
+        // Parse the command from query params in relativeUrl
+        String command = "disburse"; // default
+        if (request.getRelativeUrl().contains("?command=")) {
+            command = request.getRelativeUrl().split("\\?command=")[1];
+        }
+
+        // Call LoansApiResource with the correct command dynamically
+        String responseBody = loansApiResource.stateTransitions(loanId, command, request.getBody());
 
         response.setStatusCode(200);
-
-        // Sets the body of the response after the successful disbursal of
-        // the loan
         response.setBody(responseBody);
 
         return response;
     }
-
 }
