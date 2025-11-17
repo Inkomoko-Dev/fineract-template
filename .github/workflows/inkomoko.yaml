@@ -47,7 +47,7 @@ jobs:
       - name: Test SSH Connection to VM
         run: |
           echo "${{ secrets.VM_KEY_DEV }}" > /tmp/key.pem
-          chmod 400 /tmp/key.pem
+          chmod 600 /tmp/key.pem
           ls -al
           echo "Testing SSH connection to ${{ secrets.VM_HOST }} on port ${{ secrets.VM_PORT_DEV }}..."
           ssh -i /tmp/key.pem -p ${{ secrets.VM_PORT_DEV }} -o StrictHostKeyChecking=no -v ${{ secrets.VM_USER_DEV }}@${{ secrets.VM_HOST }} "echo '✅ SSH connection successful!'"
