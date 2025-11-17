@@ -3702,7 +3702,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         public String loanTransactionNotPostedToOdoo() {
             return "DISTINCT gl.loan_transaction_id AS loanTransactionId, gl.entity_id AS loanId, ml.currency_code as currency, mlt.transaction_date as transactionDate, " +
-                    "mlt.transaction_type_enum AS transactionType, mlt.is_reversed AS isReversed, ml.account_no as loanAccountNo, mc.office_id as office ma.location " +
+                    "mlt.transaction_type_enum AS transactionType, mlt.is_reversed AS isReversed, ml.account_no as loanAccountNo, mc.office_id as office, ma.location " +
                     "FROM acc_gl_journal_entry gl " +
                     "INNER JOIN m_loan_transaction mlt on gl.loan_transaction_id = mlt.id " +
                     "INNER JOIN m_loan ml on mlt.loan_id = ml.id " +
