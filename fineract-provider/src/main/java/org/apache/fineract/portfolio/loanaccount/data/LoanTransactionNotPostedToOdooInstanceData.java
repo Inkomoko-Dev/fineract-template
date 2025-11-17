@@ -33,5 +33,6 @@ public class LoanTransactionNotPostedToOdooInstanceData {
     private final String office;
     private final LocalDate transactionDate;
     private final String currencyCode;
+    private final String location;
 
 }

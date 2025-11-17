@@ -349,13 +349,13 @@ public class OdooServiceImpl implements OdooService {
     }
 
     @Override
-    public JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo)
+    public JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo, String location)
             throws IOException, NoSuchAlgorithmException, KeyManagementException {
 
         final Integer uid = loginToOddo();
         if (uid > 0) {
 
-            JournalItemData journalEntry = null;
+            JournalItemData journalEntry;
             List<JournalItemData> journalItems = new ArrayList<>();
 
             JournalEntryToOdooData journalEntryToOdooData = new JournalEntryToOdooData();
@@ -391,6 +391,9 @@ public class OdooServiceImpl implements OdooService {
             String ref = isReversed ? "Reversal of Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId :
                     "Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId ;
 
+            if (journalData.getIsCorrection())
+                ref = ref + "; Original Transaction Date: " + journalData.getCorrectionDate();
+
             Integer partnerId = client.getOdooCustomerId();
             if (partnerId == null) {
                 throw new GeneralPlatformDomainRuleException(
@@ -410,6 +413,7 @@ public class OdooServiceImpl implements OdooService {
             journalData.setEntryDate(list.get(0).getTransactionDate().toString());
             journalData.setOfficeId(office.getId());
             journalData.setJournalItems(journalItems);
+            journalData.setLocation(location);
 
             journalEntryToOdooData.setResource(journalData);
 
@@ -466,16 +470,26 @@ public class OdooServiceImpl implements OdooService {
                         BigDecimal odooAmount = credit.compareTo(BigDecimal.ZERO) > 0 ? credit : debit;
                         String oddAccountGl = detail.has("gl_account") ? detail.get("gl_account").getAsString() : null;
 
-                        je.setOdooAccountGl(oddAccountGl);
-                        je.setOdooAmount(odooAmount);
+                        if (je.getOdooAccountGl() == null)
+                            je.setOdooAccountGl(oddAccountGl);
+                        if (je.getOdooAmount() == null)
+                            je.setOdooAmount(odooAmount);
+                        if (je.getOdooJournalId() == null)
+                            je.setOdooJournalId(odooJournalId);
+                        if (je.getOdooResponse() == null)
+                            je.setOdooResponse(responseCode);
                         je.setOddoPosted(true);
-                        je.setOdooJournalId(odooJournalId);
-                        je.setOdooResponse(responseCode);
                         journalEntryRepository.saveAndFlush(je);
                     }
                 }
             }
 
+        } else if ("NOT_FOUND".equals(responseCode)) {
+            for (JournalEntry je : journalEntries) {
+                je.setOddoPosted(true);
+                je.setOdooResponse(responseCode + ": " + responseMessage);
+                journalEntryRepository.saveAndFlush(je);
+            }
         } else {
             LOG.info("Loan Transaction Not Posted to Odoo - Code:{} - Message: {}", responseCode, responseMessage);
             for (JournalEntry je : journalEntries) {
@@ -604,7 +618,7 @@ public class OdooServiceImpl implements OdooService {
             List<JournalEntry> JE = this.journalEntryRepository.findJournalEntriesByIsOddoPosted(false,
                     transaction.getLoanTransactionId());
             postJournalEntries(errors, JE, transaction.getLoanTransactionId(), transaction.getTransactionType(),
-                    transaction.getIsReversed(), transaction.getLoanAccountNo(), transaction.getOffice());
+                    transaction.getIsReversed(), transaction.getLoanAccountNo(), transaction.getLocation());
             transactions +=1;
 
         }
@@ -662,12 +676,12 @@ public class OdooServiceImpl implements OdooService {
     }
 
     private void postJournalEntries(List<Throwable> errors, List<JournalEntry> journalEntryDebitCredit, Long loanTransactionId,
-            Long transactionType, Boolean isReversed, String loanAccountNo, String office) {
+            Long transactionType, Boolean isReversed, String loanAccountNo, String location) {
         if (!CollectionUtils.isEmpty(journalEntryDebitCredit)) {
             try {
 
                 if (journalEntryDebitCredit.size() > 1) {
-                    JsonObject odooAck = createJournalEntryToOddo(journalEntryDebitCredit, loanTransactionId, transactionType, isReversed, loanAccountNo);
+                    JsonObject odooAck = createJournalEntryToOddo(journalEntryDebitCredit, loanTransactionId, transactionType, isReversed, loanAccountNo, location);
 
                     boolean ack =  getBooleanField(odooAck,"ack");
                     boolean success = getBooleanField (odooAck,"success");
