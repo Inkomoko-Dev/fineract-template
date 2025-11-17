@@ -19,6 +19,8 @@
 
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import com.google.common.base.Splitter;
+import com.google.common.collect.Iterables;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -168,7 +170,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
         String glCode = null;
         if (fundSource != null) {
-            glCode = fundSource.getGlCode().split("-")[0];
+            glCode = Iterables.get(Splitter.on('-').split(fundSource.getGlCode()), 0);
         }
 
         DisbursementRequestData disbursementRequestData = new DisbursementRequestData(requestId, loan.getAccountNumber(),

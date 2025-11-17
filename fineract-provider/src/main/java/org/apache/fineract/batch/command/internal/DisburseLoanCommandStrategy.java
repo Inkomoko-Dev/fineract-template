@@ -21,6 +21,8 @@ package org.apache.fineract.batch.command.internal;
 import com.google.common.base.Splitter;
 import java.util.List;
 import javax.ws.rs.core.UriInfo;
+
+import com.google.common.collect.Iterables;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.batch.command.CommandStrategy;
 import org.apache.fineract.batch.domain.BatchRequest;
@@ -55,12 +57,12 @@ public class DisburseLoanCommandStrategy implements CommandStrategy {
         response.setHeaders(request.getHeaders());
 
         final List<String> pathParameters = Splitter.on('/').splitToList(request.getRelativeUrl());
-        Long loanId = Long.parseLong(pathParameters.get(1).split("\\?")[0]);
+        Long loanId = Long.parseLong(Iterables.get(Splitter.on('?').split(pathParameters.get(1)), 0));
 
         // Parse the command from query params in relativeUrl
         String command = "disburse"; // default
         if (request.getRelativeUrl().contains("?command=")) {
-            command = request.getRelativeUrl().split("\\?command=")[1];
+            command = Iterables.get(Splitter.on("?command=").split(request.getRelativeUrl()), 1);
         }
 
         // Call LoansApiResource with the correct command dynamically
