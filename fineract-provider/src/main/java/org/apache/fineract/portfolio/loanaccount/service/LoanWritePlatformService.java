@@ -133,4 +133,7 @@ public interface LoanWritePlatformService {
     CommandProcessingResult disbursePreApproval(Long loanId, JsonCommand command);
 
     CommandProcessingResult disburseRequestLoan(Long loanId, JsonCommand command);
+
+    @Transactional
+    CommandProcessingResult rejectDisbursement(Long loanId, JsonCommand command);
 }

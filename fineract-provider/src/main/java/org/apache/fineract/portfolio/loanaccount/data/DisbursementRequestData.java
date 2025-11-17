@@ -19,21 +19,34 @@
 
 package org.apache.fineract.portfolio.loanaccount.data;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Getter;
+import lombok.Setter;
+
 import java.math.BigDecimal;
 
+@Getter
+@Setter
 public class DisbursementRequestData {
 
+    private String transactionType;
+    private final String origin;
     private final String requestId;
     private final String externalId;
     private final BigDecimal amount;
-    private final String currencyCode;
-    private final String paymentMethod;
-    private final String clientPhoneNumber;
+    private final String currencyCode; //
+    private String countryCode;
+    private String location;
+    private final String paymentMethod; //mandatory
+    private Long partnerId;
+    private final String clientPhoneNumber; //mandatory, for SMS purposes
     private final String clientAccountNumber;
     private final String clientBankName;
-
-    private final String origin;
-
+    private String clientBranchName;
+    private String beneficiaryName;
+    private String narration;
+    private String notifier;
+    private String glCode;
     private final Long paymentTypeId;
 
     public DisbursementRequestData(String requestId, String loanAccount, BigDecimal amount, String currencyCode, String paymentMethod,
@@ -52,39 +65,4 @@ public class DisbursementRequestData {
         //client name
     }
 
-    public String getRequestId() {
-        return requestId;
-    }
-
-    public String getLoanAccount() {
-        return externalId;
-    }
-
-    public BigDecimal getAmount() {
-        return amount;
-    }
-
-    public String getCurrencyCode() {
-        return currencyCode;
-    }
-
-    public String getPaymentMethod() {
-        return paymentMethod;
-    }
-
-    public String getClientPhoneNumber() {
-        return clientPhoneNumber;
-    }
-
-    public String getClientAccountNumber() {
-        return clientAccountNumber;
-    }
-
-    public String getClientBankName() {
-        return clientBankName;
-    }
-
-    public String getOrigin() {
-        return origin;
-    }
 }
