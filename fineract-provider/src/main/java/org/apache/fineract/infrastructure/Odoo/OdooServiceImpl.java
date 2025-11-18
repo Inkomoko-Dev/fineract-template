@@ -391,7 +391,7 @@ public class OdooServiceImpl implements OdooService {
             String ref = isReversed ? "Reversal of Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId :
                     "Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId ;
 
-            if (journalData.getIsCorrection())
+            if (journalData.getIsCorrection() != null && journalData.getIsCorrection())
                 ref = ref + "; Original Transaction Date: " + journalData.getCorrectionDate();
 
             Integer partnerId = client.getOdooCustomerId();
@@ -614,6 +614,8 @@ public class OdooServiceImpl implements OdooService {
     }
 
     private int getTransactions(List<LoanTransactionNotPostedToOdooInstanceData> loanTransactionNotPostedToOdooInstanceData, List<Throwable> errors, int transactions) {
+
+        LOG.info("Number of Transactions to post: "+loanTransactionNotPostedToOdooInstanceData.size());
         for (LoanTransactionNotPostedToOdooInstanceData transaction : loanTransactionNotPostedToOdooInstanceData) {
             List<JournalEntry> JE = this.journalEntryRepository.findJournalEntriesByIsOddoPosted(false,
                     transaction.getLoanTransactionId());
