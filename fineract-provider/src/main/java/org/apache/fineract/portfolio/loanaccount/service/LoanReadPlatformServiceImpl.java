@@ -3669,9 +3669,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         String sql = "select " + rm.loanTransactionNotPostedToOdoo();
 
         if (fromDate != null)
-            sql = sql + "AND mlt.transaction_date >= '" + fromDate + "' ";
+            sql = sql + "AND (mlt.transaction_date >= '" + fromDate + "' OR gl.correction_date >= '" + fromDate + "') ";
         if (fromDate != null)
-            sql = sql + "AND mlt.transaction_date <= '" + toDate + "' ";
+            sql = sql + "AND (mlt.transaction_date <= '" + toDate + "' OR gl.correction_date <= '" + toDate + "') ";
         if (officeId != null)
             sql =  sql + "AND mc.office_id = " + officeId + " ";
         if (currency != null)
@@ -3702,7 +3702,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         public String loanTransactionNotPostedToOdoo() {
             return "DISTINCT gl.loan_transaction_id AS loanTransactionId, gl.entity_id AS loanId, ml.currency_code as currency, mlt.transaction_date as transactionDate, " +
-                    "mlt.transaction_type_enum AS transactionType, mlt.is_reversed AS isReversed, ml.account_no as loanAccountNo, mc.office_id as office ma.location " +
+                    "mlt.transaction_type_enum AS transactionType, mlt.is_reversed AS isReversed, ml.account_no as loanAccountNo, mc.office_id as office, ma.location " +
                     "FROM acc_gl_journal_entry gl " +
                     "INNER JOIN m_loan_transaction mlt on gl.loan_transaction_id = mlt.id " +
                     "INNER JOIN m_loan ml on mlt.loan_id = ml.id " +
