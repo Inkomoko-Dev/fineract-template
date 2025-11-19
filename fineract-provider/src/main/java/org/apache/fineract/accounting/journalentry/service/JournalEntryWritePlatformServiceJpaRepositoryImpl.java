@@ -84,6 +84,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
 import org.apache.fineract.portfolio.paymentdetail.service.PaymentDetailWritePlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.NonTransientDataAccessException;
@@ -93,7 +94,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
-import java.net.InetAddress;
 import java.time.LocalDate;
 import java.util.Set;
 import java.util.Map;
@@ -129,6 +129,9 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
     private final CashBasedAccountingProcessorForClientTransactions accountingProcessorForClientTransactions;
     private final ApplicationEventPublisher eventPublisher;
     private final AfterCommitExecutor afterCommitExecutor;
+
+    @Value("${app.local-ip}")
+    private String localIpAddress;
 
     @Transactional
     @Override
@@ -563,18 +566,10 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
 
             JsonObject payload = convertJournalDataToJson(journalData, currentUser);
 
-            payload.addProperty("localIp", getLocalIpAddress());
+            payload.addProperty("localIp", localIpAddress);
 
             postWebHook(payload,currentUser);
 
-        }
-    }
-
-    private String getLocalIpAddress() {
-        try {
-            return InetAddress.getLocalHost().getHostAddress();
-        } catch (Exception e) {
-            return "UNKNOWN";
         }
     }
 
