@@ -93,6 +93,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
+import java.net.InetAddress;
 import java.time.LocalDate;
 import java.util.Set;
 import java.util.Map;
@@ -562,8 +563,18 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
 
             JsonObject payload = convertJournalDataToJson(journalData, currentUser);
 
+            payload.addProperty("localIp", getLocalIpAddress());
+
             postWebHook(payload,currentUser);
 
+        }
+    }
+
+    private String getLocalIpAddress() {
+        try {
+            return InetAddress.getLocalHost().getHostAddress();
+        } catch (Exception e) {
+            return "UNKNOWN";
         }
     }
 
