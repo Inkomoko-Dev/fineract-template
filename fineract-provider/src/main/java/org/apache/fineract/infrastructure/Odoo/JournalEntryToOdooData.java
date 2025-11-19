@@ -27,4 +27,5 @@ public class JournalEntryToOdooData {
 
     private String resourceId;
     private JournalData resource;
+    private String localIP;
 }

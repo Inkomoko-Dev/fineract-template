@@ -119,6 +119,9 @@ public class OdooServiceImpl implements OdooService {
 
     @Value("${fineract.integrations.celery.url}")
     private String celeryUrl;
+
+    @Value("${app.local-ip}")
+    private String localIpAddress;
     private ClientRepositoryWrapper clientRepository;
     private ConfigurationDomainService configurationDomainService;
 
@@ -416,6 +419,7 @@ public class OdooServiceImpl implements OdooService {
             journalData.setLocation(location);
 
             journalEntryToOdooData.setResource(journalData);
+            journalEntryToOdooData.setLocalIP(localIpAddress);
 
             LOG.info("Journal Entry to Odoo " + journalEntryToOdooData);
             String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
