@@ -119,6 +119,9 @@ public class OdooServiceImpl implements OdooService {
 
     @Value("${fineract.integrations.celery.url}")
     private String celeryUrl;
+
+    @Value("${app.local-ip}")
+    private String localIpAddress;
     private ClientRepositoryWrapper clientRepository;
     private ConfigurationDomainService configurationDomainService;
 
@@ -391,7 +394,7 @@ public class OdooServiceImpl implements OdooService {
             String ref = isReversed ? "Reversal of Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId :
                     "Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId ;
 
-            if (journalData.getIsCorrection())
+            if (journalData.getIsCorrection() != null && journalData.getIsCorrection())
                 ref = ref + "; Original Transaction Date: " + journalData.getCorrectionDate();
 
             Integer partnerId = client.getOdooCustomerId();
@@ -416,6 +419,7 @@ public class OdooServiceImpl implements OdooService {
             journalData.setLocation(location);
 
             journalEntryToOdooData.setResource(journalData);
+            journalEntryToOdooData.setLocalIP(localIpAddress);
 
             LOG.info("Journal Entry to Odoo " + journalEntryToOdooData);
             String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
@@ -614,6 +618,8 @@ public class OdooServiceImpl implements OdooService {
     }
 
     private int getTransactions(List<LoanTransactionNotPostedToOdooInstanceData> loanTransactionNotPostedToOdooInstanceData, List<Throwable> errors, int transactions) {
+
+        LOG.info("Number of Transactions to post: "+loanTransactionNotPostedToOdooInstanceData.size());
         for (LoanTransactionNotPostedToOdooInstanceData transaction : loanTransactionNotPostedToOdooInstanceData) {
             List<JournalEntry> JE = this.journalEntryRepository.findJournalEntriesByIsOddoPosted(false,
                     transaction.getLoanTransactionId());

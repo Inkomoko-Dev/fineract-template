@@ -69,6 +69,7 @@ public class JasperReportApiResource {
 
     private final JasperReportService jasperReadWriteReportService;
     private final ToApiJsonSerializer<JasperReport> toApiJsonSerializer;
+    private final ToApiJsonSerializer<Object> toObjectApiJsonSerializer;
     private final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService;
     private final PlatformSecurityContext context;
     private final ReadJasperReportingService readReportingService;
@@ -87,9 +88,10 @@ public class JasperReportApiResource {
     );
 
     @Autowired
-    public JasperReportApiResource(final JasperReportService jasperReadWriteReportService, ToApiJsonSerializer<JasperReport> toApiJsonSerializer, PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService, PlatformSecurityContext context, ReadJasperReportingService readReportingService, ApiRequestParameterHelper apiRequestParameterHelper) {
+    public JasperReportApiResource(final JasperReportService jasperReadWriteReportService, ToApiJsonSerializer<JasperReport> toApiJsonSerializer, ToApiJsonSerializer<Object> toObjectApiJsonSerializer, PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService, PlatformSecurityContext context, ReadJasperReportingService readReportingService, ApiRequestParameterHelper apiRequestParameterHelper) {
         this.jasperReadWriteReportService = jasperReadWriteReportService;
         this.toApiJsonSerializer = toApiJsonSerializer;
+        this.toObjectApiJsonSerializer = toObjectApiJsonSerializer;
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
         this.context = context;
         this.readReportingService = readReportingService;
@@ -223,6 +225,27 @@ public class JasperReportApiResource {
                                 + getFileExtension(jasperReport.getFileFormat()) + "\"")
                 .build();
     }
+
+    @GET
+    @Path("approvers")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "List Jasper Reports approvers", description = """
+            Lists all jasper reports approvers.
+            """)
+    public String retrieveReportApprovers(@Context final UriInfo uriInfo) {
+
+        String resourceNameForPermissions = "READ_JASPER_REPORT";
+        this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
+
+        final Collection<Object> result = this.readReportingService.retrieveReportApprovers();
+
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+
+        return this.toObjectApiJsonSerializer.serialize(settings, result);
+
+    }
+
 
 
 }

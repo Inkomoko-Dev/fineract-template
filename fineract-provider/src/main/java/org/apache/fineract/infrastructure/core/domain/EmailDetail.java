@@ -25,6 +25,11 @@ public class EmailDetail {
     private final String address;
     private final String contactName;
 
+    // Optional fields
+    private byte[] attachment;
+    private String attachmentName;
+    private String attachmentMimeType = "application/pdf";
+
     public EmailDetail(final String subject, final String body, final String address, final String contactName) {
         this.subject = subject;
         this.body = body;
@@ -46,5 +51,30 @@ public class EmailDetail {
 
     public String getAddress() {
         return this.address;
+    }
+
+    public byte[] getAttachment() {
+        return attachment;
+    }
+
+    public String getAttachmentName() {
+        return attachmentName;
+    }
+
+    public String getAttachmentMimeType() {
+        return attachmentMimeType;
+    }
+
+    // --- Optional Setters ---
+    public void setAttachment(byte[] attachment) {
+        this.attachment = attachment;
+    }
+
+    public void setAttachmentName(String attachmentName) {
+        this.attachmentName = attachmentName;
+    }
+
+    public void setAttachmentMimeType(String attachmentMimeType) {
+        this.attachmentMimeType = attachmentMimeType;
     }
 }
