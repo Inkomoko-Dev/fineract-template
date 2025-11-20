@@ -395,7 +395,7 @@ public class OdooServiceImpl implements OdooService {
                     "Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId ;
 
             if (journalData.getIsCorrection() != null && journalData.getIsCorrection())
-                ref = ref + "; Original Transaction Date: " + journalData.getCorrectionDate();
+                ref = ref + "; Original Transaction Date: " + list.get(0).getTransactionDate().toString();
 
             Integer partnerId = client.getOdooCustomerId();
             if (partnerId == null) {
