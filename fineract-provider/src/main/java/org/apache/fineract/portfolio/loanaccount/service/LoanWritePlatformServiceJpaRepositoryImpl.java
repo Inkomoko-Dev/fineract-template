@@ -43,7 +43,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlatformService;
-import org.apache.fineract.infrastructure.DataIntegrityErrorHandler;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -108,6 +107,7 @@ import org.apache.fineract.portfolio.businessevent.domain.loan.LoanInterestRecal
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanReassignOfficerBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanRejectTransferBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanRemoveOfficerBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.domain.loan.LoanUndoApprovalBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanUndoDisbursalBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanUndoLastDisbursalBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanWithdrawTransferBusinessEvent;
@@ -291,7 +291,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanRepaymentReminderRepository loanRepaymentReminderRepository;
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
     private final DisbursementRequestService disbursementRequestService;
-    private final DataIntegrityErrorHandler dataIntegrityErrorHandler;
+    private final LoanApplicationCommandFromApiJsonHelper fromApiJsonDeserializer;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -3638,6 +3638,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     @Override
     @Transactional
+    public CommandProcessingResult disbursePreApproval(Long loanId, JsonCommand command) {
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        // TODO: validate for pre approval
+        loan.handleDisbursementPreApprovalRequest();
+        this.saveLoanWithDataIntegrityViolationChecks(loan);
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
+                .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
+                .build();
+    }
+    @Override
+    @Transactional
     public CommandProcessingResult disburseRequestLoan(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
         final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed(LoanApiConstants.principalDisbursedParameterName);
@@ -3652,6 +3663,40 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public CommandProcessingResult rejectDisbursement(final Long loanId, final JsonCommand command) {
+
+        this.fromApiJsonDeserializer.validateForUndo(command.json());
+
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        checkClientOrGroupActive(loan);
+
+        final Map<String, Object> changes = loan.undoApproval(defaultLoanLifecycleStateMachine());
+        if (!changes.isEmpty()) {
+
+            final String noteText = command.stringValueOfParameterNamed("note");
+            if (StringUtils.isNotBlank(noteText)) {
+                final Note note = Note.loanNote(loan, noteText);
+                this.noteRepository.save(note);
+            }
+
+            saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+            businessEventNotifierService.notifyPostBusinessEvent(new LoanUndoApprovalBusinessEvent(loan));
+        }
+
+        return new CommandProcessingResultBuilder() //
+                .withCommandId(command.commandId()) //
+                .withEntityId(loan.getId()) //
+                .withOfficeId(loan.getOfficeId()) //
+                .withClientId(loan.getClientId()) //
+                .withGroupId(loan.getGroupId()) //
+                .withLoanId(loanId) //
+                .with(changes) //
+                .build();
+
     }
 
     private void validateIsMultiDisbursalLoanAndDisbursedMoreThanOneTranche(Loan loan) {

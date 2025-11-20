@@ -24,6 +24,8 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
+
 public interface ClientAddressRepository extends JpaRepository<ClientAddress, Long>, JpaSpecificationExecutor<ClientAddress> {
 
     @Query("SELECT clientAddress FROM ClientAddress clientAddress WHERE clientAddress.client.id = :clientId AND clientAddress.addressType = :addressType AND clientAddress.isActive = :isActive ")
@@ -32,4 +34,8 @@ public interface ClientAddressRepository extends JpaRepository<ClientAddress, Lo
 
     @Query("SELECT clientAddress FROM ClientAddress clientAddress WHERE clientAddress.client.id = :clientId AND clientAddress.address.id = :addressId ")
     ClientAddress findByClientIdAndAddressId(@Param("clientId") long clientId, @Param("addressId") long addressId);
+
+    // Corrected
+    @Query("SELECT clientAddress FROM ClientAddress clientAddress JOIN FETCH clientAddress.address WHERE clientAddress.client.id = :clientId AND clientAddress.isActive = true")
+    List<ClientAddress> findAddressByClientId(@Param("clientId") Long clientId);
 }

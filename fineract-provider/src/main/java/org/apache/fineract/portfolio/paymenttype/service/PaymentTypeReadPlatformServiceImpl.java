@@ -65,7 +65,8 @@ public class PaymentTypeReadPlatformServiceImpl implements PaymentTypeReadPlatfo
     private static final class PaymentTypeMapper implements RowMapper<PaymentTypeData> {
 
         public String schema() {
-            return " pt.id as id, pt.value as name, pt.description as description,pt.is_cash_payment as isCashPayment,pt.order_position as position from m_payment_type pt ";
+            return " pt.id as id, pt.value as name, pt.description as description,pt.is_cash_payment as isCashPayment, " +
+                    "pt.is_mobile_money as isMobileMoney, pt.order_position as position from m_payment_type pt ";
         }
 
         @Override
@@ -75,9 +76,10 @@ public class PaymentTypeReadPlatformServiceImpl implements PaymentTypeReadPlatfo
             final String name = rs.getString("name");
             final String description = rs.getString("description");
             final boolean isCashPayment = rs.getBoolean("isCashPayment");
+            final boolean isMobileMoney = rs.getBoolean("isMobileMoney");
             final Long position = rs.getLong("position");
 
-            return PaymentTypeData.instance(id, name, description, isCashPayment, position);
+            return PaymentTypeData.instance(id, name, description, isCashPayment, isMobileMoney, position);
         }
 
     }

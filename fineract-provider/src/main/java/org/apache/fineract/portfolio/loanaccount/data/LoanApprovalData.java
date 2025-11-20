@@ -23,6 +23,7 @@ import java.time.LocalDate;
 import java.util.Collection;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
+import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
 import org.apache.fineract.useradministration.data.AppUserData;
 
 /**
@@ -45,6 +46,7 @@ public class LoanApprovalData {
     private Collection<AppUserData> approverOptions;
     private CurrencyData currency;
     private LoanDecisionData loanDecisionData;
+    private Collection<PaymentTypeData> paymentTypeOptions;
 
     public static LoanApprovalData importInstance(LocalDate approvedOnDate, Integer rowIndex, String locale, String dateFormat) {
         return new LoanApprovalData(approvedOnDate, rowIndex, locale, dateFormat);
@@ -61,10 +63,11 @@ public class LoanApprovalData {
         this.netDisbursalAmount = null;
     }
 
-    public LoanApprovalData(final BigDecimal approvalAmount, final LocalDate approvalDate, final BigDecimal netDisbursalAmount) {
+    public LoanApprovalData(final BigDecimal approvalAmount, final LocalDate approvalDate, final BigDecimal netDisbursalAmount, final Collection<PaymentTypeData> paymentOptions) {
         this.approvalDate = approvalDate;
         this.approvalAmount = approvalAmount;
         this.netDisbursalAmount = netDisbursalAmount;
+        this.paymentTypeOptions = paymentOptions;
     }
 
     public LoanApprovalData(BigDecimal approvalAmount, LocalDate approvalDate, BigDecimal netDisbursalAmount,

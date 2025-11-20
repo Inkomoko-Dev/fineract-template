@@ -164,6 +164,8 @@ import org.apache.fineract.portfolio.loanproduct.serialization.LoanProductDataVa
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepositoryWrapper;
 import org.apache.fineract.portfolio.rate.service.RateAssembler;
 import org.apache.fineract.portfolio.savings.data.GroupSavingsIndividualMonitoringAccountData;
 import org.apache.fineract.portfolio.savings.domain.SavingsAccount;
@@ -178,6 +180,8 @@ import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+
+import static org.apache.fineract.portfolio.loanaccount.service.DisbursementRequestServiceImpl.getDisbursementChargeAmount;
 
 @Service
 @RequiredArgsConstructor
@@ -239,6 +243,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final LoanCashFlowProjectionRepository loanCashFlowProjectionRepository;
     private final OdooService odooService;
     private final FundReadPlatformService fundReadPlatformService;
+    private final PaymentTypeRepositoryWrapper paymentTypeRepository;
 
     private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
         final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
@@ -1527,6 +1532,12 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         LocalDate expectedDisbursementDate = null;
 
         this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json());
+        final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
+
+        // fetch the payment type entity from DB
+        final PaymentType paymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(paymentTypeId);
+
+        validatePaymentDetails(command, paymentType);
 
         final Loan loan = retrieveLoanBy(loanId);
 
@@ -1654,6 +1665,31 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 loan.adjustNetDisbursalAmount(netDisbursalAmount);
             }
 
+
+            final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
+            final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
+            final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
+
+            BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
+            BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
+
+            // Create new disbursement detail entry
+            LoanDisbursementDetails disbursementDetail = new LoanDisbursementDetails(
+                   expectedDisbursementDate,
+                    null, // actual disbursement date (will be filled later)
+                    loan.getProposedPrincipal(),
+                    netDisbursementAmount
+            );
+
+            disbursementDetail.updateLoan(loan);
+            disbursementDetail.setPaymentType(paymentType);
+            disbursementDetail.setAccountNumber(clientAccountNumber);
+            disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
+            disbursementDetail.setClientBankName(clientBankName);
+
+
+            loan.getDisbursementDetails().add(disbursementDetail);
+
             saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
             final String noteText = command.stringValueOfParameterNamed("note");
@@ -1675,6 +1711,47 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 .withLoanId(loanId) //
                 .with(changes) //
                 .build();
+    }
+
+    private void validatePaymentDetails(JsonCommand command, PaymentType paymentType) {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+
+        final boolean isCash = paymentType.isCashPayment(); // assuming this flag exists
+        final boolean isMobileMoney = paymentType.isMobileMoney();
+
+        final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
+        final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
+        final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
+
+        if (!isCash && isMobileMoney) {
+            if (StringUtils.isBlank(clientPhoneNumber)) {
+                dataValidationErrors.add(ApiParameterError.parameterError(
+                        "validation.msg.loanapproval.clientPhoneNumber.required",
+                        "Client phone number must be provided for mobile money payment type.",
+                        "clientPhoneNumber", clientPhoneNumber));
+            }
+        }
+
+        if (!isCash && !isMobileMoney) {
+
+            boolean missingBankDetails = StringUtils.isBlank(clientAccountNumber)
+                    || StringUtils.isBlank(clientBankName);
+
+            if (missingBankDetails) {
+                dataValidationErrors.add(ApiParameterError.parameterError(
+                        "validation.msg.loanapproval.bank.details.required",
+                        "Bank details must be provided for non-cash, non-mobile-money payment type.",
+                        "clientPhoneNumber,clientBankName,clientAccountNumber", null));
+            }
+        }
+
+        // Throw if any validation errors exist
+        if (!dataValidationErrors.isEmpty()) {
+            throw new PlatformApiDataValidationException(
+                    "validation.msg.loanapproval.payment.details.invalid",
+                    "Validation errors exist for payment type and related fields.",
+                    dataValidationErrors);
+        }
     }
 
     private void validateActiveLoanCount(Long clientId) {
