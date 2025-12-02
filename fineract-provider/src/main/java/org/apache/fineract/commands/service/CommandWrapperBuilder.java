@@ -3822,6 +3822,14 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder rejectLoanApplicationReview(final long loanId) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANAPPLICATIONREVIEW";
+        this.href = "/loans/decision/reviewapplication/reject" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
     public CommandWrapperBuilder applyDueDiligence(final long loanId) {
         this.actionName = "ACCEPT";
         this.entityName = "DUEDILIGENCE";
@@ -3831,10 +3839,28 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder rejectDueDiligence(final long loanId) {
+        this.actionName = "REJECT";
+        this.entityName = "DUEDILIGENCE";
+        this.href = "/loans/decision/duediligence/reject/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
     public CommandWrapperBuilder acceptLoanCollateralReview(final long loanId) {
         this.actionName = "ACCEPT";
         this.entityName = "LOANCOLLATERALREVIEW";
         this.href = "/loans/decision/collateralreview/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
+    public CommandWrapperBuilder rejectLoanCollateralReview(final long loanId) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANCOLLATERALREVIEW";
+        this.href = "/loans/decision/collateralreview/reject/" + loanId;
         this.loanId = loanId;
 
         return this;
@@ -3876,10 +3902,28 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder rejectIcReviewDecisionLevelOne(final long loanId) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANICREVIEWDECISIONLEVELONE";
+        this.href = "/loans/decision/icReviewDecisionLevelOne/reject/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
     public CommandWrapperBuilder acceptIcReviewDecisionLevelTwo(final long loanId) {
         this.actionName = "ACCEPT";
         this.entityName = "LOANICREVIEWDECISIONLEVELTWO";
         this.href = "/loans/decision/icReviewDecisionLevelTwo/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
+    public CommandWrapperBuilder rejectIcReviewDecisionLevelTwo(final long loanId) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANICREVIEWDECISIONLEVELTWO";
+        this.href = "/loans/decision/icReviewDecisionLevelTwo/reject/" + loanId;
         this.loanId = loanId;
 
         return this;
@@ -3894,10 +3938,28 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder rejectIcReviewDecisionLevelThree(final long loanId) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANICREVIEWDECISIONLEVELTHREE";
+        this.href = "/loans/decision/icReviewDecisionLevelThree/reject/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
     public CommandWrapperBuilder acceptIcReviewDecisionLevelFour(final long loanId) {
         this.actionName = "ACCEPT";
         this.entityName = "LOANICREVIEWDECISIONLEVELFOUR";
         this.href = "/loans/decision/icReviewDecisionLevelFour/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
+    public CommandWrapperBuilder rejectIcReviewDecisionLevelFour(final long loanId) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANICREVIEWDECISIONLEVELFOUR";
+        this.href = "/loans/decision/icReviewDecisionLevelFour/reject/" + loanId;
         this.loanId = loanId;
 
         return this;
@@ -3912,10 +3974,28 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder rejectIcReviewDecisionLevelFive(final long loanId) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANICREVIEWDECISIONLEVELFIVE";
+        this.href = "/loans/decision/icReviewDecisionLevelFive/reject/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
     public CommandWrapperBuilder acceptPrepareAndSignContract(final long loanId) {
         this.actionName = "ACCEPT";
         this.entityName = "LOANPREPAREANDSIGNCONTRACT";
         this.href = "/loans/decision/prepareAndSignContract/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
+    public CommandWrapperBuilder rejectPrepareAndSignContract(final long loanId) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANPREPAREANDSIGNCONTRACT";
+        this.href = "/loans/decision/prepareAndSignContract/reject/" + loanId;
         this.loanId = loanId;
 
         return this;

@@ -25,7 +25,11 @@ public interface LoanApplicationDecisionWritePlatformService {
 
     CommandProcessingResult acceptLoanApplicationReview(Long loanId, JsonCommand command);
 
+    CommandProcessingResult rejectLoanApplicationReview(Long loanId, JsonCommand command);
+
     CommandProcessingResult applyDueDiligence(Long loanId, JsonCommand command);
+
+    CommandProcessingResult rejectDueDiligence(Long loanId, JsonCommand command);
 
     CommandProcessingResult acceptLoanCollateralReview(Long loanId, JsonCommand command);
 
@@ -35,15 +39,29 @@ public interface LoanApplicationDecisionWritePlatformService {
 
     CommandProcessingResult updateLoanApprovalMatrix(JsonCommand command, Long matrixId);
 
+    CommandProcessingResult rejectLoanCollateralReview(Long loanId, JsonCommand command);
+
     CommandProcessingResult acceptIcReviewDecisionLevelOne(Long loanId, JsonCommand command);
+
+    CommandProcessingResult rejectIcReviewDecisionLevelOne(Long loanId, JsonCommand command);
 
     CommandProcessingResult acceptIcReviewDecisionLevelTwo(Long loanId, JsonCommand command);
 
+    CommandProcessingResult rejectIcReviewDecisionLevelTwo(Long loanId, JsonCommand command);
+
     CommandProcessingResult acceptIcReviewDecisionLevelThree(Long loanId, JsonCommand command);
+
+    CommandProcessingResult rejectIcReviewDecisionLevelThree(Long loanId, JsonCommand command);
 
     CommandProcessingResult acceptIcReviewDecisionLevelFour(Long loanId, JsonCommand command);
 
+    CommandProcessingResult rejectIcReviewDecisionLevelFour(Long loanId, JsonCommand command);
+
     CommandProcessingResult acceptIcReviewDecisionLevelFive(Long loanId, JsonCommand command);
 
+    CommandProcessingResult rejectIcReviewDecisionLevelFive(Long loanId, JsonCommand command);
+
     CommandProcessingResult acceptPrepareAndSignContract(Long loanId, JsonCommand command);
+
+    CommandProcessingResult rejectPrepareAndSignContract(Long loanId, JsonCommand command);
 }

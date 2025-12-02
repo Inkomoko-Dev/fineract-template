@@ -112,12 +112,39 @@ public class LoanDecisionApiResource {
     }
 
     @POST
+    @Path("reviewApplication/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectLoanApplicationReview(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectLoanApplicationReview(loanId).withJson(apiRequestBodyAsJson)
+                .build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @POST
     @Path("dueDiligence/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String applyDueDiligence(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().applyDueDiligence(loanId).withJson(apiRequestBodyAsJson).build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @POST
+    @Path("dueDiligence/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectDueDiligence(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectDueDiligence(loanId).withJson(apiRequestBodyAsJson).build();
 
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
 
@@ -145,7 +172,21 @@ public class LoanDecisionApiResource {
     @Produces({ MediaType.APPLICATION_JSON })
     public String acceptLoanCollateralReview(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
 
-        final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptLoanCollateralReview(loanId).withJson(apiRequestBodyAsJson)
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectLoanCollateralReview(loanId).withJson(apiRequestBodyAsJson)
+                .build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @POST
+    @Path("collateralReview/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectLoanCollateralReview(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectLoanCollateralReview(loanId).withJson(apiRequestBodyAsJson)
                 .build();
 
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
@@ -263,12 +304,40 @@ public class LoanDecisionApiResource {
     }
 
     @POST
+    @Path("icReviewDecisionLevelOne/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectIcReviewDecisionLevelOne(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelOne(loanId)
+                .withJson(apiRequestBodyAsJson).build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @POST
     @Path("icReviewDecisionLevelTwo/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String acceptIcReviewDecisionLevelTwo(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptIcReviewDecisionLevelTwo(loanId)
+                .withJson(apiRequestBodyAsJson).build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @POST
+    @Path("icReviewDecisionLevelTwo/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectIcReviewDecisionLevelTwo(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelTwo(loanId)
                 .withJson(apiRequestBodyAsJson).build();
 
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
@@ -291,12 +360,40 @@ public class LoanDecisionApiResource {
     }
 
     @POST
+    @Path("icReviewDecisionLevelThree/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectIcReviewDecisionLevelThree(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelThree(loanId)
+                .withJson(apiRequestBodyAsJson).build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @POST
     @Path("icReviewDecisionLevelFour/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String acceptIcReviewDecisionLevelFour(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptIcReviewDecisionLevelFour(loanId)
+                .withJson(apiRequestBodyAsJson).build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @POST
+    @Path("icReviewDecisionLevelFour/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectIcReviewDecisionLevelFour(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelFour(loanId)
                 .withJson(apiRequestBodyAsJson).build();
 
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
@@ -319,12 +416,40 @@ public class LoanDecisionApiResource {
     }
 
     @POST
+    @Path("icReviewDecisionLevelFive/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectIcReviewDecisionLevelFive(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelFive(loanId)
+                .withJson(apiRequestBodyAsJson).build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @POST
     @Path("prepareAndSignContract/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String acceptPrepareAndSignContract(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptPrepareAndSignContract(loanId)
+                .withJson(apiRequestBodyAsJson).build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @POST
+    @Path("prepareAndSignContract/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectPrepareAndSignContract(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectPrepareAndSignContract(loanId)
                 .withJson(apiRequestBodyAsJson).build();
 
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
