@@ -139,57 +139,6 @@ public class EmailNotificationService {
     }
 
     private void sendLoanDecisionRejectNotification(Loan loan, LoanDecision loanDecision) {
-        Integer state = loanDecision.getNextLoanIcReviewDecisionState();
-        if (state == null) return;
-
-        AppUser approver = getNextApprover(loanDecision,state);
-
-        if (approver != null && StringUtils.isNotBlank(approver.getEmail())) {
-            EmailDetail emailDetail;
-            if (state.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue()) ||
-                    state.equals(LoanDecisionState.DUE_DILIGENCE.getValue()) ||
-                    state.equals(LoanDecisionState.COLLATERAL_REVIEW.getValue()) ||
-                    state.equals(LoanDecisionState.REVIEW_APPLICATION.getValue())){
-                emailDetail = getLoanDecisionRejectEmail(loan, state, approver);
-            }else {
-                emailDetail = getLoanDecisionRejectEmail(loan, state, approver);
-            }
-            emailService.sendDefinedEmail(emailDetail);
-        }
-    }
-
-    private AppUser getApprover(LoanDecision loanDecision) {
-        return switch (LoanDecisionState.fromInt(loanDecision.getLoanDecisionState())) {
-            case IC_REVIEW_LEVEL_ONE -> loanDecision.getIcReviewDecisionLevelOneBy();
-            case IC_REVIEW_LEVEL_TWO -> loanDecision.getIcReviewDecisionLevelTwoBy();
-            case IC_REVIEW_LEVEL_THREE -> loanDecision.getIcReviewDecisionLevelThreeBy();
-            case IC_REVIEW_LEVEL_FOUR -> loanDecision.getIcReviewDecisionLevelFourBy();
-            case IC_REVIEW_LEVEL_FIVE -> loanDecision.getIcReviewDecisionLevelFiveBy();
-            case PREPARE_AND_SIGN_CONTRACT -> this.appUserRepository.findAppUserByStaffId(loanDecision.getLoan().getLoanOfficer().getId());
-            default -> null;
-        };
-    }
-
-    private EmailDetail getLoanDecisionRejectEmail(Loan loan, Integer state, AppUser user) {
-        String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
-        String subject = "Loan Action Rejected: Stage " + LoanDecisionState.fromInt(state).toString();
-        String body = String.format(
-                """
-                        Dear %s,<br><br>
-
-                        %s for account <strong>%s</strong>, client <strong>%s</strong>, was REJECTED and returned to you.<br><br>
-
-                        Please <a href="%s">log in </a> to the system to review and take the next action.<br><br>
-                        
-                        Kind Regards.
-                """,
-                user.getDisplayName(),
-                LoanDecisionState.fromInt(state).toString(),
-                loan.getAccountNumber(),
-                loan.getClient().getDisplayName(),
-                loanUrl
-        );
-        return new EmailDetail(subject,body, user.getEmail(), user.getDisplayName());
     }
 
 
