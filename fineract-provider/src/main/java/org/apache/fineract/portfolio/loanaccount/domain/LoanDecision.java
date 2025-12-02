@@ -110,6 +110,9 @@ public class LoanDecision extends AbstractAuditableCustom {
 
     @Column(name = "next_loan_ic_review_decision_state")
     private Integer nextLoanIcReviewDecisionState;
+    @Column(name = "previous_loan_ic_review_decision_state")
+    private Integer previousLoanIcReviewDecisionState;
+
 
     // IC review Decision Level Two
     @Column(name = "ic_review_decision_level_two_note")

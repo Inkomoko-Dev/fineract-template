@@ -26,6 +26,7 @@ import org.apache.fineract.infrastructure.core.domain.EmailDetail;
 import org.apache.fineract.infrastructure.core.service.GmailBackedPlatformEmailService;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDecisionAcceptedEvent;
+import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanDecisionRejectEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
@@ -53,9 +54,18 @@ public class EmailNotificationService {
     public void addListeners() {
         businessEventNotifierService.addPostBusinessEventListener(LoanDecisionAcceptedEvent.class,
                 new EmailNotificationService.LoanDecisionAcceptedListener());
+        businessEventNotifierService.addPostBusinessEventListener(LoanDecisionRejectEvent.class,
+                new EmailNotificationService.LoanDecisionRejectListener());
     }
 
-    public void sendLoanDecisionNotification(Loan loan, LoanDecision decision) {
+    public void sendDynamicEmail(AppUser recipient, String subject, String body) {
+        if (recipient != null && StringUtils.isNotBlank(recipient.getEmail())) {
+            EmailDetail emailDetail = new EmailDetail(subject, body, recipient.getEmail(), recipient.getDisplayName());
+            emailService.sendDefinedEmail(emailDetail);
+        }
+    }
+
+    public void sendLoanDecisionAcceptedNotification(Loan loan, LoanDecision decision) {
         Integer nextStage = decision.getNextLoanIcReviewDecisionState();
         if (nextStage == null) return;
 
@@ -71,6 +81,7 @@ public class EmailNotificationService {
             emailService.sendDefinedEmail(emailDetail);
         }
     }
+
 
     private AppUser getNextApprover(LoanDecision decision, Integer stage) {
         return switch (LoanDecisionState.fromInt(stage)) {
@@ -127,6 +138,9 @@ public class EmailNotificationService {
         return new EmailDetail(subject,body, nextApprover.getEmail(), nextApprover.getDisplayName());
     }
 
+    private void sendLoanDecisionRejectNotification(Loan loan, LoanDecision loanDecision) {
+    }
+
 
     private class LoanDecisionAcceptedListener implements BusinessEventListener<LoanDecisionAcceptedEvent> {
 
@@ -135,7 +149,18 @@ public class EmailNotificationService {
         public void onBusinessEvent(LoanDecisionAcceptedEvent event) {
             Loan loan = event.get();
             LoanDecision loanDecision = event.getLoanDecision();
-            sendLoanDecisionNotification(loan,loanDecision);
+            sendLoanDecisionAcceptedNotification(loan,loanDecision);
+        }
+    }
+
+    private class LoanDecisionRejectListener implements BusinessEventListener<LoanDecisionRejectEvent> {
+
+
+        @Override
+        public void onBusinessEvent(LoanDecisionRejectEvent event) {
+            Loan loan = event.get();
+            LoanDecision loanDecision = event.getLoanDecision();
+            sendLoanDecisionRejectNotification(loan,loanDecision);
         }
     }
 }

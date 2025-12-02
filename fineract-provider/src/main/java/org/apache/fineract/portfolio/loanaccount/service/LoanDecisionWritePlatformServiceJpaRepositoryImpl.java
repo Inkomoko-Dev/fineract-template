@@ -40,6 +40,7 @@ import org.apache.fineract.infrastructure.documentmanagement.service.DocumentRea
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDecisionAcceptedEvent;
+import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanDecisionRejectEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.client.data.ClientOtherInfoData;
 import org.apache.fineract.portfolio.client.exception.ClientOtherInfoNotFoundException;
@@ -100,6 +101,95 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private final KivaLoanService kivaLoanService;
     private final BusinessEventNotifierService businessEventNotifierService;
 
+    @Override
+    public CommandProcessingResult createLoanApprovalMatrix(JsonCommand command) {
+
+        Boolean isExtendLoanLifeCycleConfig = loanDecisionStateUtilService.getExtendLoanLifeCycleConfig().isEnabled();
+        if (!isExtendLoanLifeCycleConfig) {
+            throw new GeneralPlatformDomainRuleException("error.msg.Add-More-Stages-To-A-Loan-Life-Cycle.is.not.set",
+                    "Add-More-Stages-To-A-Loan-Life-Cycle settings is not set. So this operation is not permitted");
+        }
+
+        this.loanDecisionTransitionApiJsonValidator.validateCreateApprovalMatrix(command.json());
+
+        final String currency = command.stringValueOfParameterNamed(LoanApprovalMatrixConstants.currencyParameterName);
+        LoanApprovalMatrix loanApprovalMatrix = this.loanApprovalMatrixRepository.findLoanApprovalMatrixByCurrency(currency);
+
+        if (loanApprovalMatrix != null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.approval.matrix.with.this.currency.already.exist.",
+                    String.format("Loan Approval Matrix with Currency [ %s ] exist. Only One currency per Matrix is accepted", currency));
+        }
+
+        LoanApprovalMatrix loanApprovalMatrixFrom = loanDecisionAssembler.assembleLoanApprovalMatrixFrom(command);
+        this.loanApprovalMatrixRepository.saveAndFlush(loanApprovalMatrixFrom);
+
+        return new CommandProcessingResultBuilder() //
+                .withCommandId(command.commandId()) //
+                .withEntityId(loanApprovalMatrixFrom.getId()) //
+                .withResourceIdAsString(loanApprovalMatrixFrom.getId().toString()).build();
+
+    }
+
+    @Override
+    public CommandProcessingResult deleteLoanApprovalMatrix(Long matrixId) {
+        Boolean isExtendLoanLifeCycleConfig = loanDecisionStateUtilService.getExtendLoanLifeCycleConfig().isEnabled();
+
+        if (!isExtendLoanLifeCycleConfig) {
+            throw new GeneralPlatformDomainRuleException("error.msg.Add-More-Stages-To-A-Loan-Life-Cycle.is.not.set",
+                    "Add-More-Stages-To-A-Loan-Life-Cycle settings is not set. So this operation is not permitted");
+        }
+
+        LoanApprovalMatrix loanApprovalMatrix = this.loanApprovalMatrixRepository.findById(matrixId).orElseThrow();
+
+        this.loanApprovalMatrixRepository.delete(loanApprovalMatrix);
+
+        return new CommandProcessingResultBuilder() //
+                .withEntityId(matrixId) //
+                .withResourceIdAsString(matrixId.toString()).build();
+    }
+
+    @Override
+    public CommandProcessingResult updateLoanApprovalMatrix(JsonCommand command, Long matrixId) {
+        try {
+            this.context.authenticatedUser();
+
+            Boolean isExtendLoanLifeCycleConfig = loanDecisionStateUtilService.getExtendLoanLifeCycleConfig().isEnabled();
+
+            if (!isExtendLoanLifeCycleConfig) {
+                throw new GeneralPlatformDomainRuleException("error.msg.Add-More-Stages-To-A-Loan-Life-Cycle.is.not.set",
+                        "Add-More-Stages-To-A-Loan-Life-Cycle settings is not set. So this operation is not permitted");
+            }
+            this.loanDecisionTransitionApiJsonValidator.validateUpdateApprovalMatrix(command.json());
+
+            LoanApprovalMatrix loanApprovalMatrix = this.loanApprovalMatrixRepository.findById(matrixId).orElseThrow();
+
+            final String currency = command.stringValueOfParameterNamed(LoanApprovalMatrixConstants.currencyParameterName);
+
+            if (!currency.equals(loanApprovalMatrix.getCurrency())) {
+                LoanApprovalMatrix matrixCurrency = this.loanApprovalMatrixRepository.findLoanApprovalMatrixByCurrency(currency);
+
+                if (matrixCurrency != null && !matrixCurrency.getId().equals(loanApprovalMatrix.getId())) {
+                    throw new GeneralPlatformDomainRuleException("error.msg.loan.approval.matrix.with.this.currency.already.exist.", String
+                            .format("Loan Approval Matrix with Currency [ %s ] exist. Only One currency per Matrix is accepted", currency));
+                }
+            }
+
+            final Map<String, Object> changes = loanApprovalMatrix.update(command);
+
+            if (!changes.isEmpty()) {
+                this.loanApprovalMatrixRepository.saveAndFlush(loanApprovalMatrix);
+            }
+
+            return new CommandProcessingResultBuilder() //
+                    .withCommandId(command.commandId()) //
+                    .withResourceIdAsString(loanApprovalMatrix.getId().toString()) //
+                    .withEntityId(loanApprovalMatrix.getId()) //
+                    .with(changes) //
+                    .build();
+        } catch (JpaSystemException | PersistenceException ex) {
+            return CommandProcessingResult.empty();
+        }
+    }
 
     @Override
     public CommandProcessingResult acceptLoanApplicationReview(final Long loanId, final JsonCommand command) {
@@ -137,33 +227,36 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 .withResourceIdAsString(savedObj.getId().toString()).build();
     }
 
-    private void validateReviewApplicationBusinessRule(JsonCommand command, Loan loan, LoanDecision loanDecision) {
-        Boolean isExtendLoanLifeCycleConfig = loanDecisionStateUtilService.getExtendLoanLifeCycleConfig().isEnabled();
+    @Override
+    public CommandProcessingResult rejectLoanApplicationReview(final Long loanId, final JsonCommand command){
 
-        if (!isExtendLoanLifeCycleConfig) {
-            throw new GeneralPlatformDomainRuleException("error.msg.Add-More-Stages-To-A-Loan-Life-Cycle.is.not.set",
-                    "Add-More-Stages-To-A-Loan-Life-Cycle settings is not set. So this operation is not permitted");
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isReviewApplication()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.invalid.state",
+                    "Loan is not in the Review Application stage.");
         }
 
-        if (loanDecision != null) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.account.should.not.exist.in.decision.engine",
-                    "Loan Account found in decision engine. Operation [Review Application] is not allowed");
-        }
-        loanDecisionStateUtilService.checkClientOrGroupActive(loan);
+        // Delete decision and revert to initial state
+        loan.setLoanDecisionState(null);
+        loanDecisionRepository.delete(loanDecision);
 
-        loanDecisionStateUtilService.validateLoanDisbursementDataWithMeetingDate(loan);
-        loanDecisionStateUtilService.validateLoanTopUp(loan);
-
-        LocalDate loanReviewOnDate = command.localDateValueOfParameterNamed(LoanApiConstants.loanReviewOnDateParameterName);
-        if (loanReviewOnDate.isBefore(loan.getSubmittedOnDate())) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.review.application.date.should.be.after.submission.date",
-                    "Loan Review Application date " + loanReviewOnDate + " should be after submission date " + loan.getSubmittedOnDate());
+        // Add and save the note
+        if (StringUtils.isNotBlank(command.stringValueOfParameterNamed("note"))) {
+            final Note note = Note.loanNote(loan, "Review Application Rejected: " + command.stringValueOfParameterNamed("note"));
+            this.noteRepository.save(note);
         }
 
-        if (!loan.status().isSubmittedAndPendingApproval()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.current.status.is.invalid",
-                    "Loan Account current status is invalid. Expected" + loan.status().getCode() + " but found " + loan.status().getCode());
-        }
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loan.getId())
+                .withLoanId(loanId)
+                .build();
     }
 
     @Override
@@ -296,12 +389,40 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 .withResourceIdAsString(savedObj.getId().toString()).build();
     }
 
-    private static void validateRecommendedAmountShouldNotBeGreaterThanProposedAmount(BigDecimal proposedAmount,
-            BigDecimal recommendedAmount) {
-        if (recommendedAmount.compareTo(proposedAmount) > 0) {
-            throw new PlatformDataIntegrityException("error.msg.loan.recommended.amount.cannot.be.greater.than.applied.amount",
-                    "Recommended amount cannot be greater than the Applied amount", proposedAmount);
+    @Override
+    public CommandProcessingResult rejectDueDiligence(Long loanId, JsonCommand command){
+        final AppUser currentUser = getAppUserIfPresent();
+
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isDueDiligence()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.invalid.state",
+                    "Loan is not in the Due Diligence stage.");
         }
+
+        // Revert to the previous stage
+        loan.setLoanDecisionState(LoanDecisionState.REVIEW_APPLICATION.getValue());
+        loanDecision.setLoanDecisionState(LoanDecisionState.REVIEW_APPLICATION.getValue());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.DUE_DILIGENCE.getValue());
+        loanDecision.setRejectDueDiligence(true);
+
+        // Add and save the note
+        if (StringUtils.isNotBlank(command.stringValueOfParameterNamed("note"))) {
+            final Note note = Note.loanNote(loan, "Due Diligence Rejected: " + command.stringValueOfParameterNamed("note"));
+            this.noteRepository.save(note);
+        }
+
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanDecisionRepository.saveAndFlush(loanDecision);
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loan.getId())
+                .withLoanId(loanId)
+                .build();
     }
 
     @Override
@@ -342,93 +463,38 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     }
 
     @Override
-    public CommandProcessingResult createLoanApprovalMatrix(JsonCommand command) {
+    public CommandProcessingResult rejectLoanCollateralReview(Long loanId, JsonCommand command){
+        final AppUser currentUser = getAppUserIfPresent();
 
-        Boolean isExtendLoanLifeCycleConfig = loanDecisionStateUtilService.getExtendLoanLifeCycleConfig().isEnabled();
-        if (!isExtendLoanLifeCycleConfig) {
-            throw new GeneralPlatformDomainRuleException("error.msg.Add-More-Stages-To-A-Loan-Life-Cycle.is.not.set",
-                    "Add-More-Stages-To-A-Loan-Life-Cycle settings is not set. So this operation is not permitted");
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isDueDiligence()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.invalid.state",
+                    "Loan is not in the Collateral Review stage.");
         }
 
-        this.loanDecisionTransitionApiJsonValidator.validateCreateApprovalMatrix(command.json());
+        // Revert to the previous stage
+        loan.setLoanDecisionState(LoanDecisionState.DUE_DILIGENCE.getValue());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.COLLATERAL_REVIEW.getValue());
+        loanDecision.setRejectCollateralReviewSigned(true);
 
-        final String currency = command.stringValueOfParameterNamed(LoanApprovalMatrixConstants.currencyParameterName);
-        LoanApprovalMatrix loanApprovalMatrix = this.loanApprovalMatrixRepository.findLoanApprovalMatrixByCurrency(currency);
-
-        if (loanApprovalMatrix != null) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.approval.matrix.with.this.currency.already.exist.",
-                    String.format("Loan Approval Matrix with Currency [ %s ] exist. Only One currency per Matrix is accepted", currency));
+        // Add and save the note
+        if (StringUtils.isNotBlank(command.stringValueOfParameterNamed("note"))) {
+            final Note note = Note.loanNote(loan, "Collateral Review Rejected: " + command.stringValueOfParameterNamed("note"));
+            this.noteRepository.save(note);
         }
 
-        LoanApprovalMatrix loanApprovalMatrixFrom = loanDecisionAssembler.assembleLoanApprovalMatrixFrom(command);
-        this.loanApprovalMatrixRepository.saveAndFlush(loanApprovalMatrixFrom);
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanDecisionRepository.saveAndFlush(loanDecision);
 
-        return new CommandProcessingResultBuilder() //
-                .withCommandId(command.commandId()) //
-                .withEntityId(loanApprovalMatrixFrom.getId()) //
-                .withResourceIdAsString(loanApprovalMatrixFrom.getId().toString()).build();
-
-    }
-
-    @Override
-    public CommandProcessingResult deleteLoanApprovalMatrix(Long matrixId) {
-        Boolean isExtendLoanLifeCycleConfig = loanDecisionStateUtilService.getExtendLoanLifeCycleConfig().isEnabled();
-
-        if (!isExtendLoanLifeCycleConfig) {
-            throw new GeneralPlatformDomainRuleException("error.msg.Add-More-Stages-To-A-Loan-Life-Cycle.is.not.set",
-                    "Add-More-Stages-To-A-Loan-Life-Cycle settings is not set. So this operation is not permitted");
-        }
-
-        LoanApprovalMatrix loanApprovalMatrix = this.loanApprovalMatrixRepository.findById(matrixId).orElseThrow();
-
-        this.loanApprovalMatrixRepository.delete(loanApprovalMatrix);
-
-        return new CommandProcessingResultBuilder() //
-                .withEntityId(matrixId) //
-                .withResourceIdAsString(matrixId.toString()).build();
-    }
-
-    @Override
-    public CommandProcessingResult updateLoanApprovalMatrix(JsonCommand command, Long matrixId) {
-        try {
-            this.context.authenticatedUser();
-
-            Boolean isExtendLoanLifeCycleConfig = loanDecisionStateUtilService.getExtendLoanLifeCycleConfig().isEnabled();
-
-            if (!isExtendLoanLifeCycleConfig) {
-                throw new GeneralPlatformDomainRuleException("error.msg.Add-More-Stages-To-A-Loan-Life-Cycle.is.not.set",
-                        "Add-More-Stages-To-A-Loan-Life-Cycle settings is not set. So this operation is not permitted");
-            }
-            this.loanDecisionTransitionApiJsonValidator.validateUpdateApprovalMatrix(command.json());
-
-            LoanApprovalMatrix loanApprovalMatrix = this.loanApprovalMatrixRepository.findById(matrixId).orElseThrow();
-
-            final String currency = command.stringValueOfParameterNamed(LoanApprovalMatrixConstants.currencyParameterName);
-
-            if (!currency.equals(loanApprovalMatrix.getCurrency())) {
-                LoanApprovalMatrix matrixCurrency = this.loanApprovalMatrixRepository.findLoanApprovalMatrixByCurrency(currency);
-
-                if (matrixCurrency != null && !matrixCurrency.getId().equals(loanApprovalMatrix.getId())) {
-                    throw new GeneralPlatformDomainRuleException("error.msg.loan.approval.matrix.with.this.currency.already.exist.", String
-                            .format("Loan Approval Matrix with Currency [ %s ] exist. Only One currency per Matrix is accepted", currency));
-                }
-            }
-
-            final Map<String, Object> changes = loanApprovalMatrix.update(command);
-
-            if (!changes.isEmpty()) {
-                this.loanApprovalMatrixRepository.saveAndFlush(loanApprovalMatrix);
-            }
-
-            return new CommandProcessingResultBuilder() //
-                    .withCommandId(command.commandId()) //
-                    .withResourceIdAsString(loanApprovalMatrix.getId().toString()) //
-                    .withEntityId(loanApprovalMatrix.getId()) //
-                    .with(changes) //
-                    .build();
-        } catch (JpaSystemException | PersistenceException ex) {
-            return CommandProcessingResult.empty();
-        }
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loan.getId())
+                .withLoanId(loanId)
+                .build();
     }
 
     @Override
@@ -525,6 +591,49 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     }
 
     @Override
+    public CommandProcessingResult rejectIcReviewDecisionLevelOne(Long loanId, JsonCommand command) {
+        final AppUser currentUser = getAppUserIfPresent();
+
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelOne()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    "Loan Decision state is invalid for reject operation. Expected IC_REVIEW_LEVEL_ONE.");
+        }
+
+        // Revert to the previous stage
+        loan.setLoanDecisionState(LoanDecisionState.DUE_DILIGENCE.getValue());
+        loanDecision.setLoanDecisionState(LoanDecisionState.DUE_DILIGENCE.getValue());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+        loanDecision.setRejectIcReviewDecisionLevelOneSigned(true);
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level One : " + noteText);
+            this.noteRepository.save(note);
+        }
+
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanDecisionRepository.saveAndFlush(loanDecision);
+
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
+                .build();
+    }
+
+    @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelTwo(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
 
@@ -615,6 +724,49 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 .withGroupId(loan.getGroupId()) //
                 .withLoanId(loanId) //
                 .withResourceIdAsString(savedObj.getId().toString()).build();
+    }
+
+    @Override
+    public CommandProcessingResult rejectIcReviewDecisionLevelTwo(Long loanId, JsonCommand command) {
+        final AppUser currentUser = getAppUserIfPresent();
+
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelTwo()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    "Loan Decision state is invalid for reject operation. Expected IC_REVIEW_LEVEL_TWO.");
+        }
+
+        // Revert to the previous stage
+        loan.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+        loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue());
+        loanDecision.setRejectIcReviewDecisionLevelTwoSigned(true);
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level Two : " + noteText);
+            this.noteRepository.save(note);
+        }
+
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanDecisionRepository.saveAndFlush(loanDecision);
+
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
+                .build();
     }
 
     @Override
@@ -711,6 +863,49 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     }
 
     @Override
+    public CommandProcessingResult rejectIcReviewDecisionLevelThree(Long loanId, JsonCommand command) {
+        final AppUser currentUser = getAppUserIfPresent();
+
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelThree()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    "Loan Decision state is invalid for reject operation. Expected IC_REVIEW_LEVEL_THREE.");
+        }
+
+        // Revert to the previous stage
+        loan.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue());
+        loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
+        loanDecision.setRejectIcReviewDecisionLevelThreeSigned(true);
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level Three : " + noteText);
+            this.noteRepository.save(note);
+        }
+
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanDecisionRepository.saveAndFlush(loanDecision);
+
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
+                .build();
+    }
+
+    @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelFour(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
 
@@ -804,6 +999,49 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     }
 
     @Override
+    public CommandProcessingResult rejectIcReviewDecisionLevelFour(Long loanId, JsonCommand command) {
+        final AppUser currentUser = getAppUserIfPresent();
+
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelFour()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    "Loan Decision state is invalid for reject operation. Expected IC_REVIEW_LEVEL_FOUR.");
+        }
+
+        // Revert to the previous stage
+        loan.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
+        loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FOUR.getValue());
+        loanDecision.setRejectIcReviewDecisionLevelFourSigned(true);
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level Four : " + noteText);
+            this.noteRepository.save(note);
+        }
+
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanDecisionRepository.saveAndFlush(loanDecision);
+
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
+                .build();
+    }
+
+    @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelFive(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
 
@@ -891,6 +1129,49 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     }
 
     @Override
+    public CommandProcessingResult rejectIcReviewDecisionLevelFive(Long loanId, JsonCommand command) {
+        final AppUser currentUser = getAppUserIfPresent();
+
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelFive()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    "Loan Decision state is invalid for reject operation. Expected IC_REVIEW_LEVEL_FIVE.");
+        }
+
+        // Revert to the previous stage
+        loan.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FOUR.getValue());
+        loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FOUR.getValue());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue());
+        loanDecision.setRejectIcReviewDecisionLevelFiveSigned(true);
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level Five : " + noteText);
+            this.noteRepository.save(note);
+        }
+
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanDecisionRepository.saveAndFlush(loanDecision);
+
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
+                .build();
+    }
+
+    @Override
     public CommandProcessingResult acceptPrepareAndSignContract(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
 
@@ -918,6 +1199,8 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         LoanDecision loanDecisionObj = loanDecisionAssembler.assemblePrepareAndSignContractFrom(command, currentUser, loanDecision);
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecisionObj);
 
+        savedObj.setPreviousLoanIcReviewDecisionState(loan.getLoanDecisionState());
+
         Loan loanObj = loan;
         loanObj.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
@@ -935,6 +1218,49 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 .withGroupId(loan.getGroupId()) //
                 .withLoanId(loanId) //
                 .withResourceIdAsString(savedObj.getId().toString()).build();
+    }
+
+    @Override
+    public CommandProcessingResult rejectPrepareAndSignContract(Long loanId, JsonCommand command) {
+        final AppUser currentUser = getAppUserIfPresent();
+
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelOne()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    "Loan Decision state is invalid for reject operation. Expected PREPARE_AND_SIGN_CONTRACT.");
+        }
+
+        // Revert to the previous stage
+        loan.setLoanDecisionState(loanDecision.getPreviousLoanIcReviewDecisionState());
+        loanDecision.setLoanDecisionState(loanDecision.getPreviousLoanIcReviewDecisionState());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        loanDecision.setRejectPrepareAndSignContractSigned(true);
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            final Note note = Note.loanNote(loan, "Reject Prepare and Sign Contract : " + noteText);
+            this.noteRepository.save(note);
+        }
+
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanDecisionRepository.saveAndFlush(loanDecision);
+
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
+                .build();
     }
 
     private void validateDueDiligenceBusinessRule(JsonCommand command, Loan loan, LoanDecision loanDecision) {
@@ -980,6 +1306,42 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                     "Loan Account Decision state Does not reconcile . Operation is terminated");
         }
 
+    }
+
+    private void validateReviewApplicationBusinessRule(JsonCommand command, Loan loan, LoanDecision loanDecision) {
+        Boolean isExtendLoanLifeCycleConfig = loanDecisionStateUtilService.getExtendLoanLifeCycleConfig().isEnabled();
+
+        if (!isExtendLoanLifeCycleConfig) {
+            throw new GeneralPlatformDomainRuleException("error.msg.Add-More-Stages-To-A-Loan-Life-Cycle.is.not.set",
+                    "Add-More-Stages-To-A-Loan-Life-Cycle settings is not set. So this operation is not permitted");
+        }
+
+        if (loanDecision != null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.account.should.not.exist.in.decision.engine",
+                    "Loan Account found in decision engine. Operation [Review Application] is not allowed");
+        }
+        loanDecisionStateUtilService.checkClientOrGroupActive(loan);
+
+        loanDecisionStateUtilService.validateLoanDisbursementDataWithMeetingDate(loan);
+        loanDecisionStateUtilService.validateLoanTopUp(loan);
+
+        LocalDate loanReviewOnDate = command.localDateValueOfParameterNamed(LoanApiConstants.loanReviewOnDateParameterName);
+        if (loanReviewOnDate.isBefore(loan.getSubmittedOnDate())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.review.application.date.should.be.after.submission.date",
+                    "Loan Review Application date " + loanReviewOnDate + " should be after submission date " + loan.getSubmittedOnDate());
+        }
+
+        if (!loan.status().isSubmittedAndPendingApproval()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.current.status.is.invalid",
+                    "Loan Account current status is invalid. Expected" + loan.status().getCode() + " but found " + loan.status().getCode());
+        }
+    }
+
+    private static void validateRecommendedAmountShouldNotBeGreaterThanProposedAmount(BigDecimal proposedAmount, BigDecimal recommendedAmount) {
+        if (recommendedAmount.compareTo(proposedAmount) > 0) {
+            throw new PlatformDataIntegrityException("error.msg.loan.recommended.amount.cannot.be.greater.than.applied.amount",
+                    "Recommended amount cannot be greater than the Applied amount", proposedAmount);
+        }
     }
 
     private AppUser getAppUserIfPresent() {
