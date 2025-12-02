@@ -104,7 +104,11 @@ public class CommandStrategyProvider {
                 "disburseLoanCommandStrategy");
         this.commandStrategies.put(CommandContext.resource("loans\\/\\d+\\?command=disbursementpreapprovalrequest").method("POST").build(),
                 "disburseLoanCommandStrategy");
-        this.commandStrategies.put(CommandContext.resource("loans\\/\\d+\\?command= disbursementRequest").method("POST").build(),
+        this.commandStrategies.put(CommandContext.resource("loans\\/\\d+\\?command=disbursementapproval").method("POST").build(),
+                "disburseLoanCommandStrategy");
+        this.commandStrategies.put(CommandContext.resource("loans\\/\\d+\\?command=disbursementRequest").method("POST").build(),
+                "disburseLoanCommandStrategy");
+        this.commandStrategies.put(CommandContext.resource("loans\\/\\d+\\?command=disbursementreject").method("POST").build(),
                 "disburseLoanCommandStrategy");
         this.commandStrategies.put(CommandContext.resource("rescheduleloans\\/\\d+\\?command=approve").method("POST").build(),
                 "approveLoanRescheduleCommandStrategy");

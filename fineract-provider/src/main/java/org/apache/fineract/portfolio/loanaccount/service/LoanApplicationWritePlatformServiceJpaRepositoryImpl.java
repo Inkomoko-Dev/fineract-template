@@ -1665,37 +1665,56 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 loan.adjustNetDisbursalAmount(netDisbursalAmount);
             }
 
+            if (!loan.loanProduct().isMultiDisburseLoan()) {
 
-            final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
-            final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
-            final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
+                final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
+                final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
+                final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
 
-            BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
-            BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
+                BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
+                BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
 
-            // Create new disbursement detail entry
-            LoanDisbursementDetails disbursementDetail = new LoanDisbursementDetails(
-                   expectedDisbursementDate,
-                    null, // actual disbursement date (will be filled later)
-                    loan.getProposedPrincipal(),
-                    netDisbursementAmount
-            );
+                // ------------------------------
+                // 1. FIND EXISTING DETAIL
+                // ------------------------------
 
-            disbursementDetail.updateLoan(loan);
-            disbursementDetail.setPaymentType(paymentType);
-            disbursementDetail.setAccountNumber(clientAccountNumber);
-            disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
-            disbursementDetail.setClientBankName(clientBankName);
+                LoanDisbursementDetails disbursementDetail = loan.getDisbursementDetails()
+                        .stream()
+                        .findFirst()
+                        .orElse(null);
 
+                // ------------------------------
+                // 2. IF NOT FOUND, CREATE A NEW ONE
+                // ------------------------------
+                if (disbursementDetail == null) {
+                    disbursementDetail = new LoanDisbursementDetails(
+                            expectedDisbursementDate,
+                            null, // actual disbursement date (will be filled later)
+                            loan.getProposedPrincipal(),
+                            netDisbursementAmount
+                    );
 
-            loan.getDisbursementDetails().add(disbursementDetail);
+                    disbursementDetail.updateLoan(loan);
+                    loan.getDisbursementDetails().add(disbursementDetail);
+                }
+
+                // ------------------------------
+                // 3. UPDATE PROPERTIES (ALWAYS)
+                // ------------------------------
+                disbursementDetail.setPaymentType(paymentType);
+                disbursementDetail.setAccountNumber(clientAccountNumber);
+                disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
+                disbursementDetail.setClientBankName(clientBankName);
+                disbursementDetail.setExpectedDisbursementDate(expectedDisbursementDate);
+
+            }
 
             saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
             final String noteText = command.stringValueOfParameterNamed("note");
             if (StringUtils.isNotBlank(noteText)) {
                 final Note note = Note.loanNote(loan, noteText);
-                changes.put("note", noteText);
+                changes.put("note", "Loan Approval: " +noteText);
                 this.noteRepository.save(note);
             }
 
