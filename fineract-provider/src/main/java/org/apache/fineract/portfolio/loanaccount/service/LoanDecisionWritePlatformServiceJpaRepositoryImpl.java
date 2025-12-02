@@ -1228,16 +1228,14 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
 
-        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isPrepareAndSignContract()) {
+        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelOne()) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
                     "Loan Decision state is invalid for reject operation. Expected PREPARE_AND_SIGN_CONTRACT.");
         }
 
         // Revert to the previous stage
-        Integer previousLoanDecisionState = loanDecision.getPreviousLoanIcReviewDecisionState();
-
-        loan.setLoanDecisionState(previousLoanDecisionState);
-        loanDecision.setLoanDecisionState(previousLoanDecisionState);
+        loan.setLoanDecisionState(loanDecision.getPreviousLoanIcReviewDecisionState());
+        loanDecision.setLoanDecisionState(loanDecision.getPreviousLoanIcReviewDecisionState());
         loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
         loanDecision.setRejectPrepareAndSignContractSigned(true);
 
