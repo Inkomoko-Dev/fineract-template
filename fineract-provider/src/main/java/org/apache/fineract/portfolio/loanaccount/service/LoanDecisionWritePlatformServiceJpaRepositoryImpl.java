@@ -252,10 +252,17 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         // Save changes
         this.loanRepositoryWrapper.saveAndFlush(loan);
 
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
-                .withEntityId(loan.getId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
                 .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
     }
 
@@ -418,10 +425,17 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanRepositoryWrapper.saveAndFlush(loan);
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
-                .withEntityId(loan.getId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
                 .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
     }
 
@@ -490,10 +504,17 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanRepositoryWrapper.saveAndFlush(loan);
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
-                .withEntityId(loan.getId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
                 .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
     }
 
