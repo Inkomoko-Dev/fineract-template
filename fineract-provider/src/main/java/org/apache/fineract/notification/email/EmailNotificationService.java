@@ -139,10 +139,10 @@ public class EmailNotificationService {
     }
 
     private void sendLoanDecisionRejectNotification(Loan loan, LoanDecision loanDecision) {
-        Integer state = loanDecision.getNextLoanIcReviewDecisionState();
+        Integer state = loanDecision.getLoanDecisionState();
         if (state == null) return;
 
-        AppUser approver = getNextApprover(loanDecision,state);
+        AppUser approver = getApprover(loanDecision);
 
         if (approver != null && StringUtils.isNotBlank(approver.getEmail())) {
             EmailDetail emailDetail;
@@ -177,14 +177,13 @@ public class EmailNotificationService {
                 """
                         Dear %s,<br><br>
 
-                        %s for account <strong>%s</strong>, client <strong>%s</strong>, was REJECTED and returned to you.<br><br>
+                        A business loan request for account <strong>%s</strong>, client <strong>%s</strong>, was REJECTED and returned to you.<br><br>
 
                         Please <a href="%s">log in </a> to the system to review and take the next action.<br><br>
                         
                         Kind Regards.
                 """,
                 user.getDisplayName(),
-                LoanDecisionState.fromInt(state).toString(),
                 loan.getAccountNumber(),
                 loan.getClient().getDisplayName(),
                 loanUrl
