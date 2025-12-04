@@ -419,7 +419,7 @@ public class OdooServiceImpl implements OdooService {
             journalData.setLocation(location);
 
             journalEntryToOdooData.setResource(journalData);
-            journalEntryToOdooData.setLocalIP(localIpAddress);
+            journalEntryToOdooData.setLocalIp(localIpAddress);
 
             LOG.info("Journal Entry to Odoo " + journalEntryToOdooData);
             String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
