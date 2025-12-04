@@ -32,4 +32,7 @@ public interface ClientAddressRepository extends JpaRepository<ClientAddress, Lo
 
     @Query("SELECT clientAddress FROM ClientAddress clientAddress WHERE clientAddress.client.id = :clientId AND clientAddress.address.id = :addressId ")
     ClientAddress findByClientIdAndAddressId(@Param("clientId") long clientId, @Param("addressId") long addressId);
+
+    @Query("SELECT clientAddress FROM ClientAddress clientAddress JOIN FETCH clientAddress.address WHERE clientAddress.client.id = :clientId")
+    List<ClientAddress> findAddressByClientId(@Param("clientId") Long clientId);
 }
