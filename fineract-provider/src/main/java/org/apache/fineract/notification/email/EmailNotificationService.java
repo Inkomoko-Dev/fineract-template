@@ -31,6 +31,7 @@ import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifier
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
+import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.jetbrains.annotations.NotNull;
@@ -67,9 +68,9 @@ public class EmailNotificationService {
         if (nextApprover != null && StringUtils.isNotBlank(nextApprover.getEmail())) {
             EmailDetail emailDetail;
             if (nextStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())){
-                emailDetail = getLoanOfficerEmail(loan, nextStage, nextApprover);
+                emailDetail = getLoanOfficerEmail(loan, nextStage, nextApprover, note);
             }else {
-                emailDetail = getLoanDecisionApproverEmail(loan, nextStage, nextApprover);
+                emailDetail = getLoanDecisionApproverEmail(loan, nextStage, nextApprover, note);
             }
             emailService.sendDefinedEmail(emailDetail);
         }
@@ -89,7 +90,7 @@ public class EmailNotificationService {
     }
 
     @NotNull
-    private EmailDetail getLoanDecisionApproverEmail(Loan loan, Integer nextStage, AppUser nextApprover) {
+    private EmailDetail getLoanDecisionApproverEmail(Loan loan, Integer nextStage, AppUser nextApprover, Note note) {
         String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
         String subject = "Loan Approval Required: Stage " + LoanDecisionState.fromInt(nextStage).toString();
         String body = String.format(
@@ -111,7 +112,7 @@ public class EmailNotificationService {
     }
 
     @NotNull
-    private EmailDetail getLoanOfficerEmail(Loan loan, Integer nextStage, AppUser nextApprover) {
+    private EmailDetail getLoanOfficerEmail(Loan loan, Integer nextStage, AppUser nextApprover, Note note) {
         String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
         String subject = "Loan Action Required: Stage " + LoanDecisionState.fromInt(nextStage).toString();
         String body = String.format(
@@ -151,7 +152,7 @@ public class EmailNotificationService {
                 """
                         Dear %s,<br><br>
 
-                        %s for account <strong>%s</strong>, client <strong>%s</strong>, was returned to you.<br>
+                        %s for account <strong>%s</strong>, client <strong>%s</strong>, wasnreturned to you.<br>
                         Note: %s <br><br>
 
                         Please <a href="%s">log in </a> to the system to review and take the next action.<br><br>
@@ -162,7 +163,7 @@ public class EmailNotificationService {
                 LoanDecisionState.fromInt(state).toString(),
                 loan.getAccountNumber(),
                 loan.getClient().getDisplayName(),
-                note.getNote(),
+                note,
                 loanUrl
         );
         return new EmailDetail(subject,body, user.getEmail(), user.getDisplayName());

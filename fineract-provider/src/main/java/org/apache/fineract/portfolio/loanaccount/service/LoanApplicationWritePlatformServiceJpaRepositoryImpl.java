@@ -82,6 +82,7 @@ import org.apache.fineract.portfolio.account.service.AccountAssociationsReadPlat
 import org.apache.fineract.portfolio.accountdetails.domain.AccountType;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanApprovedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanCreatedBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDecisionAcceptedEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanRejectedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanUndoApprovalBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
@@ -1835,7 +1836,6 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 break;
                 case IC_REVIEW_LEVEL_FOUR:
                     changes = rejectLoanAccountForIcReviewLevelFive(command, currentUser, loan);
-
                 break;
                 default:
                     changes = rejectLoanAccountParentStatus(command, currentUser, loan);
@@ -1897,11 +1897,14 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelFiveNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level Five : " + loanDecisionObj.getIcReviewDecisionLevelFiveNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
+//        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         // By Default Completely Reject this Loan Account since this is a last stage of IC Review
         changes = rejectLoanAccountParentStatus(command, currentUser, loan);
         return changes;
@@ -1944,14 +1947,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FOUR.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelFourNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level Four : " + loanDecisionObj.getIcReviewDecisionLevelFourNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
         // If the next state is outside the IC Review, then reject the loan account completely
         if (loanDecisionObj.getNextLoanIcReviewDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
             changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        }else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         }
         return changes;
     }
@@ -1993,14 +2000,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
-        if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelThreeNote())) {
-            final Note note = Note.loanNote(loanObj,
+        Note note = null;
+        if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelThreeNote())) {note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level Three : " + loanDecisionObj.getIcReviewDecisionLevelThreeNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
         // If the next state is outside the IC Review, then reject the loan account completely
         if (loanDecisionObj.getNextLoanIcReviewDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
             changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        }
+        else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         }
         return changes;
     }
@@ -2043,14 +2054,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelTwoNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level Two : " + loanDecisionObj.getIcReviewDecisionLevelTwoNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
         // If the next state is outside the IC Review, then reject the loan account completely
         if (loanDecisionObj.getNextLoanIcReviewDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
             changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        }else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         }
         return changes;
     }
@@ -2089,15 +2104,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         Loan loanObj = loan;
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
-
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelOneNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level One : " + loanDecisionObj.getIcReviewDecisionLevelOneNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
         // If the next state is outside the IC Review, then reject the loan account completely
         if (loanDecisionObj.getNextLoanIcReviewDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
             changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        }else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         }
         return changes;
     }
@@ -2110,7 +2128,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             final String noteText = command.stringValueOfParameterNamed("note");
             this.loanRepositoryWrapper.saveAndFlush(loan);
             if (StringUtils.isNotBlank(noteText)) {
-                final Note note = Note.loanNote(loan, noteText);
+                final Note note = Note.loanNote(loan, "Loan Rejected: " + noteText);
                 this.noteRepository.save(note);
             }
         }

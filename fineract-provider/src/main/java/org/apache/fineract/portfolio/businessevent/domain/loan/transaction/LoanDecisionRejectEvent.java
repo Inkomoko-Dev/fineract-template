@@ -22,6 +22,7 @@ import lombok.Getter;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanBusinessEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.note.domain.Note;
 
 import org.apache.fineract.portfolio.note.domain.Note;
 
