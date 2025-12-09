@@ -22,15 +22,18 @@ import lombok.Getter;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanBusinessEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.note.domain.Note;
 
 @Getter
 public class LoanDecisionRejectEvent extends LoanBusinessEvent {
 
     private final LoanDecision loanDecision;
+    private final Note note;
 
-    public LoanDecisionRejectEvent(Loan loan, LoanDecision loanDecision) {
+    public LoanDecisionRejectEvent(Loan loan, LoanDecision loanDecision, Note note) {
         super(loan);
         this.loanDecision = loanDecision;
+        this.note = note;
     }
 
 }

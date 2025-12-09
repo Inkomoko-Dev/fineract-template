@@ -21,15 +21,18 @@ package org.apache.fineract.portfolio.businessevent.domain.loan;
 import lombok.Getter;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.note.domain.Note;
 
 @Getter
 public class LoanDecisionAcceptedEvent extends LoanBusinessEvent{
 
     private final LoanDecision loanDecision;
+    private final Note note;
 
-    public LoanDecisionAcceptedEvent(Loan loan, LoanDecision loanDecision) {
+    public LoanDecisionAcceptedEvent(Loan loan, LoanDecision loanDecision, Note note) {
         super(loan);
         this.loanDecision = loanDecision;
+        this.note = note;
     }
 }
 

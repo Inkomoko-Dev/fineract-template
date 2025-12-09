@@ -209,13 +209,14 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanObj.setLoanDecisionState(LoanDecisionState.REVIEW_APPLICATION.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getReviewApplicationNote())) {
-            final Note note = Note.loanNote(loanObj, "Review Application: " + loanDecisionObj.getReviewApplicationNote());
+            note = Note.loanNote(loanObj, "Review Application: " + loanDecisionObj.getReviewApplicationNote());
             this.noteRepository.save(note);
         }
 
         this.businessEventNotifierService.notifyPostBusinessEvent(
-                new LoanDecisionAcceptedEvent(loan, savedObj));
+                new LoanDecisionAcceptedEvent(loan, savedObj, note));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -243,9 +244,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loan.setLoanDecisionState(null);
         loanDecisionRepository.delete(loanDecision);
 
+        Note note = null;
         // Add and save the note
         if (StringUtils.isNotBlank(command.stringValueOfParameterNamed("note"))) {
-            final Note note = Note.loanNote(loan, "Review Application Rejected: " + command.stringValueOfParameterNamed("note"));
+            note = Note.loanNote(loan, "Review Application Returned: " + command.stringValueOfParameterNamed("note"));
             this.noteRepository.save(note);
         }
 
@@ -253,7 +255,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanRepositoryWrapper.saveAndFlush(loan);
 
         // Notify business event
-        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
@@ -375,8 +377,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanObj.setLoanDecisionState(LoanDecisionState.DUE_DILIGENCE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getDueDiligenceNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Due Diligence : " + loanDecisionObj.getDueDiligenceNote() + " Recommended Amount : " + recommendedAmount + " "
                             + loan.getCurrencyCode() + " Loan Term : " + termFrequency + " "
                             + PeriodFrequencyType.fromInt(termPeriodFrequencyEnum));
@@ -384,7 +387,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         }
 
         this.businessEventNotifierService.notifyPostBusinessEvent(
-                new LoanDecisionAcceptedEvent(loan, savedObj));
+                new LoanDecisionAcceptedEvent(loan, savedObj, note));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -415,9 +418,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.DUE_DILIGENCE.getValue());
         loanDecision.setRejectDueDiligence(true);
 
+        Note note = null;
         // Add and save the note
         if (StringUtils.isNotBlank(command.stringValueOfParameterNamed("note"))) {
-            final Note note = Note.loanNote(loan, "Due Diligence Rejected: " + command.stringValueOfParameterNamed("note"));
+            note = Note.loanNote(loan, "Due Diligence Returned: " + command.stringValueOfParameterNamed("note"));
             this.noteRepository.save(note);
         }
 
@@ -426,7 +430,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
         // Notify business event
-        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
@@ -458,13 +462,14 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanObj.setLoanDecisionState(LoanDecisionState.COLLATERAL_REVIEW.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getCollateralReviewNote())) {
-            final Note note = Note.loanNote(loanObj, "Collateral Review : " + loanDecisionObj.getCollateralReviewNote());
+            note = Note.loanNote(loanObj, "Collateral Review : " + loanDecisionObj.getCollateralReviewNote());
             this.noteRepository.save(note);
         }
 
         this.businessEventNotifierService.notifyPostBusinessEvent(
-                new LoanDecisionAcceptedEvent(loan, savedObj));
+                new LoanDecisionAcceptedEvent(loan, savedObj, note));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -494,9 +499,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.COLLATERAL_REVIEW.getValue());
         loanDecision.setRejectCollateralReviewSigned(true);
 
+        Note note = null;
         // Add and save the note
         if (StringUtils.isNotBlank(command.stringValueOfParameterNamed("note"))) {
-            final Note note = Note.loanNote(loan, "Collateral Review Rejected: " + command.stringValueOfParameterNamed("note"));
+            note = Note.loanNote(loan, "Collateral Review Returned: " + command.stringValueOfParameterNamed("note"));
             this.noteRepository.save(note);
         }
 
@@ -505,7 +511,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
         // Notify business event
-        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
@@ -589,8 +595,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelOneNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Approve IC Review-Decision Level One : " + loanDecisionObj.getIcReviewDecisionLevelOneNote() + " Recommended Amount : "
                             + recommendedAmount + " " + loan.getCurrencyCode() + " Loan Term : " + termFrequency + " "
                             + PeriodFrequencyType.fromInt(termPeriodFrequencyEnum));
@@ -599,7 +606,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         validateRecommendedAmountShouldNotBeGreaterThanProposedAmount(loan.getProposedPrincipal(), recommendedAmount);
 
         this.businessEventNotifierService.notifyPostBusinessEvent(
-                new LoanDecisionAcceptedEvent(loan, savedObj));
+                new LoanDecisionAcceptedEvent(loan, savedObj, note));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -630,9 +637,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
         loanDecision.setRejectIcReviewDecisionLevelOneSigned(true);
 
+        Note note = null;
         final String noteText = command.stringValueOfParameterNamed("note");
         if (StringUtils.isNotBlank(noteText)) {
-            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level One : " + noteText);
+            note = Note.loanNote(loan, "Returned IC Review-Decision Level One : " + noteText);
             this.noteRepository.save(note);
         }
 
@@ -641,7 +649,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
         // Notify business event
-        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
@@ -725,8 +733,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelTwoNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Approve IC Review-Decision Level Two : " + loanDecisionObj.getIcReviewDecisionLevelTwoNote() + " Recommended Amount : "
                             + recommendedAmount + " " + loan.getCurrencyCode() + " Loan Term : " + termFrequency + " "
                             + PeriodFrequencyType.fromInt(termPeriodFrequencyEnum));
@@ -735,7 +744,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         validateRecommendedAmountShouldNotBeGreaterThanProposedAmount(loan.getProposedPrincipal(), recommendedAmount);
 
         this.businessEventNotifierService.notifyPostBusinessEvent(
-                new LoanDecisionAcceptedEvent(loan, savedObj));
+                new LoanDecisionAcceptedEvent(loan, savedObj, note));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -766,9 +775,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue());
         loanDecision.setRejectIcReviewDecisionLevelTwoSigned(true);
 
+        Note note = null;
         final String noteText = command.stringValueOfParameterNamed("note");
         if (StringUtils.isNotBlank(noteText)) {
-            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level Two : " + noteText);
+           note = Note.loanNote(loan, "Returned IC Review-Decision Level Two : " + noteText);
             this.noteRepository.save(note);
         }
 
@@ -777,7 +787,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
         // Notify business event
-        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
@@ -861,8 +871,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelThreeNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Approve IC Review-Decision Level Three : " + loanDecisionObj.getIcReviewDecisionLevelThreeNote()
                             + " Recommended Amount : " + recommendedAmount + " " + loan.getCurrencyCode() + " Loan Term : " + termFrequency
                             + " " + PeriodFrequencyType.fromInt(termPeriodFrequencyEnum));
@@ -871,7 +882,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         validateRecommendedAmountShouldNotBeGreaterThanProposedAmount(loan.getProposedPrincipal(), recommendedAmount);
 
         this.businessEventNotifierService.notifyPostBusinessEvent(
-                new LoanDecisionAcceptedEvent(loan, savedObj));
+                new LoanDecisionAcceptedEvent(loan, savedObj, note));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -902,9 +913,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
         loanDecision.setRejectIcReviewDecisionLevelThreeSigned(true);
 
+        Note note = null;
         final String noteText = command.stringValueOfParameterNamed("note");
         if (StringUtils.isNotBlank(noteText)) {
-            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level Three : " + noteText);
+            note = Note.loanNote(loan, "Returned IC Review-Decision Level Three : " + noteText);
             this.noteRepository.save(note);
         }
 
@@ -913,7 +925,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
         // Notify business event
-        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
@@ -997,8 +1009,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FOUR.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelFourNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Approve IC Review-Decision Level Four : " + loanDecisionObj.getIcReviewDecisionLevelFourNote()
                             + " Recommended Amount : " + recommendedAmount + " " + loan.getCurrencyCode() + " Loan Term : " + termFrequency
                             + " " + PeriodFrequencyType.fromInt(termPeriodFrequencyEnum));
@@ -1007,7 +1020,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         validateRecommendedAmountShouldNotBeGreaterThanProposedAmount(loan.getProposedPrincipal(), recommendedAmount);
 
         this.businessEventNotifierService.notifyPostBusinessEvent(
-                new LoanDecisionAcceptedEvent(loan, savedObj));
+                new LoanDecisionAcceptedEvent(loan, savedObj, note));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -1038,9 +1051,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FOUR.getValue());
         loanDecision.setRejectIcReviewDecisionLevelFourSigned(true);
 
+        Note note = null;
         final String noteText = command.stringValueOfParameterNamed("note");
         if (StringUtils.isNotBlank(noteText)) {
-            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level Four : " + noteText);
+            note = Note.loanNote(loan, "Reject IC Review-Decision Level Four : " + noteText);
             this.noteRepository.save(note);
         }
 
@@ -1049,7 +1063,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
         // Notify business event
-        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
@@ -1127,8 +1141,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelFiveNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Approve IC Review-Decision Level Five : " + loanDecisionObj.getIcReviewDecisionLevelFiveNote()
                             + " Recommended Amount : " + recommendedAmount + " " + loan.getCurrencyCode() + " Loan Term : " + termFrequency
                             + " " + PeriodFrequencyType.fromInt(termPeriodFrequencyEnum));
@@ -1137,7 +1152,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         validateRecommendedAmountShouldNotBeGreaterThanProposedAmount(loan.getProposedPrincipal(), recommendedAmount);
 
         this.businessEventNotifierService.notifyPostBusinessEvent(
-                new LoanDecisionAcceptedEvent(loan, savedObj));
+                new LoanDecisionAcceptedEvent(loan, savedObj, note));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -1168,9 +1183,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue());
         loanDecision.setRejectIcReviewDecisionLevelFiveSigned(true);
 
+        Note note = null;
         final String noteText = command.stringValueOfParameterNamed("note");
         if (StringUtils.isNotBlank(noteText)) {
-            final Note note = Note.loanNote(loan, "Reject IC Review-Decision Level Five : " + noteText);
+            note = Note.loanNote(loan, "Returned IC Review-Decision Level Five : " + noteText);
             this.noteRepository.save(note);
         }
 
@@ -1179,7 +1195,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
         // Notify business event
-        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
@@ -1226,8 +1242,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanObj.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note;
         if (StringUtils.isNotBlank(loanDecisionObj.getPrepareAndSignContractNote())) {
-            final Note note = Note.loanNote(loanObj, "Prepare And Sign Contract : " + loanDecisionObj.getPrepareAndSignContractNote());
+            note = Note.loanNote(loanObj, "Prepare And Sign Contract : " + loanDecisionObj.getPrepareAndSignContractNote());
             this.noteRepository.save(note);
         }
 
@@ -1260,9 +1277,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
         loanDecision.setRejectPrepareAndSignContractSigned(true);
 
+        Note note = null;
         final String noteText = command.stringValueOfParameterNamed("note");
         if (StringUtils.isNotBlank(noteText)) {
-            final Note note = Note.loanNote(loan, "Reject Prepare and Sign Contract : " + noteText);
+            note = Note.loanNote(loan, "Returned Prepare and Sign Contract : " + noteText);
             this.noteRepository.save(note);
         }
 
@@ -1271,7 +1289,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.loanDecisionRepository.saveAndFlush(loanDecision);
 
         // Notify business event
-        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision));
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
