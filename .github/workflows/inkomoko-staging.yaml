@@ -1,6 +1,7 @@
 name: Fineract Client Build UAT
 
 on:
+  workflow_dispatch: 
   push:
     branches:
       - inkomoko-uat
