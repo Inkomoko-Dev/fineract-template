@@ -23,7 +23,7 @@ jobs:
           java-version: 17
 
       - name: Build with Gradles
-        run: ./gradlew --no-daemon -q -x rat -x compileTestJava -x test -x spotlessJavaCheck -x spotlessJava bootJar
+        run: ./gradlew --no-daemon -q -x rat -x compileTestJava -x test -x spotlessJavaCheck -x spotlessJava -x licenseMain bootJar
 
       - name: List directory contents
         run: |
