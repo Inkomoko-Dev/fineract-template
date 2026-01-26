@@ -37,6 +37,7 @@ public class DisbursementRequestData {
     private String countryCode;
     private String location;
     private final String paymentMethod; //mandatory
+    private final Long paymentMethodId; //mandatory
     private Long partnerId;
     private final String clientPhoneNumber; //mandatory, for SMS purposes
     private final String clientAccountNumber;
@@ -46,20 +47,19 @@ public class DisbursementRequestData {
     private String narration;
     private String notifier;
     private String glCode;
-    private final Long paymentTypeId;
 
-    public DisbursementRequestData(String requestId, String loanAccount, BigDecimal amount, String currencyCode, String paymentMethod,
-            String clientPhoneNumber, String clientAccountNumber, String clientBankName, String origin, Long paymentTypeId) {
+    public DisbursementRequestData(String requestId, String loanAccount, BigDecimal amount, String currencyCode, String paymentMethod, Long paymentMethodId,
+                                   String clientPhoneNumber, String clientAccountNumber, String clientBankName, String origin, Long paymentTypeId) {
         this.requestId = requestId;
         this.externalId = loanAccount;
         this.amount = amount;
         this.currencyCode = currencyCode;
         this.paymentMethod = paymentMethod;
+        this.paymentMethodId = paymentMethodId;
         this.clientPhoneNumber = clientPhoneNumber;
         this.clientAccountNumber = clientAccountNumber;
         this.clientBankName = clientBankName;
         this.origin = origin;
-        this.paymentTypeId = paymentTypeId;
         //country/office
         //client name
     }
