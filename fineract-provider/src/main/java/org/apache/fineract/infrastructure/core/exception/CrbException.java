@@ -16,19 +16,21 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.creditbureau.service;
+package org.apache.fineract.infrastructure.core.exception;
 
-import java.util.List;
-import java.util.Collection;
-import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauData;
-import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
+public abstract class CrbException extends AbstractPlatformException {
 
-public interface CreditBureauReadPlatformService {
+    protected final String callbackId;
 
-    Collection<CreditBureauData> retrieveCreditBureau();
+    protected CrbException(String message, String callbackId) {
+        super(message,callbackId);
+        this.callbackId = callbackId;
+    }
 
-    List<CRBPostingLoggerData> retrieveCrbPostingLogs();
+    public String getCallbackId() {
+        return callbackId;
+    }
 
-    void markCRBLogAsFixed(String loanIds);
-
+    /** Message suitable for storing in CRB logs & showing to users */
+    public abstract String getUserMessage();
 }

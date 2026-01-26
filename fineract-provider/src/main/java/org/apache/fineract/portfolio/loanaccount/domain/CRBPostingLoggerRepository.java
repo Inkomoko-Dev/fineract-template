@@ -16,19 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.creditbureau.service;
+package org.apache.fineract.portfolio.loanaccount.domain;
 
-import java.util.List;
-import java.util.Collection;
-import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauData;
-import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-public interface CreditBureauReadPlatformService {
-
-    Collection<CreditBureauData> retrieveCreditBureau();
-
-    List<CRBPostingLoggerData> retrieveCrbPostingLogs();
-
-    void markCRBLogAsFixed(String loanIds);
-
+public interface CRBPostingLoggerRepository extends JpaRepository<CRBPostingLogger, Long>, JpaSpecificationExecutor<CRBPostingLogger> {
 }
