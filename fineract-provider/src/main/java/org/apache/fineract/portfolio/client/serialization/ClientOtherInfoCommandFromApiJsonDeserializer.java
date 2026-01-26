@@ -146,7 +146,7 @@ public final class ClientOtherInfoCommandFromApiJsonDeserializer {
             final Long taxIdentificationNumber = this.fromApiJsonHelper
                     .extractLongNamed(ClientApiConstants.taxIdentificationNumberParamName, element);
             baseDataValidator.reset().parameter(ClientApiConstants.taxIdentificationNumberParamName).value(taxIdentificationNumber)
-                    .notBlank().integerGreaterThanZero();
+                    .notBlank().longZeroOrGreater();
 
             if (this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.coSignors, element) != null) {
                 final String coSignors = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.coSignors, element);
