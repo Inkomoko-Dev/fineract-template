@@ -16,19 +16,17 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.creditbureau.service;
+package org.apache.fineract.infrastructure.core.exception;
 
-import java.util.List;
-import java.util.Collection;
-import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauData;
-import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
+public class CrbSystemException extends CrbException {
 
-public interface CreditBureauReadPlatformService {
+    public CrbSystemException(String message, String callbackId) {
+        super(message, callbackId);
+    }
 
-    Collection<CreditBureauData> retrieveCreditBureau();
-
-    List<CRBPostingLoggerData> retrieveCrbPostingLogs();
-
-    void markCRBLogAsFixed(String loanIds);
-
+    @Override
+    public String getUserMessage() {
+        return "TransUnion service error: " + getMessage();
+    }
 }
+

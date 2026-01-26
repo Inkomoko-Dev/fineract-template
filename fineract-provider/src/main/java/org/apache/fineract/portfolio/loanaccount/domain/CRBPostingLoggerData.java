@@ -16,48 +16,48 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.apache.fineract.portfolio.loanaccount.domain;
 
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.Table;
-import lombok.Data;
-import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
+
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.LocalDate;
 
-@Data
-@Entity
-@Table(name = "m_transunion_crb_consumer_logger")
-public class TransunionCrbConsumerLogger extends AbstractAuditableWithUTCDateTimeCustom {
+@Getter
+@Setter
+public class CRBPostingLoggerData {
 
-    private static final long serialVersionUID = 9181640245194392646L;
+    private  Long id;
+    private  String batchId;
+    private  Boolean hasPassed;
+    private  Integer loanId;
+    private  String crbResponseId;
+    private  String errorLogs;
+    private  String payload;
+    private  LocalDate date;
 
-    @Column(name = "batch_id")
-    private String batchId;
-    @Column(name = "has_passed")
-    private Boolean hasPassed;
-    @Column(name = "loan_id")
-    private Integer loanId;
-    @Column(name = "crb_response_id")
-    private String crbResponseId;
-    @Column(name = "error_logs")
-    private String errorLogs;
-    @Column(name = "pay_load")
-    private String payload;
+    public CRBPostingLoggerData() {}
 
-    @Column(name = "date")
-    private LocalDate date;
+    public CRBPostingLoggerData(
+            Long id,
+            String batchId,
+            Boolean hasPassed,
+            Integer loanId,
+            String crbResponseId,
+            String errorLogs,
+            String payload,
+            LocalDate date) {
 
-    public TransunionCrbConsumerLogger() {}
-
-    public TransunionCrbConsumerLogger(String batchId, Boolean hasPassed, Integer loanId, String crbResponseId, String errorLogs,
-            String payload) {
+        this.id = id;
         this.batchId = batchId;
         this.hasPassed = hasPassed;
         this.loanId = loanId;
         this.crbResponseId = crbResponseId;
         this.errorLogs = errorLogs;
         this.payload = payload;
+        this.date = date;
     }
 }
+
