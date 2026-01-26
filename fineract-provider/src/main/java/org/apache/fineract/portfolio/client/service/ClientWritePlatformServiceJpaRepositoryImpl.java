@@ -366,6 +366,7 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
             }
 
             if (isAddressEnabled) {
+                log.info("creating address for client id {}", newClient.getId());
                 this.addressWritePlatformService.addNewClientAddress(newClient, command);
             }
 
