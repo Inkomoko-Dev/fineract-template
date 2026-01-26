@@ -18,19 +18,22 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
+import lombok.Getter;
+import lombok.Setter;
+import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
+
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Table;
-import lombok.Data;
-import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
-
+import java.io.Serial;
 import java.time.LocalDate;
 
-@Data
+@Getter
+@Setter
 @Entity
-@Table(name = "m_transunion_crb_consumer_logger")
-public class TransunionCrbConsumerLogger extends AbstractAuditableWithUTCDateTimeCustom {
-
+@Table(name = "m_crb_posting_logger")
+public class CRBPostingLogger extends AbstractAuditableWithUTCDateTimeCustom {
+    @Serial
     private static final long serialVersionUID = 9181640245194392646L;
 
     @Column(name = "batch_id")
@@ -49,10 +52,10 @@ public class TransunionCrbConsumerLogger extends AbstractAuditableWithUTCDateTim
     @Column(name = "date")
     private LocalDate date;
 
-    public TransunionCrbConsumerLogger() {}
+    public CRBPostingLogger() {}
 
-    public TransunionCrbConsumerLogger(String batchId, Boolean hasPassed, Integer loanId, String crbResponseId, String errorLogs,
-            String payload) {
+    public CRBPostingLogger(String batchId, Boolean hasPassed, Integer loanId, String crbResponseId, String errorLogs,
+                                       String payload) {
         this.batchId = batchId;
         this.hasPassed = hasPassed;
         this.loanId = loanId;
@@ -60,4 +63,5 @@ public class TransunionCrbConsumerLogger extends AbstractAuditableWithUTCDateTim
         this.errorLogs = errorLogs;
         this.payload = payload;
     }
+
 }

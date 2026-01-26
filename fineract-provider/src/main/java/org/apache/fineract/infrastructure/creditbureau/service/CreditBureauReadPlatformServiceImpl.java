@@ -21,8 +21,14 @@ package org.apache.fineract.infrastructure.creditbureau.service;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Collection;
+import java.util.List;
+
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauData;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -33,11 +39,13 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformSecurityContext context;
+    private final LoanRepositoryWrapper loanRepositoryWrapper;
 
     @Autowired
-    public CreditBureauReadPlatformServiceImpl(final PlatformSecurityContext context, final JdbcTemplate jdbcTemplate) {
+    public CreditBureauReadPlatformServiceImpl(final PlatformSecurityContext context, final JdbcTemplate jdbcTemplate, LoanRepositoryWrapper loanRepositoryWrapper) {
         this.context = context;
         this.jdbcTemplate = jdbcTemplate;
+        this.loanRepositoryWrapper = loanRepositoryWrapper;
     }
 
     private static final class CBMapper implements RowMapper<CreditBureauData> {
@@ -57,7 +65,6 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
             final long implementationKey = rs.getLong("implementationKey");
 
             return CreditBureauData.instance(id, name, country, product, cbSummary, implementationKey);
-
         }
     }
 
@@ -70,5 +77,76 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
 
         return this.jdbcTemplate.query(sql, rm); // NOSONAR
     }
+
+    @Override
+    public List<CRBPostingLoggerData> retrieveCrbPostingLogs() {
+        final CRBPostingLoggerRowMapper rm = new CRBPostingLoggerRowMapper();
+
+        final String sql = "select "+ rm.schema() +"order by cpl.date desc";
+
+        return this.jdbcTemplate.query(sql, rm);
+    }
+
+    @Override
+    public void markCRBLogAsFixed(String loanId) {
+        Loan loan = loanRepositoryWrapper.findOneWithNotFoundDetection(Long.valueOf(loanId));
+
+        loan.setStopConsumerCreditUploadToTransUnion(Boolean.FALSE);
+        loan.setStopConsumerCreditUploadToTransUnionOn(DateUtils.getBusinessLocalDate());
+
+        loanRepositoryWrapper.saveAndFlush(loan);
+    }
+
+    private static final class CRBPostingLoggerRowMapper
+            implements RowMapper<CRBPostingLoggerData> {
+
+        public String schema() {
+            return """
+                    cpl.id as id,
+                    cpl.batch_id as batchId,
+                    cpl.has_passed as hasPassed,
+                    cpl.loan_id as loanId,
+                    cpl.crb_response_id as crbResponseId,
+                    cpl.error_logs as errorLogs,
+                    cpl.pay_load as payload,
+                    cpl.date as date,
+                    cpl.created_on_utc as createdDate,
+                    cpl.last_modified_on_utc as lastModifiedDate
+                    from m_crb_posting_logger cpl
+                    """;
+        }
+
+        @Override
+        public CRBPostingLoggerData mapRow(final ResultSet rs, final int rowNum)
+                throws SQLException {
+
+            final CRBPostingLoggerData logger = new CRBPostingLoggerData();
+
+//            final Timestamp createdTs = rs.getTimestamp("createdDate");
+//            if (createdTs != null) {
+//                logger.setCreatedDate(
+//                        OffsetDateTime.from(LocalDate.ofInstant(createdTs.toInstant(), ZoneId.systemDefault()))
+//                );
+//            }
+//            logger.setLastModifiedDate(
+//                    rs.getTimestamp("lastModifiedDate") != null
+//                            ? OffsetDateTime.from(rs.getTimestamp("lastModifiedDate").toLocalDateTime())
+//                            : null
+//            );
+
+            logger.setBatchId(rs.getString("batchId"));
+            logger.setHasPassed(rs.getBoolean("hasPassed"));
+            logger.setLoanId(rs.getInt("loanId"));
+            logger.setCrbResponseId(rs.getString("crbResponseId"));
+            logger.setErrorLogs(rs.getString("errorLogs"));
+            logger.setPayload(rs.getString("payload"));
+            logger.setDate(rs.getDate("date").toLocalDate());
+
+            return logger;
+        }
+    }
+
+
+
 
 }

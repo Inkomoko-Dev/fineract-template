@@ -92,7 +92,7 @@ import org.xml.sax.SAXException;
 
 @Service
 @RequiredArgsConstructor
-public class TransUnionCrbVerificationWritePlatformServiceImpl implements TransUnionCrbVerificationWritePlatformService {
+public class  TransUnionCrbVerificationWritePlatformServiceImpl implements TransUnionCrbVerificationWritePlatformService {
 
     private static final Logger LOG = LoggerFactory.getLogger(TransUnionCrbVerificationWritePlatformServiceImpl.class);
     public static final String FORM_URL_CONTENT_TYPE = "Content-Type";
