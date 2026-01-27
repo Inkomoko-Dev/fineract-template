@@ -1,4 +1,4 @@
-name: Fineract Client Build UAT
+name: Fineract Client Build Staging
 
 on:
   workflow_dispatch: 
