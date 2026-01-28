@@ -37,6 +37,7 @@ public class CRBPostingLoggerData {
     private  String errorLogs;
     private  String payload;
     private  LocalDate date;
+    private String loanAccountNumber;
 
     public CRBPostingLoggerData() {}
 
@@ -48,7 +49,8 @@ public class CRBPostingLoggerData {
             String crbResponseId,
             String errorLogs,
             String payload,
-            LocalDate date) {
+            LocalDate date,
+            String loanAccountNumber) {
 
         this.id = id;
         this.batchId = batchId;
@@ -58,6 +60,7 @@ public class CRBPostingLoggerData {
         this.errorLogs = errorLogs;
         this.payload = payload;
         this.date = date;
+        this.loanAccountNumber = loanAccountNumber;
     }
 }
 
