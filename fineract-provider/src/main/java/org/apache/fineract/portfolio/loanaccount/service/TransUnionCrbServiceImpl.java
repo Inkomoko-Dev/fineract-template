@@ -181,6 +181,7 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
     private void saveCrbPostingLogger(Integer loanId, String batchId, String callbackId, Boolean hasPassed, String errorLogs,
                                       String payload, AppUser currentUser,LocalDate date){
         CRBPostingLogger logger = new CRBPostingLogger(batchId, hasPassed, loanId, callbackId, errorLogs, payload);
+
         assert currentUser.getId() != null;
         logger.setCreatedBy(currentUser.getId());
         logger.setLastModifiedBy(currentUser.getId());
