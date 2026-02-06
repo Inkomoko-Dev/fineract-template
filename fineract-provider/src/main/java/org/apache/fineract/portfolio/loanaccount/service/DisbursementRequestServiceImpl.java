@@ -174,7 +174,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         }
 
         DisbursementRequestData disbursementRequestData = new DisbursementRequestData(requestId, loan.getAccountNumber(),
-                totalPrincipalToBeDisbursed, loan.getPrincpal().getCurrencyCode(), paymentTypes.getName(), clientOtherInfo.getTelephoneNo(),
+                totalPrincipalToBeDisbursed, loan.getPrincpal().getCurrencyCode(), paymentTypes.getName(), paymentTypes.getId(), clientOtherInfo.getTelephoneNo(),
                 clientOtherInfo.getBankAccountNumber(), clientOtherInfo.getBankName(), "CBS", paymentTypeId);
 
         disbursementRequestData.setBeneficiaryName(clientName);
@@ -182,6 +182,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         disbursementRequestData.setNotifier(loanOfficer);
         disbursementRequestData.setLocation(location);
         disbursementRequestData.setGlCode(glCode);
+        disbursementRequestData.setTransactionType("DISBURSEMENT");
 
         MediaType JSON = MediaType.get("application/json; charset=utf-8");
         String requestJson = gson.toJson(disbursementRequestData);
