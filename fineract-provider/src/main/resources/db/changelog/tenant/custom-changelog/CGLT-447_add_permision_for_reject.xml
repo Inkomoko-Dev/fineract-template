@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- ===============================
+         Transaction Loan Permissions
+         =============================== -->
+    <changeSet id="20260205-01-transaction-loan-permissions" author="niceta@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <sqlCheck expectedResult="0">
+                    SELECT COUNT(*) FROM m_permission
+                    WHERE code IN (
+                    'DISBURSEMENTPREAPPROVAL_LOAN',
+                    'REJECTDISBURSEMENT_LOAN'
+                    )
+                </sqlCheck>
+            </not>
+        </preConditions>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="transaction_loan"/>
+            <column name="code" value="DISBURSEMENTPREAPPROVAL_LOAN"/>
+            <column name="entity_name" value="LOAN"/>
+            <column name="action_name" value="DISBURSEMENTPREAPPROVAL"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="transaction_loan"/>
+            <column name="code" value="REJECTDISBURSEMENT_LOAN"/>
+            <column name="entity_name" value="LOAN"/>
+            <column name="action_name" value="REJECTDISBURSEMENT"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+    </changeSet>
+
+    <!-- ===============================
+         Portfolio Reject Permissions
+         =============================== -->
+    <changeSet id="20260205-02-portfolio-reject-permissions" author="niceta">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <sqlCheck expectedResult="0">
+                    SELECT COUNT(*) FROM m_permission
+                    WHERE code IN (
+                    'REJECT_LOANAPPLICATIONREVIEW',
+                    'REJECT_DUEDILIGENCE',
+                    'REJECT_LOANICREVIEWDECISIONLEVELONE',
+                    'REJECT_LOANICREVIEWDECISIONLEVELTWO',
+                    'REJECT_LOANICREVIEWDECISIONLEVELTHREE',
+                    'REJECT_LOANICREVIEWDECISIONLEVELFOUR',
+                    'REJECT_LOANICREVIEWDECISIONLEVELFIVE',
+                    'REJECT_LOANPREPAREANDSIGNCONTRACT'
+                    )
+                </sqlCheck>
+            </not>
+        </preConditions>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_LOANAPPLICATIONREVIEW"/>
+            <column name="entity_name" value="LOANAPPLICATIONREVIEW"/>
+            <column name="action_name" value="REJECT"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_DUEDILIGENCE"/>
+            <column name="entity_name" value="DUEDILIGENCE"/>
+            <column name="action_name" value="REJECT"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_LOANICREVIEWDECISIONLEVELONE"/>
+            <column name="entity_name" value="LOANICREVIEWDECISIONLEVELONE"/>
+            <column name="action_name" value="REJECT"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_LOANICREVIEWDECISIONLEVELTWO"/>
+            <column name="entity_name" value="LOANICREVIEWDECISIONLEVELTWO"/>
+            <column name="action_name" value="REJECT"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_LOANICREVIEWDECISIONLEVELTHREE"/>
+            <column name="entity_name" value="LOANICREVIEWDECISIONLEVELTHREE"/>
+            <column name="action_name" value="REJECT"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_LOANICREVIEWDECISIONLEVELFOUR"/>
+            <column name="entity_name" value="LOANICREVIEWDECISIONLEVELFOUR"/>
+            <column name="action_name" value="REJECT"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_LOANICREVIEWDECISIONLEVELFIVE"/>
+            <column name="entity_name" value="LOANICREVIEWDECISIONLEVELFIVE"/>
+            <column name="action_name" value="REJECT"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_LOANPREPAREANDSIGNCONTRACT"/>
+            <column name="entity_name" value="LOANPREPAREANDSIGNCONTRACT"/>
+            <column name="action_name" value="REJECT"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
