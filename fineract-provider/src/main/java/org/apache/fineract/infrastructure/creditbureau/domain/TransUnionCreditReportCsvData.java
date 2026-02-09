@@ -16,23 +16,32 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.creditbureau.service;
+package org.apache.fineract.infrastructure.creditbureau.domain;
 
-import java.util.List;
-import java.util.Collection;
-import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauData;
-import org.apache.fineract.infrastructure.creditbureau.domain.TransUnionCreditReportCsvData;
-import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
 
-import javax.ws.rs.core.MultivaluedMap;
+import java.io.InputStream;
 
-public interface CreditBureauReadPlatformService {
+public class TransUnionCreditReportCsvData {
 
-    Collection<CreditBureauData> retrieveCreditBureau();
+    private final InputStream inputStream;
+    private final String fileName;
+    private final String contentType;
 
-    List<CRBPostingLoggerData> retrieveCrbPostingLogs();
+    public TransUnionCreditReportCsvData(InputStream inputStream, String fileName, String contentType) {
+        this.inputStream = inputStream;
+        this.fileName = fileName;
+        this.contentType = contentType;
+    }
 
-    void markCRBLogAsFixed(String loanIds);
+    public InputStream getInputStream() {
+        return inputStream;
+    }
 
-    TransUnionCreditReportCsvData generateCsvReport(MultivaluedMap<String, String> queryParameters);
+    public String getFileName() {
+        return fileName;
+    }
+
+    public String getContentType() {
+        return contentType;
+    }
 }

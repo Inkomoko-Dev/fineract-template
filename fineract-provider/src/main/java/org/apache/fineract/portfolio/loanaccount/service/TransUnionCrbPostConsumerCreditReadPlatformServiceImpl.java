@@ -111,7 +111,7 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     + "       l.number_of_repayments                                                            AS termsDuration, "
                     + "       l.last_repayment_date                                                             AS lastPaymentDate, "
                     + "       mc.date_of_birth                                                                  AS dateOfBirth, "
-                    + "       l.maturedon_date                                                                  AS finalPaymentDate, "
+                    + "       l.expected_maturedon_date                                                                  AS finalPaymentDate, "
                     + "       mlaa.principal_overdue_derived                                                    AS amountPastDue, "
                     + "       40                                                                                AS category, "
                     + "       'Other personal service activities n.e.c.'                                        AS sectorOfActivity, "

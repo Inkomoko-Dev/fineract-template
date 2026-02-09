@@ -18,13 +18,22 @@
  */
 package org.apache.fineract.infrastructure.creditbureau.service;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Collection;
 import java.util.List;
 
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauData;
+import org.apache.fineract.infrastructure.creditbureau.domain.CrbPostingLogReportData;
+import org.apache.fineract.infrastructure.creditbureau.domain.TransUnionCreditReportCsvData;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -33,6 +42,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
+
+import javax.ws.rs.core.MultivaluedMap;
 
 @Service
 public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlatformService {
@@ -97,6 +108,7 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
         loanRepositoryWrapper.saveAndFlush(loan);
     }
 
+
     private static final class CRBPostingLoggerRowMapper
             implements RowMapper<CRBPostingLoggerData> {
 
@@ -124,18 +136,6 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
 
             final CRBPostingLoggerData logger = new CRBPostingLoggerData();
 
-//            final Timestamp createdTs = rs.getTimestamp("createdDate");
-//            if (createdTs != null) {
-//                logger.setCreatedDate(
-//                        OffsetDateTime.from(LocalDate.ofInstant(createdTs.toInstant(), ZoneId.systemDefault()))
-//                );
-//            }
-//            logger.setLastModifiedDate(
-//                    rs.getTimestamp("lastModifiedDate") != null
-//                            ? OffsetDateTime.from(rs.getTimestamp("lastModifiedDate").toLocalDateTime())
-//                            : null
-//            );
-
             logger.setBatchId(rs.getString("batchId"));
             logger.setHasPassed(rs.getBoolean("hasPassed"));
             logger.setLoanId(rs.getInt("loanId"));
@@ -149,7 +149,114 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
         }
     }
 
+    @Override
+    public TransUnionCreditReportCsvData generateCsvReport(MultivaluedMap<String, String> queryParameters) {
+        LocalDate fromDate = null;
+        LocalDate toDate = null;
+        Boolean posted = null;
 
+        if (queryParameters.getFirst("fromDate") != null) {
+            fromDate = LocalDate.parse(queryParameters.getFirst("fromDate"));
+        }
+
+        if (queryParameters.getFirst("toDate") != null) {
+            toDate = LocalDate.parse(queryParameters.getFirst("toDate"));
+        }
+
+        if (queryParameters.getFirst("posted") != null) {
+            posted = Boolean.valueOf(queryParameters.getFirst("posted"));
+        }
+        List<CrbPostingLogReportData> logs = this.fetchLogs(fromDate, toDate, posted);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintWriter writer = new PrintWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8));
+
+        writer.println("Loan ID,Batch ID,Loan Account No,Posted,Date Posted,Client Type,Days in Arrears,Last Payment Date,Error Logs");
+
+        for (CrbPostingLogReportData log : logs) {
+            writer.printf("%s,%s,%s,%s,%s,%s,%s,%s,\"%s\"%n",
+                    log.getLoanId(),
+                    log.getBatchId(),
+                    log.getLoanAccountNumber(),
+                    log.getPosted() ? "Yes" : "No",
+                    log.getDatePosted(),
+                    log.getClientType(),
+                    log.getDaysInArrears(),
+                    log.getLastPaymentDate(),
+                    log.getErrorLogs() != null ? log.getErrorLogs().replace("\"", "\"\"") : ""
+            );
+        }
+
+        writer.flush();
+
+        return new TransUnionCreditReportCsvData(
+                new ByteArrayInputStream(out.toByteArray()),
+                "crb-posting-logs-" + LocalDate.now(ZoneId.systemDefault()),
+                "text/csv"
+        );
+    }
+
+    public List<CrbPostingLogReportData> fetchLogs(LocalDate fromDate, LocalDate toDate, Boolean posted) {
+
+        final CrbPostingLogReportRowMapper rm = new CrbPostingLogReportRowMapper();
+
+        final String sql = rm.schema();
+
+        return this.jdbcTemplate.query(sql, rm);
+    }
+
+    private static final class CrbPostingLogReportRowMapper
+            implements RowMapper<CrbPostingLogReportData> {
+
+        public String schema() {
+            return """
+                SELECT
+                mcpl.loan_id,
+                ml.account_no AS loan_account_number,
+                mcpl.batch_id,
+                mcpl.has_passed AS posted,
+                mcpl.`date` AS date_posted,
+                mcpl.error_logs,
+                CASE
+                    WHEN mc.legal_form_enum = 1 THEN 'Individual'
+                    WHEN mc.legal_form_enum = 2 THEN 'Corporate'
+                END AS client_type,
+                CASE
+                    WHEN mlaa.overdue_since_date_derived IS NULL THEN 0
+                    ELSE DATEDIFF(CURDATE(), mlaa.overdue_since_date_derived)
+                END AS days_in_arrears,
+                last_payment.last_payment_date
+            FROM m_crb_posting_logger mcpl
+            JOIN m_loan ml ON ml.id = mcpl.loan_id
+            JOIN m_client mc ON mc.id = ml.client_id
+            LEFT JOIN m_loan_arrears_aging mlaa ON mlaa.loan_id = ml.id
+            LEFT JOIN (
+                SELECT loan_id, MAX(transaction_date) AS last_payment_date
+                FROM m_loan_transaction
+                WHERE transaction_type_enum = 2
+                GROUP BY loan_id
+            ) last_payment ON last_payment.loan_id = ml.id
+            WHERE 1=1
+            """;
+        }
+
+        @Override
+        public CrbPostingLogReportData mapRow(final ResultSet rs, final int rowNum)
+                throws SQLException {
+
+            return new CrbPostingLogReportData(
+                    rs.getLong("loan_id"),
+                    rs.getString("batch_id"),
+                    rs.getString("loan_account_number"),
+                    rs.getBoolean("posted"),
+                    rs.getDate("date_posted") != null ? rs.getDate("date_posted").toLocalDate() : null,
+                    rs.getString("error_logs"),
+                    rs.getString("client_type"),
+                    rs.getInt("days_in_arrears"),
+                    rs.getDate("last_payment_date") != null ? rs.getDate("last_payment_date").toLocalDate() : null
+            );
+        }
+    }
 
 
 }
