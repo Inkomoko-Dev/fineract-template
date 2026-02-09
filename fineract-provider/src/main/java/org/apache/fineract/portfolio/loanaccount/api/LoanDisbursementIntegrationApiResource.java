@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.api;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import io.swagger.v3.oas.annotations.Parameter;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.POST;
@@ -40,6 +41,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
 
 @Path("/loans/{accountNo}/disbursements-integration")
 @Component
@@ -79,6 +82,7 @@ public class LoanDisbursementIntegrationApiResource {
         this.context.authenticatedUser().validateHasUpdatePermission(this.resourceNameForPermissions);
         LoanAccountData loanAccountData = this.loanReadPlatformService.retrieveLoanByLoanAccount(accountNo);
         Long loanId = loanAccountData.getId();
+        BigDecimal loanPrinciple = loanAccountData.getPrincipal();
         CommandWrapperBuilder resourceDetails = new CommandWrapperBuilder();
         resourceDetails.withLoanId(loanId).withEntityName("LOANNOTE");
         JsonObject newJsonObject = new JsonObject();
@@ -93,7 +97,7 @@ public class LoanDisbursementIntegrationApiResource {
         LOG.info("Update Disbursement In API: " + loanId + " with Result Code: " + resultCode);
 
         CommandProcessingResult result = null;
-        final String extractedJson = extractJson(allElement);
+        final String extractedJson = extractJson(allElement, loanPrinciple);
         final CommandWrapperBuilder updateBuilder = new CommandWrapperBuilder().withJson(extractedJson);
 
         final CommandWrapper updateWrapper = updateBuilder.updateDisbursement(loanId).build();
@@ -107,11 +111,11 @@ public class LoanDisbursementIntegrationApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
-    private String extractJson(JsonElement element) {
+    private String extractJson(JsonElement element, BigDecimal loanPrinciple ) {
         JsonObject originalJsonObject = element.getAsJsonObject();
         JsonObject newJsonObject = new JsonObject();
         newJsonObject.add("paymentTypeId", originalJsonObject.get("paymentTypeId"));
-        newJsonObject.add("transactionAmount", originalJsonObject.get("transactionAmount"));
+        newJsonObject.add("transactionAmount", new JsonPrimitive(loanPrinciple)); //
         newJsonObject.add("actualDisbursementDate", originalJsonObject.get("actualDisbursementDate"));
         newJsonObject.add("locale", originalJsonObject.get("locale"));
         newJsonObject.add("resultCode", originalJsonObject.get("resultCode"));
