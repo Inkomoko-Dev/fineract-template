@@ -123,6 +123,10 @@ public class CRBPostingAPIResource {
     @Produces({ MediaType.APPLICATION_OCTET_STREAM })
     public Response exportLogsToCSV(@Context final UriInfo uriInfo){
 
+        String resourceNameForPermissions = "VIEW_CRB_LOGGER";
+
+        this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
+
         log.info("Exporting CRB posting logs to CSV with query parameters {}", uriInfo.getQueryParameters());
 
         TransUnionCreditReportCsvData fileData = this.crbReadPlatformService.generateCsvReport(uriInfo.getQueryParameters());
