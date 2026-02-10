@@ -163,8 +163,8 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
             toDate = LocalDate.parse(queryParameters.getFirst("toDate"));
         }
 
-        if (queryParameters.getFirst("posted") != null) {
-            posted = Boolean.valueOf(queryParameters.getFirst("posted"));
+        if (queryParameters.getFirst("status") != null) {
+            posted = Boolean.valueOf(queryParameters.getFirst("status"));
         }
         List<CrbPostingLogReportData> logs = this.fetchLogs(fromDate, toDate, posted);
 
@@ -197,12 +197,25 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
     }
 
     public List<CrbPostingLogReportData> fetchLogs(LocalDate fromDate, LocalDate toDate, Boolean posted) {
-
         final CrbPostingLogReportRowMapper rm = new CrbPostingLogReportRowMapper();
 
-        final String sql = rm.schema();
+        StringBuilder sql = new StringBuilder(rm.schema());
 
-        return this.jdbcTemplate.query(sql, rm);
+        List<Object> params = new java.util.ArrayList<>();
+        if (fromDate != null) {
+            sql.append(" AND mcpl.`date` >= ?");
+            params.add(java.sql.Date.valueOf(fromDate));
+        }
+        if (toDate != null) {
+            sql.append(" AND mcpl.`date` <= ?");
+            params.add(java.sql.Date.valueOf(toDate));
+        }
+        if (posted != null) {
+            sql.append(" AND mcpl.has_passed = ?");
+            params.add(posted? 1: 0);
+        }
+        sql.append(" ORDER BY mcpl.`date` DESC");
+        return this.jdbcTemplate.query(sql.toString(), params.toArray(), rm);
     }
 
     private static final class CrbPostingLogReportRowMapper
