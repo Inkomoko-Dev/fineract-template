@@ -99,6 +99,8 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
         Collection<TransUnionRwandaConsumerCreditData> records =
                 transUnionCrbPostConsumerCreditReadPlatformServiceImpl.retrieveAllConsumerCredits();
 
+        LOG.info(">>>> Size for Consumer credit -> {}", records.size());
+
         String batchId = UUID.randomUUID().toString();
         LocalDate date = LocalDate.now(ZoneId.systemDefault());
 
