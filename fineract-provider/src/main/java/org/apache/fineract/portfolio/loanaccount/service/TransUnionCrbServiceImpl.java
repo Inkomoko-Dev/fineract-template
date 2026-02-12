@@ -69,6 +69,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -149,8 +150,6 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                         currentUser,
                         date
                 );
-
-                loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
             }
 
             // TransUnion or network failure → retry later
@@ -180,8 +179,9 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
         }
     }
 
-    private void saveCrbPostingLogger(Integer loanId, String batchId, String callbackId, Boolean hasPassed, String errorLogs,
-                                      String payload, AppUser currentUser,LocalDate date){
+    @Async
+    protected void saveCrbPostingLogger(Integer loanId, String batchId, String callbackId, Boolean hasPassed, String errorLogs,
+                                        String payload, AppUser currentUser,LocalDate date){
         CRBPostingLogger logger = new CRBPostingLogger(batchId, hasPassed, loanId, callbackId, errorLogs, payload);
 
         assert currentUser.getId() != null;
@@ -257,8 +257,6 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                         currentUser,
                         date
                 );
-
-                loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
             }
 
             // TransUnion / network / infra failure → retry later

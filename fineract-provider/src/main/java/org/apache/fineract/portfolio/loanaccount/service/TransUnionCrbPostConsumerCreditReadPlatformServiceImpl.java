@@ -22,6 +22,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.Collection;
+
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -121,14 +122,14 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
             if (databaseTypeResolver.isMySQL()) {
                 sql.append(" CASE "
                         + "    WHEN mlaa.overdue_since_date_derived IS NULL THEN 'C' "
-                        + "    WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) <= 90   THEN 'C' "
+                        + "    WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) < 90   THEN 'C' "
                         + "    WHEN l.loan_status_id IN(600,601,700) THEN 'C' "
                         + "    ELSE 'D' "
                         + "    END        AS currentBalanceIndicator, ");
             } else {
                 sql.append(" CASE "
                         + "    WHEN mlaa.overdue_since_date_derived IS NULL THEN 'C' "
-                        + "    WHEN EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP))  <= 90   THEN 'C' "
+                        + "    WHEN EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP))  < 90   THEN 'C' "
                         + "    WHEN l.loan_status_id IN(600,601,700) THEN 'C' "
                         + "    ELSE 'D' "
                         + "    END        AS currentBalanceIndicator, ");
@@ -352,4 +353,6 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
 
         }
     }
+
+
 }
