@@ -29,7 +29,7 @@ jobs:
               echo "❌ ERROR: Commit does not start with valid JIRA key"
               echo "Message: $msg"
               echo "Expected format example:"
-              echo "FIP-45 fix login issue"
+              echo "CGLT-100 fix login issue"
               exit 1
             fi
           done
