@@ -46,6 +46,20 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
         return this.jdbcTemplate.query(sql, mapper, new Object[] {});
     }
 
+    @Override
+    public Collection<TransUnionRwandaConsumerCreditData> retrieveAllConsumerCreditsPage(long lastLoanId, int pageSize) {
+        final ConsumerCreditMapper mapper = new ConsumerCreditMapper();
+
+        final String sql = mapper.schema() + " AND l.id > ? order by l.id limit ?";
+
+        return this.jdbcTemplate.query(
+                sql,
+                mapper,
+                lastLoanId,
+                pageSize
+        );
+    }
+
     private final class ConsumerCreditMapper implements RowMapper<TransUnionRwandaConsumerCreditData> {
 
         public String schema() {
