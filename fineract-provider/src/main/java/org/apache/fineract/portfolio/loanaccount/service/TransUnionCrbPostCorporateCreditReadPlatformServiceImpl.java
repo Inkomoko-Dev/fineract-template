@@ -22,6 +22,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.Collection;
+
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -43,6 +44,20 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
         final CorporateCreditMapper mapper = new CorporateCreditMapper();
         final String sql = mapper.schema() + " order by l.id ";
         return this.jdbcTemplate.query(sql, mapper, new Object[] {});
+    }
+
+    @Override
+    public Collection<TransUnionRwandaCorporateCreditData> retrieveAllCorporateCreditsPage(long lastLoanId, int pageSize) {
+        final CorporateCreditMapper mapper = new CorporateCreditMapper();
+
+        final String sql = mapper.schema() + " AND l.id > ? order by l.id limit ?";
+
+        return this.jdbcTemplate.query(
+                sql,
+                mapper,
+                lastLoanId,
+                pageSize
+        );
     }
 
     private final class CorporateCreditMapper implements RowMapper<TransUnionRwandaCorporateCreditData> {
@@ -322,4 +337,5 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
 
         }
     }
+
 }

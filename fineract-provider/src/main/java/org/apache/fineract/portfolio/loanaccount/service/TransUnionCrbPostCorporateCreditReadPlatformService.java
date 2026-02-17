@@ -24,4 +24,5 @@ import org.apache.fineract.portfolio.loanaccount.data.TransUnionRwandaCorporateC
 public interface TransUnionCrbPostCorporateCreditReadPlatformService {
 
     Collection<TransUnionRwandaCorporateCreditData> retrieveAllCorporateCredits();
+     Collection<TransUnionRwandaCorporateCreditData> retrieveAllCorporateCreditsPage(long loanId,int page);
 }
