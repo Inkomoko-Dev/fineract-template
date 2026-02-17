@@ -96,87 +96,102 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
         LOG.info("Starting Consumer Credit Data Upload To TransUnion CRB");
         final AppUser currentUser = this.context.authenticatedUser();
 
-        List<Integer> loansNotToBeRePostedTransUnion = new ArrayList<>();
-        Collection<TransUnionRwandaConsumerCreditData> records =
-                transUnionCrbPostConsumerCreditReadPlatformServiceImpl.retrieveAllConsumerCredits();
-
-        LOG.info(">>>> Size for Consumer credit -> {}", records.size());
-
         String batchId = UUID.randomUUID().toString();
         LocalDate date = LocalDate.now(ZoneId.systemDefault());
+        long lastLoanId = 0L;
+        final int pageSize = 500;
 
-        for (TransUnionRwandaConsumerCreditData creditData : records) {
+        while (true) {
 
-            RwandaConsumerCreditData rwandaConsumerCreditData = new RwandaConsumerCreditData();
-            rwandaConsumerCreditData.setConsumerCreditInformationRecord(creditData);
-            rwandaConsumerCreditData.setRecordType("IC");
+            Collection<TransUnionRwandaConsumerCreditData> records =
+                    transUnionCrbPostConsumerCreditReadPlatformServiceImpl.retrieveAllConsumerCreditsPage(lastLoanId, pageSize);
+            LOG.info(">>>> Size for Consumer credit -> {}", records.size());
 
-            String payload = convertConsumerCreditPayloadToJson(rwandaConsumerCreditData);
+            if (CollectionUtils.isEmpty(records)) {
+                break;
+            }
 
-            try {
-                String token = authenticateToTransUnionRestApi();
-                String callbackId = postRwandaConsumerCreditToTransUnion(token, payload);
+            List<Integer> loansNotToBeRePostedTransUnion = new ArrayList<>();
 
-                // success
-                saveCrbPostingLogger(
-                        creditData.getLoanId(),
-                        batchId,
-                        callbackId,
-                        true,
-                        null,
-                        payload,
-                        currentUser,
-                        date
-                );
+            String token = authenticateToTransUnionRestApi();
 
-                // closed loans must never be resent
-                if (!creditData.getLoanStatus().equals(LoanStatus.ACTIVE.getValue())) {
-                    loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
+            for (TransUnionRwandaConsumerCreditData creditData : records) {
+
+                RwandaConsumerCreditData rwandaConsumerCreditData = new RwandaConsumerCreditData();
+                rwandaConsumerCreditData.setConsumerCreditInformationRecord(creditData);
+                rwandaConsumerCreditData.setRecordType("IC");
+
+                String payload = convertConsumerCreditPayloadToJson(rwandaConsumerCreditData);
+
+                try {
+
+                    String callbackId = postRwandaConsumerCreditToTransUnion(token, payload);
+
+                    // success
+                    saveCrbPostingLogger(
+                            creditData.getLoanId(),
+                            batchId,
+                            callbackId,
+                            true,
+                            null,
+                            payload,
+                            currentUser,
+                            date
+                    );
+
+                    // closed loans must never be resent
+                    if (!creditData.getLoanStatus().equals(LoanStatus.ACTIVE.getValue())) {
+                        loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
+                    }
                 }
+
+                // Data / business rejection → log and STOP reposting
+                catch (CrbValidationException | CrbBusinessRuleException e) {
+
+                    log.info("error processing");
+
+                    saveCrbPostingLogger(
+                            creditData.getLoanId(),
+                            batchId,
+                            e.getCallbackId(),
+                            false,
+                            e.getUserMessage(),
+                            payload,
+                            currentUser,
+                            date
+                    );
+                }
+
+                // TransUnion or network failure → retry later
+                catch (CrbSystemException e) {
+
+                    saveCrbPostingLogger(
+                            creditData.getLoanId(),
+                            batchId,
+                            e.getCallbackId(),
+                            false,
+                            "TransUnion error: " + e.getMessage(),
+                            payload,
+                            currentUser,
+                            date
+                    );
+
+                    throw e;   // Quartz must retry
+                }
+
+                lastLoanId = creditData.getLoanId();
             }
 
-            // Data / business rejection → log and STOP reposting
-            catch (CrbValidationException | CrbBusinessRuleException e) {
-
-                log.info("error processing");
-
-                saveCrbPostingLogger(
-                        creditData.getLoanId(),
-                        batchId,
-                        e.getCallbackId(),
-                        false,
-                        e.getUserMessage(),
-                        payload,
-                        currentUser,
-                        date
-                );
+            // Update flags only for loans that must never be resent
+            for (Integer loanId : loansNotToBeRePostedTransUnion) {
+                Loan loan = loanRepository.findOneWithNotFoundDetection(loanId.longValue());
+                loan.setStopConsumerCreditUploadToTransUnion(Boolean.TRUE);
+                loan.setStopConsumerCreditUploadToTransUnionOn(DateUtils.getBusinessLocalDate());
+                loanRepository.saveAndFlush(loan);
             }
 
-            // TransUnion or network failure → retry later
-            catch (CrbSystemException e) {
-
-                saveCrbPostingLogger(
-                        creditData.getLoanId(),
-                        batchId,
-                        e.getCallbackId(),
-                        false,
-                        "TransUnion system error: " + e.getMessage(),
-                        payload,
-                        currentUser,
-                        date
-                );
-
-                throw e;   // Quartz must retry
-            }
         }
 
-        // Update flags only for loans that must never be resent
-        for (Integer loanId : loansNotToBeRePostedTransUnion) {
-            Loan loan = loanRepository.findOneWithNotFoundDetection(loanId.longValue());
-            loan.setStopConsumerCreditUploadToTransUnion(Boolean.TRUE);
-            loan.setStopConsumerCreditUploadToTransUnionOn(DateUtils.getBusinessLocalDate());
-            loanRepository.saveAndFlush(loan);
-        }
     }
 
     @Async
@@ -201,89 +216,101 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
         final AppUser currentUser = this.context.authenticatedUser();
 
-        List<Integer> loansNotToBeRePostedTransUnion = new ArrayList<>();
-
-        Collection<TransUnionRwandaCorporateCreditData> records =
-                transUnionCrbPostCorporateCreditReadPlatformServiceImpl
-                        .retrieveAllCorporateCredits();
-
-        LOG.info(">>>> Size for Corporate credit -> {}", records.size());
+        long lastLoanId = 0L;
+        final int pageSize = 500;
 
         String batchId = UUID.randomUUID().toString();
         LocalDate date = LocalDate.now(ZoneId.systemDefault());
 
-        for (TransUnionRwandaCorporateCreditData creditData : records) {
+        while (true) {
+            Collection<TransUnionRwandaCorporateCreditData> records =
+                    transUnionCrbPostCorporateCreditReadPlatformServiceImpl.retrieveAllCorporateCreditsPage(lastLoanId, pageSize);
+            LOG.info(">>>> Size for Corporate credit -> {}", records.size());
 
-            RwandaCorporateCreditData rwandaCorporateCreditData = new RwandaCorporateCreditData();
-            rwandaCorporateCreditData.setCorporateCreditInformationRecord(creditData);
-            rwandaCorporateCreditData.setRecordType("CI");
+            if (CollectionUtils.isEmpty(records)) {
+                break;
+            }
 
-            String payload = convertConsumerCreditPayloadToJson(rwandaCorporateCreditData);
+            List<Integer> loansNotToBeRePostedTransUnion = new ArrayList<>();
 
-            try {
-                String token = authenticateToTransUnionRestApi();
-                String callbackId = postRwandaCorporateCreditToTransUnion(token, payload);
+            String token = authenticateToTransUnionRestApi();
 
-                // success
-                saveCrbPostingLogger(
-                        creditData.getLoanId(),
-                        batchId,
-                        callbackId,
-                        true,
-                        null,
-                        payload,
-                        currentUser,
-                        date
-                );
+            for (TransUnionRwandaCorporateCreditData creditData : records) {
 
-                // closed / non-active loans must never be resent
-                if (!creditData.getLoanStatus().equals(LoanStatus.ACTIVE.getValue())) {
-                    loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
+                RwandaCorporateCreditData rwandaCorporateCreditData = new RwandaCorporateCreditData();
+                rwandaCorporateCreditData.setCorporateCreditInformationRecord(creditData);
+                rwandaCorporateCreditData.setRecordType("CI");
+
+                String payload = convertConsumerCreditPayloadToJson(rwandaCorporateCreditData);
+
+                try {
+                    String callbackId = postRwandaCorporateCreditToTransUnion(token, payload);
+
+                    // success
+                    saveCrbPostingLogger(
+                            creditData.getLoanId(),
+                            batchId,
+                            callbackId,
+                            true,
+                            null,
+                            payload,
+                            currentUser,
+                            date
+                    );
+
+                    // closed / non-active loans must never be resent
+                    if (!creditData.getLoanStatus().equals(LoanStatus.ACTIVE.getValue())) {
+                        loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
+                    }
                 }
+
+                // Business / validation rejection → log and STOP reposting
+                catch (CrbValidationException | CrbBusinessRuleException e) {
+
+                    LOG.info("Corporate credit rejected by CRB rules for loanId={}", creditData.getLoanId());
+
+                    saveCrbPostingLogger(
+                            creditData.getLoanId(),
+                            batchId,
+                            e.getCallbackId(),
+                            false,
+                            e.getUserMessage(),
+                            payload,
+                            currentUser,
+                            date
+                    );
+                }
+
+                // TransUnion / network / infra failure → retry later
+                catch (CrbSystemException e) {
+
+                    saveCrbPostingLogger(
+                            creditData.getLoanId(),
+                            batchId,
+                            e.getCallbackId(),
+                            false,
+                            "TransUnion system error: " + e.getMessage(),
+                            payload,
+                            currentUser,
+                            date
+                    );
+
+                    throw e; // Quartz must retry
+                }
+
+                lastLoanId = creditData.getLoanId();
             }
 
-            // Business / validation rejection → log and STOP reposting
-            catch (CrbValidationException | CrbBusinessRuleException e) {
-
-                LOG.info("Corporate credit rejected by CRB rules for loanId={}", creditData.getLoanId());
-
-                saveCrbPostingLogger(
-                        creditData.getLoanId(),
-                        batchId,
-                        e.getCallbackId(),
-                        false,
-                        e.getUserMessage(),
-                        payload,
-                        currentUser,
-                        date
-                );
+            // Update flags only for loans that must never be resent
+            for (Integer loanId : loansNotToBeRePostedTransUnion) {
+                Loan loan = loanRepository.findOneWithNotFoundDetection(loanId.longValue());
+                loan.setStopConsumerCreditUploadToTransUnion(Boolean.TRUE);
+                loan.setStopConsumerCreditUploadToTransUnionOn(DateUtils.getBusinessLocalDate());
+                loanRepository.saveAndFlush(loan);
             }
 
-            // TransUnion / network / infra failure → retry later
-            catch (CrbSystemException e) {
-
-                saveCrbPostingLogger(
-                        creditData.getLoanId(),
-                        batchId,
-                        e.getCallbackId(),
-                        false,
-                        "TransUnion system error: " + e.getMessage(),
-                        payload,
-                        currentUser,
-                        date
-                );
-
-                throw e; // Quartz must retry
-            }
         }
 
-        // Update flags only for loans that must never be resent
-        for (Integer loanId : loansNotToBeRePostedTransUnion) {
-            Loan loan = loanRepository.findOneWithNotFoundDetection(loanId.longValue());
-            loan.setStopConsumerCreditUploadToTransUnion(Boolean.TRUE);
-            loan.setStopConsumerCreditUploadToTransUnionOn(DateUtils.getBusinessLocalDate());
-            loanRepository.saveAndFlush(loan);
-        }
     }
 
 
