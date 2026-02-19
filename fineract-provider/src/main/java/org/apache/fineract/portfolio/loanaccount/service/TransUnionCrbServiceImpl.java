@@ -23,6 +23,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonElement;
 
 import java.io.IOException;
 import java.time.LocalDate;
@@ -34,6 +35,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.UUID;
 import java.util.Objects;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -71,6 +74,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+
 
 @Service
 @RequiredArgsConstructor
@@ -117,69 +121,77 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
             for (TransUnionRwandaConsumerCreditData creditData : records) {
 
-                RwandaConsumerCreditData rwandaConsumerCreditData = new RwandaConsumerCreditData();
-                rwandaConsumerCreditData.setConsumerCreditInformationRecord(creditData);
-                rwandaConsumerCreditData.setRecordType("IC");
-
-                String payload = convertConsumerCreditPayloadToJson(rwandaConsumerCreditData);
-
                 try {
+                    RwandaConsumerCreditData rwandaConsumerCreditData = new RwandaConsumerCreditData();
+                    rwandaConsumerCreditData.setConsumerCreditInformationRecord(creditData);
+                    rwandaConsumerCreditData.setRecordType("IC");
 
-                    String callbackId = postRwandaConsumerCreditToTransUnion(token, payload);
+                    String payload = convertConsumerCreditPayloadToJson(rwandaConsumerCreditData);
 
-                    // success
-                    saveCrbPostingLogger(
-                            creditData.getLoanId(),
-                            batchId,
-                            callbackId,
-                            true,
-                            null,
-                            payload,
-                            currentUser,
-                            date
-                    );
+                    try {
 
-                    // closed loans must never be resent
-                    if (!creditData.getLoanStatus().equals(LoanStatus.ACTIVE.getValue())) {
-                        loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
+                        String callbackId = postRwandaConsumerCreditToTransUnion(token, payload);
+
+                        // success
+                        saveCrbPostingLogger(
+                                creditData.getLoanId(),
+                                batchId,
+                                callbackId,
+                                true,
+                                null,
+                                payload,
+                                currentUser,
+                                date
+                        );
+
+                        // closed loans must never be resent
+                        if (!creditData.getLoanStatus().equals(LoanStatus.ACTIVE.getValue())) {
+                            loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
+                        }
                     }
+
+                    // Data / business rejection → log and STOP reposting
+                    catch (CrbValidationException | CrbBusinessRuleException e) {
+                        LOG.info("Consumer credit rejected by CRB rules for loanId={}", creditData.getLoanId());
+
+                        saveCrbPostingLogger(
+                                creditData.getLoanId(),
+                                batchId,
+                                e.getCallbackId(),
+                                false,
+                                e.getUserMessage(),
+                                payload,
+                                currentUser,
+                                date
+                        );
+                    }
+
+                    // TransUnion or network failure → retry later
+                    catch (CrbSystemException e) {
+                        log.info("System error when posting consumer credit for loanId={}: {}", creditData.getLoanId(), e.getMessage());
+                        saveCrbPostingLogger(
+                                creditData.getLoanId(),
+                                batchId,
+                                e.getCallbackId(),
+                                false,
+                                "TransUnion error: " + e.getMessage(),
+                                payload,
+                                currentUser,
+                                date
+                        );
+
+                        throw e;   // Quartz must retry
+                    }
+
+                    lastLoanId = creditData.getLoanId();
+
+                    Thread.sleep(200); // Sleep to respect rate limit
+
+                }catch (InterruptedException e){
+                    log.error("Thread interrupted while waiting for semaphore permit", e);
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
                 }
-
-                // Data / business rejection → log and STOP reposting
-                catch (CrbValidationException | CrbBusinessRuleException e) {
-
-                    log.info("error processing");
-
-                    saveCrbPostingLogger(
-                            creditData.getLoanId(),
-                            batchId,
-                            e.getCallbackId(),
-                            false,
-                            e.getUserMessage(),
-                            payload,
-                            currentUser,
-                            date
-                    );
-                }
-
-                // TransUnion or network failure → retry later
-                catch (CrbSystemException e) {
-
-                    saveCrbPostingLogger(
-                            creditData.getLoanId(),
-                            batchId,
-                            e.getCallbackId(),
-                            false,
-                            "TransUnion error: " + e.getMessage(),
-                            payload,
-                            currentUser,
-                            date
-                    );
-
-                    throw e;   // Quartz must retry
-                }
-
-                lastLoanId = creditData.getLoanId();
             }
 
             // Update flags only for loans that must never be resent
@@ -237,68 +249,77 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
             for (TransUnionRwandaCorporateCreditData creditData : records) {
 
-                RwandaCorporateCreditData rwandaCorporateCreditData = new RwandaCorporateCreditData();
-                rwandaCorporateCreditData.setCorporateCreditInformationRecord(creditData);
-                rwandaCorporateCreditData.setRecordType("CI");
+                try{
+                    RwandaCorporateCreditData rwandaCorporateCreditData = new RwandaCorporateCreditData();
+                    rwandaCorporateCreditData.setCorporateCreditInformationRecord(creditData);
+                    rwandaCorporateCreditData.setRecordType("CI");
 
-                String payload = convertConsumerCreditPayloadToJson(rwandaCorporateCreditData);
+                    String payload = convertConsumerCreditPayloadToJson(rwandaCorporateCreditData);
 
-                try {
-                    String callbackId = postRwandaCorporateCreditToTransUnion(token, payload);
+                    try {
+                        String callbackId = postRwandaCorporateCreditToTransUnion(token, payload);
 
-                    // success
-                    saveCrbPostingLogger(
-                            creditData.getLoanId(),
-                            batchId,
-                            callbackId,
-                            true,
-                            null,
-                            payload,
-                            currentUser,
-                            date
-                    );
+                        // success
+                        saveCrbPostingLogger(
+                                creditData.getLoanId(),
+                                batchId,
+                                callbackId,
+                                true,
+                                null,
+                                payload,
+                                currentUser,
+                                date
+                        );
 
-                    // closed / non-active loans must never be resent
-                    if (!creditData.getLoanStatus().equals(LoanStatus.ACTIVE.getValue())) {
-                        loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
+                        // closed / non-active loans must never be resent
+                        if (!creditData.getLoanStatus().equals(LoanStatus.ACTIVE.getValue())) {
+                            loansNotToBeRePostedTransUnion.add(creditData.getLoanId());
+                        }
                     }
+
+                    // Business / validation rejection → log and STOP reposting
+                    catch (CrbValidationException | CrbBusinessRuleException e) {
+
+                        LOG.info("Corporate credit rejected by CRB rules for loanId={}", creditData.getLoanId());
+
+                        saveCrbPostingLogger(
+                                creditData.getLoanId(),
+                                batchId,
+                                e.getCallbackId(),
+                                false,
+                                e.getUserMessage(),
+                                payload,
+                                currentUser,
+                                date
+                        );
+                    }
+
+                    // TransUnion / network / infra failure → retry later
+                    catch (CrbSystemException e) {
+
+                        saveCrbPostingLogger(
+                                creditData.getLoanId(),
+                                batchId,
+                                e.getCallbackId(),
+                                false,
+                                "TransUnion system error: " + e.getMessage(),
+                                payload,
+                                currentUser,
+                                date
+                        );
+
+                        throw e; // Quartz must retry
+                    }
+
+                    lastLoanId = creditData.getLoanId();
+
+                    Thread.sleep(200);
+
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
                 }
 
-                // Business / validation rejection → log and STOP reposting
-                catch (CrbValidationException | CrbBusinessRuleException e) {
-
-                    LOG.info("Corporate credit rejected by CRB rules for loanId={}", creditData.getLoanId());
-
-                    saveCrbPostingLogger(
-                            creditData.getLoanId(),
-                            batchId,
-                            e.getCallbackId(),
-                            false,
-                            e.getUserMessage(),
-                            payload,
-                            currentUser,
-                            date
-                    );
-                }
-
-                // TransUnion / network / infra failure → retry later
-                catch (CrbSystemException e) {
-
-                    saveCrbPostingLogger(
-                            creditData.getLoanId(),
-                            batchId,
-                            e.getCallbackId(),
-                            false,
-                            "TransUnion system error: " + e.getMessage(),
-                            payload,
-                            currentUser,
-                            date
-                    );
-
-                    throw e; // Quartz must retry
-                }
-
-                lastLoanId = creditData.getLoanId();
             }
 
             // Update flags only for loans that must never be resent
@@ -382,61 +403,23 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
         log.info("http response: {}", httpResponse);
 
-        final JsonObject json = JsonParser.parseString(httpResponse).getAsJsonObject();
-        final int code = json.has("responseCode") ? json.get("responseCode").getAsInt() : -1;
-        final String callbackId = json.has("callbackId") ? json.get("callbackId").getAsString() : null;
+        JsonObject json;
+        try {
+            json = JsonParser.parseString(httpResponse).getAsJsonObject();
+        } catch (Exception ex) {
+            throw new CrbSystemException("Invalid JSON response from TransUnion", null);
+        }
+
+        final int code = getAsInt(json, "responseCode", -1);
+        final String callbackId = getAsString(json, "callbackId", null);
 
         switch (code) {
             case 200:
                 return;
-            case 600:
-                if (json.has("recordErrors")) {
-                    final JsonArray errors = json.getAsJsonArray("recordErrors");
 
-                    final JsonObject firstError = errors.get(0).getAsJsonObject();
-
-                    final String accountNumber = firstError.get("accountNumber").getAsString();
-                    final String fieldName = firstError.get("fieldName").getAsString();
-                    final String fieldValue = firstError.get("fieldValue").getAsString();
-
-                    final Set<String> uniqueMessages = new LinkedHashSet<>();
-
-                    for (int i = 0; i < errors.size(); i++) {
-                        JsonObject err = errors.get(i).getAsJsonObject();
-
-                        String message = err.get("errorMessage").getAsString();
-
-                        message = message.replaceAll("\\[ADVICE.*?\\]", "").trim();
-
-                        uniqueMessages.add(message);
-                    }
-
-                    final StringBuilder userMessage = new StringBuilder();
-
-                    userMessage.append("CRB submission failed for Loan ")
-                            .append(accountNumber)
-                            .append(".\n\n")
-                            .append("Field: ").append(fieldName).append("\n")
-                            .append("Current value: ").append(fieldValue).append("\n\n")
-                            .append("Issue(s):\n");
-
-                    uniqueMessages.forEach(msg ->
-                            userMessage.append("• ").append(msg).append("\n")
-                    );
-
-                    userMessage.append("\nAction required:\n")
-                            .append("• Correct the ").append(fieldName).append("\n")
-                            .append("• Ensure it meets CRB format requirements\n");
-
-                    throw new CrbValidationException(
-                            accountNumber,
-                            fieldName,
-                            fieldValue,
-                            userMessage.toString(),
-                            callbackId
-                    );
-                }
-                else {
+            case 600: {
+                final JsonArray errors = getAsArray(json, "recordErrors");
+                if (errors == null || errors.size() == 0) {
                     throw new CrbValidationException(
                             null,
                             null,
@@ -445,24 +428,129 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                             callbackId
                     );
                 }
-            default:
-                if (code >= 400 && code < 500) {
-                    throw new CrbBusinessRuleException(
-                            json.has("message")
-                                    ? json.get("message").getAsString()
-                                    : "TransUnion rejected the request",
-                            callbackId
-                    );
-                }else {
-                    throw new CrbSystemException(
-                            json.has("message")
-                                    ? json.get("message").getAsString()
-                                    : "Unexpected TransUnion response",
-                            callbackId
-                    );
+
+                final JsonObject firstError = safeGetObject(errors, 0);
+
+                final String accountNumber = getAsString(firstError, "accountNumber", null);
+                final String fieldName     = getAsString(firstError, "fieldName", null);
+                final String fieldValue    = getAsString(firstError, "fieldValue", null);
+
+                final Set<String> uniqueMessages = new LinkedHashSet<>();
+
+                for (int i = 0; i < errors.size(); i++) {
+                    JsonObject err = safeGetObject(errors, i);
+                    String message = getAsString(err, "errorMessage", null);
+
+                    if (message == null || message.isBlank()) {
+                        continue;
+                    }
+
+                    message = message.replaceAll("\\[ADVICE.*?\\]", "").trim();
+                    if (!message.isBlank()) {
+                        uniqueMessages.add(message);
+                    }
                 }
+
+                final StringBuilder userMessage = new StringBuilder();
+                userMessage.append("CRB submission failed");
+
+                if (accountNumber != null && !accountNumber.isBlank()) {
+                    userMessage.append(" for Loan ").append(accountNumber);
+                }
+
+                userMessage.append(".\n\n");
+
+                if (fieldName != null) {
+                    userMessage.append("Field: ").append(fieldName).append("\n");
+                }
+                if (fieldValue != null) {
+                    userMessage.append("Current value: ").append(fieldValue).append("\n");
+                }
+
+                userMessage.append("\nIssue(s):\n");
+                if (uniqueMessages.isEmpty()) {
+                    userMessage.append("• Validation failed (no detailed messages provided)\n");
+                } else {
+                    uniqueMessages.forEach(msg -> userMessage.append("• ").append(msg).append("\n"));
+                }
+
+                userMessage.append("\nAction required:\n");
+                if (fieldName != null) {
+                    userMessage.append("• Correct the ").append(fieldName).append("\n");
+                } else {
+                    userMessage.append("• Correct the invalid field(s)\n");
+                }
+                userMessage.append("• Ensure it meets CRB format requirements\n");
+
+                throw new CrbValidationException(
+                        accountNumber,
+                        fieldName,
+                        fieldValue,
+                        userMessage.toString(),
+                        callbackId
+                );
+            }
+
+            default: {
+                final String message = getAsString(json, "message",
+                        (code >= 400 && code < 500)
+                                ? "TransUnion rejected the request"
+                                : "Unexpected TransUnion response");
+
+                if (code >= 400 && code < 500) {
+                    throw new CrbBusinessRuleException(message, callbackId);
+                } else {
+                    throw new CrbSystemException(message, callbackId);
+                }
+            }
         }
     }
+
+    /** Safe helpers **/
+    private static String getAsString(JsonObject obj, String key, String defaultValue) {
+        if (obj == null || key == null || !obj.has(key)) return defaultValue;
+        JsonElement el = obj.get(key);
+        if (el == null || el.isJsonNull()) return defaultValue;
+
+        try {
+            return el.getAsString();
+        } catch (Exception e) {
+            // In case it's not a primitive string (e.g., object/array)
+            return el.toString();
+        }
+    }
+
+    private static int getAsInt(JsonObject obj, String key, int defaultValue) {
+        if (obj == null || key == null || !obj.has(key)) return defaultValue;
+        JsonElement el = obj.get(key);
+        if (el == null || el.isJsonNull()) return defaultValue;
+
+        try {
+            return el.getAsInt();
+        } catch (Exception e) {
+            // sometimes API returns numeric codes as strings
+            try {
+                return Integer.parseInt(el.getAsString());
+            } catch (Exception ignore) {
+                return defaultValue;
+            }
+        }
+    }
+
+    private static JsonArray getAsArray(JsonObject obj, String key) {
+        if (obj == null || key == null || !obj.has(key)) return null;
+        JsonElement el = obj.get(key);
+        if (el == null || el.isJsonNull() || !el.isJsonArray()) return null;
+        return el.getAsJsonArray();
+    }
+
+    private static JsonObject safeGetObject(JsonArray arr, int idx) {
+        if (arr == null || idx < 0 || idx >= arr.size()) return new JsonObject();
+        JsonElement el = arr.get(idx);
+        if (el == null || el.isJsonNull() || !el.isJsonObject()) return new JsonObject();
+        return el.getAsJsonObject();
+    }
+
 
 
     private String getConfigProperty(String propertyName) {
