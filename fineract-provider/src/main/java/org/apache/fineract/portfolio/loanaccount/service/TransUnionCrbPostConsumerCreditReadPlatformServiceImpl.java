@@ -226,7 +226,6 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     + "                                                  ) lrs   WHERE lrs.row_num = 1 "
                     + "                                         ) AS nextPaymentTbl on nextPaymentTbl.loan_id = l.id"
                     + "  WHERE l.loan_status_id IN (300, 600, 601, 700) " + "  AND l.currency_code = 'RWF' "
-                    + "  AND first_payment.firstPaymentDate IS NOT NULL " + "  AND l.last_repayment_date IS NOT NULL "
                     + "  AND mc.legal_form_enum = 1 " // 1 = individual 2= entity/corporate
                     + "  AND (l.stop_consumer_credit_upload_to_trans_union IS NULL OR l.stop_consumer_credit_upload_to_trans_union = false) ");
             return sql.toString();
