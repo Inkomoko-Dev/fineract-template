@@ -138,7 +138,41 @@ public class EmailNotificationService {
         return new EmailDetail(subject,body, nextApprover.getEmail(), nextApprover.getDisplayName());
     }
 
-    private void sendLoanDecisionRejectNotification(Loan loan, LoanDecision loanDecision) {
+    private void sendLoanDecisionRejectNotification(Loan loan, LoanDecision loanDecision, Note note) {
+        Integer state = loanDecision.getNextLoanIcReviewDecisionState();
+        if (state == null) return;
+
+        AppUser approver = getNextApprover(loanDecision,state);
+
+        if (approver != null && StringUtils.isNotBlank(approver.getEmail())) {
+            EmailDetail emailDetail;
+            emailDetail = getLoanDecisionRejectEmail(loan, state, approver, note);
+            emailService.sendDefinedEmail(emailDetail);
+        }
+    }
+
+    private EmailDetail getLoanDecisionRejectEmail(Loan loan, Integer state, AppUser user, Note note) {
+        String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
+        String subject = "Loan Action Returned: Stage " + LoanDecisionState.fromInt(state).toString();
+        String body = String.format(
+                """
+                        Dear %s,<br><br>
+
+                        %s for account <strong>%s</strong>, client <strong>%s</strong>, was returned to you.<br>
+                        Note: %s <br><br>
+
+                        Please <a href="%s">log in </a> to the system to review and take the next action.<br><br>
+                        
+                        Kind Regards.
+                """,
+                user.getDisplayName(),
+                LoanDecisionState.fromInt(state).toString(),
+                loan.getAccountNumber(),
+                loan.getClient().getDisplayName(),
+                note.getNote(),
+                loanUrl
+        );
+        return new EmailDetail(subject,body, user.getEmail(), user.getDisplayName());
     }
 
 
