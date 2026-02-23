@@ -58,14 +58,7 @@ public class EmailNotificationService {
                 new EmailNotificationService.LoanDecisionRejectListener());
     }
 
-    public void sendDynamicEmail(AppUser recipient, String subject, String body) {
-        if (recipient != null && StringUtils.isNotBlank(recipient.getEmail())) {
-            EmailDetail emailDetail = new EmailDetail(subject, body, recipient.getEmail(), recipient.getDisplayName());
-            emailService.sendDefinedEmail(emailDetail);
-        }
-    }
-
-    public void sendLoanDecisionAcceptedNotification(Loan loan, LoanDecision decision) {
+    public void sendLoanDecisionAcceptedNotification(Loan loan, LoanDecision decision, Note note) {
         Integer nextStage = decision.getNextLoanIcReviewDecisionState();
         if (nextStage == null) return;
 
@@ -183,7 +176,8 @@ public class EmailNotificationService {
         public void onBusinessEvent(LoanDecisionAcceptedEvent event) {
             Loan loan = event.get();
             LoanDecision loanDecision = event.getLoanDecision();
-            sendLoanDecisionAcceptedNotification(loan,loanDecision);
+            Note note = event.getNote();
+            sendLoanDecisionAcceptedNotification(loan,loanDecision, note);
         }
     }
 
@@ -194,7 +188,8 @@ public class EmailNotificationService {
         public void onBusinessEvent(LoanDecisionRejectEvent event) {
             Loan loan = event.get();
             LoanDecision loanDecision = event.getLoanDecision();
-            sendLoanDecisionRejectNotification(loan,loanDecision);
+            Note note = event.getNote();
+            sendLoanDecisionRejectNotification(loan,loanDecision, note);
         }
     }
 }
