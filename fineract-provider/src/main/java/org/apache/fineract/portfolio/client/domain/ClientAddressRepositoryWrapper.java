@@ -22,6 +22,8 @@ import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 public class ClientAddressRepositoryWrapper {
 
@@ -46,5 +48,10 @@ public class ClientAddressRepositoryWrapper {
 
         return clientAddress;
     }
+
+    public List<ClientAddress> findAddressesForClient(Long clientId) {
+        return this.clientAddressRepository.findAddressByClientId(clientId);
+    }
+
 
 }
