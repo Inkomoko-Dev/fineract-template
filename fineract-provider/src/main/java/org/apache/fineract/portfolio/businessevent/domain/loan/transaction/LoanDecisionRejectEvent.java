@@ -1,3 +1,5 @@
+<<<<<<< inkomoko-uat
+=======
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements. See the NOTICE file
@@ -16,24 +18,35 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+>>>>>>> inkomoko
 package org.apache.fineract.portfolio.businessevent.domain.loan.transaction;
 
 import lombok.Getter;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanBusinessEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+<<<<<<< inkomoko-uat
+=======
 import org.apache.fineract.portfolio.note.domain.Note;
+>>>>>>> inkomoko
 
 @Getter
 public class LoanDecisionRejectEvent extends LoanBusinessEvent {
 
     private final LoanDecision loanDecision;
+<<<<<<< inkomoko-uat
+
+    public LoanDecisionRejectEvent(Loan loan, LoanDecision loanDecision) {
+        super(loan);
+        this.loanDecision = loanDecision;
+=======
     private final Note note;
 
     public LoanDecisionRejectEvent(Loan loan, LoanDecision loanDecision, Note note) {
         super(loan);
         this.loanDecision = loanDecision;
         this.note = note;
+>>>>>>> inkomoko
     }
 
 }
