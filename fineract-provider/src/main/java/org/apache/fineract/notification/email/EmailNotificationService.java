@@ -59,18 +59,7 @@ public class EmailNotificationService {
                 new EmailNotificationService.LoanDecisionRejectListener());
     }
 
-<<<<<<< inkomoko-uat
-    public void sendDynamicEmail(AppUser recipient, String subject, String body) {
-        if (recipient != null && StringUtils.isNotBlank(recipient.getEmail())) {
-            EmailDetail emailDetail = new EmailDetail(subject, body, recipient.getEmail(), recipient.getDisplayName());
-            emailService.sendDefinedEmail(emailDetail);
-        }
-    }
-
-    public void sendLoanDecisionAcceptedNotification(Loan loan, LoanDecision decision) {
-=======
     public void sendLoanDecisionAcceptedNotification(Loan loan, LoanDecision decision, Note note) {
->>>>>>> inkomoko
         Integer nextStage = decision.getNextLoanIcReviewDecisionState();
         if (nextStage == null) return;
 
@@ -143,9 +132,6 @@ public class EmailNotificationService {
         return new EmailDetail(subject,body, nextApprover.getEmail(), nextApprover.getDisplayName());
     }
 
-<<<<<<< inkomoko-uat
-    private void sendLoanDecisionRejectNotification(Loan loan, LoanDecision loanDecision) {
-=======
     private void sendLoanDecisionRejectNotification(Loan loan, LoanDecision loanDecision, Note note) {
         Integer state = loanDecision.getNextLoanIcReviewDecisionState();
         if (state == null) return;
@@ -181,7 +167,6 @@ public class EmailNotificationService {
                 loanUrl
         );
         return new EmailDetail(subject,body, user.getEmail(), user.getDisplayName());
->>>>>>> inkomoko
     }
 
 
@@ -192,12 +177,8 @@ public class EmailNotificationService {
         public void onBusinessEvent(LoanDecisionAcceptedEvent event) {
             Loan loan = event.get();
             LoanDecision loanDecision = event.getLoanDecision();
-<<<<<<< inkomoko-uat
-            sendLoanDecisionAcceptedNotification(loan,loanDecision);
-=======
             Note note = event.getNote();
             sendLoanDecisionAcceptedNotification(loan,loanDecision, note);
->>>>>>> inkomoko
         }
     }
 
@@ -208,12 +189,8 @@ public class EmailNotificationService {
         public void onBusinessEvent(LoanDecisionRejectEvent event) {
             Loan loan = event.get();
             LoanDecision loanDecision = event.getLoanDecision();
-<<<<<<< inkomoko-uat
-            sendLoanDecisionRejectNotification(loan,loanDecision);
-=======
             Note note = event.getNote();
             sendLoanDecisionRejectNotification(loan,loanDecision, note);
->>>>>>> inkomoko
         }
     }
 }
