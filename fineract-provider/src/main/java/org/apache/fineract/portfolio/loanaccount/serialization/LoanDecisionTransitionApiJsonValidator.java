@@ -118,7 +118,7 @@ public final class LoanDecisionTransitionApiJsonValidator {
         final BigDecimal recommendedAmount = this.fromApiJsonHelper
                 .extractBigDecimalWithLocaleNamed(LoanApiConstants.dueDiligenceRecommendedAmountParameterName, element);
         baseDataValidator.reset().parameter(LoanApiConstants.dueDiligenceRecommendedAmountParameterName).value(recommendedAmount).notNull()
-                .integerGreaterThanZero();
+                .notLessThanMin(BigDecimal.ZERO);
 
         final Long recommendedLoanTermFrequency = this.fromApiJsonHelper
                 .extractLongNamed(LoanApiConstants.recommendedLoanTermFrequencyParameterName, element);
@@ -1280,7 +1280,7 @@ public final class LoanDecisionTransitionApiJsonValidator {
         final BigDecimal icReviewRecommendedAmount = this.fromApiJsonHelper
                 .extractBigDecimalNamed(LoanApiConstants.icReviewRecommendedAmount, element, Locale.US);
         baseDataValidator.reset().parameter(LoanApiConstants.icReviewRecommendedAmount).value(icReviewRecommendedAmount)
-                .integerGreaterThanZero().notNull();
+                .notNull().notLessThanMin(BigDecimal.ZERO);
         final Integer icReviewTermFrequency = this.fromApiJsonHelper.extractIntegerNamed(LoanApiConstants.icReviewTermFrequency, element,
                 Locale.US);
         baseDataValidator.reset().parameter(LoanApiConstants.icReviewTermFrequency).value(icReviewTermFrequency).integerGreaterThanZero()

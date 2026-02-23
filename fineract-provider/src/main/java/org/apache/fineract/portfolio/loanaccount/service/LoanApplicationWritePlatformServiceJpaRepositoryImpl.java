@@ -82,6 +82,7 @@ import org.apache.fineract.portfolio.account.service.AccountAssociationsReadPlat
 import org.apache.fineract.portfolio.accountdetails.domain.AccountType;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanApprovedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanCreatedBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDecisionAcceptedEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanRejectedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanUndoApprovalBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
@@ -164,6 +165,8 @@ import org.apache.fineract.portfolio.loanproduct.serialization.LoanProductDataVa
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepositoryWrapper;
 import org.apache.fineract.portfolio.rate.service.RateAssembler;
 import org.apache.fineract.portfolio.savings.data.GroupSavingsIndividualMonitoringAccountData;
 import org.apache.fineract.portfolio.savings.domain.SavingsAccount;
@@ -178,6 +181,8 @@ import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+
+import static org.apache.fineract.portfolio.loanaccount.service.DisbursementRequestServiceImpl.getDisbursementChargeAmount;
 
 @Service
 @RequiredArgsConstructor
@@ -239,6 +244,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final LoanCashFlowProjectionRepository loanCashFlowProjectionRepository;
     private final OdooService odooService;
     private final FundReadPlatformService fundReadPlatformService;
+    private final PaymentTypeRepositoryWrapper paymentTypeRepository;
 
     private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
         final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
@@ -1527,6 +1533,12 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         LocalDate expectedDisbursementDate = null;
 
         this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json());
+        final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
+
+        // fetch the payment type entity from DB
+        final PaymentType paymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(paymentTypeId);
+
+        validatePaymentDetails(command, paymentType);
 
         final Loan loan = retrieveLoanBy(loanId);
 
@@ -1654,12 +1666,56 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 loan.adjustNetDisbursalAmount(netDisbursalAmount);
             }
 
+            if (!loan.loanProduct().isMultiDisburseLoan()) {
+
+                final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
+                final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
+                final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
+
+                BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
+                BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
+
+                // ------------------------------
+                // 1. FIND EXISTING DETAIL
+                // ------------------------------
+
+                LoanDisbursementDetails disbursementDetail = loan.getDisbursementDetails()
+                        .stream()
+                        .findFirst()
+                        .orElse(null);
+
+                // ------------------------------
+                // 2. IF NOT FOUND, CREATE A NEW ONE
+                // ------------------------------
+                if (disbursementDetail == null) {
+                    disbursementDetail = new LoanDisbursementDetails(
+                            expectedDisbursementDate,
+                            null, // actual disbursement date (will be filled later)
+                            loan.getProposedPrincipal(),
+                            netDisbursementAmount
+                    );
+
+                    disbursementDetail.updateLoan(loan);
+                    loan.getDisbursementDetails().add(disbursementDetail);
+                }
+
+                // ------------------------------
+                // 3. UPDATE PROPERTIES (ALWAYS)
+                // ------------------------------
+                disbursementDetail.setPaymentType(paymentType);
+                disbursementDetail.setAccountNumber(clientAccountNumber);
+                disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
+                disbursementDetail.setClientBankName(clientBankName);
+                disbursementDetail.setExpectedDisbursementDate(expectedDisbursementDate);
+
+            }
+
             saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
             final String noteText = command.stringValueOfParameterNamed("note");
             if (StringUtils.isNotBlank(noteText)) {
                 final Note note = Note.loanNote(loan, noteText);
-                changes.put("note", noteText);
+                changes.put("note", "Loan Approval: " +noteText);
                 this.noteRepository.save(note);
             }
 
@@ -1675,6 +1731,47 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 .withLoanId(loanId) //
                 .with(changes) //
                 .build();
+    }
+
+    private void validatePaymentDetails(JsonCommand command, PaymentType paymentType) {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+
+        final boolean isCash = paymentType.isCashPayment(); // assuming this flag exists
+        final boolean isMobileMoney = paymentType.isMobileMoney();
+
+        final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
+        final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
+        final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
+
+        if (!isCash && isMobileMoney) {
+            if (StringUtils.isBlank(clientPhoneNumber)) {
+                dataValidationErrors.add(ApiParameterError.parameterError(
+                        "validation.msg.loanapproval.clientPhoneNumber.required",
+                        "Client phone number must be provided for mobile money payment type.",
+                        "clientPhoneNumber", clientPhoneNumber));
+            }
+        }
+
+        if (!isCash && !isMobileMoney) {
+
+            boolean missingBankDetails = StringUtils.isBlank(clientAccountNumber)
+                    || StringUtils.isBlank(clientBankName);
+
+            if (missingBankDetails) {
+                dataValidationErrors.add(ApiParameterError.parameterError(
+                        "validation.msg.loanapproval.bank.details.required",
+                        "Bank details must be provided for non-cash, non-mobile-money payment type.",
+                        "clientPhoneNumber,clientBankName,clientAccountNumber", null));
+            }
+        }
+
+        // Throw if any validation errors exist
+        if (!dataValidationErrors.isEmpty()) {
+            throw new PlatformApiDataValidationException(
+                    "validation.msg.loanapproval.payment.details.invalid",
+                    "Validation errors exist for payment type and related fields.",
+                    dataValidationErrors);
+        }
     }
 
     private void validateActiveLoanCount(Long clientId) {
@@ -1835,7 +1932,6 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 break;
                 case IC_REVIEW_LEVEL_FOUR:
                     changes = rejectLoanAccountForIcReviewLevelFive(command, currentUser, loan);
-
                 break;
                 default:
                     changes = rejectLoanAccountParentStatus(command, currentUser, loan);
@@ -1897,11 +1993,14 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelFiveNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level Five : " + loanDecisionObj.getIcReviewDecisionLevelFiveNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
+//        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         // By Default Completely Reject this Loan Account since this is a last stage of IC Review
         changes = rejectLoanAccountParentStatus(command, currentUser, loan);
         return changes;
@@ -1944,14 +2043,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FOUR.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelFourNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level Four : " + loanDecisionObj.getIcReviewDecisionLevelFourNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
         // If the next state is outside the IC Review, then reject the loan account completely
         if (loanDecisionObj.getNextLoanIcReviewDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
             changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        }else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         }
         return changes;
     }
@@ -1993,14 +2096,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
-        if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelThreeNote())) {
-            final Note note = Note.loanNote(loanObj,
+        Note note = null;
+        if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelThreeNote())) {note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level Three : " + loanDecisionObj.getIcReviewDecisionLevelThreeNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
         // If the next state is outside the IC Review, then reject the loan account completely
         if (loanDecisionObj.getNextLoanIcReviewDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
             changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        }
+        else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         }
         return changes;
     }
@@ -2043,14 +2150,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelTwoNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level Two : " + loanDecisionObj.getIcReviewDecisionLevelTwoNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
         // If the next state is outside the IC Review, then reject the loan account completely
         if (loanDecisionObj.getNextLoanIcReviewDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
             changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        }else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         }
         return changes;
     }
@@ -2089,15 +2200,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         Loan loanObj = loan;
         loanObj.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
-
+        Note note = null;
         if (StringUtils.isNotBlank(loanDecisionObj.getIcReviewDecisionLevelOneNote())) {
-            final Note note = Note.loanNote(loanObj,
+            note = Note.loanNote(loanObj,
                     "Reject IC Review-Decision Level One : " + loanDecisionObj.getIcReviewDecisionLevelOneNote());
-            this.noteRepository.save(note);
+            this.noteRepository.saveAndFlush(note);
         }
+
         // If the next state is outside the IC Review, then reject the loan account completely
         if (loanDecisionObj.getNextLoanIcReviewDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
             changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        }else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
         }
         return changes;
     }
@@ -2110,7 +2224,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             final String noteText = command.stringValueOfParameterNamed("note");
             this.loanRepositoryWrapper.saveAndFlush(loan);
             if (StringUtils.isNotBlank(noteText)) {
-                final Note note = Note.loanNote(loan, noteText);
+                final Note note = Note.loanNote(loan, "Loan Rejected: " + noteText);
                 this.noteRepository.save(note);
             }
         }

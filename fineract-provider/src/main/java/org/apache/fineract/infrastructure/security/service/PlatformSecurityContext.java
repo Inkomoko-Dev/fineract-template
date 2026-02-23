@@ -25,6 +25,8 @@ public interface PlatformSecurityContext {
 
     AppUser authenticatedUser();
 
+    AppUser authenticatedUserIgnoreReset();
+
     /**
      * Convenience method returns null (does not throw an exception) if an authenticated user is not present
      *

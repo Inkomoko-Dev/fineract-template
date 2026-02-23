@@ -43,11 +43,13 @@ public class PaymentTypeDataValidator {
     private final FromJsonHelper fromApiJsonHelper;
     private static final Set<String> CREATE_PAYMENT_TYPE_REQUEST_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList(PaymentTypeApiResourceConstants.NAME, PaymentTypeApiResourceConstants.DESCRIPTION,
-                    PaymentTypeApiResourceConstants.ISCASHPAYMENT, PaymentTypeApiResourceConstants.POSITION));
+                    PaymentTypeApiResourceConstants.ISCASHPAYMENT, PaymentTypeApiResourceConstants.POSITION,
+                    PaymentTypeApiResourceConstants.ISMOBILEMONEY));
 
     private static final Set<String> UPDATE_PAYMENT_TYPE_REQUEST_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList(PaymentTypeApiResourceConstants.NAME, PaymentTypeApiResourceConstants.DESCRIPTION,
-                    PaymentTypeApiResourceConstants.ISCASHPAYMENT, PaymentTypeApiResourceConstants.POSITION));
+                    PaymentTypeApiResourceConstants.ISCASHPAYMENT, PaymentTypeApiResourceConstants.POSITION,
+                    PaymentTypeApiResourceConstants.ISMOBILEMONEY));
 
     @Autowired
     public PaymentTypeDataValidator(final FromJsonHelper fromApiJsonHelper) {

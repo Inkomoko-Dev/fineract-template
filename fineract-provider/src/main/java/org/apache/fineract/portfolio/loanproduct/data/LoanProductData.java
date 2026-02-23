@@ -1496,4 +1496,8 @@ public class LoanProductData implements Serializable {
     public Long getProductCategoryId() {
         return productCategoryId;
     }
+
+    public Collection<PaymentTypeToGLAccountMapper> getPaymentChannelToFundSourceMappings() {
+        return this.paymentChannelToFundSourceMappings;
+    }
 }

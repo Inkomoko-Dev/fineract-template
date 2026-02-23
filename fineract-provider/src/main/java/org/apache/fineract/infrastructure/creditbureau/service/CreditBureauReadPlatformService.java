@@ -18,11 +18,21 @@
  */
 package org.apache.fineract.infrastructure.creditbureau.service;
 
+import java.util.List;
 import java.util.Collection;
 import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauData;
+import org.apache.fineract.infrastructure.creditbureau.domain.TransUnionCreditReportCsvData;
+import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
+
+import javax.ws.rs.core.MultivaluedMap;
 
 public interface CreditBureauReadPlatformService {
 
     Collection<CreditBureauData> retrieveCreditBureau();
 
+    List<CRBPostingLoggerData> retrieveCrbPostingLogs();
+
+    void markCRBLogAsFixed(String loanIds);
+
+    TransUnionCreditReportCsvData generateCsvReport(MultivaluedMap<String, String> queryParameters);
 }

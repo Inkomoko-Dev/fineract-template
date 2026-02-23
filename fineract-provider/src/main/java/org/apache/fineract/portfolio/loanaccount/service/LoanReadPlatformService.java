@@ -79,7 +79,7 @@ public interface LoanReadPlatformService {
 
     LoanTransactionData retrieveDisbursalTemplate(Long loanId, boolean paymentDetailsRequired);
 
-    LoanApprovalData retrieveApprovalTemplate(Long loanId);
+    LoanApprovalData retrieveApprovalTemplate(Long loanId, boolean paymentDetailsRequired);
 
     LoanApprovalData retrieveICReviewTemplate(Long loanId);
 

@@ -121,26 +121,41 @@ public class SmsMessageScheduledJobServiceImpl implements SmsMessageScheduledJob
             try {
 
                 if (!pendingMessages.getContent().isEmpty()) {
-                    Iterator<SmsMessage> pendingMessageIterator = pendingMessages.iterator();
-                    Collection<SmsMessageApiQueueResourceData> apiQueueResourceDatas = new ArrayList<>();
-                    while (pendingMessageIterator.hasNext()) {
-                        SmsMessage smsData = pendingMessageIterator.next();
+                    Map<Long, List<SmsMessage>> messagesByProvider = new HashMap<>();
+
+                    for (SmsMessage smsData : pendingMessages) {
                         if (smsData.isNotification()) {
                             smsData.setStatusType(SmsMessageStatusType.WAITING_FOR_DELIVERY_REPORT.getValue());
                             toSendNotificationMessages.add(smsData);
                         } else {
-                            SmsMessageApiQueueResourceData apiQueueResourceData = SmsMessageApiQueueResourceData.instance(smsData.getId()
-                                    , null, smsData.getMobileNo(), smsData.getMessage(),
-                                    FINERACT_SERVICE_NAME);
-                            apiQueueResourceDatas.add(apiQueueResourceData);
+                            Long providerId = smsData.getSmsCampaign().getProviderId();
+                            messagesByProvider.computeIfAbsent(providerId, k -> new ArrayList<>()).add(smsData);
+
                             smsData.setStatusType(SmsMessageStatusType.WAITING_FOR_DELIVERY_REPORT.getValue());
                             toSaveMessages.add(smsData);
                         }
                     }
+
+                    // Save updated statuses
                     if (!toSaveMessages.isEmpty()) {
                         this.smsMessageRepository.saveAllAndFlush(toSaveMessages);
-                        this.genericExecutorService.execute(new SmsTask(apiQueueResourceDatas, toSaveMessages.get(0).getSmsCampaign().getProviderId() ,ThreadLocalContextUtil.getContext()));
+
+                        // Submit tasks per provider
+                        for (Map.Entry<Long, List<SmsMessage>> entry : messagesByProvider.entrySet()) {
+                            Long providerId = entry.getKey();
+                            List<SmsMessage> providerMessages = entry.getValue();
+
+                            Collection<SmsMessageApiQueueResourceData> apiQueue = providerMessages.stream()
+                                    .map(msg -> SmsMessageApiQueueResourceData.instance(
+                                            msg.getId(), null, msg.getMobileNo(), msg.getMessage(), FINERACT_SERVICE_NAME))
+                                    .toList();
+
+                            this.genericExecutorService.execute(
+                                    new SmsTask(apiQueue, providerId, ThreadLocalContextUtil.getContext())
+                            );
+                        }
                     }
+
                     if (!toSendNotificationMessages.isEmpty()) {
                         this.notificationSenderService.sendNotification(toSendNotificationMessages);
                     }

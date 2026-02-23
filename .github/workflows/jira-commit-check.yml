@@ -1,0 +1,37 @@
+name: JIRA Commit Check
+on:
+  pull_request:
+    branches:
+    - inkomoko
+    - inkomoko-uat
+    - inkomoko-prod
+jobs:
+  jira-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate JIRA keys in commit messages
+        run: |
+          JIRA_REGEX='[A-Z]{3,4}-[0-9]+'
+
+          echo "Checking commits in PR..."
+
+          for commit in $(git log --no-merges ${{ github.event.pull_request.base.sha }}..${{ github.sha }} --format=%H); do
+            msg=$(git log -n 1 --format=%s $commit)
+
+            echo "Checking commit: $msg"
+
+            if ! echo "$msg" | grep -E -q "$JIRA_REGEX"; then
+              echo "❌ ERROR: Commit does not start with valid JIRA key"
+              echo "Message: $msg"
+              echo "Expected format example:"
+              echo "CGLT-100 fix login issue"
+              exit 1
+            fi
+          done
+
+          echo "✅ All commit messages contain valid JIRA keys."

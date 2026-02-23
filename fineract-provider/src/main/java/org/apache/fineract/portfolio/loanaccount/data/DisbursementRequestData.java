@@ -19,70 +19,49 @@
 
 package org.apache.fineract.portfolio.loanaccount.data;
 
+import lombok.Getter;
+import lombok.Setter;
+
 import java.math.BigDecimal;
 
+@Getter
+@Setter
 public class DisbursementRequestData {
 
+    private String transactionType;
+    private final String origin;
     private final String requestId;
     private final String externalId;
     private final BigDecimal amount;
-    private final String currencyCode;
-    private final String paymentMethod;
-    private final String clientPhoneNumber;
+    private final String currencyCode; //
+    private String countryCode;
+    private String location;
+    private final String paymentMethod; //mandatory
+    private final Long paymentMethodId; //mandatory
+    private Long partnerId;
+    private final String clientPhoneNumber; //mandatory, for SMS purposes
     private final String clientAccountNumber;
     private final String clientBankName;
+    private String clientBranchName;
+    private String beneficiaryName;
+    private String narration;
+    private String notifier;
+    private String glCode;
 
-    private final String origin;
-
-    private final Long paymentTypeId;
-
-    public DisbursementRequestData(String requestId, String loanAccount, BigDecimal amount, String currencyCode, String paymentMethod,
-            String clientPhoneNumber, String clientAccountNumber, String clientBankName, String origin, Long paymentTypeId) {
+    public DisbursementRequestData(String requestId, String loanAccount, BigDecimal amount, String currencyCode, String paymentMethod, Long paymentMethodId,
+                                   String clientPhoneNumber, String clientAccountNumber, String clientBankName, String origin, Long paymentTypeId) {
         this.requestId = requestId;
         this.externalId = loanAccount;
         this.amount = amount;
         this.currencyCode = currencyCode;
         this.paymentMethod = paymentMethod;
+        this.paymentMethodId = paymentMethodId;
         this.clientPhoneNumber = clientPhoneNumber;
         this.clientAccountNumber = clientAccountNumber;
         this.clientBankName = clientBankName;
         this.origin = origin;
-        this.paymentTypeId = paymentTypeId;
+        //country/office
+        //client name
     }
 
-    public String getRequestId() {
-        return requestId;
-    }
-
-    public String getLoanAccount() {
-        return externalId;
-    }
-
-    public BigDecimal getAmount() {
-        return amount;
-    }
-
-    public String getCurrencyCode() {
-        return currencyCode;
-    }
-
-    public String getPaymentMethod() {
-        return paymentMethod;
-    }
-
-    public String getClientPhoneNumber() {
-        return clientPhoneNumber;
-    }
-
-    public String getClientAccountNumber() {
-        return clientAccountNumber;
-    }
-
-    public String getClientBankName() {
-        return clientBankName;
-    }
-
-    public String getOrigin() {
-        return origin;
-    }
 }

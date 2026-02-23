@@ -24,6 +24,8 @@ import javax.persistence.Table;
 import lombok.Data;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
 
+import java.time.LocalDate;
+
 @Data
 @Entity
 @Table(name = "m_transunion_crb_consumer_logger")
@@ -43,6 +45,9 @@ public class TransunionCrbConsumerLogger extends AbstractAuditableWithUTCDateTim
     private String errorLogs;
     @Column(name = "pay_load")
     private String payload;
+
+    @Column(name = "date")
+    private LocalDate date;
 
     public TransunionCrbConsumerLogger() {}
 

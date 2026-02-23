@@ -22,6 +22,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.Collection;
+
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -43,6 +44,20 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
         final ConsumerCreditMapper mapper = new ConsumerCreditMapper();
         final String sql = mapper.schema() + " order by l.id ";
         return this.jdbcTemplate.query(sql, mapper, new Object[] {});
+    }
+
+    @Override
+    public Collection<TransUnionRwandaConsumerCreditData> retrieveAllConsumerCreditsPage(long lastLoanId, int pageSize) {
+        final ConsumerCreditMapper mapper = new ConsumerCreditMapper();
+
+        final String sql = mapper.schema() + " AND l.id > ? order by l.id limit ?";
+
+        return this.jdbcTemplate.query(
+                sql,
+                mapper,
+                lastLoanId,
+                pageSize
+        );
     }
 
     private final class ConsumerCreditMapper implements RowMapper<TransUnionRwandaConsumerCreditData> {
@@ -111,7 +126,7 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     + "       l.number_of_repayments                                                            AS termsDuration, "
                     + "       l.last_repayment_date                                                             AS lastPaymentDate, "
                     + "       mc.date_of_birth                                                                  AS dateOfBirth, "
-                    + "       l.maturedon_date                                                                  AS finalPaymentDate, "
+                    + "       l.expected_maturedon_date                                                                  AS finalPaymentDate, "
                     + "       mlaa.principal_overdue_derived                                                    AS amountPastDue, "
                     + "       40                                                                                AS category, "
                     + "       'Other personal service activities n.e.c.'                                        AS sectorOfActivity, "
@@ -119,13 +134,18 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     + "       ra.physical_address_district                                                      AS physicalAddressDistrict, "
                     + "       ''                                                                                AS groupName, ");
             if (databaseTypeResolver.isMySQL()) {
-                sql.append(" CASE " + "    WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) <= 90   THEN 'C' "
-                        + "    WHEN l.loan_status_id IN(600,601,700) THEN 'C' " + "    ELSE 'D' "
+                sql.append(" CASE "
+                        + "    WHEN mlaa.overdue_since_date_derived IS NULL THEN 'C' "
+                        + "    WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) < 90   THEN 'C' "
+                        + "    WHEN l.loan_status_id IN(600,601,700) THEN 'C' "
+                        + "    ELSE 'D' "
                         + "    END        AS currentBalanceIndicator, ");
             } else {
                 sql.append(" CASE "
-                        + "    WHEN EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP))  <= 90   THEN 'C' "
-                        + "    WHEN l.loan_status_id IN(600,601,700) THEN 'C' " + "    ELSE 'D' "
+                        + "    WHEN mlaa.overdue_since_date_derived IS NULL THEN 'C' "
+                        + "    WHEN EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP))  < 90   THEN 'C' "
+                        + "    WHEN l.loan_status_id IN(600,601,700) THEN 'C' "
+                        + "    ELSE 'D' "
                         + "    END        AS currentBalanceIndicator, ");
             }
 
@@ -206,7 +226,6 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     + "                                                  ) lrs   WHERE lrs.row_num = 1 "
                     + "                                         ) AS nextPaymentTbl on nextPaymentTbl.loan_id = l.id"
                     + "  WHERE l.loan_status_id IN (300, 600, 601, 700) " + "  AND l.currency_code = 'RWF' "
-                    + "  AND first_payment.firstPaymentDate IS NOT NULL " + "  AND l.last_repayment_date IS NOT NULL "
                     + "  AND mc.legal_form_enum = 1 " // 1 = individual 2= entity/corporate
                     + "  AND (l.stop_consumer_credit_upload_to_trans_union IS NULL OR l.stop_consumer_credit_upload_to_trans_union = false) ");
             return sql.toString();
@@ -347,4 +366,6 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
 
         }
     }
+
+
 }

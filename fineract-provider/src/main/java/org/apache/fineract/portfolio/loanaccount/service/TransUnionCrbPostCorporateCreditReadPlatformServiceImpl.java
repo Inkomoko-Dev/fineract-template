@@ -22,6 +22,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.Collection;
+
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -43,6 +44,20 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
         final CorporateCreditMapper mapper = new CorporateCreditMapper();
         final String sql = mapper.schema() + " order by l.id ";
         return this.jdbcTemplate.query(sql, mapper, new Object[] {});
+    }
+
+    @Override
+    public Collection<TransUnionRwandaCorporateCreditData> retrieveAllCorporateCreditsPage(long lastLoanId, int pageSize) {
+        final CorporateCreditMapper mapper = new CorporateCreditMapper();
+
+        final String sql = mapper.schema() + " AND l.id > ? order by l.id limit ?";
+
+        return this.jdbcTemplate.query(
+                sql,
+                mapper,
+                lastLoanId,
+                pageSize
+        );
     }
 
     private final class CorporateCreditMapper implements RowMapper<TransUnionRwandaCorporateCreditData> {
@@ -98,10 +113,10 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
                     + "       l.number_of_repayments                                                            AS termsDuration, "
                     + "       l.last_repayment_date                                                             AS lastPaymentDate, "
                     + "       mc.date_of_birth                                                                  AS companyRegistrationDate, "
-                    + "       l.maturedon_date                                                                  AS finalPaymentDate, "
+                    + "       l.expected_maturedon_date                                                                  AS finalPaymentDate, "
                     + "       mlaa.principal_overdue_derived                                                    AS amountPastDue, "
                     + "       40                                                                                AS category, "
-                    + "       'Other personal service activities n.e.c.'                                        AS sectorOfActivity, "
+                    + "       900                                                                             AS sectorOfActivity, "
                     + "       'I'                                                                               AS accountType, "
                     + "       ra.physical_address_district                                                      AS physicalAddressDistrict, "
                     + "       ''                                                                                AS groupName, ");
@@ -193,8 +208,7 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
                     + "                                                  ) lrs    WHERE lrs.row_num = 1 "
                     + "                                         ) AS nextPaymentTbl on nextPaymentTbl.loan_id = l.id"
                     + " WHERE l.loan_status_id IN (300, 600, 601, 700) " + "  AND l.currency_code = 'RWF' "
-                    + "  AND mc.legal_form_enum = 2 " + "  AND first_payment.firstPaymentDate IS NOT NULL "
-                    + "  AND l.last_repayment_date IS NOT NULL "
+                    + "  AND mc.legal_form_enum = 2  "
                     + "  AND (l.stop_consumer_credit_upload_to_trans_union IS NULL OR l.stop_consumer_credit_upload_to_trans_union = false) ");
             return sql.toString();
         }
@@ -322,4 +336,5 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
 
         }
     }
+
 }
