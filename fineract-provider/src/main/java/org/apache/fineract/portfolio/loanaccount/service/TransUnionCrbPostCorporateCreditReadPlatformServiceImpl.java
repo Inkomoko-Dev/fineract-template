@@ -116,7 +116,7 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
                     + "       l.expected_maturedon_date                                                                  AS finalPaymentDate, "
                     + "       mlaa.principal_overdue_derived                                                    AS amountPastDue, "
                     + "       40                                                                                AS category, "
-                    + "       900                                                                             AS sectorOfActivity, "
+                    + "       business_line_cv.external_code                                                    AS sectorOfActivity, "
                     + "       'I'                                                                               AS accountType, "
                     + "       ra.physical_address_district                                                      AS physicalAddressDistrict, "
                     + "       ''                                                                                AS groupName, ");
@@ -167,7 +167,7 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
                     + "      now()                                                             AS dateAccountUpdated, "
                     + "       r.installments_in_arrears                                                         AS installmentsInArrears, "
                     + "       mcnp.incorp_no                                                                    AS companyRegNo, "
-                    + "       business_line_cv.code_value                                                       AS industry, "
+                    + "       business_line_cv.external_code                                                       AS industry, "
                     + "       other_info.tax_identification_number                                              AS taxNo "
                     + " FROM m_loan l " + "         INNER JOIN m_product_loan mpl ON l.product_id = mpl.id "
                     + "         INNER JOIN m_client mc ON l.client_id = mc.id "

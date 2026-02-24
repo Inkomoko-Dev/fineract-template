@@ -32,6 +32,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
@@ -94,6 +95,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ClientReadPlatformServiceImpl implements ClientReadPlatformService {
@@ -498,7 +500,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             sqlBuilder.append(
                     "c.id as id, c.account_no as accountNo, c.external_id as externalId, c.status_enum as statusEnum,c.sub_status as subStatus, ");
             sqlBuilder.append(
-                    "cvSubStatus.code_value as subStatusValue,cvSubStatus.code_description as subStatusDesc,c.office_id as officeId, o.name as officeName, ");
+                    "cvSubStatus.code_value as subStatusValue,cvSubStatus.code_description as subStatusDesc,cvSubStatus.external_code as subStatusExternalCode,c.office_id as officeId, o.name as officeName, ");
             sqlBuilder.append("c.transfer_to_office_id as transferToOfficeId, transferToOffice.name as transferToOfficeName, ");
             sqlBuilder.append("c.firstname as firstname, c.middlename as middlename, c.lastname as lastname, ");
             sqlBuilder.append("c.fullname as fullname, c.display_name as displayName, ");
@@ -578,9 +580,10 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
 
             final Long subStatusId = JdbcSupport.getLong(rs, "subStatus");
             final String subStatusValue = rs.getString("subStatusValue");
+            final String subStatusExternalCode = rs.getString("subStatusExternalCode");
             final String subStatusDesc = rs.getString("subStatusDesc");
             final boolean isActive = false;
-            final CodeValueData subStatus = CodeValueData.instance(subStatusId, subStatusValue, subStatusDesc, isActive);
+            final CodeValueData subStatus = CodeValueData.instance(subStatusId, subStatusValue,subStatusExternalCode, subStatusDesc, isActive);
 
             final Long officeId = JdbcSupport.getLong(rs, "officeId");
             final String officeName = rs.getString("officeName");
@@ -698,7 +701,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             builder.append(" ctl.single_withdraw_limit singleWithDrawLimit, c.account_no as accountNo,");
             builder.append(" c.external_id as externalId, c.status_enum as statusEnum,c.sub_status as subStatus,");
             builder.append(
-                    "cvSubStatus.code_value as subStatusValue,cvSubStatus.code_description as subStatusDesc,c.office_id as officeId, o.name as officeName, ");
+                    "cvSubStatus.code_value as subStatusValue,cvSubStatus.code_description as subStatusDesc,cvSubStatus.external_code as subStatusExternalCode,c.office_id as officeId, o.name as officeName, ");
             builder.append("c.transfer_to_office_id as transferToOfficeId, transferToOffice.name as transferToOfficeName, ");
             builder.append("c.firstname as firstname, c.middlename as middlename, c.lastname as lastname, ");
             builder.append("c.fullname as fullname, c.display_name as displayName, ");
@@ -791,8 +794,9 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             final Long subStatusId = JdbcSupport.getLong(rs, "subStatus");
             final String subStatusValue = rs.getString("subStatusValue");
             final String subStatusDesc = rs.getString("subStatusDesc");
+            final String subStatusExternalCode = rs.getString("subStatusExternalCode");
             final boolean isActive = false;
-            final CodeValueData subStatus = CodeValueData.instance(subStatusId, subStatusValue, subStatusDesc, isActive);
+            final CodeValueData subStatus = CodeValueData.instance(subStatusId, subStatusValue,subStatusExternalCode, subStatusDesc, isActive);
 
             final Long officeId = JdbcSupport.getLong(rs, "officeId");
             final String officeName = rs.getString("officeName");
@@ -912,7 +916,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             builder.append("c.id as id,ctl.client_level_id clientLevelId,ctl.daily_withdraw_limit dailyWithDrawLimit,");
             builder.append(" ctl.single_withdraw_limit singleWithDrawLimit, c.account_no as accountNo,");
             builder.append(" c.external_id as externalId, c.status_enum as statusEnum,c.sub_status as subStatus,");
-            builder.append("cvSubStatus.code_value as subStatusValue,cvSubStatus.code_description as subStatusDesc, ");
+            builder.append("cvSubStatus.code_value as subStatusValue,cvSubStatus.code_description as subStatusDesc,cvSubStatus.external_code as subStatusExternalCode, ");
             builder.append("c.firstname as firstname, c.middlename as middlename, c.lastname as lastname, ");
             builder.append("c.fullname as fullname, c.display_name as displayName, c.office_id as officeId, o.name as officeName, ");
             builder.append("c.mobile_no as mobileNo, ");
@@ -976,8 +980,9 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             final Long subStatusId = JdbcSupport.getLong(rs, "subStatus");
             final String subStatusValue = rs.getString("subStatusValue");
             final String subStatusDesc = rs.getString("subStatusDesc");
+            final String subStatusExternalCode = rs.getString("subStatusExternalCode");
             final boolean isActive = false;
-            final CodeValueData subStatus = CodeValueData.instance(subStatusId, subStatusValue, subStatusDesc, isActive);
+            final CodeValueData subStatus = CodeValueData.instance(subStatusId, subStatusValue,subStatusExternalCode, subStatusDesc, isActive);
 
             final Long id = JdbcSupport.getLong(rs, "id");
             final String firstname = rs.getString("firstname");
