@@ -21,6 +21,8 @@ package org.apache.fineract.infrastructure.codes.service;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Collection;
+
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.codes.exception.CodeValueNotFoundException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -31,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 public class CodeValueReadPlatformServiceImpl implements CodeValueReadPlatformService {
 
@@ -46,7 +49,7 @@ public class CodeValueReadPlatformServiceImpl implements CodeValueReadPlatformSe
     private static final class CodeValueDataMapper implements RowMapper<CodeValueData> {
 
         public String schema() {
-            return " cv.id as id, cv.code_value as value, cv.code_id as codeId, cv.code_description as description, cv.order_position as position,"
+            return " cv.id as id, cv.code_value as value,cv.external_code as external_code, cv.code_id as codeId, cv.code_description as description, cv.order_position as position,"
                     + " cv.is_active isActive, cv.is_mandatory as mandatory from m_code_value as cv join m_code c on cv.code_id = c.id ";
         }
 
@@ -55,17 +58,20 @@ public class CodeValueReadPlatformServiceImpl implements CodeValueReadPlatformSe
 
             final Long id = rs.getLong("id");
             final String value = rs.getString("value");
+            final String externalCode = rs.getString("external_code");
             final Integer position = rs.getInt("position");
             final String description = rs.getString("description");
             final boolean isActive = rs.getBoolean("isActive");
             final boolean mandatory = rs.getBoolean("mandatory");
+            log.info("id: {}, value: {}, externalCode: {}, position: {}, description: {}, isActive: {}, mandatory: {}", id, value, externalCode, position, description, isActive, mandatory);
 
-            return CodeValueData.instance(id, value, position, description, isActive, mandatory);
+            return CodeValueData.instance(id, value,externalCode, position, description, isActive, mandatory);
         }
     }
 
     @Override
     public Collection<CodeValueData> retrieveCodeValuesByCode(final String code) {
+        log.info("retrieveCodeValuesByCode {}", code);
 
         this.context.authenticatedUser();
 
