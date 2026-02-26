@@ -179,12 +179,32 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
                     + "         LEFT JOIN m_code_value nationality_cv ON info.nationality_cv_id = nationality_cv.id "
                     + "         LEFT JOIN m_code_value business_line_cv ON mcnp.main_business_line_cv_id = business_line_cv.id "
                     + "         LEFT JOIN m_client_additional_info ad_info ON mc.id = ad_info.client_id "
-                    + "         LEFT JOIN m_client_other_info other_info ON mc.id = other_info.client_id " + "         LEFT JOIN ( "
-                    + "    SELECT loan_id, " + "           transaction_date AS firstPaymentDate " + "    FROM ( "
-                    + "             SELECT loan_id, " + "                    transaction_date, "
-                    + "                    ROW_NUMBER() OVER (PARTITION BY loan_id ORDER BY transaction_date) AS row_num "
-                    + "             FROM m_loan_transaction " + "             WHERE transaction_type_enum = 2 "
-                    + "         ) ranked_transactions " + "    WHERE row_num = 1 " + " ) AS first_payment ON l.id = first_payment.loan_id "
+                    + "         LEFT JOIN m_client_other_info other_info ON mc.id = other_info.client_id " + "         LEFT JOIN (\n" +
+                    "    SELECT\n" +
+                    "        x.loan_id,\n" +
+                    "        COALESCE(x.first_txn_date, x.first_sched_due_date) AS firstPaymentDate\n" +
+                    "    FROM (\n" +
+                    "        SELECT\n" +
+                    "            l.id AS loan_id,\n" +
+                    "            (\n" +
+                    "                SELECT MIN(t.transaction_date)\n" +
+                    "                FROM m_loan_transaction t\n" +
+                    "                WHERE t.loan_id = l.id\n" +
+                    "                  AND t.transaction_type_enum = 2\n" +
+                    "            ) AS first_txn_date,\n" +
+                    "            (\n" +
+                    "                SELECT MIN(rs.duedate)\n" +
+                    "                FROM m_loan_repayment_schedule rs\n" +
+                    "                WHERE rs.loan_id = l.id\n" +
+                    "                  AND (IFNULL(rs.principal_amount, 0)\n" +
+                    "                     + IFNULL(rs.interest_amount, 0)\n" +
+                    "                     + IFNULL(rs.fee_charges_amount, 0)\n" +
+                    "                     + IFNULL(rs.penalty_charges_amount, 0)) > 0\n" +
+                    "            ) AS first_sched_due_date\n" +
+                    "        FROM m_loan l\n" +
+                    "    ) x\n" +
+                    ") AS first_payment\n" +
+                    "  ON l.id = first_payment.loan_id "
                     + "         LEFT JOIN ( " + "    SELECT client_id, " + "           MAX(address_id) AS last_address_id "
                     + "    FROM m_client_address " + "    GROUP BY client_id "
                     + " ) AS last_client_address ON mc.id = last_client_address.client_id "
