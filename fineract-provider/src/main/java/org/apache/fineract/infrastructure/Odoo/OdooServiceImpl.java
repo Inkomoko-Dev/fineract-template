@@ -352,7 +352,7 @@ public class OdooServiceImpl implements OdooService {
     }
 
     @Override
-    public JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo, String location)
+    public JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo, String location,Long fundSource)
             throws IOException, NoSuchAlgorithmException, KeyManagementException {
 
         final Integer uid = loginToOddo();
@@ -417,6 +417,10 @@ public class OdooServiceImpl implements OdooService {
             journalData.setOfficeId(office.getId());
             journalData.setJournalItems(journalItems);
             journalData.setLocation(location);
+
+            if (fundSource != null) {
+                journalData.setFundSource(fundSource);
+            }
 
             journalEntryToOdooData.setResource(journalData);
             journalEntryToOdooData.setLocalIp(localIpAddress);
@@ -624,7 +628,7 @@ public class OdooServiceImpl implements OdooService {
             List<JournalEntry> JE = this.journalEntryRepository.findJournalEntriesByIsOddoPosted(false,
                     transaction.getLoanTransactionId());
             postJournalEntries(errors, JE, transaction.getLoanTransactionId(), transaction.getTransactionType(),
-                    transaction.getIsReversed(), transaction.getLoanAccountNo(), transaction.getLocation());
+                    transaction.getIsReversed(), transaction.getLoanAccountNo(), transaction.getLocation(),transaction.getFundId());
             transactions +=1;
 
         }
@@ -682,12 +686,12 @@ public class OdooServiceImpl implements OdooService {
     }
 
     private void postJournalEntries(List<Throwable> errors, List<JournalEntry> journalEntryDebitCredit, Long loanTransactionId,
-            Long transactionType, Boolean isReversed, String loanAccountNo, String location) {
+            Long transactionType, Boolean isReversed, String loanAccountNo, String location, Long fundId) {
         if (!CollectionUtils.isEmpty(journalEntryDebitCredit)) {
             try {
 
                 if (journalEntryDebitCredit.size() > 1) {
-                    JsonObject odooAck = createJournalEntryToOddo(journalEntryDebitCredit, loanTransactionId, transactionType, isReversed, loanAccountNo, location);
+                    JsonObject odooAck = createJournalEntryToOddo(journalEntryDebitCredit, loanTransactionId, transactionType, isReversed, loanAccountNo, location, fundId);
 
                     boolean ack =  getBooleanField(odooAck,"ack");
                     boolean success = getBooleanField (odooAck,"success");

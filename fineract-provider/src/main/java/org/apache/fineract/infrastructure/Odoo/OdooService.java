@@ -43,7 +43,7 @@ public interface OdooService {
 
     public void postCustomerUpdatedDetailsToOddo() throws JobExecutionException;
 
-    JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo, String location)
+    JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo, String location,Long fundSource)
             throws IOException, NoSuchAlgorithmException, KeyManagementException;
 
     String updateJournalEntryWithOdooStatus(String stringRequest);
