@@ -21,15 +21,16 @@ jobs:
         with:
           java-version: 17
 
-     # - name: SonarQube Scan
-     #   env:
-     #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-     #   run: |
-      #    ./gradlew sonarqube -x test -x compileTestJava \
-      #      -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
-      #      -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
-      #      -Dsonar.login=${SONAR_TOKEN}
-
+      - name: SonarQube Scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONARR_HOST_URL: http://dev.inkomoko.com:1128
+        run: |
+          ./gradlew sonarqube -x test -x compileTestJava \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+            -Dsonar.host.url=${SONARR_HOST_URL} \
+            -Dsonar.login=${SONAR_TOKEN}
+# -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
       - name: Build with Gradles
         run: ./gradlew --no-daemon -q -x rat -x compileTestJava -x test -x spotlessJavaCheck -x spotlessJava -x licenseMain bootJar
 
