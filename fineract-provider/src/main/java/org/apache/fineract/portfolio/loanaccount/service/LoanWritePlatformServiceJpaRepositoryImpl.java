@@ -145,6 +145,7 @@ import org.apache.fineract.portfolio.charge.exception.LoanChargeNotFoundExceptio
 import org.apache.fineract.portfolio.charge.exception.LoanChargeWaiveCannotBeReversedException;
 import org.apache.fineract.portfolio.charge.exception.LoanChargeWaiveCannotBeReversedException.LoanChargeWaiveCannotUndoReason;
 import org.apache.fineract.portfolio.client.domain.Client;
+import org.apache.fineract.portfolio.account.domain.AccountTransferDetailRepository;
 import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
 import org.apache.fineract.portfolio.collateralmanagement.exception.LoanCollateralAmountNotSufficientException;
@@ -191,6 +192,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheDisbursementC
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+import org.apache.fineract.portfolio.loanaccount.domain.PostTransferCorrectionAudit;
+import org.apache.fineract.portfolio.loanaccount.domain.PostTransferCorrectionAuditRepository;
 import org.apache.fineract.portfolio.loanaccount.exception.DateMismatchException;
 import org.apache.fineract.portfolio.loanaccount.exception.ExceedingTrancheCountException;
 import org.apache.fineract.portfolio.loanaccount.exception.GLIMLoanCannotBeDisbursedDirectlyException;
@@ -292,6 +295,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
     private final DisbursementRequestService disbursementRequestService;
     private final LoanApplicationCommandFromApiJsonHelper fromApiJsonDeserializer;
+    private final PostTransferCorrectionAuditRepository postTransferCorrectionAuditRepository;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -1266,8 +1270,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         businessEventNotifierService.notifyPreBusinessEvent(
                 new LoanAdjustTransactionBusinessEvent(new LoanAdjustTransactionBusinessEvent.Data(transactionToAdjust)));
         if (this.accountTransfersReadPlatformService.isAccountTransfer(transactionId, PortfolioAccountType.LOAN)) {
-            throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
-                    "Loan transaction:" + transactionId + " update not allowed as it involves in account transfer", transactionId);
+            // Check if post-transfer corrections are enabled
+            if (!this.configurationDomainService.isPostTransferCorrectionsEnabled()) {
+                throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
+                        "Loan transaction:" + transactionId + " update not allowed as it involves in account transfer", transactionId);
+            }
+            
+            // Additional validation: client must have been transferred
+            Client client = loan.getClient();
+            if (client != null && !this.accountTransferDetailRepository.existsByFromClientIdOrToClientId(client.getId(), client.getId())) {
+                throw new PlatformServiceUnavailableException("error.msg.client.not.transferred",
+                        "Loan transaction:" + transactionId + " update not allowed as client has not been transferred", transactionId);
+            }
         }
         if (loan.isClosedWrittenOff()) {
             throw new PlatformServiceUnavailableException("error.msg.loan.written.off.update.not.allowed",
@@ -1342,16 +1356,42 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
 
         final String noteText = command.stringValueOfParameterNamed("note");
-        if (StringUtils.isNotBlank(noteText)) {
-            changes.put("note", noteText);
+        String enhancedNoteText = noteText;
+        
+        // Create audit record for post-transfer correction
+        if (this.accountTransfersReadPlatformService.isAccountTransfer(transactionId, PortfolioAccountType.LOAN) 
+                && this.configurationDomainService.isPostTransferCorrectionsEnabled()) {
+            
+            AccountTransferDetails transferDetails = this.accountTransferDetailRepository.findTopByFromClientIdOrToClientIdOrderByIdDesc(loan.getClient().getId(), loan.getClient().getId());
+            
+            PostTransferCorrectionAudit audit = PostTransferCorrectionAudit.instance(
+                transactionToAdjust.getId(),
+                loan.getClient().getId(),
+                transferDetails.getId(),
+                "ADJUSTMENT",
+                noteText != null ? noteText : "Post-transfer correction",
+                currentUser.getId(),
+                DateUtils.getBusinessLocalDate(),
+                transferDetails.fromLoanAccount().getOfficeId(),
+                transferDetails.toLoanAccount().getOfficeId()
+            );
+            
+            this.postTransferCorrectionAuditRepository.save(audit);
+            
+            // Enhance note text for easy identification
+            enhancedNoteText = "[POST-TRANSFER-CORRECTION] " + (noteText != null ? noteText : "Post-transfer adjustment");
+        }
+        
+        if (StringUtils.isNotBlank(enhancedNoteText)) {
+            changes.put("note", enhancedNoteText);
             Note note = null;
             /**
              * If a new transaction is not created, associate note with the transaction to be adjusted
              **/
             if (newTransactionDetail.isGreaterThanZero(loan.getPrincpal().getCurrency())) {
-                note = Note.loanTransactionNote(loan, newTransactionDetail, noteText);
+                note = Note.loanTransactionNote(loan, newTransactionDetail, enhancedNoteText);
             } else {
-                note = Note.loanTransactionNote(loan, transactionToAdjust, noteText);
+                note = Note.loanTransactionNote(loan, transactionToAdjust, enhancedNoteText);
             }
             this.noteRepository.save(note);
         }
