@@ -1,9 +1,10 @@
 name: Inkomoko Fineract Build Production latest
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - inkomoko-prod
+      - inkomoko-prod-bkp
 
 jobs:
   build:
