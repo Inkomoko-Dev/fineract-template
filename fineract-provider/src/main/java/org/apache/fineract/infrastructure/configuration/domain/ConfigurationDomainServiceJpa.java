@@ -41,6 +41,7 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     public static final String ENABLE_BUSINESS_DATE = "enable_business_date";
     public static final String ENABLE_AUTOMATIC_COB_DATE_ADJUSTMENT = "enable_automatic_cob_date_adjustment";
     public static final String ENFORCE_OVERDUE_LOANS_FOR_MIN_BALANCE = "enforce_loan_overdue_amount_min_balance_check";
+    public static final String POST_TRANSFER_CORRECTIONS_ENABLED = "post-transfer-corrections-enabled";
     private final PermissionRepository permissionRepository;
     private final GlobalConfigurationRepositoryWrapper globalConfigurationRepository;
     private final PlatformCacheRepository cacheTypeRepository;
@@ -494,6 +495,19 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     public boolean isMakerCheckerNotificationEnabled() {
         final String propertyName = "maker-checker-notification";
         final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(propertyName);
+        return property.isEnabled();
+    }
+
+    @Override
+    public boolean isCorrectionsInClosedPeriodsAllowed() {
+        final String propertyName = "corrections-in-closed-period";
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(propertyName);
+        return property.isEnabled();
+    }
+
+    @Override
+    public boolean isPostTransferCorrectionsEnabled() {
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(POST_TRANSFER_CORRECTIONS_ENABLED);
         return property.isEnabled();
     }
 }
