@@ -21,7 +21,7 @@
 -->
 <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
     <changeSet id="CGLT-489_add_post_transfer_corrections_config" author="Felix Mutua">
-        <insert tableName="m_global_configuration">
+        <insert tableName="c_configuration">
             <column name="name" value="post-transfer-corrections-enabled" />
             <column name="enabled" valueBoolean="false" />
             <column name="value" value="false" />
