@@ -16,19 +16,12 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.portfolio.account.domain;
+package org.apache.fineract.portfolio.loanaccount.domain;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
-public interface AccountTransferDetailRepository
-        extends JpaRepository<AccountTransferDetails, Long>, JpaSpecificationExecutor<AccountTransferDetails> {
+public interface PostTransferCorrectionAuditRepository
+        extends JpaRepository<PostTransferCorrectionAudit, Long>, JpaSpecificationExecutor<PostTransferCorrectionAudit> {
 
-    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM AccountTransferDetails a WHERE a.fromClient.id = :clientId1 OR a.toClient.id = :clientId2")
-    boolean existsByFromClientIdOrToClientId(@Param("clientId1") Long clientId1, @Param("clientId2") Long clientId2);
-
-    @Query("SELECT a FROM AccountTransferDetails a WHERE a.fromClient.id = :clientId1 OR a.toClient.id = :clientId2 ORDER BY a.id DESC")
-    AccountTransferDetails findTopByFromClientIdOrToClientIdOrderByIdDesc(@Param("clientId1") Long clientId1, @Param("clientId2") Long clientId2);
 }
