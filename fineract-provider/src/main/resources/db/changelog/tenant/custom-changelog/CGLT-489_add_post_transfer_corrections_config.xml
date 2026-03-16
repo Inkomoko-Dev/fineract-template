@@ -24,9 +24,10 @@
         <insert tableName="c_configuration">
             <column name="name" value="post-transfer-corrections-enabled" />
             <column name="enabled" valueBoolean="false" />
-            <column name="value" value="false" />
+            <column name="value" value="null" />
             <column name="description" value="Enable loan transaction corrections for clients who have been transferred between offices" />
-            <column name="is_system_defined" valueBoolean="true" />
+            <column name="date_value" value="null" />
+            <column name="is_trap_door" valueBoolean="false" />
         </insert>
     </changeSet>
 </databaseChangeLog>
