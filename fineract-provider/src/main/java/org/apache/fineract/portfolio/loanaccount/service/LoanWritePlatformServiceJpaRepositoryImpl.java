@@ -145,7 +145,6 @@ import org.apache.fineract.portfolio.charge.exception.LoanChargeNotFoundExceptio
 import org.apache.fineract.portfolio.charge.exception.LoanChargeWaiveCannotBeReversedException;
 import org.apache.fineract.portfolio.charge.exception.LoanChargeWaiveCannotBeReversedException.LoanChargeWaiveCannotUndoReason;
 import org.apache.fineract.portfolio.client.domain.Client;
-import org.apache.fineract.portfolio.account.domain.AccountTransferDetailRepository;
 import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
 import org.apache.fineract.portfolio.collateralmanagement.exception.LoanCollateralAmountNotSufficientException;
@@ -192,8 +191,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheDisbursementC
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
-import org.apache.fineract.portfolio.loanaccount.domain.PostTransferCorrectionAudit;
-import org.apache.fineract.portfolio.loanaccount.domain.PostTransferCorrectionAuditRepository;
 import org.apache.fineract.portfolio.loanaccount.exception.DateMismatchException;
 import org.apache.fineract.portfolio.loanaccount.exception.ExceedingTrancheCountException;
 import org.apache.fineract.portfolio.loanaccount.exception.GLIMLoanCannotBeDisbursedDirectlyException;
@@ -295,7 +292,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
     private final DisbursementRequestService disbursementRequestService;
     private final LoanApplicationCommandFromApiJsonHelper fromApiJsonDeserializer;
-    private final PostTransferCorrectionAuditRepository postTransferCorrectionAuditRepository;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -1270,18 +1266,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         businessEventNotifierService.notifyPreBusinessEvent(
                 new LoanAdjustTransactionBusinessEvent(new LoanAdjustTransactionBusinessEvent.Data(transactionToAdjust)));
         if (this.accountTransfersReadPlatformService.isAccountTransfer(transactionId, PortfolioAccountType.LOAN)) {
-            // Check if post-transfer corrections are enabled
-            if (!this.configurationDomainService.isPostTransferCorrectionsEnabled()) {
-                throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
-                        "Loan transaction:" + transactionId + " update not allowed as it involves in account transfer", transactionId);
-            }
-            
-            // Additional validation: client must have been transferred
-            Client client = loan.getClient();
-            if (client != null && !this.accountTransferDetailRepository.existsByFromClientIdOrToClientId(client.getId(), client.getId())) {
-                throw new PlatformServiceUnavailableException("error.msg.client.not.transferred",
-                        "Loan transaction:" + transactionId + " update not allowed as client has not been transferred", transactionId);
-            }
+            throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
+                    "Loan transaction:" + transactionId + " update not allowed as it involves in account transfer", transactionId);
         }
         if (loan.isClosedWrittenOff()) {
             throw new PlatformServiceUnavailableException("error.msg.loan.written.off.update.not.allowed",
@@ -1329,9 +1315,19 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
 
+        // Determine if this is a post-transfer correction that should bypass transfer date validation
+        boolean bypassTransferDateValidation = false;
+        Client client = loan.client();
+        if (client != null && client.getOfficeJoiningLocalDate() != null) {
+            final LocalDate clientOfficeJoiningDate = client.getOfficeJoiningLocalDate();
+            if (transactionToAdjust.getTransactionDate().isBefore(clientOfficeJoiningDate)) {
+                bypassTransferDateValidation = true;
+            }
+        }
+
         final ChangedTransactionDetail changedTransactionDetail = loan.adjustExistingTransaction(newTransactionDetail,
                 defaultLoanLifecycleStateMachine(), transactionToAdjust, existingTransactionIds, existingReversedTransactionIds,
-                scheduleGeneratorDTO);
+                scheduleGeneratorDTO, bypassTransferDateValidation);
 
         if (newTransactionDetail.isGreaterThanZero(loan.getPrincpal().getCurrency())) {
             if (paymentDetail != null) {
@@ -1357,31 +1353,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final String noteText = command.stringValueOfParameterNamed("note");
         String enhancedNoteText = noteText;
-        
-        // Create audit record for post-transfer correction
-        if (this.accountTransfersReadPlatformService.isAccountTransfer(transactionId, PortfolioAccountType.LOAN) 
-                && this.configurationDomainService.isPostTransferCorrectionsEnabled()) {
-            
-            AccountTransferDetails transferDetails = this.accountTransferDetailRepository.findTopByFromClientIdOrToClientIdOrderByIdDesc(loan.getClient().getId(), loan.getClient().getId());
-            
-            PostTransferCorrectionAudit audit = PostTransferCorrectionAudit.instance(
-                transactionToAdjust.getId(),
-                loan.getClient().getId(),
-                transferDetails.getId(),
-                "ADJUSTMENT",
-                noteText != null ? noteText : "Post-transfer correction",
-                currentUser.getId(),
-                DateUtils.getBusinessLocalDate(),
-                transferDetails.fromLoanAccount().getOfficeId(),
-                transferDetails.toLoanAccount().getOfficeId()
-            );
-            
-            this.postTransferCorrectionAuditRepository.save(audit);
-            
-            // Enhance note text for easy identification
-            enhancedNoteText = "[POST-TRANSFER-CORRECTION] " + (noteText != null ? noteText : "Post-transfer adjustment");
+        if (bypassTransferDateValidation){
+            enhancedNoteText = "[POST-CLIENT-TRANSFER-CORRECTION] Performed By "+ currentUser.getDisplayName()  + " : "+(noteText != null ? noteText : "Post-transfer adjustment");
+
         }
-        
         if (StringUtils.isNotBlank(enhancedNoteText)) {
             changes.put("note", enhancedNoteText);
             Note note = null;
