@@ -1329,9 +1329,19 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
 
+        // Determine if this is a post-transfer correction that should bypass transfer date validation
+        boolean bypassTransferDateValidation = false;
+        if (this.accountTransfersReadPlatformService.isAccountTransfer(transactionId, PortfolioAccountType.LOAN) 
+                && this.configurationDomainService.isPostTransferCorrectionsEnabled()) {
+            Client client = loan.getClient();
+            if (client != null && this.accountTransferDetailRepository.existsByFromClientIdOrToClientId(client.getId(), client.getId())) {
+                bypassTransferDateValidation = true;
+            }
+        }
+
         final ChangedTransactionDetail changedTransactionDetail = loan.adjustExistingTransaction(newTransactionDetail,
                 defaultLoanLifecycleStateMachine(), transactionToAdjust, existingTransactionIds, existingReversedTransactionIds,
-                scheduleGeneratorDTO);
+                scheduleGeneratorDTO, bypassTransferDateValidation);
 
         if (newTransactionDetail.isGreaterThanZero(loan.getPrincpal().getCurrency())) {
             if (paymentDetail != null) {
