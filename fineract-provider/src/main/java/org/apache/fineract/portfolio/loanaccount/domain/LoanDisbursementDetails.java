@@ -39,6 +39,42 @@ import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
 @Table(name = "m_loan_disbursement_detail")
 public class LoanDisbursementDetails extends AbstractPersistableCustom {
 
+    @Getter
+    public enum PaymentToType {
+        CLIENT(1), SUPPLIER(2);
+
+        private final int value;
+
+        PaymentToType(int value) {
+            this.value = value;
+        }
+
+        public static PaymentToType fromInt(Integer value) {
+            if (value == null || value == 1) return CLIENT;
+            if (value == 2) return SUPPLIER;
+            throw new IllegalArgumentException("Invalid paymentTo value: " + value);
+        }
+    }
+
+    @Column(name = "payment_to", nullable = false)
+    private Integer paymentTo = 1; // 1=Client (default), 2=Supplier
+
+    public Integer getPaymentTo() {
+        return paymentTo == null ? 1 : paymentTo;
+    }
+
+    public void setPaymentTo(Integer paymentTo) {
+        if (paymentTo == null || (paymentTo != 1 && paymentTo != 2)) {
+            this.paymentTo = 1;
+        } else {
+            this.paymentTo = paymentTo;
+        }
+    }
+
+    public PaymentToType getPaymentToType() {
+        return PaymentToType.fromInt(getPaymentTo());
+    }
+
     @ManyToOne
     @JoinColumn(name = "loan_id", nullable = false)
     private Loan loan;
@@ -85,6 +121,8 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
     @Column(name = "client_bank_name", length = 150)
     private String clientBankName;
 
+    @Column(name = "beneficiary_name", length = 150)
+    private String beneficiaryName;
 
     protected LoanDisbursementDetails() {
 

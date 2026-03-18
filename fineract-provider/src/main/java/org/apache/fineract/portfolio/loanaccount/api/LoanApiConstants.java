@@ -26,6 +26,8 @@ public interface LoanApiConstants {
     String disbursementDateParameterName = "expectedDisbursementDate";
     String disbursementPrincipalParameterName = "principal";
     String disbursementNetDisbursalAmountParameterName = "netDisbursalAmount";
+    String paymentToParameterName = "paymentTo";
+    String beneficiaryNameParameterName = "beneficiaryName";
     String updatedDisbursementDateParameterName = "updatedExpectedDisbursementDate";
     String updatedDisbursementPrincipalParameterName = "updatedPrincipal";
     String disbursementIdParameterName = "id";

@@ -47,6 +47,7 @@ import org.apache.fineract.portfolio.client.exception.ClientOtherInfoNotFoundExc
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementRequestData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursementRequestException;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
@@ -173,11 +174,22 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
             glCode = Iterables.get(Splitter.on('-').split(fundSource.getGlCode()), 0);
         }
 
-        DisbursementRequestData disbursementRequestData = new DisbursementRequestData(requestId, loan.getAccountNumber(),
-                totalPrincipalToBeDisbursed, loan.getPrincpal().getCurrencyCode(), paymentTypes.getName(), paymentTypes.getId(), clientOtherInfo.getTelephoneNo(),
-                clientOtherInfo.getBankAccountNumber(), clientOtherInfo.getBankName(), "CBS", paymentTypeId);
+        LoanDisbursementDetails disbursementDetail = null;
+        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
+            disbursementDetail = loan.getDisbursementDetails().iterator().next();
+        }
 
-        disbursementRequestData.setBeneficiaryName(clientName);
+        assert disbursementDetail != null;
+        DisbursementRequestData disbursementRequestData = new DisbursementRequestData(requestId, loan.getAccountNumber(),
+                totalPrincipalToBeDisbursed, loan.getPrincpal().getCurrencyCode(), paymentTypes.getName(), paymentTypes.getId(), disbursementDetail.getClientPhoneNumber(),
+                disbursementDetail.getClientAccountNumber(), disbursementDetail.getClientBankName(), "CBS", paymentTypeId);
+
+        if (disbursementDetail.getPaymentToType().equals(LoanDisbursementDetails.PaymentToType.CLIENT)) {
+            disbursementRequestData.setBeneficiaryName(clientName);
+        } else if (disbursementDetail.getPaymentToType().equals(LoanDisbursementDetails.PaymentToType.SUPPLIER)){
+            disbursementRequestData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
+        }
+
         disbursementRequestData.setNarration(narration);
         disbursementRequestData.setNotifier(loanOfficer);
         disbursementRequestData.setLocation(location);
