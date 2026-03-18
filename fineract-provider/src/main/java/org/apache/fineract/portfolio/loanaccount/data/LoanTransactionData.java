@@ -109,6 +109,12 @@ public class LoanTransactionData {
     @Setter
     private String clientPhoneNumber;
 
+    @Setter
+    private Integer paymentTo;
+
+    @Setter
+    private String beneficiaryName;
+
     private Long loanId;
     private String loanExternalId;
     private transient String transactionType;

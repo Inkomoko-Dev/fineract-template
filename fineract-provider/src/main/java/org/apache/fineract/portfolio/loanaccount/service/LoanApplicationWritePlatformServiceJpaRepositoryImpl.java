@@ -1671,6 +1671,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
                 final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
                 final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
+                final Integer paymentTo = command.integerValueOfParameterNamed("paymentTo");
+                final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
 
                 BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
                 BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
@@ -1703,10 +1705,12 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 // 3. UPDATE PROPERTIES (ALWAYS)
                 // ------------------------------
                 disbursementDetail.setPaymentType(paymentType);
-                disbursementDetail.setAccountNumber(clientAccountNumber);
+                disbursementDetail.setClientAccountNumber(clientAccountNumber);
                 disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
                 disbursementDetail.setClientBankName(clientBankName);
                 disbursementDetail.setExpectedDisbursementDate(expectedDisbursementDate);
+                disbursementDetail.setPaymentTo(paymentTo);
+                disbursementDetail.setBeneficiaryName(beneficiaryName);
 
             }
 
@@ -1742,6 +1746,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
         final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
         final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
+        final Integer paymentTo = command.integerValueOfParameterNamed(LoanApiConstants.paymentToParameterName);
+        final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
 
         if (!isCash && isMobileMoney) {
             if (StringUtils.isBlank(clientPhoneNumber)) {
@@ -1763,6 +1769,14 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                         "Bank details must be provided for non-cash, non-mobile-money payment type.",
                         "clientPhoneNumber,clientBankName,clientAccountNumber", null));
             }
+        }
+
+        if (!isCash && Objects.equals(paymentTo, LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue())
+                && StringUtils.isBlank(beneficiaryName)) {
+            dataValidationErrors.add(ApiParameterError.parameterError(
+                    "validation.msg.loanapproval.beneficiaryName.required",
+                    "Beneficiary name must be provided when payment is to supplier.",
+                    LoanApiConstants.beneficiaryNameParameterName, beneficiaryName));
         }
 
         // Throw if any validation errors exist
