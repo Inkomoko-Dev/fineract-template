@@ -36,6 +36,8 @@ import net.sf.jasperreports.export.SimpleHtmlExporterOutput;
 import net.sf.jasperreports.export.SimpleOutputStreamExporterOutput;
 import net.sf.jasperreports.export.SimpleWriterExporterOutput;
 import org.apache.fineract.infrastructure.core.service.RoutingDataSource;
+import org.apache.fineract.organisation.staff.data.StaffData;
+import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.springframework.stereotype.Service;
@@ -48,10 +50,13 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
 import java.util.stream.Collectors;
+
 
 @Service
 @Slf4j
@@ -59,10 +64,13 @@ public class JasperReportService {
 
     private final RoutingDataSource routingDataSource;
     private final LoanProductRepository loanProductRepository;
+    private final StaffReadPlatformService staffReadPlatformService;
 
-    public JasperReportService(RoutingDataSource routingDataSource, LoanProductRepository loanProductRepository) {
+
+    public JasperReportService(RoutingDataSource routingDataSource, LoanProductRepository loanProductRepository, StaffReadPlatformService staffReadPlatformService) {
         this.routingDataSource = routingDataSource;
         this.loanProductRepository = loanProductRepository;
+        this.staffReadPlatformService = staffReadPlatformService;
     }
 
     public byte[] generateReport(String reportName, Map<String, Object> rawParams, String mediaType) {
@@ -78,6 +86,20 @@ public class JasperReportService {
             if (rawParams.containsKey("product_ids")){
                 String PRODUCT_FILTERS = productFilters(rawParams.get("product_ids")).toString();
                 rawParams.put("PRODUCT_FILTER", PRODUCT_FILTERS);
+            }
+
+            // Filter for selected investment officers
+            Object officerIdsObj = rawParams.get("investment_officer_ids");
+            if (officerIdsObj != null && !officerIdsObj.toString().trim().isEmpty()) {
+                String officerIdsStr = officerIdsObj.toString().trim();
+                rawParams.put("OFFICER_FILTER", officerIdsStr);
+
+                String officerNames = resolveOfficerNames(officerIdsStr);
+
+                rawParams.put("OFFICER_NAMES", officerNames);
+            } else {
+                rawParams.put("OFFICER_FILTER", null);
+                rawParams.put("OFFICER_NAMES", "All Investment Officers");
             }
 
             JasperReport jasperReport = JasperCompileManager.compileReport(reportStream);
@@ -179,5 +201,43 @@ public class JasperReportService {
                     .collect(Collectors.toList());
         }
         return List.of();
+    }
+
+
+    public String resolveOfficerNames(String officerFilter) {
+
+        List<Long> selectedIds = parseOfficerIds(officerFilter);
+
+        // If no filter show All
+        if (selectedIds.isEmpty()) {
+            return "All Investment Officers";
+        }
+
+
+        Collection<StaffData> staffList =
+                staffReadPlatformService.retrieveAllStaff(null, true, "active");
+
+        return staffList.stream()
+                .filter(staff -> selectedIds.contains(staff.getId()))
+                .map(this::buildFullName)
+                .collect(Collectors.joining(", "));
+    }
+
+    private String buildFullName(StaffData staff) {
+        return (staff.getFirstname() == null ? "" : staff.getFirstname()) +
+                " " +
+                (staff.getLastname() == null ? "" : staff.getLastname());
+    }
+
+    private List<Long> parseOfficerIds(String officerFilter) {
+        if (officerFilter == null || officerFilter.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return Arrays.stream(officerFilter.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(Long::valueOf)
+                .toList();
     }
 }
