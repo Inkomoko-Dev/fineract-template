@@ -1,37 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Licensed to the Apache Software Foundation (ASF) under one
-  or more contributor license agreements.  See the NOTICE file
+  or more contributor license agreements. See the NOTICE file
   distributed with this work for additional information
-  regarding copyright ownership.  The ASF licenses this file
+  regarding copyright ownership. The ASF licenses this file
   to you under the Apache License, Version 2.0 (the
   "License"); you may not use this file except in compliance
-  with the License.  You may obtain a copy of the License at
+  with the License. You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
   Unless required by applicable law or agreed to in writing,
   software distributed under the License is distributed on an
   "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-  KIND, either express or implied.  See the License for the
+  KIND, either express or implied. See the License for the
   specific language governing permissions and limitations
   under the License.
 -->
-<!-- Disbursement report JRXML for JasperReports / Jaspersoft Studio -->
 <jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports"
               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
               xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports
               http://jasperreports.sourceforge.net/xsd/jasperreport.xsd"
               name="DisbursementReport"
-              pageWidth="865" pageHeight="595" columnWidth="800" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20"
+              pageWidth="1080" pageHeight="595"
+              columnWidth="1040"
+              leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20"
               orientation="Landscape"
               whenNoDataType="AllSectionsNoDetail"
               uuid="b1e3c3ea-0000-4b4d-9f8e-111111111111">
 
     <!-- ========== STYLES ========== -->
     <style name="Title" fontName="Helvetica" fontSize="18" isBold="true"/>
-    <style name="ColumnHeader" fontName="Helvetica" fontSize="9" isBold="true" pdfFontName="Helvetica-Bold"/>
-    <style name="Detail" fontName="Helvetica" fontSize="9"/>
+    <style name="ColumnHeader" fontName="Helvetica" fontSize="8" isBold="true" pdfFontName="Helvetica-Bold"/>
+    <style name="Detail" fontName="Helvetica" fontSize="8"/>
 
     <!-- ========== PARAMETERS ========== -->
     <parameter name="REPORT_DATE" class="java.util.Date"/>
@@ -43,10 +44,12 @@
     <parameter name="INTEREST_PERCENTAGE" class="java.lang.Double" isForPrompting="false">
         <defaultValueExpression><![CDATA[new Double(10)]]></defaultValueExpression>
     </parameter>
-
     <parameter name="PRODUCT_IDS" class="java.lang.String" isForPrompting="false"/>
     <parameter name="PRODUCT_FILTER" class="java.lang.String" isForPrompting="false"/>
+    <parameter name="OFFICER_FILTER" class="java.lang.String" isForPrompting="false"/>
+    <parameter name="OFFICER_NAMES" class="java.lang.String"/>
     <parameter name="APPROVED_BY" class="java.lang.String" isForPrompting="false"/>
+
 
     <!-- ========== QUERY ========== -->
     <queryString language="SQL">
@@ -54,7 +57,7 @@
         SELECT
             DATE(l.submittedon_date) AS request_date,
             c.display_name AS client_name,
-            c.account_no AS client_uid,
+            c.id AS client_uid,
             mcoi.national_identification_number AS national_id,
             mcv.code_value AS client_strata,
             dp.code_value  AS department,
@@ -79,7 +82,34 @@
             u.firstname AS approved_by,
             DATE(l.approvedon_date) AS approved_date,
             mpt.value AS payment_method,
-            $P{REQUESTED_BY} AS requested_by
+            $P{REQUESTED_BY} AS requested_by,
+            c.mobile_no as phone_number,
+            (
+                SELECT GROUP_CONCAT(DISTINCT cv.code_value SEPARATOR '; ')
+                FROM m_loan_collateral lc
+                LEFT JOIN m_code_value cv ON lc.type_cv_id = cv.id
+                WHERE lc.loan_id = l.id
+            ) AS collateral_type,
+               (
+                CASE
+                    WHEN c.legal_form_enum = 1 THEN 'Individual'
+                    WHEN c.legal_form_enum = 2 THEN 'Entity'
+                    ELSE 'N/A'
+                END
+            ) AS business_type,
+            (
+            SELECT GROUP_CONCAT(DISTINCT
+                CASE
+                    WHEN g2.type_enum = 1 THEN 'Personal'
+                    WHEN g2.type_enum = 2 THEN 'Salary'
+                    ELSE cv.code_value  -- fallback if type stored in code value
+                END
+                SEPARATOR '; '
+            )
+            FROM m_guarantor g2
+            LEFT JOIN m_code_value cv ON g2.client_reln_cv_id = cv.id
+            WHERE g2.loan_id = l.id
+        ) AS guarantor_type
         FROM m_loan l
         LEFT JOIN m_code_value dp on l.department_cv_id = dp.id
         LEFT JOIN  m_client c ON c.id = l.client_id
@@ -101,16 +131,19 @@
           AND ($P{START_DATE} IS NULL OR DATE(l.submittedon_date) >= $P{START_DATE})
           AND ($P{END_DATE} IS NULL OR DATE(l.submittedon_date) <= $P{END_DATE})
           AND ($P{LOCATION_ID} IS NULL OR c.office_id = $P{LOCATION_ID} OR c.office_id IS NULL)
+          AND ($P{OFFICER_FILTER} IS NULL OR $P{OFFICER_FILTER} = '' OR l.loan_officer_id IN ($P!{OFFICER_FILTER}))
         ORDER BY l.submittedon_date DESC;
 
         ]]>
     </queryString>
 
-    <!-- ========== FIELDS  ========== -->
+    <!-- ========== FIELDS ========== -->
     <field name="request_date" class="java.sql.Date"/>
     <field name="client_name"/>
     <field name="client_uid"/>
     <field name="national_id"/>
+    <field name="phone_number"/>
+    <field name="business_type"/>
     <field name="client_strata"/>
     <field name="department"/>
     <field name="location"/>
@@ -126,6 +159,7 @@
     <field name="guarantor_name"/>
     <field name="guarantor_id"/>
     <field name="guarantor_phone"/>
+    <field name="guarantor_type"/>
     <field name="collateral_type"/>
     <field name="collateral_coverage"/>
     <field name="omv" class="java.math.BigDecimal"/>
@@ -136,362 +170,520 @@
     <field name="payment_method"/>
     <field name="requested_by"/>
 
-    <!-- computed disbursement (approved - insurance) -->
+
+    <!-- ========== VARIABLES ========== -->
     <variable name="disbursement_amount" class="java.math.BigDecimal">
         <variableExpression><![CDATA[$F{net_disbursal_amount}]]></variableExpression>
     </variable>
 
-    <!-- totals -->
     <variable name="SUM_APPROVED" class="java.math.BigDecimal" calculation="Sum">
         <variableExpression><![CDATA[$F{approved_amount}]]></variableExpression>
     </variable>
 
-    <!-- FINAL TOTAL = SUM_APPROVED * (1 + INTEREST_PERCENTAGE/100) -->
     <variable name="FINAL_TOTAL" class="java.math.BigDecimal">
         <variableExpression><![CDATA[
-        ( $V{SUM_APPROVED} == null ? new java.math.BigDecimal(0) : $V{SUM_APPROVED} )
+        ($V{SUM_APPROVED} == null ? new java.math.BigDecimal(0) : $V{SUM_APPROVED})
             .multiply(
-                new java.math.BigDecimal(1.0 + ( $P{INTEREST_PERCENTAGE} == null ? 0.0 : $P{INTEREST_PERCENTAGE}.doubleValue()/100.0 ))
+                new java.math.BigDecimal(
+                    1.0 + ($P{INTEREST_PERCENTAGE} == null
+                           ? 0.0
+                           : $P{INTEREST_PERCENTAGE}.doubleValue() / 100.0)
+                )
             )
-    ]]></variableExpression>
+        ]]></variableExpression>
     </variable>
 
     <variable name="FINAL_TOTAL_WORDS">
         <variableExpression><![CDATA[
-        $V{FINAL_TOTAL} == null ? "" : org.apache.fineract.infrastructure.dataqueries.service.NumberToWordsConverter.convert($V{FINAL_TOTAL}.doubleValue())
-    ]]></variableExpression>
+        $V{FINAL_TOTAL} == null ? "" :
+            org.apache.fineract.infrastructure.dataqueries.service
+                .NumberToWordsConverter.convert($V{FINAL_TOTAL}.doubleValue())
+        ]]></variableExpression>
     </variable>
-
-
 
     <!-- ========== TITLE BAND ========== -->
     <title>
         <band height="100">
             <textField>
-                <reportElement x="0" y="0" width="760" height="30"/>
+                <reportElement x="0" y="0" width="1040" height="30"/>
                 <textElement textAlignment="Center">
                     <font size="16" isBold="true"/>
                 </textElement>
                 <textFieldExpression><![CDATA[
-                    "Disbursement Report "
-                    + ($P{LOCATION_NAME} != null && !$P{LOCATION_NAME}.isEmpty() ? " (" + $P{LOCATION_NAME} + ")" : "")
+                    "Disbursement Report"
+                    + ($P{LOCATION_NAME} != null && !$P{LOCATION_NAME}.isEmpty()
+                        ? " (" + $P{LOCATION_NAME} + ")" : "")
                 ]]></textFieldExpression>
             </textField>
 
-            <!-- Report Date -->
             <textField isBlankWhenNull="true">
-                <reportElement x="0" y="34" width="380" height="14"/>
-                <textElement><font size="9"/></textElement>
-                <textFieldExpression><![CDATA["Report Date: " + new java.text.SimpleDateFormat("yyyy-MM-dd").format($P{REPORT_DATE} == null ? new java.util.Date() : $P{REPORT_DATE})]]></textFieldExpression>
-            </textField>
-
-            <!-- Requested By -->
-            <textField isBlankWhenNull="true">
-                <reportElement x="380" y="34" width="380" height="14"/>
-                <textElement textAlignment="Right"><font size="9"/></textElement>
-                <textFieldExpression><![CDATA["Requested by: " + ($P{REQUESTED_BY} == null ? "" : $P{REQUESTED_BY})]]></textFieldExpression>
-            </textField>
-
-            <!-- Date Range -->
-            <textField isBlankWhenNull="true">
-                <reportElement x="0" y="50" width="380" height="14"/>
-                <textElement><font size="9"/></textElement>
+                <reportElement x="0" y="34" width="520" height="14"/>
+                <textElement>
+                    <font size="9"/>
+                </textElement>
                 <textFieldExpression><![CDATA[
-                "Date Range: "
-                + ($P{START_DATE} == null ? "-" : new java.text.SimpleDateFormat("yyyy-MM-dd").format($P{START_DATE}))
-                + " to "
-                + ($P{END_DATE} == null ? "-" : new java.text.SimpleDateFormat("yyyy-MM-dd").format($P{END_DATE}))
-            ]]></textFieldExpression>
+                    "Report Date: " + new java.text.SimpleDateFormat("yyyy-MM-dd")
+                        .format($P{REPORT_DATE} == null ? new java.util.Date() : $P{REPORT_DATE})
+                ]]></textFieldExpression>
             </textField>
 
-            <!-- Location -->
             <textField isBlankWhenNull="true">
-                <reportElement x="380" y="50" width="380" height="14"/>
-                <textElement textAlignment="Right"><font size="9"/></textElement>
-                <textFieldExpression><![CDATA["Location: " + ($P{LOCATION_NAME} == null ? "All" : $P{LOCATION_NAME})]]></textFieldExpression>
-            </textField>
-
-            <!-- Product Filter -->
-            <textField isBlankWhenNull="true">
-                <reportElement x="0" y="70" width="760" height="14"/>
-                <textElement textAlignment="Left"><font size="9"/></textElement>
+                <reportElement x="520" y="34" width="520" height="14"/>
+                <textElement textAlignment="Right">
+                    <font size="9"/>
+                </textElement>
                 <textFieldExpression><![CDATA[
-                "Product Filter: " + ($P{PRODUCT_FILTER} == null || $P{PRODUCT_FILTER}.trim().isEmpty() ? "All" : $P{PRODUCT_FILTER})
-            ]]></textFieldExpression>
+                    "Requested by: " + ($P{REQUESTED_BY} == null ? "" : $P{REQUESTED_BY})
+                ]]></textFieldExpression>
             </textField>
 
+            <textField isBlankWhenNull="true">
+                <reportElement x="0" y="50" width="520" height="14"/>
+                <textElement>
+                    <font size="9"/>
+                </textElement>
+                <textFieldExpression><![CDATA[
+                    "Date Range: "
+                    + ($P{START_DATE} == null ? "-"
+                        : new java.text.SimpleDateFormat("yyyy-MM-dd").format($P{START_DATE}))
+                    + " to "
+                    + ($P{END_DATE} == null ? "-"
+                        : new java.text.SimpleDateFormat("yyyy-MM-dd").format($P{END_DATE}))
+                ]]></textFieldExpression>
+            </textField>
+
+            <textField isBlankWhenNull="true">
+                <reportElement x="520" y="50" width="520" height="14"/>
+                <textElement textAlignment="Right">
+                    <font size="9"/>
+                </textElement>
+                <textFieldExpression><![CDATA[
+                    "Location: " + ($P{LOCATION_NAME} == null ? "All" : $P{LOCATION_NAME})
+                ]]></textFieldExpression>
+            </textField>
+
+            <textField isBlankWhenNull="true">
+                <reportElement x="0" y="70" width="1040" height="14"/>
+                <textElement>
+                    <font size="9"/>
+                </textElement>
+                <textFieldExpression><![CDATA[
+                    "Product Filter: "
+                    + ($P{PRODUCT_FILTER} == null || $P{PRODUCT_FILTER}.trim().isEmpty()
+                        ? "All" : $P{PRODUCT_FILTER})
+                ]]></textFieldExpression>
+            </textField>
+
+            <textField isBlankWhenNull="true">
+                <reportElement x="0" y="85" width="1040" height="14"/>
+                <textElement>
+                    <font size="9"/>
+                </textElement>
+                <textFieldExpression><![CDATA[
+        "Investment Officers: " + $P{OFFICER_NAMES}
+    ]]></textFieldExpression>
+            </textField>
         </band>
     </title>
 
-
-
+    <!-- ========== COLUMN HEADERS ========== -->
     <columnHeader>
         <band height="24">
+
+            <!-- 1. Client Name  x=0  w=80 -->
             <staticText>
-                <reportElement x="0" y="0" width="90" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="0" y="0" width="80" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Client Name]]></text>
             </staticText>
+
+            <!-- 2. UID  x=80  w=40 -->
             <staticText>
-                <reportElement x="90" y="0" width="50" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="80" y="0" width="40" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[UID]]></text>
             </staticText>
+
+            <!-- 3. Strata  x=120  w=45 -->
             <staticText>
-                <reportElement x="140" y="0" width="50" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="120" y="0" width="45" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Strata]]></text>
             </staticText>
+
+            <!-- 4. Business Type  x=165  w=55  ← NEW -->
             <staticText>
-                <reportElement x="190" y="0" width="50" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="165" y="0" width="55" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
+                </textElement>
+                <text><![CDATA[Business Type]]></text>
+            </staticText>
+
+            <!-- 5. ID No  x=220  w=55 -->
+            <staticText>
+                <reportElement x="220" y="0" width="55" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <textElement textAlignment="Center" verticalAlignment="Middle">
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[ID No]]></text>
             </staticText>
+
+            <!-- 6. Phone  x=275  w=65  ← NEW -->
             <staticText>
-                <reportElement x="240" y="0" width="50" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="275" y="0" width="65" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
+                </textElement>
+                <text><![CDATA[Client Phone Number]]></text>
+            </staticText>
+
+            <!-- 7. Dept  x=340  w=45 -->
+            <staticText>
+                <reportElement x="340" y="0" width="45" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <textElement textAlignment="Center" verticalAlignment="Middle">
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Dept]]></text>
             </staticText>
+
+            <!-- 8. Location  x=385  w=50 -->
             <staticText>
-                <reportElement x="290" y="0" width="50" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="385" y="0" width="50" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Location]]></text>
             </staticText>
+
+            <!-- 9. Product  x=435  w=60 -->
             <staticText>
-                <reportElement x="340" y="0" width="60" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="435" y="0" width="60" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Product]]></text>
             </staticText>
+
+            <!-- 10. Loan Account  x=495  w=85 -->
             <staticText>
-                <reportElement x="400" y="0" width="100" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="495" y="0" width="85" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Loan Account]]></text>
             </staticText>
+
+            <!-- 11. Tenure  x=580  w=40 -->
             <staticText>
-                <reportElement x="500" y="0" width="50" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="580" y="0" width="40" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Tenure]]></text>
             </staticText>
+
+            <!-- 12. Approved  x=620  w=65 -->
             <staticText>
-                <reportElement x="550" y="0" width="60" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="620" y="0" width="65" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Approved]]></text>
             </staticText>
+
+            <!-- 13. Approval Info  x=685  w=80 -->
             <staticText>
-                <reportElement x="610" y="0" width="100" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="685" y="0" width="80" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Approval Info]]></text>
             </staticText>
+
+            <!-- 14. Guarantor  x=765  w=90 -->
             <staticText>
-                <reportElement x="710" y="0" width="50" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="765" y="0" width="90" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
+                </textElement>
+                <text><![CDATA[Guarantor Type]]></text>
+            </staticText>
+
+            <!-- 15. Collateral  x=855  w=60  ← NEW -->
+            <staticText>
+                <reportElement x="855" y="0" width="60" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <textElement textAlignment="Center" verticalAlignment="Middle">
+                    <font isBold="true" size="8"/>
+                </textElement>
+                <text><![CDATA[Collateral Type]]></text>
+            </staticText>
+
+            <!-- 16. Insurance  x=915  w=55 -->
+            <staticText>
+                <reportElement x="915" y="0" width="55" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <textElement textAlignment="Center" verticalAlignment="Middle">
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Insurance]]></text>
             </staticText>
+
+            <!-- 17. Disbursement  x=970  w=65 -->
             <staticText>
-                <reportElement x="760" y="0" width="60" height="24" backcolor="#E0E0E0" mode="Opaque"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="970" y="0" width="65" height="24" backcolor="#E0E0E0" mode="Opaque"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement textAlignment="Center" verticalAlignment="Middle">
-                    <font isBold="true" size="9"/>
+                    <font isBold="true" size="8"/>
                 </textElement>
                 <text><![CDATA[Disbursement]]></text>
             </staticText>
+
         </band>
     </columnHeader>
 
-
+    <!-- ========== DETAIL BAND ========== -->
     <detail>
         <band height="36">
-            <!-- Client Name + Guarantor -->
-            <frame>
-                <reportElement x="0" y="0" width="90" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
-                <textField>
-                    <reportElement x="0" y="0" width="90" height="14"/>
-                    <textElement>
-                        <font size="9" isBold="true"/>
-                        <paragraph leftIndent="2" rightIndent="2" spacingBefore="1"/>
-                    </textElement>
-                    <textFieldExpression><![CDATA[$F{client_name}]]></textFieldExpression>
-                </textField>
-                <textField isBlankWhenNull="true">
-                    <reportElement x="0" y="16" width="90" height="20"/>
-                    <textElement>
-                        <font size="7"/>
-                        <paragraph leftIndent="2" rightIndent="2"/>
-                    </textElement>
-                    <textFieldExpression><![CDATA[
-                    "Guarantor: " + ($F{guarantor_name} == null ? "" : $F{guarantor_name})
-                ]]></textFieldExpression>
-                </textField>
-            </frame>
 
-            <!-- UID -->
+            <!-- 1. Client Name  x=0  w=80 -->
             <textField>
-                <reportElement x="90" y="0" width="50" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="0" y="0" width="80" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement verticalAlignment="Middle">
+                    <font size="8" isBold="true"/>
+                    <paragraph leftIndent="2" rightIndent="2"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$F{client_name}]]></textFieldExpression>
+            </textField>
+
+            <!-- 2. UID  x=80  w=40 -->
+            <textField>
+                <reportElement x="80" y="0" width="40" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <textElement verticalAlignment="Middle">
+                    <font size="8"/>
                     <paragraph leftIndent="2" rightIndent="2"/>
                 </textElement>
                 <textFieldExpression><![CDATA[$F{client_uid}]]></textFieldExpression>
             </textField>
 
-            <!-- Strata -->
-            <textField>
-                <reportElement x="140" y="0" width="50" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+            <!-- 3. Strata  x=120  w=45 -->
+            <textField isBlankWhenNull="true">
+                <reportElement x="120" y="0" width="45" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement verticalAlignment="Middle">
+                    <font size="8"/>
                     <paragraph leftIndent="2" rightIndent="2"/>
                 </textElement>
                 <textFieldExpression><![CDATA[$F{client_strata}]]></textFieldExpression>
             </textField>
 
-            <!-- National ID -->
-            <textField>
-                <reportElement x="190" y="0" width="50" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+            <!-- 4. Business Type  x=165  w=55  ← NEW -->
+            <textField isBlankWhenNull="true">
+                <reportElement x="165" y="0" width="55" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement verticalAlignment="Middle">
+                    <font size="8"/>
+                    <paragraph leftIndent="2" rightIndent="2"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$F{business_type}]]></textFieldExpression>
+            </textField>
+
+            <!-- 5. National ID  x=220  w=55 -->
+            <textField isBlankWhenNull="true">
+                <reportElement x="220" y="0" width="55" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <textElement verticalAlignment="Middle">
+                    <font size="8"/>
                     <paragraph leftIndent="2" rightIndent="2"/>
                 </textElement>
                 <textFieldExpression><![CDATA[$F{national_id}]]></textFieldExpression>
             </textField>
 
-            <!-- Department -->
-            <textField>
-                <reportElement x="240" y="0" width="50" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+            <!-- 6. Phone  x=275  w=65  ← NEW -->
+            <textField isBlankWhenNull="true">
+                <reportElement x="275" y="0" width="65" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement verticalAlignment="Middle">
+                    <font size="8"/>
+                    <paragraph leftIndent="2" rightIndent="2"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$F{phone_number}]]></textFieldExpression>
+            </textField>
+
+            <!-- 7. Dept  x=340  w=45 -->
+            <textField isBlankWhenNull="true">
+                <reportElement x="340" y="0" width="45" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <textElement verticalAlignment="Middle">
+                    <font size="8"/>
                     <paragraph leftIndent="2" rightIndent="2"/>
                 </textElement>
                 <textFieldExpression><![CDATA[$F{department}]]></textFieldExpression>
             </textField>
 
-            <!-- Location -->
-            <textField>
-                <reportElement x="290" y="0" width="50" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+            <!-- 8. Location  x=385  w=50 -->
+            <textField isBlankWhenNull="true">
+                <reportElement x="385" y="0" width="50" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement verticalAlignment="Middle">
+                    <font size="8"/>
                     <paragraph leftIndent="2" rightIndent="2"/>
                 </textElement>
                 <textFieldExpression><![CDATA[$F{location}]]></textFieldExpression>
             </textField>
 
-            <!-- Product -->
-            <textField>
-                <reportElement x="340" y="0" width="60" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+            <!-- 9. Product  x=435  w=60 -->
+            <textField isBlankWhenNull="true">
+                <reportElement x="435" y="0" width="60" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement verticalAlignment="Middle">
+                    <font size="8"/>
                     <paragraph leftIndent="2" rightIndent="2"/>
                 </textElement>
                 <textFieldExpression><![CDATA[$F{loan_product}]]></textFieldExpression>
             </textField>
 
-            <!-- Loan Account + Collateral -->
+            <!-- 10. Loan Account + Bank sub-row  x=495  w=85 -->
             <frame>
-                <reportElement x="400" y="0" width="100" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="495" y="0" width="85" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textField>
-                    <reportElement x="0" y="0" width="100" height="14"/>
+                    <reportElement x="0" y="0" width="85" height="14"/>
                     <textElement>
-                        <font size="9" isBold="true"/>
+                        <font size="8" isBold="true"/>
                         <paragraph leftIndent="2" rightIndent="2" spacingBefore="1"/>
                     </textElement>
                     <textFieldExpression><![CDATA[$F{loan_account}]]></textFieldExpression>
                 </textField>
                 <textField isBlankWhenNull="true">
-                    <reportElement x="0" y="16" width="100" height="20"/>
+                    <reportElement x="0" y="16" width="85" height="20"/>
                     <textElement>
-                        <font size="7"/>
+                        <font size="6"/>
                         <paragraph leftIndent="2" rightIndent="2"/>
                     </textElement>
                     <textFieldExpression><![CDATA[
-                    "Collateral: " + ($F{collateral_type} == null ? "N/A" : $F{collateral_type})
-                    + " | Value: " + ($F{collateral_coverage} == null ? "N/A" : $F{collateral_coverage})
-                ]]></textFieldExpression>
+                        "Bank: " + ($F{beneficiary_name} == null ? "" : $F{beneficiary_name})
+                        + " | Acc: " + ($F{beneficiary_account} == null ? "" : $F{beneficiary_account})
+                    ]]></textFieldExpression>
                 </textField>
             </frame>
 
-            <!-- Tenure -->
-            <textField>
-                <reportElement x="500" y="0" width="50" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+            <!-- 11. Tenure  x=580  w=40 -->
+            <textField isBlankWhenNull="true">
+                <reportElement x="580" y="0" width="40" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement verticalAlignment="Middle">
+                    <font size="8"/>
                     <paragraph leftIndent="2" rightIndent="2"/>
                 </textElement>
                 <textFieldExpression><![CDATA[$F{tenure}]]></textFieldExpression>
             </textField>
 
-            <!-- Approved + Bank -->
-            <frame>
-                <reportElement x="550" y="0" width="60" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
-                <textField pattern="#,##0.00">
-                    <reportElement x="0" y="0" width="60" height="14"/>
-                    <textElement>
-                        <font size="9" isBold="true"/>
-                        <paragraph leftIndent="2" rightIndent="2" spacingBefore="1"/>
-                    </textElement>
-                    <textFieldExpression><![CDATA[$F{approved_amount}]]></textFieldExpression>
-                </textField>
-                <textField isBlankWhenNull="true">
-                    <reportElement x="0" y="16" width="60" height="20"/>
-                    <textElement>
-                        <font size="7"/>
-                        <paragraph leftIndent="2" rightIndent="2"/>
-                    </textElement>
-                    <textFieldExpression><![CDATA[
-                    "Bank: " + ($F{beneficiary_name} == null ? "" : $F{beneficiary_name})
-                    + " | Acc: " + ($F{beneficiary_account} == null ? "" : $F{beneficiary_account})
-                ]]></textFieldExpression>
-                </textField>
-            </frame>
+            <!-- 12. Approved amount  x=620  w=65 -->
+            <textField pattern="#,##0.00">
+                <reportElement x="620" y="0" width="65" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <textElement verticalAlignment="Middle">
+                    <font size="8" isBold="true"/>
+                    <paragraph leftIndent="2" rightIndent="2"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$F{approved_amount}]]></textFieldExpression>
+            </textField>
 
-            <!-- Approval Info -->
+            <!-- 13. Approval Info (date / by / method)  x=685  w=80 -->
             <frame>
-                <reportElement x="610" y="0" width="100" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="685" y="0" width="80" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textField pattern="yyyy-MM-dd" isBlankWhenNull="true">
                     <reportElement x="0" y="0" width="80" height="12"/>
                     <textElement>
-                        <font size="8" isBold="true"/>
+                        <font size="7" isBold="true"/>
                         <paragraph leftIndent="2" rightIndent="2"/>
                     </textElement>
-                    <textFieldExpression><![CDATA[ "Date:" +$F{approved_date}]]></textFieldExpression>
+                    <textFieldExpression><![CDATA["Date: " + $F{approved_date}]]></textFieldExpression>
                 </textField>
                 <textField isBlankWhenNull="true">
                     <reportElement x="0" y="12" width="80" height="12"/>
@@ -500,8 +692,8 @@
                         <paragraph leftIndent="2" rightIndent="2"/>
                     </textElement>
                     <textFieldExpression><![CDATA[
-                    "By: " + ($F{approved_by} == null ? "" : $F{approved_by})
-                ]]></textFieldExpression>
+                        "By: " + ($F{approved_by} == null ? "" : $F{approved_by})
+                    ]]></textFieldExpression>
                 </textField>
                 <textField isBlankWhenNull="true">
                     <reportElement x="0" y="24" width="80" height="12"/>
@@ -509,29 +701,75 @@
                         <font size="6"/>
                         <paragraph leftIndent="2" rightIndent="2"/>
                     </textElement>
-                    <textFieldExpression>
-                        <![CDATA["Method: " + ($F{payment_method} == null ? "--" : $F{payment_method})]]>
-                    </textFieldExpression>
-
+                    <textFieldExpression><![CDATA[
+                        "Method: " + ($F{payment_method} == null ? "--" : $F{payment_method})
+                    ]]></textFieldExpression>
                 </textField>
             </frame>
 
-            <!-- Insurance -->
-            <textField pattern="#,##0.00">
-                <reportElement x="710" y="0" width="50" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+            <!-- 14. Guarantor: name + phone + type  x=765  w=90 -->
+            <frame>
+                <reportElement x="765" y="0" width="90" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <!-- Guarantor name -->
+                <textField isBlankWhenNull="true">
+                    <reportElement x="0" y="0" width="90" height="13"/>
+                    <textElement>
+                        <font size="8" isBold="true"/>
+                        <paragraph leftIndent="2" rightIndent="2" spacingBefore="1"/>
+                    </textElement>
+                    <textFieldExpression><![CDATA[$F{guarantor_name}]]></textFieldExpression>
+                </textField>
+                <!-- Guarantor type -->
+                <textField isBlankWhenNull="true">
+                    <reportElement x="0" y="24" width="90" height="12"/>
+                    <textElement>
+                        <font size="6"/>
+                        <paragraph leftIndent="2" rightIndent="2"/>
+                    </textElement>
+                    <textFieldExpression><![CDATA[
+                        ($F{guarantor_type} == null ? " " : $F{guarantor_type})
+                    ]]></textFieldExpression>
+                </textField>
+            </frame>
+
+            <!-- 15. Collateral  x=855  w=60   -->
+            <textField isBlankWhenNull="true">
+                <reportElement x="855" y="0" width="60" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement verticalAlignment="Middle">
+                    <font size="7"/>
+                    <paragraph leftIndent="2" rightIndent="2"/>
+                </textElement>
+                <textFieldExpression><![CDATA[
+              ($F{collateral_type} == null ? " " : $F{collateral_type})]]></textFieldExpression>
+            </textField>
+
+            <!-- 16. Insurance  x=915  w=55 -->
+            <textField pattern="#,##0.00">
+                <reportElement x="915" y="0" width="55" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
+                <textElement verticalAlignment="Middle">
+                    <font size="8"/>
                     <paragraph leftIndent="2" rightIndent="2"/>
                 </textElement>
                 <textFieldExpression><![CDATA[$F{insurance_amount}]]></textFieldExpression>
             </textField>
 
-            <!-- Disbursement -->
+            <!-- 17. Disbursement  x=970  w=65 -->
             <textField pattern="#,##0.00">
-                <reportElement x="760" y="0" width="60" height="36"/>
-                <box><pen lineWidth="0.25"/></box>
+                <reportElement x="970" y="0" width="65" height="36"/>
+                <box>
+                    <pen lineWidth="0.25"/>
+                </box>
                 <textElement verticalAlignment="Middle">
-                    <font size="10"/>
+                    <font size="9"/>
                     <paragraph leftIndent="2" rightIndent="2"/>
                 </textElement>
                 <textFieldExpression><![CDATA[$V{disbursement_amount}]]></textFieldExpression>
@@ -540,27 +778,28 @@
         </band>
     </detail>
 
-
     <!-- ========== SUMMARY ========== -->
     <summary>
         <band height="170">
 
-            <!-- Totals Row -->
             <staticText>
                 <reportElement x="0" y="15" width="220" height="16"/>
-                <textElement><font isBold="true"/></textElement>
+                <textElement>
+                    <font isBold="true"/>
+                </textElement>
                 <text><![CDATA[Total Approved Amount:]]></text>
             </staticText>
             <textField pattern="#,##0.00">
                 <reportElement x="230" y="15" width="150" height="16"/>
-                <textElement/> <!-- keep normal -->
+                <textElement/>
                 <textFieldExpression><![CDATA[$V{SUM_APPROVED}]]></textFieldExpression>
             </textField>
 
-            <!-- Interest Percentage -->
             <staticText>
                 <reportElement x="0" y="44" width="220" height="14"/>
-                <textElement><font isBold="true"/></textElement>
+                <textElement>
+                    <font isBold="true"/>
+                </textElement>
                 <text><![CDATA[Interest Percentage (%):]]></text>
             </staticText>
             <textField>
@@ -569,10 +808,11 @@
                 <textFieldExpression><![CDATA[$P{INTEREST_PERCENTAGE}]]></textFieldExpression>
             </textField>
 
-            <!-- Final Total -->
             <staticText>
                 <reportElement x="0" y="68" width="220" height="14"/>
-                <textElement><font isBold="true"/></textElement>
+                <textElement>
+                    <font isBold="true"/>
+                </textElement>
                 <text><![CDATA[Final Total (with Interest):]]></text>
             </staticText>
             <textField pattern="#,##0.00">
@@ -581,48 +821,36 @@
                 <textFieldExpression><![CDATA[$V{FINAL_TOTAL}]]></textFieldExpression>
             </textField>
 
-            <!-- Final Total in Words -->
             <staticText>
                 <reportElement x="0" y="92" width="220" height="14"/>
-                <textElement><font isBold="true"/></textElement>
+                <textElement>
+                    <font isBold="true"/>
+                </textElement>
                 <text><![CDATA[Final Total (in Words):]]></text>
             </staticText>
             <textField textAdjust="StretchHeight">
-                <reportElement x="0" y="108" width="760" height="16"/>
+                <reportElement x="0" y="108" width="1040" height="16"/>
                 <textElement/>
                 <textFieldExpression><![CDATA[$V{FINAL_TOTAL_WORDS}]]></textFieldExpression>
             </textField>
 
-
-            <!-- CPO Signature Label -->
-<!--            <textField isBlankWhenNull="true">-->
-<!--                <reportElement x="520" y="140" width="250" height="20"/>-->
-<!--                <textElement textAlignment="Left">-->
-<!--                    <font size="10" isBold="true" isItalic="false"/>-->
-<!--                </textElement>-->
-<!--&lt;!&ndash;                <textFieldExpression><![CDATA["CPO Signature: " + $P{APPROVED_BY}.toUpperCase()]]></textFieldExpression>&ndash;&gt;-->
-<!--            </textField>-->
-
             <line>
-                <reportElement x="520" y="160" width="250" height="1"/>
+                <reportElement x="720" y="160" width="320" height="1"/>
             </line>
 
-            <!-- Footer: Generated By -->
             <textField>
-                <reportElement x="0" y="140" width="420" height="14"/>
+                <reportElement x="0" y="140" width="520" height="14"/>
                 <textElement/>
                 <textFieldExpression><![CDATA[
-                "Generated by: "
-                + ($P{REQUESTED_BY} == null ? "" : $P{REQUESTED_BY})
-                + " on "
-                + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm")
-                    .format($P{REPORT_DATE} == null ? new java.util.Date() : $P{REPORT_DATE})
-            ]]></textFieldExpression>
+                    "Generated by: "
+                    + ($P{REQUESTED_BY} == null ? "" : $P{REQUESTED_BY})
+                    + " on "
+                    + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm")
+                        .format($P{REPORT_DATE} == null ? new java.util.Date() : $P{REPORT_DATE})
+                ]]></textFieldExpression>
             </textField>
 
         </band>
     </summary>
-
-
 
 </jasperReport>
