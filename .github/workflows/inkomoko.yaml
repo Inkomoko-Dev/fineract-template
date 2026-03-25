@@ -26,7 +26,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONARR_HOST_URL: https://dev.inkomoko.com:1128
         run: |
-          ./gradlew sonarqube -x test -x compileTestJava \
+          ./gradlew --info --stacktrace sonarqube \
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.host.url=${SONARR_HOST_URL} \
             -Dsonar.login=${SONAR_TOKEN}
