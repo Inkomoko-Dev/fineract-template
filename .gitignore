@@ -26,3 +26,4 @@ licenses
 **/.asciidoctor/diagram/*
 **/images/diag-*.svg
 target/
+fineract-provider/src/main/resources/application-local.properties
