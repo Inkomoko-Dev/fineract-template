@@ -74,6 +74,8 @@ final class LoanTransactionsApiResourceSwagger {
         public GetLoansTransactionType transactionType;
         @Schema(example = "[2009, 8, 1]")
         public LocalDate date;
+        @Schema(example = "[2009, 8, 1]", description = "For recoverypayment, the loan write-off date. Clients should not allow transaction dates earlier than this value.")
+        public LocalDate writeOffOnDate;
         public GetLoansTotal total;
     }
 
@@ -153,7 +155,7 @@ final class LoanTransactionsApiResourceSwagger {
         public String locale;
         @Schema(example = "dd MMMM yyyy")
         public String dateFormat;
-        @Schema(example = "28 June 2022")
+        @Schema(example = "28 June 2022", description = "For recoverypayment, the transaction date must be on or after the loan write-off date.")
         public String transactionDate;
         @Schema(example = "50000.00")
         public Double transactionAmount;

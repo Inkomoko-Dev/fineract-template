@@ -61,6 +61,7 @@ public class LoanTransactionData {
     private final LocalDate submittedOnDate;
     private final boolean manuallyReversed;
     private final LocalDate possibleNextRepaymentDate;
+    private LocalDate writeOffOnDate;
 
     private Collection<LoanChargePaidByData> loanChargePaidByList;
 
@@ -202,14 +203,16 @@ public class LoanTransactionData {
 
     public static LoanTransactionData templateOnTop(final LoanTransactionData loanTransactionData,
             final Collection<PaymentTypeData> paymentTypeOptions) {
-        return new LoanTransactionData(loanTransactionData.id, loanTransactionData.officeId, loanTransactionData.officeName,
+        LoanTransactionData templateOnTop = new LoanTransactionData(loanTransactionData.id, loanTransactionData.officeId,
+                loanTransactionData.officeName,
                 loanTransactionData.type, loanTransactionData.paymentDetailData, loanTransactionData.currency, loanTransactionData.date,
                 loanTransactionData.amount, loanTransactionData.netDisbursalAmount, loanTransactionData.principalPortion,
                 loanTransactionData.interestPortion, loanTransactionData.feeChargesPortion, loanTransactionData.penaltyChargesPortion,
                 loanTransactionData.overpaymentPortion, loanTransactionData.unrecognizedIncomePortion, paymentTypeOptions,
                 loanTransactionData.externalId, loanTransactionData.transfer, loanTransactionData.fixedEmiAmount,
                 loanTransactionData.outstandingLoanBalance, loanTransactionData.manuallyReversed, loanTransactionData.createdDate);
-
+        templateOnTop.writeOffOnDate = loanTransactionData.writeOffOnDate;
+        return templateOnTop;
     }
 
     public LoanTransactionData(final Long id, final Long officeId, final String officeName, final LoanTransactionEnumData transactionType,
@@ -377,6 +380,10 @@ public class LoanTransactionData {
 
     public void setWriteOffReasonOptions(Collection<CodeValueData> writeOffReasonOptions) {
         this.writeOffReasonOptions = writeOffReasonOptions;
+    }
+
+    public void setWriteOffOnDate(final LocalDate writeOffOnDate) {
+        this.writeOffOnDate = writeOffOnDate;
     }
 
     public Collection<LoanChargePaidByData> getLoanChargePaidByList() {

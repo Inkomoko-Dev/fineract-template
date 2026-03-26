@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.integrationtests;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.builder.ResponseSpecBuilder;
 import io.restassured.http.ContentType;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import org.apache.fineract.integrationtests.common.ClientHelper;
+import org.apache.fineract.integrationtests.common.CommonConstants;
 import org.apache.fineract.integrationtests.common.CollateralManagementHelper;
 import org.apache.fineract.integrationtests.common.Utils;
 import org.apache.fineract.integrationtests.common.loans.LoanApplicationTestBuilder;
@@ -65,7 +67,11 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
     private static final String RATE_OF_INTEREST_PER_PERIOD = "2";
     private static final String DATE_OF_JOINING = "04 March 2009";
     private static final String INTEREST_VALUE_AMOUNT = "40.00";
+    private static final String RECOVERY_PAYMENT = "recoverypayment";
+    private static final String RECOVERY_PAYMENT_BEFORE_WRITEOFF_ERROR =
+            "error.msg.loan.recovery.payment.date.cannot.be.before.writeoff.date";
     private LoanTransactionHelper loanTransactionHelper;
+    private LoanTransactionHelper loanTransactionHelperValidationError;
 
     @BeforeEach
     public void setup() {
@@ -74,6 +80,7 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         this.requestSpec.header("Authorization", "Basic " + Utils.loginIntoServerAndGetBase64EncodedAuthenticationKey());
         this.responseSpec = new ResponseSpecBuilder().expectStatusCode(200).build();
         this.loanTransactionHelper = new LoanTransactionHelper(this.requestSpec, this.responseSpec);
+        this.loanTransactionHelperValidationError = new LoanTransactionHelper(this.requestSpec, new ResponseSpecBuilder().build());
     }
 
     @Test
@@ -201,6 +208,54 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
                 Float.valueOf("5440.0").compareTo(Float.valueOf(String.valueOf(toLoanSummaryAfter.get("totalWrittenOff")))) == 0,
                 "Checking for total written off ");
 
+    }
+
+    @Test
+    public void recoveryPaymentBeforeWriteOffDateIsRejected() {
+        final Integer loanID = createDisburseAndWriteOffLoan("01 January 2011");
+
+        final ArrayList<HashMap> errors = (ArrayList<HashMap>) this.loanTransactionHelperValidationError.makeRepaymentTypePayment(
+                RECOVERY_PAYMENT, "31 December 2010", 100.0f, loanID, CommonConstants.RESPONSE_ERROR);
+
+        assertEquals(RECOVERY_PAYMENT_BEFORE_WRITEOFF_ERROR, errors.get(0).get(CommonConstants.RESPONSE_ERROR_MESSAGE_CODE));
+    }
+
+    @Test
+    public void recoveryPaymentOnAndAfterWriteOffDateIsAllowed() {
+        final Integer loanID = createDisburseAndWriteOffLoan("01 January 2011");
+        final HashMap recoveryTemplate = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
+                "/fineract-provider/api/v1/loans/" + loanID + "/transactions/template?command=" + RECOVERY_PAYMENT + "&"
+                        + Utils.TENANT_IDENTIFIER,
+                "");
+
+        Assertions.assertEquals(List.of(2011, 1, 1), recoveryTemplate.get("writeOffOnDate"));
+
+        this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT, "01 January 2011", 100.0f, loanID, null);
+        this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT, "02 January 2011", 150.0f, loanID, null);
+
+        final HashMap loanSummary = this.loanTransactionHelper.getLoanSummary(requestSpec, responseSpec, loanID);
+        Assertions.assertTrue(
+                Float.valueOf("250.0").compareTo(Float.valueOf(String.valueOf(loanSummary.get("totalRecovered")))) == 0,
+                "Checking for total recovered ");
+    }
+
+    private Integer createDisburseAndWriteOffLoan(final String writeOffDate) {
+        final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec, DATE_OF_JOINING);
+        ClientHelper.verifyClientCreatedOnServer(this.requestSpec, this.responseSpec, clientID);
+
+        final Integer loanProductID = createLoanProduct();
+        final Integer loanID = applyForLoanApplication(clientID, loanProductID);
+
+        HashMap loanStatusHashMap = this.loanTransactionHelper.approveLoan("28 September 2010", loanID);
+        LoanStatusChecker.verifyLoanIsApproved(loanStatusHashMap);
+        LoanStatusChecker.verifyLoanIsWaitingForDisbursal(loanStatusHashMap);
+
+        final String loanDetails = this.loanTransactionHelper.getLoanDetails(this.requestSpec, this.responseSpec, loanID);
+        loanStatusHashMap = this.loanTransactionHelper.disburseLoan(DISBURSEMENT_DATE, loanID,
+                JsonPath.from(loanDetails).get("netDisbursalAmount").toString());
+        LoanStatusChecker.verifyLoanIsActive(loanStatusHashMap);
+        LoanStatusChecker.verifyLoanAccountIsClosed(this.loanTransactionHelper.writeOffLoan(writeOffDate, loanID));
+        return loanID;
     }
 
     private Integer createLoanProduct() {
