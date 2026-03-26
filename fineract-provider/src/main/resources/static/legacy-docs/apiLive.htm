@@ -12725,6 +12725,10 @@ No Request Body:
 							and total Interest/ Fee/ Charges / Penalties
 							till foreclosure date.
 						</dd>
+						<dd>
+							<b>'recoverypayment'</b><br> "date" is set to the current date.<br>
+							"writeOffOnDate" is returned for written-off loans and recovery payments must use a transaction date on or after this value.
+						</dd>
 					</dl>
 					<p>Example Request:</p>
 					<div class=apiClick>loans/1/transactions/template?command=repayment</div>
@@ -12741,6 +12745,11 @@ GET https://DomainName/api/v1/loans/{loanId}/transactions/template"
         "value": "Repayment"
     },
     "date": [
+        2009,
+        8,
+        1
+    ],
+    "writeOffOnDate": [
         2009,
         8,
         1
@@ -12984,7 +12993,7 @@ Request Body:
 	    		<div class="method-section">
 				<div class="method-description">
 					<h4>Make Recovery Payment </h4>
-					<p>This API allows collecting recovery payments for written-off loans</p>
+					<p>This API allows collecting recovery payments for written-off loans. The transaction date must be on or after the loan write-off date.</p>
 				</div>
 				<div class="method-example">
 					<code class="method-declaration">
