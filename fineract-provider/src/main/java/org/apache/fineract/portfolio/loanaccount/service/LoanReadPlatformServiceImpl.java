@@ -2234,6 +2234,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.RECOVERY_REPAYMENT);
         final List<LoanTransaction> transaction = loanTransactionRepository.findWriteOffLoanTransaction(loanId);
+        final LocalDate writeOffOnDate = loan.getWrittenOffDate();
 
         BigDecimal totalWrittenOff = loan.getTotalWrittenOff();
 
@@ -2248,9 +2249,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         BigDecimal outstandingLoanBalance = null;
         final BigDecimal unrecognizedIncomePortion = null;
-        return new LoanTransactionData(null, null, null, transactionType, null, null, null, totalWrittenOff, loan.getNetDisbursalAmount(),
-                null, null, null, null, null, unrecognizedIncomePortion, paymentOptions, null, null, null, outstandingLoanBalance, false,
-                null);
+        LoanTransactionData loanTransactionData = new LoanTransactionData(null, null, null, transactionType, null, null,
+                DateUtils.getBusinessLocalDate(), totalWrittenOff, loan.getNetDisbursalAmount(), null, null, null, null, null,
+                unrecognizedIncomePortion, paymentOptions, null, null, null, outstandingLoanBalance, false, null);
+        loanTransactionData.setWriteOffOnDate(writeOffOnDate);
+        return loanTransactionData;
 
     }
 
