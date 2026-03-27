@@ -55,7 +55,13 @@ public class FineractHookListener implements HookListener {
         final List<Hook> hooks = this.hookReadPlatformService.retrieveHooksByEvent(hookEventSource.getEntityName(),
                 hookEventSource.getActionName());
 
+        log.info("Found {} hooks for entity {}, action {}", hooks.size(), entityName, actionName);
+
+
+
         for (final Hook hook : hooks) {
+            log.info("Processing hook {} for entity {}, action {}", hook, entityName, actionName);
+
             final HookProcessor processor = this.hookProcessorProvider.getProcessor(hook);
             try {
                 processor.process(hook, payload, entityName, actionName, fineractContext);
