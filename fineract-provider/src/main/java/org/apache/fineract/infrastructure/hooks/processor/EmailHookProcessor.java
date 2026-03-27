@@ -59,6 +59,10 @@ public class EmailHookProcessor implements HookProcessor {
 
         log.debug("Processing email hook {}", hook);
 
+        if (cbsEnvironmentLink == null) {
+            throw new Exception("cbsEnvironmentLink is null");
+        }
+
         // Parse payload
         Type type = new TypeToken<Map<String, Object>>() {}.getType();
         Map<String, Object> payloadMap = new Gson().fromJson(payload, type);
@@ -154,11 +158,8 @@ public class EmailHookProcessor implements HookProcessor {
         String subject;
         String message;
 
-        String baseUrl = (cbsEnvironmentLink == null || cbsEnvironmentLink.isBlank())
-                ? "https://test.inkomoko.com:1063"
-                : cbsEnvironmentLink;
 
-        String loanLink = String.format("%s/loans/%s", baseUrl, loanId);
+        String loanLink = String.format("%s/loans/%s", cbsEnvironmentLink, loanId);
 
 
         switch (actionName) {
