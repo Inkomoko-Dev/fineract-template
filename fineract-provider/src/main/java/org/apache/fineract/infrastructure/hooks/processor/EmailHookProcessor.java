@@ -31,19 +31,14 @@ import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
-import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.lang.reflect.Type;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 
@@ -54,7 +49,6 @@ public class EmailHookProcessor implements HookProcessor {
 
     private final ClientRepositoryWrapper clientRepository;
     private final LoanRepository loanRepository;
-    private final AppUserRepository appUserRepository;
     private final StaffRepository staffRepository;
     private final GmailBackedPlatformEmailService emailService;
     @Value("${CBS-ENVIRONMENT-LINK}")
@@ -64,11 +58,6 @@ public class EmailHookProcessor implements HookProcessor {
     public void process(Hook hook, String payload, String entityName, String actionName, FineractContext context) throws Exception {
 
         log.debug("Processing email hook {}", hook);
-
-        if (cbsEnvironmentLink == null) {
-            log.error("Failed to process email notification cbsEnvironmentLink is null");
-            throw new Exception("cbsEnvironmentLink is null");
-        }
 
         // Parse payload
         Type type = new TypeToken<Map<String, Object>>() {}.getType();
@@ -95,15 +84,7 @@ public class EmailHookProcessor implements HookProcessor {
         }
 
         // Extract rejection info if any
-        String rejectionDate = Optional.ofNullable(request)
-                .map(r -> r.get("rejectedOnDate"))
-                .map(Object::toString)
-                .filter(s -> !s.isBlank())
-                .orElseGet(() ->
-                        LocalDate.now(ZoneId.systemDefault())
-                                .format(DateTimeFormatter.ofPattern("dd MMMM yyyy"))
-                );
-
+        String rejectionDate = request != null ? (String) request.get("rejectedOnDate") : null;
         String rejectionReason = request != null ? (String) request.get("note") : null;
 
         // Fetch loan entity
@@ -119,17 +100,16 @@ public class EmailHookProcessor implements HookProcessor {
         if (loan.getCreatedBy().isPresent()) {
             Long creatorId = loan.getCreatedBy().get();
             Map<String, String> creatorMap = new HashMap<>();
-            appUserRepository.findById(creatorId).ifPresentOrElse(
+            staffRepository.findById(creatorId).ifPresentOrElse(
                     creator -> {
 
-                        creatorMap.put("email" , creator.getEmail());
-                        creatorMap.put("name", creator.getUsername());
+                        creatorMap.put("email" , creator.emailAddress());
+                        creatorMap.put("name", creator.fullName());
                         recipients.add(creatorMap);
-                        loanCreatorName.set(creator.getFirstname() + " " + creator.getLastname());
+                        loanCreatorName.set(creator.fullName());
                     },
                     () -> log.warn("Loan creator not found for loan: {}", loanId)
             );
-            log.info("Loan creator found: {}", creatorMap.get("email"));
         }
 
         // Loan officer
@@ -137,27 +117,16 @@ public class EmailHookProcessor implements HookProcessor {
             Long officerId = loan.getLoanOfficer().getId();
             Map<String, String> officerMap = new HashMap<>();
             staffRepository.findById(officerId).ifPresentOrElse(
-                    staff -> {
-                        officerMap.put("email", staff.emailAddress());
-                        officerMap.put("name", staff.fullName());
+                    officer -> {
+                        officerMap.put("email" , officer.emailAddress());
+                        officerMap.put("name", officer.fullName());
                         recipients.add(officerMap);
-                        loanOfficerName.set(staff.fullName());
+                        loanOfficerName.set(officer.fullName());
                     },
-                    () -> {
-                        // Fallback — loan officer is an AppUser record, not a Staff
-                        appUserRepository.findById(officerId).ifPresentOrElse(
-                                officer -> {
-                                    officerMap.put("email", officer.getEmail());
-                                    officerMap.put("name", officer.getUsername());
-                                    recipients.add(officerMap);
-                                    loanOfficerName.set(officer.getFirstname() + " " + officer.getLastname());
-                                },
-                                () -> log.warn("Loan officer not found in Staff or AppUser for loan: {}", loanId)
-                        );
-                    }
+                    () -> log.warn("Loan officer not found for loan: {}", loanId)
             );
-            log.info("Loan officer found: {} for loan id {}", officerMap.get("email"), loanId);
         }
+
         // Fetch client
         Long clientId = response.get("clientId") instanceof Number
                 ? ((Number) response.get("clientId")).longValue()
@@ -169,6 +138,8 @@ public class EmailHookProcessor implements HookProcessor {
                 ? client.getFirstname() + " " + client.getLastname()
                 : "Client";
 
+
+        log.info("");
 
         List<String> nameList = new ArrayList<>();
         if (!"N/A".equals(loanCreatorName.get())) {
@@ -185,12 +156,16 @@ public class EmailHookProcessor implements HookProcessor {
         String subject;
         String message;
 
-        String loanLink = String.format("%s/disbursement-request#/viewloanaccount/%s", cbsEnvironmentLink, loanId);
+        String baseUrl = (cbsEnvironmentLink == null || cbsEnvironmentLink.isBlank())
+                ? "https://test.inkomoko.com:1063"
+                : cbsEnvironmentLink;
+
+        String loanLink = String.format("%s/loans/%s", baseUrl, loanId);
 
 
         switch (actionName) {
 
-            case "DISBURSE":
+            case "APPROVE":
                 subject = String.format("Loan Disbursed – %s – %s", loanId, clientFullName);
 
                 message = String.format(
@@ -214,7 +189,7 @@ public class EmailHookProcessor implements HookProcessor {
                         recipientNames,
                         loanId,
                         clientFullName,
-                        loan.getNetDisbursalAmount(),
+                        loan.getDisbursedAmount(),
                         loan.getCurrency().getCode(),
                         loan.getDisbursementDate(),
                         loanLink,
@@ -223,7 +198,7 @@ public class EmailHookProcessor implements HookProcessor {
                 );
                 break;
 
-            case "REJECTDISBURSEMENT":
+            case "REJECT":
                 subject = String.format("Loan Rejected – %s – %s", loanId, client != null ? client.getDisplayName() : "Client");
 
                  message = "<p>Dear " + recipientNames + ",</p>"
@@ -235,9 +210,8 @@ public class EmailHookProcessor implements HookProcessor {
                     + "<li>Rejection Date: " + (rejectionDate != null ? rejectionDate : "N/A") + "</li>"
                     + "<li>Rejection Reason: " + (rejectionReason != null ? rejectionReason : "N/A") + "</li>"
                     + "</ul>"
-                    + "<p>You can open the loan record in the Core Banking System using the link below:<br>" +
-                    "CBS Link: " + loanLink +  "<br>" +
-                    "<p>This notification was sent to:<br>"
+                    + "<p>You can open the loan record in the Core Banking System using the link below:<br>[CBSLink]</p>"
+                    + "<p>This notification was sent to:<br>"
                     + "Loan creator: " + loanCreatorName.get() + "<br>"
                     + "Assigned loan officer: " + loanOfficerName.get() + "</p>"
                     + "<p>Please review and take any necessary follow-up actions with the client or internal teams.</p>"
