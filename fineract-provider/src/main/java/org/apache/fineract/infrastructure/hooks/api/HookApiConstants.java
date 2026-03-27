@@ -42,6 +42,8 @@ public final class HookApiConstants {
 
     public static final String smsTemplateName = "SMS Bridge";
 
+    public static final String emailTemplateName = "Email Gateway";
+
     public static final String payloadURLName = "Payload URL";
 
     public static final String contentTypeName = "Content Type";

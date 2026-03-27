@@ -1081,4 +1081,8 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
     public void setUpdatedToOdoo(boolean isUpdatedToOdoo) {
         this.isUpdatedToOdoo = isUpdatedToOdoo;
     }
+
+    public String getEmail() {
+        return emailAddress;
+    }
 }
