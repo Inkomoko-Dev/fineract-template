@@ -120,6 +120,7 @@ public class LoanDisbursementIntegrationApiResource {
         newJsonObject.add("locale", originalJsonObject.get("locale"));
         newJsonObject.add("resultCode", originalJsonObject.get("resultCode"));
         newJsonObject.add("dateFormat", originalJsonObject.get("dateFormat"));
+        newJsonObject.add("receiptNumber", originalJsonObject.get("transactionRef"));
         return newJsonObject.toString();
     }
 
