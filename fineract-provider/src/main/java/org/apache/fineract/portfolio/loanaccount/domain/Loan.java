@@ -3246,6 +3246,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             holidayDetailDTO = scheduleGeneratorDTO.getHolidayDetailDTO();
         }
         validateRepaymentTypeAccountStatus(repaymentTransaction, event);
+        if (isRecoveryRepayment) {
+            validateRecoveryRepaymentDateIsOnOrAfterWriteOffDate(repaymentTransaction.getTransactionDate());
+        }
         validateActivityNotBeforeClientOrGroupTransferDate(event, repaymentTransaction.getTransactionDate());
         validateActivityNotBeforeLastTransactionDate(event, repaymentTransaction.getTransactionDate());
         if (!isHolidayValidationDone) {
@@ -3261,6 +3264,29 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 loanLifecycleStateMachine, null, scheduleGeneratorDTO);
 
         return changedTransactionDetail;
+    }
+
+    private void validateRecoveryRepaymentDateIsOnOrAfterWriteOffDate(final LocalDate recoveryPaymentDate) {
+        LocalDate writeOffDate = getWrittenOffDate();
+        if (writeOffDate == null) {
+            final LoanTransaction writeOffTransaction = findWriteOffTransaction();
+            if (writeOffTransaction != null) {
+                writeOffDate = writeOffTransaction.getTransactionDate();
+            }
+        }
+
+        if (writeOffDate != null && recoveryPaymentDate.isBefore(writeOffDate)) {
+            final String formattedWriteOffDate = writeOffDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+            final String errorMessage = "Payment date cannot be earlier than the loan write-off date (" + formattedWriteOffDate
+                    + "). Please select a payment date on or after the write-off date.";
+            final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+            final ApiParameterError error = ApiParameterError.parameterError(
+                    "error.msg.loan.recovery.payment.date.cannot.be.before.writeoff.date", errorMessage, "transactionDate",
+                    recoveryPaymentDate, writeOffDate);
+            dataValidationErrors.add(error);
+            throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                    dataValidationErrors);
+        }
     }
 
     private void validateRepaymentTypeAccountStatus(LoanTransaction repaymentTransaction, LoanEvent event) {
@@ -5047,6 +5073,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                         action = "repayment.or.waiver";
                         postfix = "cannot.be.made.before.client.transfer.date";
                     break;
+                    case LOAN_RECOVERY_PAYMENT:
+                        errorMessage = "The date on which a recovery payment is made cannot be earlier than client's transfer date to this office";
+                        action = "recovery.payment";
+                        postfix = "cannot.be.made.before.client.transfer.date";
+                    break;
                     case LOAN_REJECTED:
                         errorMessage = "The date on which a loan is rejected cannot be earlier than client's transfer date to this office";
                         action = "reject";
@@ -5103,6 +5134,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 case LOAN_REPAYMENT_OR_WAIVER:
                     errorMessage = "The date on which a repayment or waiver is made cannot be earlier than last transaction date";
                     action = "repayment.or.waiver";
+                    postfix = "cannot.be.made.before.last.transaction.date";
+                break;
+                case LOAN_RECOVERY_PAYMENT:
+                    errorMessage = "The date on which a recovery payment is made cannot be earlier than last transaction date";
+                    action = "recovery.payment";
                     postfix = "cannot.be.made.before.last.transaction.date";
                 break;
                 case WRITE_OFF_OUTSTANDING:
