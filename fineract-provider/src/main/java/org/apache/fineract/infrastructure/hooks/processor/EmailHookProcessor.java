@@ -139,8 +139,6 @@ public class EmailHookProcessor implements HookProcessor {
                 : "Client";
 
 
-        log.info("");
-
         List<String> nameList = new ArrayList<>();
         if (!"N/A".equals(loanCreatorName.get())) {
             nameList.add(loanCreatorName.get());
