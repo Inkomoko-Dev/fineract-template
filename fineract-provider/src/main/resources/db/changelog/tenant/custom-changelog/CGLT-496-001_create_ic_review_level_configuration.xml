@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!-- Create IC Review Level Configuration Table -->
+    <changeSet id="create-m_ic_review_level_config" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_ic_review_level_config"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_ic_review_level_config">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="level_number" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="level_name" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="level_code" type="varchar(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="decision_state_value" type="int">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="is_active" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="display_order" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="createdby_id" type="bigint">
+                <constraints nullable="true" foreignKeyName="FK_m_ic_review_level_config-created_by" references="m_appuser(id)"/>
+            </column>
+            <column name="created_date" type="timestamp" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="lastmodifiedby_id" type="bigint">
+                <constraints nullable="true" foreignKeyName="FK_m_ic_review_level_config-lastmodifiedby_id" references="m_appuser(id)"/>
+            </column>
+            <column name="lastmodified_date" type="timestamp" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Insert default IC Review Levels (maintaining backward compatibility) -->
+    <changeSet id="insert-default-ic-review-levels" author="Felix Mutua">
+        <insert tableName="m_ic_review_level_config">
+            <column name="level_number" valueNumeric="1"/>
+            <column name="level_name" value="IC Review Level One"/>
+            <column name="level_code" value="IC_REVIEW_LEVEL_ONE"/>
+            <column name="decision_state_value" valueNumeric="1400"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="display_order" valueNumeric="1"/>
+        </insert>
+        <insert tableName="m_ic_review_level_config">
+            <column name="level_number" valueNumeric="2"/>
+            <column name="level_name" value="IC Review Level Two"/>
+            <column name="level_code" value="IC_REVIEW_LEVEL_TWO"/>
+            <column name="decision_state_value" valueNumeric="1500"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="display_order" valueNumeric="2"/>
+        </insert>
+        <insert tableName="m_ic_review_level_config">
+            <column name="level_number" valueNumeric="3"/>
+            <column name="level_name" value="IC Review Level Three"/>
+            <column name="level_code" value="IC_REVIEW_LEVEL_THREE"/>
+            <column name="decision_state_value" valueNumeric="1600"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="display_order" valueNumeric="3"/>
+        </insert>
+        <insert tableName="m_ic_review_level_config">
+            <column name="level_number" valueNumeric="4"/>
+            <column name="level_name" value="IC Review Level Four"/>
+            <column name="level_code" value="IC_REVIEW_LEVEL_FOUR"/>
+            <column name="decision_state_value" valueNumeric="1700"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="display_order" valueNumeric="4"/>
+        </insert>
+        <insert tableName="m_ic_review_level_config">
+            <column name="level_number" valueNumeric="5"/>
+            <column name="level_name" value="IC Review Level Five"/>
+            <column name="level_code" value="IC_REVIEW_LEVEL_FIVE"/>
+            <column name="decision_state_value" valueNumeric="1800"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="display_order" valueNumeric="5"/>
+        </insert>
+    </changeSet>
+
+    <!-- Add permissions for IC Review Level Configuration -->
+    <changeSet author="Felix Mutua" id="add_permission_CREATE_ICREVIEWLEVELCONFIG">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                select count(1) from m_permission where code = 'CREATE_ICREVIEWLEVELCONFIG';
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="CREATE_ICREVIEWLEVELCONFIG"/>
+            <column name="entity_name" value="ICREVIEWLEVELCONFIG"/>
+            <column name="action_name" value="CREATE"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="Felix Mutua" id="add_permission_READ_ICREVIEWLEVELCONFIG">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                select count(1) from m_permission where code = 'READ_ICREVIEWLEVELCONFIG';
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="READ_ICREVIEWLEVELCONFIG"/>
+            <column name="entity_name" value="ICREVIEWLEVELCONFIG"/>
+            <column name="action_name" value="READ"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="Felix Mutua" id="add_permission_UPDATE_ICREVIEWLEVELCONFIG">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                select count(1) from m_permission where code = 'UPDATE_ICREVIEWLEVELCONFIG';
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="UPDATE_ICREVIEWLEVELCONFIG"/>
+            <column name="entity_name" value="ICREVIEWLEVELCONFIG"/>
+            <column name="action_name" value="UPDATE"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="Felix Mutua" id="add_permission_DELETE_ICREVIEWLEVELCONFIG">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                select count(1) from m_permission where code = 'DELETE_ICREVIEWLEVELCONFIG';
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="DELETE_ICREVIEWLEVELCONFIG"/>
+            <column name="entity_name" value="ICREVIEWLEVELCONFIG"/>
+            <column name="action_name" value="DELETE"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
