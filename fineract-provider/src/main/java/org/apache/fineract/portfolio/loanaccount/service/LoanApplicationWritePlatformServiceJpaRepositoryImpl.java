@@ -2258,7 +2258,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 case 2 -> rejectLoanAccountForIcReviewLevelTwo(command, currentUser, loan, changes);
                 case 3 -> rejectLoanAccountForIcReviewLevelThree(command, currentUser, loan, changes);
                 case 4 -> rejectLoanAccountForIcReviewLevelFour(command, currentUser, loan, changes);
-                case 5 -> rejectLoanAccountForIcReviewLevelFive(command, currentUser, loan);
+                case 5 -> rejectLoanAccountForIcReviewLevelFive(command, currentUser, loan, changes);
                 default -> throw new IllegalStateException("Unexpected level: " + currentLevelNumber);
             };
         }

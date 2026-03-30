@@ -304,6 +304,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                                      IcReviewLevelConfig levelConfig, Integer levelNumber, Map<String, Object> changes) {
         String levelPrefix = "level" + getLevelName(levelNumber);
 
+        // Debug logging to trace parameter matching
+        log.info("Processing level {} update. levelPrefix='{}', Looking for parameter: '{}'",
+                levelNumber, levelPrefix, levelPrefix + "UnsecuredFirstCycleMaxAmount");
+
         // Check if any field for this level is being updated
         boolean hasLevelUpdate = false;
         BigDecimal unsecuredFirstCycleMaxAmount = null;
@@ -335,6 +339,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         if (command.parameterExists(unsecuredFirstMaxParam)) {
             unsecuredFirstCycleMaxAmount = command.bigDecimalValueOfParameterNamed(unsecuredFirstMaxParam);
+            log.info("Found parameter '{}' with value: {}", unsecuredFirstMaxParam, unsecuredFirstCycleMaxAmount);
             hasLevelUpdate = true;
         }
         if (command.parameterExists(unsecuredFirstMinTermParam)) {
@@ -434,12 +439,16 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             }
 
             loanApprovalMatrixLevelRepository.saveAndFlush(matrixLevel);
+            log.info("Saved matrix level {} for approval matrix {}. ID: {}", levelNumber, approvalMatrix.getId(), matrixLevel.getId());
             changes.put("dynamicLevel" + levelNumber, "updated");
+        } else {
+            log.info("No updates found for level {} in command parameters", levelNumber);
         }
     }
 
     /**
      * Converts level number to level name (e.g., 1 -> "One", 2 -> "Two", etc.)
+     * Supports levels 1-20 with spelled-out names to match the API parameter convention.
      */
     private String getLevelName(Integer levelNumber) {
         switch (levelNumber) {
@@ -453,6 +462,16 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             case 8: return "Eight";
             case 9: return "Nine";
             case 10: return "Ten";
+            case 11: return "Eleven";
+            case 12: return "Twelve";
+            case 13: return "Thirteen";
+            case 14: return "Fourteen";
+            case 15: return "Fifteen";
+            case 16: return "Sixteen";
+            case 17: return "Seventeen";
+            case 18: return "Eighteen";
+            case 19: return "Nineteen";
+            case 20: return "Twenty";
             default: return levelNumber.toString();
         }
     }

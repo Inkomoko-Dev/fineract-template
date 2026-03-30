@@ -1124,9 +1124,9 @@ public final class LoanDecisionTransitionApiJsonValidator {
      * Add dynamic parameters for a specific level (supports levels 6+)
      */
     private void addDynamicLevelParameters(Set<String> parameters, Integer levelNumber) {
-        // For levels beyond 5, we use a generic naming pattern
+        // For levels beyond 5, we use a naming pattern that matches the convention of levels 1-5
         if (levelNumber > 5) {
-            String levelPrefix = "level" + levelNumber;
+            String levelPrefix = getLevelPrefix(levelNumber);
 
             parameters.add(levelPrefix + "UnsecuredFirstCycleMaxAmount");
             parameters.add(levelPrefix + "UnsecuredFirstCycleMinTerm");
@@ -1278,6 +1278,7 @@ public final class LoanDecisionTransitionApiJsonValidator {
 
     /**
      * Get the parameter prefix for a level number
+     * Uses spelled-out names to match the existing convention (levelOne, levelTwo, etc.)
      */
     private String getLevelPrefix(Integer levelNumber) {
         switch (levelNumber) {
@@ -1286,6 +1287,21 @@ public final class LoanDecisionTransitionApiJsonValidator {
             case 3: return "levelThree";
             case 4: return "levelFour";
             case 5: return "levelFive";
+            case 6: return "levelSix";
+            case 7: return "levelSeven";
+            case 8: return "levelEight";
+            case 9: return "levelNine";
+            case 10: return "levelTen";
+            case 11: return "levelEleven";
+            case 12: return "levelTwelve";
+            case 13: return "levelThirteen";
+            case 14: return "levelFourteen";
+            case 15: return "levelFifteen";
+            case 16: return "levelSixteen";
+            case 17: return "levelSeventeen";
+            case 18: return "levelEighteen";
+            case 19: return "levelNineteen";
+            case 20: return "levelTwenty";
             default: return "level" + levelNumber;
         }
     }
