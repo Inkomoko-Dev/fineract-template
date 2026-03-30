@@ -1747,32 +1747,29 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
      * Set approver in dynamic LoanDecisionLevel entity (for all levels including 6+)
      */
     private void setDynamicApprover(LoanDecision decision, Integer levelNumber, AppUser approver) {
-        // Find existing LoanDecisionLevel or create new one
-        LoanDecisionLevel level = decision.getDecisionLevels().stream()
-                .filter(l -> l.getLevelNumber().equals(levelNumber))
-                .findFirst()
-                .orElseGet(() -> {
-                    // Create new level if it doesn't exist
-                    IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
-                    if (levelConfig == null) {
-                        log.warn("IC Review Level {} not found in configuration", levelNumber);
-                        return null;
-                    }
+        // Query database first instead of relying on lazy-loaded in-memory collection
+        LoanDecisionLevel level = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(decision.getId(), levelNumber);
 
-                    LoanDecisionLevel newLevel = new LoanDecisionLevel();
-                    newLevel.setLoanDecision(decision);
-                    newLevel.setIcReviewLevel(levelConfig);
-                    newLevel.setLevelNumber(levelNumber);
-                    newLevel.setIsSigned(Boolean.FALSE);
-                    newLevel.setIsRejected(Boolean.FALSE);
-                    decision.getDecisionLevels().add(newLevel);
-                    return newLevel;
-                });
+        if (level == null) {
+            // Create new level if it doesn't exist
+            IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
+            if (levelConfig == null) {
+                log.warn("IC Review Level {} not found in configuration", levelNumber);
+                return;
+            }
 
-        if (level != null) {
-            level.setDecisionBy(approver);
-            log.debug("Set approver for IC Review Level {}: {}", levelNumber, approver.getUsername());
+            level = new LoanDecisionLevel();
+            level.setLoanDecision(decision);
+            level.setIcReviewLevel(levelConfig);
+            level.setLevelNumber(levelNumber);
+            level.setIsSigned(Boolean.FALSE);
+            level.setIsRejected(Boolean.FALSE);
         }
+
+        level.setDecisionBy(approver);
+        loanDecisionLevelRepository.save(level);
+        log.debug("Set approver for IC Review Level {}: {}", levelNumber, approver.getUsername());
     }
 
     /**
@@ -1845,11 +1842,17 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             }
         }
 
-        // Save decision data in the dynamic table
-        LoanDecisionLevel decisionLevel = new LoanDecisionLevel();
-        decisionLevel.setLoanDecision(loanDecision);
-        decisionLevel.setIcReviewLevel(levelConfig);
-        decisionLevel.setLevelNumber(levelNumber);
+        // Save decision data in the dynamic table - check for existing record first
+        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(loanDecision.getId(), levelNumber);
+
+        if (decisionLevel == null) {
+            decisionLevel = new LoanDecisionLevel();
+            decisionLevel.setLoanDecision(loanDecision);
+            decisionLevel.setIcReviewLevel(levelConfig);
+            decisionLevel.setLevelNumber(levelNumber);
+        }
+
         decisionLevel.setNote(command.stringValueOfParameterNamed("note"));
         decisionLevel.setIsSigned(true);
         decisionLevel.setIsRejected(false);
@@ -1937,11 +1940,17 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setLoanDecisionState(previousState);
         loanDecision.setNextLoanIcReviewDecisionState(levelConfig.getDecisionStateValue());
 
-        // Save rejection in dynamic table
-        LoanDecisionLevel decisionLevel = new LoanDecisionLevel();
-        decisionLevel.setLoanDecision(loanDecision);
-        decisionLevel.setIcReviewLevel(levelConfig);
-        decisionLevel.setLevelNumber(levelNumber);
+        // Save rejection in dynamic table - check for existing record first
+        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(loanDecision.getId(), levelNumber);
+
+        if (decisionLevel == null) {
+            decisionLevel = new LoanDecisionLevel();
+            decisionLevel.setLoanDecision(loanDecision);
+            decisionLevel.setIcReviewLevel(levelConfig);
+            decisionLevel.setLevelNumber(levelNumber);
+        }
+
         decisionLevel.setNote(command.stringValueOfParameterNamed("note"));
         decisionLevel.setIsSigned(false);
         decisionLevel.setIsRejected(true);
