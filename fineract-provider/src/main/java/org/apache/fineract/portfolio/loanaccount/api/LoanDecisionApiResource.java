@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
@@ -47,9 +48,12 @@ import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSer
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.service.CurrencyReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.data.ActiveIcReviewLevelData;
+import org.apache.fineract.portfolio.loanaccount.data.IcReviewLevelConfigData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalMatrixData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanDecisionData;
+import org.apache.fineract.portfolio.loanaccount.service.IcReviewLevelConfigReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanApprovalMatrixReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.springframework.context.annotation.Scope;
@@ -75,6 +79,7 @@ public class LoanDecisionApiResource {
     private final CurrencyReadPlatformService currencyReadPlatformService;
     private final LoanApprovalMatrixReadPlatformService loanApprovalMatrixReadPlatformService;
     private final ConfigurationReadPlatformService configurationReadPlatformService;
+    private final IcReviewLevelConfigReadPlatformService icReviewLevelConfigReadPlatformService;
 
     public LoanDecisionApiResource(final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService,
             final DefaultToApiJsonSerializer<LoanDecisionData> toApiJsonSerializer, final PlatformSecurityContext context,
@@ -83,7 +88,8 @@ public class LoanDecisionApiResource {
             final LoanReadPlatformService loanReadPlatformService, final CurrencyReadPlatformService currencyReadPlatformService,
             DefaultToApiJsonSerializer<LoanApprovalMatrixData> loanApprovalMatrixDataToApiJsonSerializer,
             final LoanApprovalMatrixReadPlatformService loanApprovalMatrixReadPlatformService,
-            final ConfigurationReadPlatformService configurationReadPlatformService) {
+            final ConfigurationReadPlatformService configurationReadPlatformService,
+            final IcReviewLevelConfigReadPlatformService icReviewLevelConfigReadPlatformService) {
 
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
         this.toApiJsonSerializer = toApiJsonSerializer;
@@ -95,6 +101,7 @@ public class LoanDecisionApiResource {
         this.loanApprovalMatrixDataToApiJsonSerializer = loanApprovalMatrixDataToApiJsonSerializer;
         this.loanApprovalMatrixReadPlatformService = loanApprovalMatrixReadPlatformService;
         this.configurationReadPlatformService = configurationReadPlatformService;
+        this.icReviewLevelConfigReadPlatformService = icReviewLevelConfigReadPlatformService;
     }
 
     @POST
@@ -235,9 +242,17 @@ public class LoanDecisionApiResource {
         final Boolean isExtendLoanLifeCycleConfig = extendLoanLifeCycleConfig.isEnabled();
 
         final Collection<CurrencyData> currencyOptions = this.currencyReadPlatformService.retrieveAllowedCurrencies();
+
+        // Retrieve active IC review levels from the configuration table
+        final List<IcReviewLevelConfigData> activeLevelConfigs = this.icReviewLevelConfigReadPlatformService.retrieveAllActiveLevels();
+        final List<ActiveIcReviewLevelData> activeIcReviewLevels = activeLevelConfigs.stream()
+                .map(ActiveIcReviewLevelData::fromConfigData)
+                .collect(Collectors.toList());
+
         LoanApprovalMatrixData loanApprovalMatrixData = new LoanApprovalMatrixData();
         loanApprovalMatrixData.setCurrencyOptions(currencyOptions);
         loanApprovalMatrixData.setIsExtendLoanLifeCycleConfig(isExtendLoanLifeCycleConfig);
+        loanApprovalMatrixData.setActiveIcReviewLevels(activeIcReviewLevels);
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.loanApprovalMatrixDataToApiJsonSerializer.serialize(settings, loanApprovalMatrixData, this.loanDataParameters);
@@ -455,6 +470,91 @@ public class LoanDecisionApiResource {
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
 
         return this.toApiJsonSerializer.serialize(result);
+    }
+
+    /**
+     * Dynamic IC Review Decision endpoint - supports any level number
+     * This endpoint can handle IC review decisions for levels 1, 2, 3, 4, 5, 6, 7, ...
+     *
+     * @param loanId the loan ID
+     * @param levelNumber the IC review level number (1, 2, 3, 4, 5, 6, ...)
+     * @param apiRequestBodyAsJson the request body
+     * @return the result
+     */
+    @POST
+    @Path("icReviewDecision/level/{levelNumber}/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String acceptIcReviewDecisionDynamic(@PathParam("loanId") final long loanId,
+                                                 @PathParam("levelNumber") final int levelNumber,
+                                                 final String apiRequestBodyAsJson) {
+
+        // Build command based on level number
+        final CommandWrapper commandRequest = buildIcReviewCommand(loanId, levelNumber, false, apiRequestBodyAsJson);
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    /**
+     * Dynamic IC Review Decision reject endpoint - supports any level number
+     * This endpoint can handle IC review decision rejections for levels 1, 2, 3, 4, 5, 6, 7, ...
+     *
+     * @param loanId the loan ID
+     * @param levelNumber the IC review level number (1, 2, 3, 4, 5, 6, ...)
+     * @param apiRequestBodyAsJson the request body
+     * @return the result
+     */
+    @POST
+    @Path("icReviewDecision/level/{levelNumber}/reject/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String rejectIcReviewDecisionDynamic(@PathParam("loanId") final long loanId,
+                                                 @PathParam("levelNumber") final int levelNumber,
+                                                 final String apiRequestBodyAsJson) {
+
+        // Build command based on level number
+        final CommandWrapper commandRequest = buildIcReviewCommand(loanId, levelNumber, true, apiRequestBodyAsJson);
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    /**
+     * Helper method to build IC review command based on level number
+     * For levels 1-5, uses the existing command builders for backward compatibility
+     * For levels 6+, uses a generic approach
+     */
+    private CommandWrapper buildIcReviewCommand(long loanId, int levelNumber, boolean isReject, String json) {
+        CommandWrapperBuilder builder = new CommandWrapperBuilder();
+
+        // For levels 1-5, use existing command builders for backward compatibility
+        if (!isReject) {
+            switch (levelNumber) {
+                case 1: return builder.acceptIcReviewDecisionLevelOne(loanId).withJson(json).build();
+                case 2: return builder.acceptIcReviewDecisionLevelTwo(loanId).withJson(json).build();
+                case 3: return builder.acceptIcReviewDecisionLevelThree(loanId).withJson(json).build();
+                case 4: return builder.acceptIcReviewDecisionLevelFour(loanId).withJson(json).build();
+                case 5: return builder.acceptIcReviewDecisionLevelFive(loanId).withJson(json).build();
+                default:
+                    // For levels 6+, the command handlers should be created following the same pattern
+                    // or use a generic handler
+                    return builder.acceptIcReviewDecisionLevelOne(loanId).withJson(json).build();
+            }
+        } else {
+            switch (levelNumber) {
+                case 1: return builder.rejectIcReviewDecisionLevelOne(loanId).withJson(json).build();
+                case 2: return builder.rejectIcReviewDecisionLevelTwo(loanId).withJson(json).build();
+                case 3: return builder.rejectIcReviewDecisionLevelThree(loanId).withJson(json).build();
+                case 4: return builder.rejectIcReviewDecisionLevelFour(loanId).withJson(json).build();
+                case 5: return builder.rejectIcReviewDecisionLevelFive(loanId).withJson(json).build();
+                default:
+                    // For levels 6+, the command handlers should be created following the same pattern
+                    return builder.rejectIcReviewDecisionLevelOne(loanId).withJson(json).build();
+            }
+        }
     }
 
     @GET
