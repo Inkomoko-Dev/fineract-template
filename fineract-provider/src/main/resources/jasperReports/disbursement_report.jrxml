@@ -57,7 +57,7 @@
         SELECT
             DATE(l.submittedon_date) AS request_date,
             c.display_name AS client_name,
-            c.id AS client_uid,
+            c.external_id AS client_uid,
             mcoi.national_identification_number AS national_id,
             mcv.code_value AS client_strata,
             dp.code_value  AS department,
