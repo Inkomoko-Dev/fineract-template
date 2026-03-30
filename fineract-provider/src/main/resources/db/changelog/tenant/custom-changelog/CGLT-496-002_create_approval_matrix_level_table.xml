@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!-- Create Loan Approval Matrix Level Table (Dynamic structure) -->
+    <changeSet id="create-m_loan_approval_matrix_level" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_approval_matrix_level"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_approval_matrix_level">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="approval_matrix_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="FK_approval_matrix_level-matrix_id" references="m_loan_approval_matrix(id)"/>
+            </column>
+            <column name="ic_review_level_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="FK_approval_matrix_level-ic_level_id" references="m_ic_review_level_config(id)"/>
+            </column>
+            <column name="level_number" type="int">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Unsecured First Cycle -->
+            <column name="unsecured_first_cycle_max_amount" type="decimal(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="unsecured_first_cycle_min_term" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="unsecured_first_cycle_max_term" type="int">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Unsecured Second Cycle -->
+            <column name="unsecured_second_cycle_max_amount" type="decimal(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="unsecured_second_cycle_min_term" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="unsecured_second_cycle_max_term" type="int">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Secured First Cycle -->
+            <column name="secured_first_cycle_max_amount" type="decimal(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="secured_first_cycle_min_term" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="secured_first_cycle_max_term" type="int">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Secured Second Cycle -->
+            <column name="secured_second_cycle_max_amount" type="decimal(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="secured_second_cycle_min_term" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="secured_second_cycle_max_term" type="int">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="createdby_id" type="bigint">
+                <constraints nullable="true" foreignKeyName="FK_m_loan_approval_matrix_level-created_by" references="m_appuser(id)"/>
+            </column>
+            <column name="created_date" type="timestamp" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="lastmodifiedby_id" type="bigint">
+                <constraints nullable="true" foreignKeyName="FK_m_loan_approval_matrix_level-lastmodifiedby_id" references="m_appuser(id)"/>
+            </column>
+            <column name="lastmodified_date" type="timestamp" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Add unique constraint to ensure one entry per matrix per level -->
+    <changeSet id="add-unique-constraint-approval-matrix-level" author="Felix Mutua">
+        <addUniqueConstraint tableName="m_loan_approval_matrix_level"
+                             columnNames="approval_matrix_id, ic_review_level_id"
+                             constraintName="UK_approval_matrix_level"/>
+    </changeSet>
+
+    <!-- Migrate existing data from m_loan_approval_matrix to m_loan_approval_matrix_level -->
+    <changeSet id="migrate-existing-approval-matrix-data" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_loan_approval_matrix"/>
+            <tableExists tableName="m_loan_approval_matrix_level"/>
+            <tableExists tableName="m_ic_review_level_config"/>
+        </preConditions>
+        <sql>
+            -- Migrate Level One data
+            INSERT INTO m_loan_approval_matrix_level
+            (approval_matrix_id, ic_review_level_id, level_number,
+             unsecured_first_cycle_max_amount, unsecured_first_cycle_min_term, unsecured_first_cycle_max_term,
+             unsecured_second_cycle_max_amount, unsecured_second_cycle_min_term, unsecured_second_cycle_max_term,
+             secured_first_cycle_max_amount, secured_first_cycle_min_term, secured_first_cycle_max_term,
+             secured_second_cycle_max_amount, secured_second_cycle_min_term, secured_second_cycle_max_term,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                m.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 1),
+                1,
+                m.level_one_unsecured_first_cycle_max_amount, m.level_one_unsecured_first_cycle_min_term, m.level_one_unsecured_first_cycle_max_term,
+                m.level_one_unsecured_second_cycle_max_amount, m.level_one_unsecured_second_cycle_min_term, m.level_one_unsecured_second_cycle_max_term,
+                m.level_one_secured_first_cycle_max_amount, m.level_one_secured_first_cycle_min_term, m.level_one_secured_first_cycle_max_term,
+                m.level_one_secured_second_cycle_max_amount, m.level_one_secured_second_cycle_min_term, m.level_one_secured_second_cycle_max_term,
+                m.createdby_id, m.created_date, m.lastmodifiedby_id, m.lastmodified_date
+            FROM m_loan_approval_matrix m
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 1);
+
+            -- Migrate Level Two data
+            INSERT INTO m_loan_approval_matrix_level
+            (approval_matrix_id, ic_review_level_id, level_number,
+             unsecured_first_cycle_max_amount, unsecured_first_cycle_min_term, unsecured_first_cycle_max_term,
+             unsecured_second_cycle_max_amount, unsecured_second_cycle_min_term, unsecured_second_cycle_max_term,
+             secured_first_cycle_max_amount, secured_first_cycle_min_term, secured_first_cycle_max_term,
+             secured_second_cycle_max_amount, secured_second_cycle_min_term, secured_second_cycle_max_term,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                m.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 2),
+                2,
+                m.level_two_unsecured_first_cycle_max_amount, m.level_two_unsecured_first_cycle_min_term, m.level_two_unsecured_first_cycle_max_term,
+                m.level_two_unsecured_second_cycle_max_amount, m.level_two_unsecured_second_cycle_min_term, m.level_two_unsecured_second_cycle_max_term,
+                m.level_two_secured_first_cycle_max_amount, m.level_two_secured_first_cycle_min_term, m.level_two_secured_first_cycle_max_term,
+                m.level_two_secured_second_cycle_max_amount, m.level_two_secured_second_cycle_min_term, m.level_two_secured_second_cycle_max_term,
+                m.createdby_id, m.created_date, m.lastmodifiedby_id, m.lastmodified_date
+            FROM m_loan_approval_matrix m
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 2);
+
+            -- Migrate Level Three data
+            INSERT INTO m_loan_approval_matrix_level
+            (approval_matrix_id, ic_review_level_id, level_number,
+             unsecured_first_cycle_max_amount, unsecured_first_cycle_min_term, unsecured_first_cycle_max_term,
+             unsecured_second_cycle_max_amount, unsecured_second_cycle_min_term, unsecured_second_cycle_max_term,
+             secured_first_cycle_max_amount, secured_first_cycle_min_term, secured_first_cycle_max_term,
+             secured_second_cycle_max_amount, secured_second_cycle_min_term, secured_second_cycle_max_term,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                m.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 3),
+                3,
+                m.level_three_unsecured_first_cycle_max_amount, m.level_three_unsecured_first_cycle_min_term, m.level_three_unsecured_first_cycle_max_term,
+                m.level_three_unsecured_second_cycle_max_amount, m.level_three_unsecured_second_cycle_min_term, m.level_three_unsecured_second_cycle_max_term,
+                m.level_three_secured_first_cycle_max_amount, m.level_three_secured_first_cycle_min_term, m.level_three_secured_first_cycle_max_term,
+                m.level_three_secured_second_cycle_max_amount, m.level_three_secured_second_cycle_min_term, m.level_three_secured_second_cycle_max_term,
+                m.createdby_id, m.created_date, m.lastmodifiedby_id, m.lastmodified_date
+            FROM m_loan_approval_matrix m
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 3);
+
+            -- Migrate Level Four data
+            INSERT INTO m_loan_approval_matrix_level
+            (approval_matrix_id, ic_review_level_id, level_number,
+             unsecured_first_cycle_max_amount, unsecured_first_cycle_min_term, unsecured_first_cycle_max_term,
+             unsecured_second_cycle_max_amount, unsecured_second_cycle_min_term, unsecured_second_cycle_max_term,
+             secured_first_cycle_max_amount, secured_first_cycle_min_term, secured_first_cycle_max_term,
+             secured_second_cycle_max_amount, secured_second_cycle_min_term, secured_second_cycle_max_term,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                m.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 4),
+                4,
+                m.level_four_unsecured_first_cycle_max_amount, m.level_four_unsecured_first_cycle_min_term, m.level_four_unsecured_first_cycle_max_term,
+                m.level_four_unsecured_second_cycle_max_amount, m.level_four_unsecured_second_cycle_min_term, m.level_four_unsecured_second_cycle_max_term,
+                m.level_four_secured_first_cycle_max_amount, m.level_four_secured_first_cycle_min_term, m.level_four_secured_first_cycle_max_term,
+                m.level_four_secured_second_cycle_max_amount, m.level_four_secured_second_cycle_min_term, m.level_four_secured_second_cycle_max_term,
+                m.createdby_id, m.created_date, m.lastmodifiedby_id, m.lastmodified_date
+            FROM m_loan_approval_matrix m
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 4);
+
+            -- Migrate Level Five data
+            INSERT INTO m_loan_approval_matrix_level
+            (approval_matrix_id, ic_review_level_id, level_number,
+             unsecured_first_cycle_max_amount, unsecured_first_cycle_min_term, unsecured_first_cycle_max_term,
+             unsecured_second_cycle_max_amount, unsecured_second_cycle_min_term, unsecured_second_cycle_max_term,
+             secured_first_cycle_max_amount, secured_first_cycle_min_term, secured_first_cycle_max_term,
+             secured_second_cycle_max_amount, secured_second_cycle_min_term, secured_second_cycle_max_term,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                m.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 5),
+                5,
+                m.level_five_unsecured_first_cycle_max_amount, m.level_five_unsecured_first_cycle_min_term, m.level_five_unsecured_first_cycle_max_term,
+                m.level_five_unsecured_second_cycle_max_amount, m.level_five_unsecured_second_cycle_min_term, m.level_five_unsecured_second_cycle_max_term,
+                m.level_five_secured_first_cycle_max_amount, m.level_five_secured_first_cycle_min_term, m.level_five_secured_first_cycle_max_term,
+                m.level_five_secured_second_cycle_max_amount, m.level_five_secured_second_cycle_min_term, m.level_five_secured_second_cycle_max_term,
+                m.createdby_id, m.created_date, m.lastmodifiedby_id, m.lastmodified_date
+            FROM m_loan_approval_matrix m
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 5);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
