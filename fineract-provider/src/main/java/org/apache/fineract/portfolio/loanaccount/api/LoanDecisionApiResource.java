@@ -525,7 +525,7 @@ public class LoanDecisionApiResource {
     /**
      * Helper method to build IC review command based on level number
      * For levels 1-5, uses the existing command builders for backward compatibility
-     * For levels 6+, uses a generic approach
+     * For levels 6+, uses the dynamic command builder
      */
     private CommandWrapper buildIcReviewCommand(long loanId, int levelNumber, boolean isReject, String json) {
         CommandWrapperBuilder builder = new CommandWrapperBuilder();
@@ -539,9 +539,8 @@ public class LoanDecisionApiResource {
                 case 4: return builder.acceptIcReviewDecisionLevelFour(loanId).withJson(json).build();
                 case 5: return builder.acceptIcReviewDecisionLevelFive(loanId).withJson(json).build();
                 default:
-                    // For levels 6+, the command handlers should be created following the same pattern
-                    // or use a generic handler
-                    return builder.acceptIcReviewDecisionLevelOne(loanId).withJson(json).build();
+                    // For levels 6+, use the dynamic command builder
+                    return builder.acceptIcReviewDecisionDynamic(loanId, levelNumber).withJson(json).build();
             }
         } else {
             switch (levelNumber) {
@@ -551,8 +550,8 @@ public class LoanDecisionApiResource {
                 case 4: return builder.rejectIcReviewDecisionLevelFour(loanId).withJson(json).build();
                 case 5: return builder.rejectIcReviewDecisionLevelFive(loanId).withJson(json).build();
                 default:
-                    // For levels 6+, the command handlers should be created following the same pattern
-                    return builder.rejectIcReviewDecisionLevelOne(loanId).withJson(json).build();
+                    // For levels 6+, use the dynamic command builder
+                    return builder.rejectIcReviewDecisionDynamic(loanId, levelNumber).withJson(json).build();
             }
         }
     }

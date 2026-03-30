@@ -1967,8 +1967,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     }
 
     @NotNull
-    private Map<String, Object> rejectLoanAccountForIcReviewLevelFive(JsonCommand command, AppUser currentUser, Loan loan) {
-        Map<String, Object> changes;
+    private Map<String, Object> rejectLoanAccountForIcReviewLevelFive(JsonCommand command, AppUser currentUser, Loan loan,
+            Map<String, Object> changes) {
         final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
         LocalDate rejectedOnDate = command.localDateValueOfParameterNamed("rejectedOnDate");
 
@@ -1992,6 +1992,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
         loanDecisionStateUtilService.validateLoanAccountToComplyToApprovalMatrixStage(loan, approvalMatrix, isLoanFirstCycle,
                 isLoanUnsecure, LoanDecisionState.IC_REVIEW_LEVEL_FIVE, dueDiligenceRecommendedAmount);
+        // Determine the next stage based on loan approval matrix - this will check if Level 6+ exists
+        loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
+                LoanDecisionState.IC_REVIEW_LEVEL_FIVE, dueDiligenceRecommendedAmount);
 
         LoanDecision loanDecisionObj = loanDecisionAssembler.assembleIcReviewDecisionLevelFiveFrom(command, currentUser, loanDecision,
                 Boolean.TRUE, rejectedOnDate, null, null, null);
@@ -2008,9 +2011,13 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             this.noteRepository.saveAndFlush(note);
         }
 
-//        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
-        // By Default Completely Reject this Loan Account since this is a last stage of IC Review
-        changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        // If the next state is outside the IC Review (PREPARE_AND_SIGN_CONTRACT), then reject the loan account completely
+        // Otherwise, if Level 6+ exists, just notify the business event
+        if (loanDecisionObj.getNextLoanIcReviewDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+            changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        } else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loanObj, loanDecisionObj, note));
+        }
         return changes;
     }
 
@@ -2247,7 +2254,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 case 2 -> rejectLoanAccountForIcReviewLevelTwo(command, currentUser, loan, changes);
                 case 3 -> rejectLoanAccountForIcReviewLevelThree(command, currentUser, loan, changes);
                 case 4 -> rejectLoanAccountForIcReviewLevelFour(command, currentUser, loan, changes);
-                case 5 -> rejectLoanAccountForIcReviewLevelFive(command, currentUser, loan);
+                case 5 -> rejectLoanAccountForIcReviewLevelFive(command, currentUser, loan, changes);
                 default -> throw new IllegalStateException("Unexpected level: " + currentLevelNumber);
             };
         }

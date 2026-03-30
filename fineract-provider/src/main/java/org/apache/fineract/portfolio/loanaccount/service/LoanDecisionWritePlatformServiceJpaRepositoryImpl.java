@@ -302,6 +302,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                                      IcReviewLevelConfig levelConfig, Integer levelNumber, Map<String, Object> changes) {
         String levelPrefix = "level" + getLevelName(levelNumber);
 
+        // Debug logging to trace parameter matching
+        log.info("Processing level {} update. levelPrefix='{}', Looking for parameter: '{}'",
+                levelNumber, levelPrefix, levelPrefix + "UnsecuredFirstCycleMaxAmount");
+
         // Check if any field for this level is being updated
         boolean hasLevelUpdate = false;
         BigDecimal unsecuredFirstCycleMaxAmount = null;
@@ -333,6 +337,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         if (command.parameterExists(unsecuredFirstMaxParam)) {
             unsecuredFirstCycleMaxAmount = command.bigDecimalValueOfParameterNamed(unsecuredFirstMaxParam);
+            log.info("Found parameter '{}' with value: {}", unsecuredFirstMaxParam, unsecuredFirstCycleMaxAmount);
             hasLevelUpdate = true;
         }
         if (command.parameterExists(unsecuredFirstMinTermParam)) {
@@ -432,12 +437,16 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             }
 
             loanApprovalMatrixLevelRepository.saveAndFlush(matrixLevel);
+            log.info("Saved matrix level {} for approval matrix {}. ID: {}", levelNumber, approvalMatrix.getId(), matrixLevel.getId());
             changes.put("dynamicLevel" + levelNumber, "updated");
+        } else {
+            log.info("No updates found for level {} in command parameters", levelNumber);
         }
     }
 
     /**
      * Converts level number to level name (e.g., 1 -> "One", 2 -> "Two", etc.)
+     * Supports levels 1-20 with spelled-out names to match the API parameter convention.
      */
     private String getLevelName(Integer levelNumber) {
         switch (levelNumber) {
@@ -451,6 +460,16 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             case 8: return "Eight";
             case 9: return "Nine";
             case 10: return "Ten";
+            case 11: return "Eleven";
+            case 12: return "Twelve";
+            case 13: return "Thirteen";
+            case 14: return "Fourteen";
+            case 15: return "Fifteen";
+            case 16: return "Sixteen";
+            case 17: return "Seventeen";
+            case 18: return "Eighteen";
+            case 19: return "Nineteen";
+            case 20: return "Twenty";
             default: return levelNumber.toString();
         }
     }
@@ -1385,17 +1404,25 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecisionStateUtilService.validateLoanAccountToComplyToApprovalMatrixStage(loan, approvalMatrix, isLoanFirstCycle,
                 isLoanUnsecure, LoanDecisionState.IC_REVIEW_LEVEL_FIVE, dueDiligenceRecommendedAmount);
 
-        final Map<String, Object> changes = loan.loanApplicationICReview(currentUser, command);
-        if (!changes.isEmpty()) {
-            LocalDate recalculateFrom = null;
-            ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
-            loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
+        // Determine the next decision stage BEFORE assembling (this will check if Level 6+ exists)
+        loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
+                LoanDecisionState.IC_REVIEW_LEVEL_FIVE, dueDiligenceRecommendedAmount);
+
+        final Integer nextDecisionStage = loanDecision.getNextLoanIcReviewDecisionState();
+        if (nextDecisionStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+            final Map<String, Object> changes = loan.loanApplicationICReview(currentUser, command);
+            if (!changes.isEmpty()) {
+                LocalDate recalculateFrom = null;
+                ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
+                loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
+            }
         }
 
         LoanDecision loanDecisionObj = loanDecisionAssembler.assembleIcReviewDecisionLevelFiveFrom(command, currentUser, loanDecision,
                 Boolean.FALSE, icReviewOn, recommendedAmount, termFrequency, termPeriodFrequencyEnum);
 
-        Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
+        // Use the next stage determined dynamically (may be Level 6+ or PREPARE_AND_SIGN_CONTRACT)
+        Integer nextStage = nextDecisionStage;
         final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 

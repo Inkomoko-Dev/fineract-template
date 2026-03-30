@@ -38,6 +38,9 @@ public enum LoanDecisionState {
     private final String code;
 
     public static LoanDecisionState fromInt(final Integer statusValue) {
+        if (statusValue == null) {
+            return LoanDecisionState.INVALID;
+        }
 
         LoanDecisionState enumeration = LoanDecisionState.INVALID;
         switch (statusValue) {
@@ -67,6 +70,14 @@ public enum LoanDecisionState {
                 break;
             case 1900:
                 enumeration = LoanDecisionState.PREPARE_AND_SIGN_CONTRACT;
+                break;
+            default:
+                // Handle dynamic IC review levels (6+): values 1801-1899
+                // Return IC_REVIEW_LEVEL_FIVE so that dynamic level handling code is triggered
+                // The actual level number is determined from the integer value, not the enum
+                if (statusValue > 1800 && statusValue < 1900) {
+                    enumeration = LoanDecisionState.IC_REVIEW_LEVEL_FIVE;
+                }
                 break;
         }
         return enumeration;

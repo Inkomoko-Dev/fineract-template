@@ -54,8 +54,17 @@ public class LoanApprovalMatrixReadPlatformServiceImpl implements LoanApprovalMa
         List<LoanApprovalMatrix> loanApprovalMatrices = loanApprovalMatrixRepository.findAll();
         List<LoanApprovalMatrixData> result = mapper.map(loanApprovalMatrices);
 
-        // Enrich with dynamic levels for each matrix
-        for (LoanApprovalMatrixData matrixData : result) {
+        // Enrich with dynamic levels and currency data for each matrix
+        for (int i = 0; i < result.size(); i++) {
+            LoanApprovalMatrixData matrixData = result.get(i);
+            LoanApprovalMatrix matrix = loanApprovalMatrices.get(i);
+
+            // Set currency data
+            if (matrix.getCurrency() != null) {
+                CurrencyData currencyData = currencyReadPlatformService.retrieveCurrency(matrix.getCurrency());
+                matrixData.setCurrencyData(currencyData);
+            }
+
             enrichWithDynamicLevels(matrixData);
         }
 
