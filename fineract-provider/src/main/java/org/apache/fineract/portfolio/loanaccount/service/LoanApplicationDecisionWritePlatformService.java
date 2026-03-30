@@ -64,4 +64,11 @@ public interface LoanApplicationDecisionWritePlatformService {
     CommandProcessingResult acceptPrepareAndSignContract(Long loanId, JsonCommand command);
 
     CommandProcessingResult rejectPrepareAndSignContract(Long loanId, JsonCommand command);
+
+    /**
+     * Dynamic IC Review Decision methods - supports unlimited levels
+     */
+    CommandProcessingResult acceptIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber);
+
+    CommandProcessingResult rejectIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber);
 }
