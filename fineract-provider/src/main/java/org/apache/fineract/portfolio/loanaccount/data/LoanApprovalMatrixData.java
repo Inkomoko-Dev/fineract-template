@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.data;
 
 import java.math.BigDecimal;
 import java.util.Collection;
+import java.util.List;
 import lombok.Data;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 
@@ -100,4 +101,17 @@ public final class LoanApprovalMatrixData {
     Collection<CurrencyData> currencyOptions;
     private CurrencyData currencyData;
     private Boolean isExtendLoanLifeCycleConfig;
+
+    /**
+     * Dynamic IC Review Levels - list of approval matrix levels from m_loan_approval_matrix_level table.
+     * This supports unlimited IC review levels beyond the hardcoded 5 levels above.
+     * The hardcoded fields above are kept for backward compatibility.
+     */
+    private List<LoanApprovalMatrixLevelData> dynamicLevels;
+
+    /**
+     * Active IC Review Levels - list of active IC review level configurations from m_ic_review_level_config table.
+     * This provides the frontend with the list of available IC review levels for configuration.
+     */
+    private List<ActiveIcReviewLevelData> activeIcReviewLevels;
 }

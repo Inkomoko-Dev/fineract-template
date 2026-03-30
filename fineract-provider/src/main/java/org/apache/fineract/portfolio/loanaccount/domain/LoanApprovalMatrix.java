@@ -19,10 +19,15 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.OneToMany;
 import javax.persistence.Table;
 import lombok.Data;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
@@ -160,6 +165,14 @@ public class LoanApprovalMatrix extends AbstractAuditableCustom {
     private Integer levelFiveSecuredSecondCycleMinTerm;
     @Column(name = "level_five_secured_second_cycle_max_term")
     private Integer levelFiveSecuredSecondCycleMaxTerm;
+
+    /**
+     * Dynamic IC Review Levels - relationship to the new m_loan_approval_matrix_level table.
+     * This allows for unlimited IC review levels beyond the hardcoded 5 levels above.
+     * The hardcoded fields above are kept for backward compatibility.
+     */
+    @OneToMany(mappedBy = "approvalMatrix", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<LoanApprovalMatrixLevel> approvalMatrixLevels = new ArrayList<>();
 
     public LoanApprovalMatrix() {}
 
