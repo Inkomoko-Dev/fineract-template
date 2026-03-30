@@ -519,7 +519,14 @@ public class LoanDecisionAssembler {
             loanDecision.setLoanDecisionState(levelConfig.getDecisionStateValue());
         } else {
             // Fallback to calculating state value
-            loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue() + ((levelNumber - 1) * 100));
+            // Validate levelNumber to prevent arithmetic underflow (must be >= 1)
+            if (levelNumber != null && levelNumber >= 1) {
+                loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue() + ((levelNumber - 1) * 100));
+            } else {
+                // Default to level one if invalid
+                log.warn("Invalid level number: {}. Defaulting to IC_REVIEW_LEVEL_ONE.", levelNumber);
+                loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+            }
         }
 
         // For backward compatibility, update legacy fields for levels 1-5

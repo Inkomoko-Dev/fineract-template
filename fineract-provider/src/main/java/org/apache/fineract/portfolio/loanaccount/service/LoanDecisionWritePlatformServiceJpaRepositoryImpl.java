@@ -2040,6 +2040,11 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
      * Get the date of the previous stage for validation
      */
     private LocalDate getPreviousStageDate(LoanDecision loanDecision, Integer levelNumber) {
+        // Validate levelNumber to prevent arithmetic underflow
+        if (levelNumber == null || levelNumber < 1) {
+            return null;
+        }
+
         if (levelNumber == 1) {
             return loanDecision.getDueDiligenceOn();
         } else if (levelNumber == 2) {
@@ -2050,12 +2055,15 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             return loanDecision.getIcReviewDecisionLevelThreeOn();
         } else if (levelNumber == 5) {
             return loanDecision.getIcReviewDecisionLevelFourOn();
-        } else {
+        } else if (levelNumber > 5) {
             // For levels > 5, check the dynamic table
+            // Safe: levelNumber is validated to be > 5, so levelNumber - 1 >= 5
+            int previousLevelNumber = levelNumber - 1;
             LoanDecisionLevel level = loanDecisionLevelRepository.findByLoanIdAndLevelNumber(
-                    loanDecision.getLoan().getId(), levelNumber - 1);
+                    loanDecision.getLoan().getId(), previousLevelNumber);
             return level != null ? level.getDecisionOn() : null;
         }
+        return null;
     }
 
     /**
