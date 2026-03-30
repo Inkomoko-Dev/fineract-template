@@ -113,7 +113,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
     private final LoanApprovalMatrixLevelRepository loanApprovalMatrixLevelRepository;
-    private final PermissionRepository permissionRepository;
 
     @Override
     public CommandProcessingResult createLoanApprovalMatrix(JsonCommand command) {
@@ -221,78 +220,19 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         // Get all active IC review levels from database
         List<IcReviewLevelConfig> activeLevels = icReviewLevelConfigRepository.findAllActiveOrderByDisplayOrder();
 
-        // Check if numberOfLevels is provided in the command
-        Integer numberOfLevels = command.integerValueOfParameterNamed(LoanApprovalMatrixConstants.numberOfLevelsParameterName);
-
-        // Ensure all existing IC levels have permissions (for levels created before this fix)
-        ensurePermissionsForExistingLevels(activeLevels);
-
         // Track which levels we've processed from the database
         java.util.Set<Integer> processedLevels = new java.util.HashSet<>();
 
         // Process existing active levels from database
         for (IcReviewLevelConfig levelConfig : activeLevels) {
             Integer levelNumber = levelConfig.getLevelNumber();
-
-            // If numberOfLevels is provided and this level exceeds it, handle deletion logic
-            if (numberOfLevels != null && levelNumber > numberOfLevels) {
-                log.info("Evaluating removal of IC Review Level {} because it exceeds numberOfLevels ({})", levelNumber, numberOfLevels);
-
-                // Check if any loans have records at this level (Global check)
-                List<LoanDecisionLevel> decisionLevels = loanDecisionLevelRepository.findByIcReviewLevelId(levelConfig.getId());
-                if (!decisionLevels.isEmpty()) {
-                    throw new GeneralPlatformDomainRuleException("error.msg.ic.review.level.has.loans",
-                            String.format("IC Review Level %d cannot be deleted because it has existing loan decision records.", levelNumber));
-                }
-
-                // Find all matrix levels using this IC level across all currencies
-                List<LoanApprovalMatrixLevel> allMatrixLevels = loanApprovalMatrixLevelRepository.findByIcReviewLevelId(levelConfig.getId());
-                
-                // Check if any other matrix is using this IC level
-                boolean isUsedByOtherCurrencies = allMatrixLevels.stream()
-                        .anyMatch(aml -> !aml.getApprovalMatrix().getId().equals(approvalMatrix.getId()));
-
-                // Find the specific matrix level for the CURRENT matrix
-                LoanApprovalMatrixLevel currentMatrixLevel = loanApprovalMatrixLevelRepository
-                        .findByApprovalMatrixIdAndIcReviewLevelId(approvalMatrix.getId(), levelConfig.getId());
-
-                if (currentMatrixLevel != null) {
-                    // Remove from the current matrix's collection
-                    approvalMatrix.getApprovalMatrixLevels().removeIf(aml -> aml.getId().equals(currentMatrixLevel.getId()));
-                    
-                    // Delete the matrix level entry for this currency
-                    loanApprovalMatrixLevelRepository.delete(currentMatrixLevel);
-                    log.debug("Deleted matrix level entry for IC level {} for current currency", levelNumber);
-                    
-                    changes.put("level" + getLevelName(levelNumber) + "RemovedFromMatrix", true);
-                }
-
-                // If this was the ONLY currency using this IC level, we can delete the global config and permissions
-                if (!isUsedByOtherCurrencies) {
-                    log.info("IC Review Level {} is not used by any other currency. Deleting global configuration.", levelNumber);
-                    
-                    // Delete the IC level config itself
-                    icReviewLevelConfigRepository.delete(levelConfig);
-
-                    // Delete associated permissions
-                    deletePermissionsForIcLevel(levelConfig.getLevelCode());
-                    
-                    changes.put("level" + getLevelName(levelNumber) + "GlobalConfigDeleted", true);
-                } else {
-                    log.info("IC Review Level {} is still used by other currencies. Keeping global configuration.", levelNumber);
-                }
-
-                continue; // Skip processing this level for updates as it's being removed from this matrix
-            }
-
             processedLevels.add(levelNumber);
             processLevelUpdate(command, approvalMatrix, levelConfig, levelNumber, changes);
         }
 
         // Also check for dynamic levels (6 through MAX_DYNAMIC_LEVEL) that might not be in the database
         // This allows accepting level parameters without requiring pre-configuration
-        int maxLevelToProcess = numberOfLevels != null ? numberOfLevels : LoanApprovalMatrixConstants.MAX_DYNAMIC_LEVEL;
-        for (int levelNumber = 6; levelNumber <= maxLevelToProcess; levelNumber++) {
+        for (int levelNumber = 6; levelNumber <= LoanApprovalMatrixConstants.MAX_DYNAMIC_LEVEL; levelNumber++) {
             if (!processedLevels.contains(levelNumber)) {
                 String levelPrefix = "level" + getLevelName(levelNumber);
                 // Check if any parameter for this level exists in the command
@@ -300,50 +240,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                     // Auto-create the IC review level config for this level
                     IcReviewLevelConfig newLevelConfig = createDynamicLevelConfig(levelNumber);
                     processLevelUpdate(command, approvalMatrix, newLevelConfig, levelNumber, changes);
-                }
-            }
-        }
-    }
-
-    /**
-     * Ensures that all existing IC Review Levels have their corresponding permissions.
-     * This is useful for:
-     * - IC levels created before the automatic permission creation fix
-     * - Manual database operations
-     * - Data migration scenarios
-     *
-     * @param icLevels List of existing IC review level configurations
-     */
-    private void ensurePermissionsForExistingLevels(List<IcReviewLevelConfig> icLevels) {
-        for (IcReviewLevelConfig level : icLevels) {
-            // Extract level name from level code (e.g., "IC_REVIEW_LEVEL_SIX" -> "SIX")
-            String levelCode = level.getLevelCode();
-            if (levelCode != null && levelCode.startsWith("IC_REVIEW_LEVEL_")) {
-                String levelNameWord = levelCode.substring("IC_REVIEW_LEVEL_".length());
-
-                // Check if permissions exist, create them if missing
-                String entityName = "LOANICREVIEWDECISIONLEVEL" + levelNameWord;
-
-                String acceptCode = "ACCEPT_" + entityName;
-                String rejectCode = "REJECT_" + entityName;
-                String readCode = "READ_" + entityName;
-
-                boolean anyMissing = false;
-
-                if (permissionRepository.findOneByCode(acceptCode) == null) {
-                    anyMissing = true;
-                }
-                if (permissionRepository.findOneByCode(rejectCode) == null) {
-                    anyMissing = true;
-                }
-                if (permissionRepository.findOneByCode(readCode) == null) {
-                    anyMissing = true;
-                }
-
-                if (anyMissing) {
-                    log.info("Creating missing permissions for existing IC Review Level {} ({})",
-                            level.getLevelNumber(), levelNameWord);
-                    createPermissionsForIcLevel(levelNameWord);
                 }
             }
         }
@@ -370,7 +266,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     /**
      * Auto-create an IC Review Level Configuration for a dynamic level.
      * This allows accepting level parameters without requiring pre-configuration in the database.
-     * Also creates the corresponding permissions (ACCEPT, REJECT, READ) for the new level.
      */
     private IcReviewLevelConfig createDynamicLevelConfig(int levelNumber) {
         // Check if level already exists (another thread might have created it)
@@ -389,127 +284,17 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             decisionStateValue = 1800 + (levelNumber - 5); // 1801, 1802, 1803, etc.
         }
 
-        // Get the level name in words (SIX, SEVEN, etc.)
-        String levelNameWord = convertNumberToWord(levelNumber);
-
-        // Create new level config with proper level code
+        // Create new level config
         IcReviewLevelConfig newConfig = new IcReviewLevelConfig(
                 levelNumber,
                 "IC Review Level " + levelNumber,
-                "IC_REVIEW_LEVEL_" + levelNameWord,
+                "IC_REVIEW_LEVEL_" + levelNumber,
                 decisionStateValue,
                 true,
                 levelNumber // displayOrder same as level number
         );
 
-        IcReviewLevelConfig savedConfig = icReviewLevelConfigRepository.saveAndFlush(newConfig);
-
-        // Create permissions for the new dynamic IC level
-        createPermissionsForIcLevel(levelNameWord);
-
-        log.info("Created dynamic IC Review Level {} with permissions", levelNumber);
-
-        return savedConfig;
-    }
-
-    /**
-     * Creates ACCEPT, REJECT, and READ permissions for a dynamic IC Review Level.
-     * Uses INSERT IGNORE logic - only creates if permission doesn't already exist.
-     *
-     * @param levelNameWord The level name in words (e.g., "SIX", "SEVEN")
-     */
-    private void createPermissionsForIcLevel(String levelNameWord) {
-        String entityName = "LOANICREVIEWDECISIONLEVEL" + levelNameWord;
-
-        // Create ACCEPT permission if it doesn't exist
-        String acceptCode = "ACCEPT_" + entityName;
-        if (permissionRepository.findOneByCode(acceptCode) == null) {
-            Permission acceptPermission = new Permission("portfolio", entityName, "ACCEPT");
-            permissionRepository.save(acceptPermission);
-            log.debug("Created permission: {}", acceptCode);
-        }
-
-        // Create REJECT permission if it doesn't exist
-        String rejectCode = "REJECT_" + entityName;
-        if (permissionRepository.findOneByCode(rejectCode) == null) {
-            Permission rejectPermission = new Permission("portfolio", entityName, "REJECT");
-            permissionRepository.save(rejectPermission);
-            log.debug("Created permission: {}", rejectCode);
-        }
-
-        // Create READ permission if it doesn't exist
-        String readCode = "READ_" + entityName;
-        if (permissionRepository.findOneByCode(readCode) == null) {
-            Permission readPermission = new Permission("portfolio", entityName, "READ");
-            permissionRepository.save(readPermission);
-            log.debug("Created permission: {}", readCode);
-        }
-    }
-
-    /**
-     * Deletes ACCEPT, REJECT, and READ permissions for a dynamic IC Review Level.
-     *
-     * @param levelCode The level code (e.g., "IC_REVIEW_LEVEL_SIX")
-     */
-    private void deletePermissionsForIcLevel(String levelCode) {
-        if (levelCode != null && levelCode.startsWith("IC_REVIEW_LEVEL_")) {
-            String levelNameWord = levelCode.substring("IC_REVIEW_LEVEL_".length());
-            String entityName = "LOANICREVIEWDECISIONLEVEL" + levelNameWord;
-
-            String acceptCode = "ACCEPT_" + entityName;
-            String rejectCode = "REJECT_" + entityName;
-            String readCode = "READ_" + entityName;
-
-            Permission acceptPermission = permissionRepository.findOneByCode(acceptCode);
-            if (acceptPermission != null) {
-                permissionRepository.delete(acceptPermission);
-                log.debug("Deleted permission: {}", acceptCode);
-            }
-
-            Permission rejectPermission = permissionRepository.findOneByCode(rejectCode);
-            if (rejectPermission != null) {
-                permissionRepository.delete(rejectPermission);
-                log.debug("Deleted permission: {}", rejectCode);
-            }
-
-            Permission readPermission = permissionRepository.findOneByCode(readCode);
-            if (readPermission != null) {
-                permissionRepository.delete(readPermission);
-                log.debug("Deleted permission: {}", readCode);
-            }
-        }
-    }
-
-    /**
-     * Converts a number (1-99) to its word representation in uppercase.
-     * Examples: 1 -> "ONE", 6 -> "SIX", 11 -> "ELEVEN", 21 -> "TWENTYONE"
-     *
-     * @param number The number to convert (1-99)
-     * @return The word representation in uppercase
-     */
-    private String convertNumberToWord(int number) {
-        if (number < 1 || number > 99) {
-            return String.valueOf(number);
-        }
-
-        String[] ones = {
-            "", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE",
-            "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN",
-            "SEVENTEEN", "EIGHTEEN", "NINETEEN"
-        };
-
-        String[] tens = {
-            "", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"
-        };
-
-        if (number < 20) {
-            return ones[number];
-        }
-
-        int tensPart = number / 10;
-        int onesPart = number % 10;
-
-        return tens[tensPart] + ones[onesPart];
+        return icReviewLevelConfigRepository.saveAndFlush(newConfig);
     }
 
     /**
@@ -518,10 +303,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private void processLevelUpdate(JsonCommand command, LoanApprovalMatrix approvalMatrix,
                                      IcReviewLevelConfig levelConfig, Integer levelNumber, Map<String, Object> changes) {
         String levelPrefix = "level" + getLevelName(levelNumber);
-
-        // Debug logging to trace parameter matching
-        log.info("Processing level {} update. levelPrefix='{}', Looking for parameter: '{}'",
-                levelNumber, levelPrefix, levelPrefix + "UnsecuredFirstCycleMaxAmount");
 
         // Check if any field for this level is being updated
         boolean hasLevelUpdate = false;
@@ -554,7 +335,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         if (command.parameterExists(unsecuredFirstMaxParam)) {
             unsecuredFirstCycleMaxAmount = command.bigDecimalValueOfParameterNamed(unsecuredFirstMaxParam);
-            log.info("Found parameter '{}' with value: {}", unsecuredFirstMaxParam, unsecuredFirstCycleMaxAmount);
             hasLevelUpdate = true;
         }
         if (command.parameterExists(unsecuredFirstMinTermParam)) {
@@ -654,16 +434,12 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             }
 
             loanApprovalMatrixLevelRepository.saveAndFlush(matrixLevel);
-            log.info("Saved matrix level {} for approval matrix {}. ID: {}", levelNumber, approvalMatrix.getId(), matrixLevel.getId());
             changes.put("dynamicLevel" + levelNumber, "updated");
-        } else {
-            log.info("No updates found for level {} in command parameters", levelNumber);
         }
     }
 
     /**
      * Converts level number to level name (e.g., 1 -> "One", 2 -> "Two", etc.)
-     * Supports levels 1-20 with spelled-out names to match the API parameter convention.
      */
     private String getLevelName(Integer levelNumber) {
         switch (levelNumber) {
@@ -677,16 +453,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             case 8: return "Eight";
             case 9: return "Nine";
             case 10: return "Ten";
-            case 11: return "Eleven";
-            case 12: return "Twelve";
-            case 13: return "Thirteen";
-            case 14: return "Fourteen";
-            case 15: return "Fifteen";
-            case 16: return "Sixteen";
-            case 17: return "Seventeen";
-            case 18: return "Eighteen";
-            case 19: return "Nineteen";
-            case 20: return "Twenty";
             default: return levelNumber.toString();
         }
     }
@@ -1965,29 +1731,32 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
      * Set approver in dynamic LoanDecisionLevel entity (for all levels including 6+)
      */
     private void setDynamicApprover(LoanDecision decision, Integer levelNumber, AppUser approver) {
-        // Query database first instead of relying on lazy-loaded in-memory collection
-        LoanDecisionLevel level = loanDecisionLevelRepository
-                .findByLoanDecisionIdAndLevelNumber(decision.getId(), levelNumber);
+        // Find existing LoanDecisionLevel or create new one
+        LoanDecisionLevel level = decision.getDecisionLevels().stream()
+                .filter(l -> l.getLevelNumber().equals(levelNumber))
+                .findFirst()
+                .orElseGet(() -> {
+                    // Create new level if it doesn't exist
+                    IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
+                    if (levelConfig == null) {
+                        log.warn("IC Review Level {} not found in configuration", levelNumber);
+                        return null;
+                    }
 
-        if (level == null) {
-            // Create new level if it doesn't exist
-            IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
-            if (levelConfig == null) {
-                log.warn("IC Review Level {} not found in configuration", levelNumber);
-                return;
-            }
+                    LoanDecisionLevel newLevel = new LoanDecisionLevel();
+                    newLevel.setLoanDecision(decision);
+                    newLevel.setIcReviewLevel(levelConfig);
+                    newLevel.setLevelNumber(levelNumber);
+                    newLevel.setIsSigned(Boolean.FALSE);
+                    newLevel.setIsRejected(Boolean.FALSE);
+                    decision.getDecisionLevels().add(newLevel);
+                    return newLevel;
+                });
 
-            level = new LoanDecisionLevel();
-            level.setLoanDecision(decision);
-            level.setIcReviewLevel(levelConfig);
-            level.setLevelNumber(levelNumber);
-            level.setIsSigned(Boolean.FALSE);
-            level.setIsRejected(Boolean.FALSE);
+        if (level != null) {
+            level.setDecisionBy(approver);
+            log.debug("Set approver for IC Review Level {}: {}", levelNumber, approver.getUsername());
         }
-
-        level.setDecisionBy(approver);
-        loanDecisionLevelRepository.save(level);
-        log.debug("Set approver for IC Review Level {}: {}", levelNumber, approver.getUsername());
     }
 
     /**
@@ -1997,7 +1766,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     @Override
     public CommandProcessingResult acceptIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber) {
         final AppUser currentUser = getAppUserIfPresent();
-        validateDynamicIcReviewPermission(levelNumber, false);
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
 
@@ -2043,17 +1811,13 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final BigDecimal dueDiligenceRecommendedAmount = loanDecision.getDueDiligenceRecommendedAmount();
 
         // Validate against approval matrix for this level
-        // Note: For dynamic levels (6+), fromInt() returns IC_REVIEW_LEVEL_FIVE but validation still works
-        // because validateLoanAccountToComplyToApprovalMatrixStage uses getIcReviewLevelNumber() internally
         LoanDecisionState currentLevelState = LoanDecisionState.fromInt(levelConfig.getDecisionStateValue());
         loanDecisionStateUtilService.validateLoanAccountToComplyToApprovalMatrixStage(loan, approvalMatrix, isLoanFirstCycle,
                 isLoanUnsecure, currentLevelState, dueDiligenceRecommendedAmount);
 
         // Determine the next decision stage
-        // IMPORTANT: Use the overloaded method with levelNumber directly to avoid lossy conversion
-        // through LoanDecisionState.fromInt() which maps 1801-1899 back to IC_REVIEW_LEVEL_FIVE (1800)
         loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
-                levelNumber, dueDiligenceRecommendedAmount);
+                currentLevelState, dueDiligenceRecommendedAmount);
 
         final Integer nextDecisionStage = loanDecision.getNextLoanIcReviewDecisionState();
         if (nextDecisionStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
@@ -2065,17 +1829,11 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             }
         }
 
-        // Save decision data in the dynamic table - check for existing record first
-        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository
-                .findByLoanDecisionIdAndLevelNumber(loanDecision.getId(), levelNumber);
-
-        if (decisionLevel == null) {
-            decisionLevel = new LoanDecisionLevel();
-            decisionLevel.setLoanDecision(loanDecision);
-            decisionLevel.setIcReviewLevel(levelConfig);
-            decisionLevel.setLevelNumber(levelNumber);
-        }
-
+        // Save decision data in the dynamic table
+        LoanDecisionLevel decisionLevel = new LoanDecisionLevel();
+        decisionLevel.setLoanDecision(loanDecision);
+        decisionLevel.setIcReviewLevel(levelConfig);
+        decisionLevel.setLevelNumber(levelNumber);
         decisionLevel.setNote(command.stringValueOfParameterNamed("note"));
         decisionLevel.setIsSigned(true);
         decisionLevel.setIsRejected(false);
@@ -2096,9 +1854,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         Integer nextStage = loanDecision.getNextLoanIcReviewDecisionState();
         final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
         setNextApproverDynamic(loanDecision, nextStage, nextApprover);
-
-        // Update loanDecision state to keep in sync with loan state
-        loanDecision.setLoanDecisionState(levelConfig.getDecisionStateValue());
 
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecision);
 
@@ -2136,7 +1891,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     @Override
     public CommandProcessingResult rejectIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber) {
         final AppUser currentUser = getAppUserIfPresent();
-        validateDynamicIcReviewPermission(levelNumber, true);
 
         // Get the IC review level configuration
         IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
@@ -2149,32 +1903,14 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
 
-        // For reject operation, the loan should be at the PREVIOUS completed state.
-        // Example: rejecting Level 6 expects current state Level 5 (1800), not Level 6 (1801).
-        Integer expectedCurrentState = dynamicIcReviewLevelHelper.getPreviousIcReviewDecisionState(levelConfig.getDecisionStateValue());
-        if (expectedCurrentState == null) {
-            expectedCurrentState = LoanDecisionState.DUE_DILIGENCE.getValue();
-        }
-
-        Integer currentLoanState = loan.getLoanDecisionState();
-        Integer levelState = levelConfig.getDecisionStateValue();
-        boolean isAtPreviousCompletedLevel = currentLoanState.equals(expectedCurrentState);
-        boolean isAtCurrentCompletedLevel = currentLoanState.equals(levelState);
-
-        // Support both cases:
-        // 1) Reject pending level N (loan is at N-1 completed state)
-        // 2) Return after approving level N (loan is at N completed state)
-        if (!isAtPreviousCompletedLevel && !isAtCurrentCompletedLevel) {
-            String expectedStateDisplayName = dynamicIcReviewLevelHelper.getLevelDisplayName(expectedCurrentState);
-            String currentLevelDisplayName = dynamicIcReviewLevelHelper.getLevelDisplayName(levelState);
+        if (!loan.getLoanDecisionState().equals(levelConfig.getDecisionStateValue())) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
-                    String.format(
-                            "Loan Decision state is invalid for reject operation. Expected either %s (state %d) or %s (state %d) but found %d.",
-                            expectedStateDisplayName, expectedCurrentState, currentLevelDisplayName, levelState, currentLoanState));
+                    String.format("Loan Decision state is invalid for reject operation. Expected IC_REVIEW_LEVEL_%s.",
+                            levelConfig.getLevelName()));
         }
 
-        // Determine target stage after rejection/return
-        Integer previousState = expectedCurrentState;
+        // Determine previous stage
+        Integer previousState = dynamicIcReviewLevelHelper.getPreviousIcReviewDecisionState(levelConfig.getDecisionStateValue());
         if (previousState == null) {
             // If no previous IC review level, revert to DUE_DILIGENCE
             previousState = LoanDecisionState.DUE_DILIGENCE.getValue();
@@ -2185,17 +1921,11 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecision.setLoanDecisionState(previousState);
         loanDecision.setNextLoanIcReviewDecisionState(levelConfig.getDecisionStateValue());
 
-        // Save rejection in dynamic table - check for existing record first
-        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository
-                .findByLoanDecisionIdAndLevelNumber(loanDecision.getId(), levelNumber);
-
-        if (decisionLevel == null) {
-            decisionLevel = new LoanDecisionLevel();
-            decisionLevel.setLoanDecision(loanDecision);
-            decisionLevel.setIcReviewLevel(levelConfig);
-            decisionLevel.setLevelNumber(levelNumber);
-        }
-
+        // Save rejection in dynamic table
+        LoanDecisionLevel decisionLevel = new LoanDecisionLevel();
+        decisionLevel.setLoanDecision(loanDecision);
+        decisionLevel.setIcReviewLevel(levelConfig);
+        decisionLevel.setLevelNumber(levelNumber);
         decisionLevel.setNote(command.stringValueOfParameterNamed("note"));
         decisionLevel.setIsSigned(false);
         decisionLevel.setIsRejected(true);
@@ -2232,25 +1962,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 .withLoanId(loanId)
                 .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
-    }
-
-    /**
-     * Enforce level-specific permissions for dynamic IC review operations.
-     * This keeps security behavior aligned with the hardcoded level endpoints.
-     */
-    private void validateDynamicIcReviewPermission(Integer levelNumber, boolean isRejectOperation) {
-        String permissionCode = isRejectOperation
-                ? dynamicIcReviewLevelHelper.getRejectPermissionForLevel(levelNumber)
-                : dynamicIcReviewLevelHelper.getAcceptPermissionForLevel(levelNumber);
-
-        if (StringUtils.isBlank(permissionCode)) {
-            throw new GeneralPlatformDomainRuleException("error.msg.ic.review.permission.not.found",
-                    String.format("Permission for IC Review Level %d could not be determined", levelNumber));
-        }
-
-        String operation = isRejectOperation ? "REJECT" : "ACCEPT";
-        this.context.authenticatedUser().validateHasPermissionTo(permissionCode);
-        log.debug("Validated {} permission {} for IC Review Level {}", operation, permissionCode, levelNumber);
     }
 
     /**
@@ -2313,11 +2024,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
      * Get the date of the previous stage for validation
      */
     private LocalDate getPreviousStageDate(LoanDecision loanDecision, Integer levelNumber) {
-        // Validate levelNumber to prevent arithmetic underflow
-        if (levelNumber == null || levelNumber < 1) {
-            return null;
-        }
-
         if (levelNumber == 1) {
             return loanDecision.getDueDiligenceOn();
         } else if (levelNumber == 2) {
@@ -2328,15 +2034,12 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             return loanDecision.getIcReviewDecisionLevelThreeOn();
         } else if (levelNumber == 5) {
             return loanDecision.getIcReviewDecisionLevelFourOn();
-        } else if (levelNumber > 5) {
+        } else {
             // For levels > 5, check the dynamic table
-            // Safe: levelNumber is validated to be > 5, so levelNumber - 1 >= 5
-            int previousLevelNumber = levelNumber - 1;
             LoanDecisionLevel level = loanDecisionLevelRepository.findByLoanIdAndLevelNumber(
-                    loanDecision.getLoan().getId(), previousLevelNumber);
+                    loanDecision.getLoan().getId(), levelNumber - 1);
             return level != null ? level.getDecisionOn() : null;
         }
-        return null;
     }
 
     /**

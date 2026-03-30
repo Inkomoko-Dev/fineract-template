@@ -25,9 +25,7 @@ import javax.persistence.FetchType;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.Table;
-
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
 
@@ -35,8 +33,7 @@ import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
  * Entity representing approval matrix configuration for a specific IC review level
  * This replaces the hardcoded level fields in LoanApprovalMatrix
  */
-@Getter
-@Setter
+@Data
 @NoArgsConstructor
 @Entity
 @Table(name = "m_loan_approval_matrix_level")

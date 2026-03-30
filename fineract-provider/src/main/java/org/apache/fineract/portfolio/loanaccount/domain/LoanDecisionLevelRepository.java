@@ -47,7 +47,4 @@ public interface LoanDecisionLevelRepository extends JpaRepository<LoanDecisionL
 
     @Query("DELETE FROM LoanDecisionLevel ldl WHERE ldl.loanDecision.id = :loanDecisionId")
     void deleteByLoanDecisionId(@Param("loanDecisionId") Long loanDecisionId);
-
-    @Query("SELECT ldl FROM LoanDecisionLevel ldl WHERE ldl.icReviewLevel.id = :icReviewLevelId")
-    List<LoanDecisionLevel> findByIcReviewLevelId(@Param("icReviewLevelId") Long icReviewLevelId);
 }
