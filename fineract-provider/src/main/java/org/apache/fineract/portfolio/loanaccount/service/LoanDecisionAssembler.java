@@ -439,7 +439,8 @@ public class LoanDecisionAssembler {
         LoanDecision loanDecision = savedLoanDecision;
 
         loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue());
-        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        // NOTE: NextLoanIcReviewDecisionState should already be set by determineTheNextDecisionStage()
+        // Don't hardcode it here - it may be Level 6+ if configured, or PREPARE_AND_SIGN_CONTRACT if Level 5 is the last
         loanDecision.setIcReviewDecisionLevelFiveNote(noteText);
         loanDecision.setIcReviewDecisionLevelFiveBy(currentUser);
         loanDecision.setIcReviewDecisionLevelFiveOn(icReviewOn);
