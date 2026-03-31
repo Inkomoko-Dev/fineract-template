@@ -136,4 +136,6 @@ public interface LoanWritePlatformService {
 
     @Transactional
     CommandProcessingResult rejectDisbursement(Long loanId, JsonCommand command);
+
+    CommandProcessingResult adjustLoanInsuranceCharge(Long loanId, Long loanChargeId, JsonCommand command);
 }

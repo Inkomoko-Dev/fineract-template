@@ -170,6 +170,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidByRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
@@ -292,6 +293,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
     private final DisbursementRequestService disbursementRequestService;
     private final LoanApplicationCommandFromApiJsonHelper fromApiJsonDeserializer;
+    private final LoanChargePaidByRepository loanChargePaidByRepository;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -3719,6 +3721,159 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .with(changes) //
                 .build();
 
+    }
+
+    @Override
+    @Transactional
+    public CommandProcessingResult adjustLoanInsuranceCharge(final Long loanId, final Long loanChargeId,
+                                                             final JsonCommand command) {
+
+        // 1. Load loan
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        checkClientOrGroupActive(loan);
+
+        // 2. Load and validate the charge — must be a disbursement charge (insurance)
+        final LoanCharge loanCharge = retrieveLoanChargeBy(loanId, loanChargeId);
+        if (!loanCharge.isDisbursementCharge()) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.charge.adjust.insurance.not.disbursement.charge",
+                    "Only disbursement charges (insurance) can be adjusted using this command.",
+                    loanChargeId);
+        }
+
+        // 3. Find the active REPAYMENT_AT_DISBURSEMENT transaction linked to this charge
+        LoanTransaction originalTransaction = null;
+        for (final LoanTransaction lt : loan.getLoanTransactions()) {
+            if (lt.isReversed()) {
+                continue;
+            }
+            if (!LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.equals(lt.getTypeOf())) {
+                continue;
+            }
+            for (final LoanChargePaidBy paidBy : lt.getLoanChargesPaid()) {
+                if (paidBy.getLoanCharge().getId().equals(loanChargeId)) {
+                    originalTransaction = lt;
+                    break;
+                }
+            }
+            if (originalTransaction != null) {
+                break;
+            }
+        }
+
+        if (originalTransaction == null) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.charge.adjust.insurance.no.active.transaction",
+                    "No active repayment-at-disbursement transaction found linked to this charge.",
+                    loanChargeId);
+        }
+
+        // 4. Parse incoming values
+        final BigDecimal newAmount = command.bigDecimalValueOfParameterNamed("amount");
+        final LocalDate newTransactionDate = command.localDateValueOfParameterNamed("transactionDate");
+        final String notes = command.stringValueOfParameterNamed("notes");
+
+        final BigDecimal oldAmount = originalTransaction.getAmount(loan.getCurrency()).getAmount();
+
+        // 5. Build changes map
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("previousAmount", oldAmount);
+        changes.put("previousTransactionDate", originalTransaction.getTransactionDate());
+
+        if (newAmount.compareTo(oldAmount) != 0) {
+            changes.put("amount", newAmount);
+        }
+        if (!newTransactionDate.isEqual(originalTransaction.getTransactionDate())) {
+            changes.put("transactionDate", newTransactionDate);
+        }
+        if (StringUtils.isNotBlank(notes)) {
+            changes.put("notes", notes);
+        }
+
+        // Nothing substantive changed return early with no DB writes
+        if (changes.size() <= 2) {
+            return new CommandProcessingResultBuilder()
+                    .withCommandId(command.commandId())
+                    .withEntityId(loanChargeId)
+                    .withLoanId(loanId)
+                    .with(changes)
+                    .build();
+        }
+
+        // 6. Track existing transaction IDs
+        final List<Long> existingTransactionIds = new ArrayList<>(loan.findExistingTransactionIds());
+        final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
+
+        // 7. Reverse the original transaction
+        originalTransaction.reverse();
+        originalTransaction.setManuallyAdjustedOrReversed();
+        this.loanTransactionRepository.saveAndFlush(originalTransaction);
+
+        // 8. Create the corrected REPAYMENT_AT_DISBURSEMENT transaction
+        final Money correctedMoney = Money.of(loan.getCurrency(), newAmount);
+        final LoanTransaction adjustedTransaction = LoanTransaction.repaymentAtDisbursement(
+                loan.getOffice(),
+                correctedMoney,
+                originalTransaction.getPaymentDetail(),
+                newTransactionDate,
+                null);
+        adjustedTransaction.updateLoan(loan);
+
+        adjustedTransaction.updateChargesComponents(
+                correctedMoney,
+                Money.zero(loan.getCurrency()));
+
+        // 9. Re-link the corrected transaction to the charge via LoanChargePaidBy
+        final LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(
+                adjustedTransaction, loanCharge, newAmount, null);
+        adjustedTransaction.getLoanChargesPaid().add(newChargePaidBy);
+
+        this.loanTransactionRepository.saveAndFlush(adjustedTransaction);
+        loan.getLoanTransactions().add(adjustedTransaction);
+
+        // 10. Update LoanCharge paid/outstanding state to reflect the new amount
+        //     Step A: reset paid state so amounts are clean
+        loanCharge.resetPaidAmount(loan.getCurrency());
+
+        //     Step B: if the amount itself changed, update it
+        if (newAmount.compareTo(oldAmount) != 0) {
+            loanCharge.updateAmount(newAmount);
+            loanCharge.resetOutstandingAmount(newAmount);
+        }
+
+        //     Step C: mark as fully paid again with the corrected amount
+        loanCharge.markAsFullyPaid();
+        this.loanChargeRepository.saveAndFlush(loanCharge);
+
+        // 11. Persist note against the new transaction if provided
+        if (StringUtils.isNotBlank(notes)) {
+            final Note note = Note.loanTransactionNote(loan, adjustedTransaction, notes);
+            this.noteRepository.save(note);
+        }
+
+        // 12. Recalculate loan summary derived fields
+        loan.updateLoanSummaryDerivedFields();
+        saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+
+        // 13. Post GL journal entries
+        postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+
+        // 14.  clean up old LoanChargePaidBy links on the reversed transaction
+        originalTransaction.getLoanChargesPaid().clear();
+        this.loanTransactionRepository.saveAndFlush(originalTransaction);
+
+        changes.put("reversedTransactionId", originalTransaction.getId());
+        changes.put("adjustedTransactionId", adjustedTransaction.getId());
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanChargeId)
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .with(changes)
+                .build();
     }
 
     private void validateIsMultiDisbursalLoanAndDisbursedMoreThanOneTranche(Loan loan) {
