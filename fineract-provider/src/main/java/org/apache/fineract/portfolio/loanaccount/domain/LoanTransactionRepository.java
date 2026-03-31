@@ -31,4 +31,13 @@ public interface LoanTransactionRepository extends JpaRepository<LoanTransaction
 
     @Query("select tx from LoanTransaction tx where tx.loan.id = :loanId AND tx.typeOf = 8 ORDER BY tx.id DESC")
     List<LoanTransaction> findWriteOffLoanTransaction(@Param("loanId") Long loanId);
+
+    @Query("""
+            select case when count(tx) > 0 then true else false end
+            from LoanTransaction tx
+            where tx.originalTxnId = :originalTransactionId
+                and tx.reversalTransaction = false
+                and tx.reversed = false
+            """)
+    boolean existsActiveCorrectedRecoveryTransaction(@Param("originalTransactionId") Long originalTransactionId);
 }

@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.api;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * Created by Chirag Gupta on 12/30/17.
@@ -76,6 +77,18 @@ final class LoanTransactionsApiResourceSwagger {
         public LocalDate date;
         @Schema(example = "[2009, 8, 1]", description = "For recoverypayment, the loan write-off date. Clients should not allow transaction dates earlier than this value.")
         public LocalDate writeOffOnDate;
+        @Schema(example = "42", description = "Present when retrieving the corrected recovery repost template for a reversed original recovery payment.")
+        public Long originalTransactionId;
+        @Schema(example = "true")
+        public Boolean correctionAllowed;
+        @Schema(example = "true")
+        public Boolean correctionDateRequired;
+        @Schema(example = "[2009, 8, 1]")
+        public LocalDate latestClosedAccountingDate;
+        @Schema(example = "[2009, 8, 2]")
+        public LocalDate earliestCorrectionDate;
+        @Schema(example = "[2009, 8, 31]")
+        public LocalDate latestCorrectionDate;
         public GetLoansTotal total;
     }
 
@@ -137,6 +150,10 @@ final class LoanTransactionsApiResourceSwagger {
         public LocalDate date;
         @Schema(example = "[2012, 5, 14]")
         public LocalDate submittedOnDate;
+        @Schema(example = "2026-03-31T09:15:00")
+        public LocalDateTime createdDate;
+        @Schema(example = "mifos")
+        public String createdByUsername;
         @Schema(example = "false")
         public Boolean manuallyReversed;
         @Schema(example = "42")
@@ -145,6 +162,16 @@ final class LoanTransactionsApiResourceSwagger {
         public Boolean reversalTransaction;
         @Schema(example = "[2012, 6, 1]")
         public LocalDate correctionDate;
+        @Schema(example = "true")
+        public Boolean correctionAllowed;
+        @Schema(example = "true")
+        public Boolean correctionDateRequired;
+        @Schema(example = "[2012, 5, 31]")
+        public LocalDate latestClosedAccountingDate;
+        @Schema(example = "[2012, 6, 1]")
+        public LocalDate earliestCorrectionDate;
+        @Schema(example = "[2012, 6, 30]")
+        public LocalDate latestCorrectionDate;
         public GetLoansCurrency currency;
         @Schema(example = "559.88")
         public Double amount;

@@ -60,4 +60,14 @@
             <column name="can_maker_checker" valueBoolean="false"/>
         </insert>
     </changeSet>
+
+    <changeSet author="wilfred" id="5">
+        <insert tableName="m_permission">
+            <column name="grouping" value="transaction_loan"/>
+            <column name="code" value="RECOVERYPAYMENT_LOAN_CHECKER"/>
+            <column name="entity_name" value="LOAN"/>
+            <column name="action_name" value="RECOVERYPAYMENT_CHECKER"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
 </databaseChangeLog>

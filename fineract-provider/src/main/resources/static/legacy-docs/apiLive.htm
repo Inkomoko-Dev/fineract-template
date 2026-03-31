@@ -1506,6 +1506,14 @@
                                 <td></td>
                             </tr>
 							<tr>
+                                <td></td>
+                                <td>loans/{loanId}/transactions/{transactionId}?command=reverseRecoveryPayment</td>
+                                <td><a href="#loans_transaction_reverse_recovery_payment">Reverse a Recovery Payment</a></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+							<tr>
 								<td></td>
 								<td>loans/{loanId}/transactions/{transactionId}</td>
 								<td></td>
@@ -12789,6 +12797,8 @@ Request Body:
   "locale": "en",
   "transactionDate": "14 May 2013",
   "transactionAmount": "500.00",
+  "originalTransactionId": 564,
+  "correctionDate": "15 May 2013",
   "paymentTypeId": "12",
   "note": "check payment",
   "accountNumber": "acc123",
@@ -12807,6 +12817,8 @@ Request Body:
   "changes": {
     "transactionDate": "14 May 2013",
     "transactionAmount": "500.00",
+    "originalTransactionId": 564,
+    "correctionDate": "15 May 2013",
     "locale": "en",
     "dateFormat": "dd MMMM yyyy",
     "note": "check payment",
@@ -13042,6 +13054,45 @@ Request Body:
 
 
 		<!--- end of recovery payment -->
+
+            <a id="loans_transaction_reverse_recovery_payment" name="loans_transaction_reverse_recovery_payment" class="old-syle-anchor">&nbsp;</a>
+            <div class="method-section">
+                <div class="method-description">
+                    <h4>Reverse Recovery Payment</h4>
+                    <p>This API reverses a recovery payment previously posted on a written-off loan. When the original recovery transaction falls in a closed accounting period, provide a correction date in the next open period.</p>
+                </div>
+                <div class="method-example">
+                    <code class="method-declaration">
+POST https://DomainName/api/v1/loans/{loanId}/transactions/{transactionId}?command=reverseRecoveryPayment
+                    </code>
+                    <code class="method-request">
+POST loans/5/transactions/564?command=reverseRecoveryPayment
+Content-Type: application/json
+Request Body:
+{
+  "dateFormat": "dd MMMM yyyy",
+  "locale": "en",
+  "transactionDate": "15 May 2013",
+  "correctionDate": "15 May 2013",
+  "note": "reverse incorrect recovery"
+}
+                    </code>
+                    <code class="method-response">
+{
+  "officeId": 1,
+  "clientId": 1,
+  "loanId": 5,
+  "resourceId": 565,
+  "subResourceId": 564,
+  "changes": {
+    "transactionDate": "15 May 2013",
+    "correctionDate": "15 May 2013",
+    "note": "reverse incorrect recovery"
+  }
+}
+                    </code>
+                </div>
+            </div>
 
             <a id="loans_transaction_undo_write-off_loan" name="loans_transaction_undo_write-off_loan" class="old-syle-anchor">&nbsp;</a>
             <div class="method-section">
