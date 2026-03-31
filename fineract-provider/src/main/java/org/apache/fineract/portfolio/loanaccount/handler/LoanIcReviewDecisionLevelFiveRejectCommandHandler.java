@@ -33,11 +33,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoanIcReviewDecisionLevelFiveRejectCommandHandler implements NewCommandSourceHandler {
 
     private final LoanApplicationDecisionWritePlatformService loanApplicationDecisionWritePlatformService;
+    private final LoanIcReviewDecisionDynamicCommandHandler dynamicCommandHandler;
 
     @Transactional
     @Override
     public CommandProcessingResult processCommand(final JsonCommand command) {
-
-        return this.loanApplicationDecisionWritePlatformService.rejectIcReviewDecisionLevelFive(command.getLoanId(), command);
+        // Delegate to dynamic handler for level 5 reject
+        return this.dynamicCommandHandler.processIcReviewDecision(command, 5, false);
     }
 }

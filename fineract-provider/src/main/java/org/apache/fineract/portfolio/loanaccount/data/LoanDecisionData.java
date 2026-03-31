@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.data;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 public final class LoanDecisionData {
 
@@ -29,11 +30,16 @@ public final class LoanDecisionData {
 
     private Integer loanDecisionState;
     private Integer loanNextDecisionState;
+
+    // Legacy fields for backward compatibility (levels 1-5)
     private BigDecimal icReviewDecisionLevelOneRecommendedAmount;
     private BigDecimal icReviewDecisionLevelTwoRecommendedAmount;
     private BigDecimal icReviewDecisionLevelThreeRecommendedAmount;
     private BigDecimal icReviewDecisionLevelFourRecommendedAmount;
     private BigDecimal icReviewDecisionLevelFiveRecommendedAmount;
+
+    // Dynamic levels data (supports unlimited levels)
+    private List<LoanDecisionLevelData> decisionLevels;
 
     public LoanDecisionData(Long loanId, Integer loanDecisionState, Integer loanNextDecisionState,
             BigDecimal icReviewDecisionLevelOneRecommendedAmount, BigDecimal icReviewDecisionLevelTwoRecommendedAmount,
@@ -55,5 +61,13 @@ public final class LoanDecisionData {
 
     public Integer getLoanNextDecisionState() {
         return loanNextDecisionState;
+    }
+
+    public List<LoanDecisionLevelData> getDecisionLevels() {
+        return decisionLevels;
+    }
+
+    public void setDecisionLevels(List<LoanDecisionLevelData> decisionLevels) {
+        this.decisionLevels = decisionLevels;
     }
 }

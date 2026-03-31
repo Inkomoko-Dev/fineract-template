@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -52,11 +53,17 @@ import org.apache.fineract.portfolio.loanaccount.api.LoanApprovalMatrixConstants
 import org.apache.fineract.portfolio.loanaccount.data.LoanCashFlowReport;
 import org.apache.fineract.portfolio.loanaccount.data.LoanFinancialRatioData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfig;
+import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfigRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrix;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrixLevel;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrixLevelRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrixRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagementRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevel;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevelRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfoRepository;
@@ -100,6 +107,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private final ClientOtherInfoReadPlatformService clientOtherInfoReadPlatformService;
     private final KivaLoanService kivaLoanService;
     private final BusinessEventNotifierService businessEventNotifierService;
+    private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
+    private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
+    private final LoanDecisionLevelRepository loanDecisionLevelRepository;
+    private final LoanApprovalMatrixLevelRepository loanApprovalMatrixLevelRepository;
 
     @Override
     public CommandProcessingResult createLoanApprovalMatrix(JsonCommand command) {
@@ -174,7 +185,11 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 }
             }
 
+            // Update legacy fields (levels 1-5) for backward compatibility
             final Map<String, Object> changes = loanApprovalMatrix.update(command);
+
+            // Update dynamic levels (supports levels 1-5 and beyond)
+            updateDynamicApprovalMatrixLevels(command, loanApprovalMatrix, changes);
 
             if (!changes.isEmpty()) {
                 this.loanApprovalMatrixRepository.saveAndFlush(loanApprovalMatrix);
@@ -188,6 +203,274 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                     .build();
         } catch (JpaSystemException | PersistenceException ex) {
             return CommandProcessingResult.empty();
+        }
+    }
+
+    /**
+     * Updates dynamic approval matrix levels from the command JSON.
+     * This method handles updates to the m_loan_approval_matrix_level table for all IC review levels.
+     *
+     * This method now supports levels 6 through MAX_DYNAMIC_LEVEL even without pre-configuration.
+     * If level parameters are provided for a level that doesn't exist in the database,
+     * the level configuration will be auto-created.
+     */
+    private void updateDynamicApprovalMatrixLevels(JsonCommand command, LoanApprovalMatrix approvalMatrix, Map<String, Object> changes) {
+        // Get all active IC review levels from database
+        List<IcReviewLevelConfig> activeLevels = icReviewLevelConfigRepository.findAllActiveOrderByDisplayOrder();
+
+        // Track which levels we've processed from the database
+        java.util.Set<Integer> processedLevels = new java.util.HashSet<>();
+
+        // Process existing active levels from database
+        for (IcReviewLevelConfig levelConfig : activeLevels) {
+            Integer levelNumber = levelConfig.getLevelNumber();
+            processedLevels.add(levelNumber);
+            processLevelUpdate(command, approvalMatrix, levelConfig, levelNumber, changes);
+        }
+
+        // Also check for dynamic levels (6 through MAX_DYNAMIC_LEVEL) that might not be in the database
+        // This allows accepting level parameters without requiring pre-configuration
+        for (int levelNumber = 6; levelNumber <= LoanApprovalMatrixConstants.MAX_DYNAMIC_LEVEL; levelNumber++) {
+            if (!processedLevels.contains(levelNumber)) {
+                String levelPrefix = "level" + getLevelName(levelNumber);
+                // Check if any parameter for this level exists in the command
+                if (hasLevelParametersInCommand(command, levelPrefix)) {
+                    // Auto-create the IC review level config for this level
+                    IcReviewLevelConfig newLevelConfig = createDynamicLevelConfig(levelNumber);
+                    processLevelUpdate(command, approvalMatrix, newLevelConfig, levelNumber, changes);
+                }
+            }
+        }
+    }
+
+    /**
+     * Check if command contains any parameters for the given level prefix
+     */
+    private boolean hasLevelParametersInCommand(JsonCommand command, String levelPrefix) {
+        return command.parameterExists(levelPrefix + "UnsecuredFirstCycleMaxAmount")
+                || command.parameterExists(levelPrefix + "UnsecuredSecondCycleMaxAmount")
+                || command.parameterExists(levelPrefix + "SecuredFirstCycleMaxAmount")
+                || command.parameterExists(levelPrefix + "SecuredSecondCycleMaxAmount")
+                || command.parameterExists(levelPrefix + "UnsecuredFirstCycleMinTerm")
+                || command.parameterExists(levelPrefix + "UnsecuredFirstCycleMaxTerm")
+                || command.parameterExists(levelPrefix + "UnsecuredSecondCycleMinTerm")
+                || command.parameterExists(levelPrefix + "UnsecuredSecondCycleMaxTerm")
+                || command.parameterExists(levelPrefix + "SecuredFirstCycleMinTerm")
+                || command.parameterExists(levelPrefix + "SecuredFirstCycleMaxTerm")
+                || command.parameterExists(levelPrefix + "SecuredSecondCycleMinTerm")
+                || command.parameterExists(levelPrefix + "SecuredSecondCycleMaxTerm");
+    }
+
+    /**
+     * Auto-create an IC Review Level Configuration for a dynamic level.
+     * This allows accepting level parameters without requiring pre-configuration in the database.
+     */
+    private IcReviewLevelConfig createDynamicLevelConfig(int levelNumber) {
+        // Check if level already exists (another thread might have created it)
+        IcReviewLevelConfig existingConfig = icReviewLevelConfigRepository.findByLevelNumber(levelNumber);
+        if (existingConfig != null) {
+            return existingConfig;
+        }
+
+        // Calculate decision state value
+        // Levels 1-5: 1400, 1500, 1600, 1700, 1800 (standard 100 increments)
+        // Levels 6+: 1801, 1802, 1803, etc. (fit between 1800 and 1899, before PREPARE_AND_SIGN_CONTRACT at 1900)
+        int decisionStateValue;
+        if (levelNumber <= 5) {
+            decisionStateValue = 1300 + (levelNumber * 100); // 1400, 1500, 1600, 1700, 1800
+        } else {
+            decisionStateValue = 1800 + (levelNumber - 5); // 1801, 1802, 1803, etc.
+        }
+
+        // Create new level config
+        IcReviewLevelConfig newConfig = new IcReviewLevelConfig(
+                levelNumber,
+                "IC Review Level " + levelNumber,
+                "IC_REVIEW_LEVEL_" + levelNumber,
+                decisionStateValue,
+                true,
+                levelNumber // displayOrder same as level number
+        );
+
+        return icReviewLevelConfigRepository.saveAndFlush(newConfig);
+    }
+
+    /**
+     * Process level update for a specific level configuration
+     */
+    private void processLevelUpdate(JsonCommand command, LoanApprovalMatrix approvalMatrix,
+                                     IcReviewLevelConfig levelConfig, Integer levelNumber, Map<String, Object> changes) {
+        String levelPrefix = "level" + getLevelName(levelNumber);
+
+        // Debug logging to trace parameter matching
+        log.info("Processing level {} update. levelPrefix='{}', Looking for parameter: '{}'",
+                levelNumber, levelPrefix, levelPrefix + "UnsecuredFirstCycleMaxAmount");
+
+        // Check if any field for this level is being updated
+        boolean hasLevelUpdate = false;
+        BigDecimal unsecuredFirstCycleMaxAmount = null;
+        Integer unsecuredFirstCycleMinTerm = null;
+        Integer unsecuredFirstCycleMaxTerm = null;
+        BigDecimal unsecuredSecondCycleMaxAmount = null;
+        Integer unsecuredSecondCycleMinTerm = null;
+        Integer unsecuredSecondCycleMaxTerm = null;
+        BigDecimal securedFirstCycleMaxAmount = null;
+        Integer securedFirstCycleMinTerm = null;
+        Integer securedFirstCycleMaxTerm = null;
+        BigDecimal securedSecondCycleMaxAmount = null;
+        Integer securedSecondCycleMinTerm = null;
+        Integer securedSecondCycleMaxTerm = null;
+
+        // Extract values from command if present
+        String unsecuredFirstMaxParam = levelPrefix + "UnsecuredFirstCycleMaxAmount";
+        String unsecuredFirstMinTermParam = levelPrefix + "UnsecuredFirstCycleMinTerm";
+        String unsecuredFirstMaxTermParam = levelPrefix + "UnsecuredFirstCycleMaxTerm";
+        String unsecuredSecondMaxParam = levelPrefix + "UnsecuredSecondCycleMaxAmount";
+        String unsecuredSecondMinTermParam = levelPrefix + "UnsecuredSecondCycleMinTerm";
+        String unsecuredSecondMaxTermParam = levelPrefix + "UnsecuredSecondCycleMaxTerm";
+        String securedFirstMaxParam = levelPrefix + "SecuredFirstCycleMaxAmount";
+        String securedFirstMinTermParam = levelPrefix + "SecuredFirstCycleMinTerm";
+        String securedFirstMaxTermParam = levelPrefix + "SecuredFirstCycleMaxTerm";
+        String securedSecondMaxParam = levelPrefix + "SecuredSecondCycleMaxAmount";
+        String securedSecondMinTermParam = levelPrefix + "SecuredSecondCycleMinTerm";
+        String securedSecondMaxTermParam = levelPrefix + "SecuredSecondCycleMaxTerm";
+
+        if (command.parameterExists(unsecuredFirstMaxParam)) {
+            unsecuredFirstCycleMaxAmount = command.bigDecimalValueOfParameterNamed(unsecuredFirstMaxParam);
+            log.info("Found parameter '{}' with value: {}", unsecuredFirstMaxParam, unsecuredFirstCycleMaxAmount);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(unsecuredFirstMinTermParam)) {
+            unsecuredFirstCycleMinTerm = command.integerValueOfParameterNamed(unsecuredFirstMinTermParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(unsecuredFirstMaxTermParam)) {
+            unsecuredFirstCycleMaxTerm = command.integerValueOfParameterNamed(unsecuredFirstMaxTermParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(unsecuredSecondMaxParam)) {
+            unsecuredSecondCycleMaxAmount = command.bigDecimalValueOfParameterNamed(unsecuredSecondMaxParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(unsecuredSecondMinTermParam)) {
+            unsecuredSecondCycleMinTerm = command.integerValueOfParameterNamed(unsecuredSecondMinTermParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(unsecuredSecondMaxTermParam)) {
+            unsecuredSecondCycleMaxTerm = command.integerValueOfParameterNamed(unsecuredSecondMaxTermParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(securedFirstMaxParam)) {
+            securedFirstCycleMaxAmount = command.bigDecimalValueOfParameterNamed(securedFirstMaxParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(securedFirstMinTermParam)) {
+            securedFirstCycleMinTerm = command.integerValueOfParameterNamed(securedFirstMinTermParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(securedFirstMaxTermParam)) {
+            securedFirstCycleMaxTerm = command.integerValueOfParameterNamed(securedFirstMaxTermParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(securedSecondMaxParam)) {
+            securedSecondCycleMaxAmount = command.bigDecimalValueOfParameterNamed(securedSecondMaxParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(securedSecondMinTermParam)) {
+            securedSecondCycleMinTerm = command.integerValueOfParameterNamed(securedSecondMinTermParam);
+            hasLevelUpdate = true;
+        }
+        if (command.parameterExists(securedSecondMaxTermParam)) {
+            securedSecondCycleMaxTerm = command.integerValueOfParameterNamed(securedSecondMaxTermParam);
+            hasLevelUpdate = true;
+        }
+
+        if (hasLevelUpdate) {
+            // Find or create the matrix level entry
+            LoanApprovalMatrixLevel matrixLevel = loanApprovalMatrixLevelRepository
+                    .findByApprovalMatrixIdAndLevelNumber(approvalMatrix.getId(), levelNumber);
+
+            if (matrixLevel == null) {
+                // Create new entry
+                matrixLevel = new LoanApprovalMatrixLevel();
+                matrixLevel.setApprovalMatrix(approvalMatrix);
+                matrixLevel.setIcReviewLevel(levelConfig);
+                matrixLevel.setLevelNumber(levelNumber);
+            }
+
+            // Update fields that were provided
+            if (unsecuredFirstCycleMaxAmount != null) {
+                matrixLevel.setUnsecuredFirstCycleMaxAmount(unsecuredFirstCycleMaxAmount);
+            }
+            if (unsecuredFirstCycleMinTerm != null) {
+                matrixLevel.setUnsecuredFirstCycleMinTerm(unsecuredFirstCycleMinTerm);
+            }
+            if (unsecuredFirstCycleMaxTerm != null) {
+                matrixLevel.setUnsecuredFirstCycleMaxTerm(unsecuredFirstCycleMaxTerm);
+            }
+            if (unsecuredSecondCycleMaxAmount != null) {
+                matrixLevel.setUnsecuredSecondCycleMaxAmount(unsecuredSecondCycleMaxAmount);
+            }
+            if (unsecuredSecondCycleMinTerm != null) {
+                matrixLevel.setUnsecuredSecondCycleMinTerm(unsecuredSecondCycleMinTerm);
+            }
+            if (unsecuredSecondCycleMaxTerm != null) {
+                matrixLevel.setUnsecuredSecondCycleMaxTerm(unsecuredSecondCycleMaxTerm);
+            }
+            if (securedFirstCycleMaxAmount != null) {
+                matrixLevel.setSecuredFirstCycleMaxAmount(securedFirstCycleMaxAmount);
+            }
+            if (securedFirstCycleMinTerm != null) {
+                matrixLevel.setSecuredFirstCycleMinTerm(securedFirstCycleMinTerm);
+            }
+            if (securedFirstCycleMaxTerm != null) {
+                matrixLevel.setSecuredFirstCycleMaxTerm(securedFirstCycleMaxTerm);
+            }
+            if (securedSecondCycleMaxAmount != null) {
+                matrixLevel.setSecuredSecondCycleMaxAmount(securedSecondCycleMaxAmount);
+            }
+            if (securedSecondCycleMinTerm != null) {
+                matrixLevel.setSecuredSecondCycleMinTerm(securedSecondCycleMinTerm);
+            }
+            if (securedSecondCycleMaxTerm != null) {
+                matrixLevel.setSecuredSecondCycleMaxTerm(securedSecondCycleMaxTerm);
+            }
+
+            loanApprovalMatrixLevelRepository.saveAndFlush(matrixLevel);
+            log.info("Saved matrix level {} for approval matrix {}. ID: {}", levelNumber, approvalMatrix.getId(), matrixLevel.getId());
+            changes.put("dynamicLevel" + levelNumber, "updated");
+        } else {
+            log.info("No updates found for level {} in command parameters", levelNumber);
+        }
+    }
+
+    /**
+     * Converts level number to level name (e.g., 1 -> "One", 2 -> "Two", etc.)
+     * Supports levels 1-20 with spelled-out names to match the API parameter convention.
+     */
+    private String getLevelName(Integer levelNumber) {
+        switch (levelNumber) {
+            case 1: return "One";
+            case 2: return "Two";
+            case 3: return "Three";
+            case 4: return "Four";
+            case 5: return "Five";
+            case 6: return "Six";
+            case 7: return "Seven";
+            case 8: return "Eight";
+            case 9: return "Nine";
+            case 10: return "Ten";
+            case 11: return "Eleven";
+            case 12: return "Twelve";
+            case 13: return "Thirteen";
+            case 14: return "Fourteen";
+            case 15: return "Fifteen";
+            case 16: return "Sixteen";
+            case 17: return "Seventeen";
+            case 18: return "Eighteen";
+            case 19: return "Nineteen";
+            case 20: return "Twenty";
+            default: return levelNumber.toString();
         }
     }
 
@@ -1121,17 +1404,25 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecisionStateUtilService.validateLoanAccountToComplyToApprovalMatrixStage(loan, approvalMatrix, isLoanFirstCycle,
                 isLoanUnsecure, LoanDecisionState.IC_REVIEW_LEVEL_FIVE, dueDiligenceRecommendedAmount);
 
-        final Map<String, Object> changes = loan.loanApplicationICReview(currentUser, command);
-        if (!changes.isEmpty()) {
-            LocalDate recalculateFrom = null;
-            ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
-            loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
+        // Determine the next decision stage BEFORE assembling (this will check if Level 6+ exists)
+        loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
+                LoanDecisionState.IC_REVIEW_LEVEL_FIVE, dueDiligenceRecommendedAmount);
+
+        final Integer nextDecisionStage = loanDecision.getNextLoanIcReviewDecisionState();
+        if (nextDecisionStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+            final Map<String, Object> changes = loan.loanApplicationICReview(currentUser, command);
+            if (!changes.isEmpty()) {
+                LocalDate recalculateFrom = null;
+                ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
+                loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
+            }
         }
 
         LoanDecision loanDecisionObj = loanDecisionAssembler.assembleIcReviewDecisionLevelFiveFrom(command, currentUser, loanDecision,
                 Boolean.FALSE, icReviewOn, recommendedAmount, termFrequency, termPeriodFrequencyEnum);
 
-        Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
+        // Use the next stage determined dynamically (may be Level 6+ or PREPARE_AND_SIGN_CONTRACT)
+        Integer nextStage = nextDecisionStage;
         final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 
@@ -1413,17 +1704,481 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     }
 
     private void setNextApprover(LoanDecision decision, Integer nextStage, AppUser nextApprover) {
+        LoanDecisionState state = LoanDecisionState.fromInt(nextStage);
 
-        switch (LoanDecisionState.fromInt(nextStage)) {
-
+        // Handle non-IC review states
+        switch (state) {
             case DUE_DILIGENCE -> decision.setDueDiligenceBy(nextApprover);
-            case IC_REVIEW_LEVEL_ONE -> decision.setIcReviewDecisionLevelOneBy(nextApprover);
-            case IC_REVIEW_LEVEL_TWO -> decision.setIcReviewDecisionLevelTwoBy(nextApprover);
-            case IC_REVIEW_LEVEL_THREE -> decision.setIcReviewDecisionLevelThreeBy(nextApprover);
-            case IC_REVIEW_LEVEL_FOUR -> decision.setIcReviewDecisionLevelFourBy(nextApprover);
-            case IC_REVIEW_LEVEL_FIVE -> decision.setIcReviewDecisionLevelFiveBy(nextApprover);
-            case PREPARE_AND_SIGN_CONTRACT, REVIEW_APPLICATION, COLLATERAL_REVIEW, INVALID -> {}
+            case PREPARE_AND_SIGN_CONTRACT -> decision.setPrepareAndSignContractBy(nextApprover);
+            case REVIEW_APPLICATION, COLLATERAL_REVIEW, INVALID -> {}
+            default -> {
+                // Handle IC review levels (1-5 legacy + 6+ dynamic)
+                if (dynamicIcReviewLevelHelper.isIcReviewLevel(nextStage)) {
+                    Integer levelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(nextStage);
+
+                    if (levelNumber != null) {
+                        // Update legacy fields for levels 1-5 (backward compatibility)
+                        if (levelNumber >= 1 && levelNumber <= 5) {
+                            setLegacyApprover(decision, levelNumber, nextApprover);
+                        }
+
+                        // Update dynamic level (for all levels including 6+)
+                        setDynamicApprover(decision, levelNumber, nextApprover);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Set approver in legacy fields for backward compatibility (levels 1-5 only)
+     */
+    private void setLegacyApprover(LoanDecision decision, Integer levelNumber, AppUser approver) {
+        switch (levelNumber) {
+            case 1 -> decision.setIcReviewDecisionLevelOneBy(approver);
+            case 2 -> decision.setIcReviewDecisionLevelTwoBy(approver);
+            case 3 -> decision.setIcReviewDecisionLevelThreeBy(approver);
+            case 4 -> decision.setIcReviewDecisionLevelFourBy(approver);
+            case 5 -> decision.setIcReviewDecisionLevelFiveBy(approver);
+        }
+    }
+
+    /**
+     * Set approver in dynamic LoanDecisionLevel entity (for all levels including 6+)
+     */
+    private void setDynamicApprover(LoanDecision decision, Integer levelNumber, AppUser approver) {
+        // Query database first instead of relying on lazy-loaded in-memory collection
+        LoanDecisionLevel level = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(decision.getId(), levelNumber);
+
+        if (level == null) {
+            // Create new level if it doesn't exist
+            IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
+            if (levelConfig == null) {
+                log.warn("IC Review Level {} not found in configuration", levelNumber);
+                return;
+            }
+
+            level = new LoanDecisionLevel();
+            level.setLoanDecision(decision);
+            level.setIcReviewLevel(levelConfig);
+            level.setLevelNumber(levelNumber);
+            level.setIsSigned(Boolean.FALSE);
+            level.setIsRejected(Boolean.FALSE);
         }
 
+        level.setDecisionBy(approver);
+        loanDecisionLevelRepository.save(level);
+        log.debug("Set approver for IC Review Level {}: {}", levelNumber, approver.getUsername());
+    }
+
+    /**
+     * Dynamic IC Review Decision Accept - supports unlimited levels
+     * This method handles IC review decisions for any level number (1, 2, 3, 4, 5, 6, 7, ...)
+     */
+    @Override
+    public CommandProcessingResult acceptIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber) {
+        final AppUser currentUser = getAppUserIfPresent();
+
+        this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
+
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        // Get the IC review level configuration
+        IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
+        if (levelConfig == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.ic.review.level.not.found",
+                    String.format("IC Review Level %d is not configured or not active", levelNumber));
+        }
+
+        LocalDate icReviewOn = command.localDateValueOfParameterNamed(LoanApiConstants.icReviewOnDateParameterName);
+        final BigDecimal recommendedAmount = command.bigDecimalValueOfParameterNamed(LoanApiConstants.icReviewRecommendedAmount);
+        final Integer termFrequency = command.integerValueOfParameterNamed(LoanApiConstants.icReviewTermFrequency);
+        final Integer termPeriodFrequencyEnum = command.integerValueOfParameterNamed(LoanApiConstants.icReviewTermPeriodFrequencyEnum);
+
+        // Validate business rules based on level
+        validateIcReviewDecisionBusinessRule(command, loan, loanDecision, icReviewOn, levelNumber, levelConfig);
+
+        LoanApprovalMatrix approvalMatrix = this.loanApprovalMatrixRepository.findLoanApprovalMatrixByCurrency(loan.getCurrencyCode());
+
+        if (approvalMatrix == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.approval.matrix.with.this.currency.does.not.exist.",
+                    String.format("Loan Approval Matrix with Currency [ %s ] doesn't exist. Approval matrix is expected to continue ",
+                            loan.getCurrencyCode()));
+        }
+
+        if (!loanDecision.getIdeaClient()) {
+            final BigDecimal maxLoanAmountFromCashFlow = loanDecisionStateUtilService.getMaxLoanAmountFromCashFlow(loan);
+            if (recommendedAmount.compareTo(maxLoanAmountFromCashFlow) > 0) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.ic.review.recommended.amount.can.not.greater.than.auto.computed.amount",
+                        "Recommended amount can not be greater than auto-computed recommended amount", maxLoanAmountFromCashFlow);
+            }
+        }
+
+        // Get Loan Matrix and determine cycle
+        List<Loan> loanIndividualCounter = loanDecisionStateUtilService.getLoanCounter(loan);
+        Boolean isLoanFirstCycle = loanDecisionStateUtilService.isLoanFirstCycle(loanIndividualCounter);
+        Boolean isLoanUnsecure = loanDecisionStateUtilService.isLoanUnSecure(loan);
+        final BigDecimal dueDiligenceRecommendedAmount = loanDecision.getDueDiligenceRecommendedAmount();
+
+        // Validate against approval matrix for this level
+        LoanDecisionState currentLevelState = LoanDecisionState.fromInt(levelConfig.getDecisionStateValue());
+        loanDecisionStateUtilService.validateLoanAccountToComplyToApprovalMatrixStage(loan, approvalMatrix, isLoanFirstCycle,
+                isLoanUnsecure, currentLevelState, dueDiligenceRecommendedAmount);
+
+        // Determine the next decision stage
+        loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
+                currentLevelState, dueDiligenceRecommendedAmount);
+
+        final Integer nextDecisionStage = loanDecision.getNextLoanIcReviewDecisionState();
+        if (nextDecisionStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+            final Map<String, Object> changes = loan.loanApplicationICReview(currentUser, command);
+            if (!changes.isEmpty()) {
+                LocalDate recalculateFrom = null;
+                ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
+                loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
+            }
+        }
+
+        // Save decision data in the dynamic table - check for existing record first
+        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(loanDecision.getId(), levelNumber);
+
+        if (decisionLevel == null) {
+            decisionLevel = new LoanDecisionLevel();
+            decisionLevel.setLoanDecision(loanDecision);
+            decisionLevel.setIcReviewLevel(levelConfig);
+            decisionLevel.setLevelNumber(levelNumber);
+        }
+
+        decisionLevel.setNote(command.stringValueOfParameterNamed("note"));
+        decisionLevel.setIsSigned(true);
+        decisionLevel.setIsRejected(false);
+        decisionLevel.setDecisionOn(icReviewOn);
+        decisionLevel.setDecisionBy(currentUser);
+        decisionLevel.setRecommendedAmount(recommendedAmount);
+        decisionLevel.setTermFrequency(termFrequency);
+        decisionLevel.setTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+
+        loanDecisionLevelRepository.save(decisionLevel);
+
+        // Also update the legacy fields for backward compatibility (levels 1-5)
+        if (levelNumber <= 5) {
+            updateLegacyIcReviewFields(loanDecision, levelNumber, command, currentUser, icReviewOn,
+                    recommendedAmount, termFrequency, termPeriodFrequencyEnum, false);
+        }
+
+        Integer nextStage = loanDecision.getNextLoanIcReviewDecisionState();
+        final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
+        setNextApproverDynamic(loanDecision, nextStage, nextApprover);
+
+        // Update loanDecision state to keep in sync with loan state
+        loanDecision.setLoanDecisionState(levelConfig.getDecisionStateValue());
+
+        LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecision);
+
+        Loan loanObj = loan;
+        loanObj.setLoanDecisionState(levelConfig.getDecisionStateValue());
+        this.loanRepositoryWrapper.saveAndFlush(loanObj);
+
+        Note note = null;
+        if (StringUtils.isNotBlank(decisionLevel.getNote())) {
+            note = Note.loanNote(loanObj,
+                    "Approve IC Review-Decision Level " + levelConfig.getLevelName() + " : " + decisionLevel.getNote()
+                            + " Recommended Amount : " + recommendedAmount + " " + loan.getCurrencyCode()
+                            + " Loan Term : " + termFrequency + " " + PeriodFrequencyType.fromInt(termPeriodFrequencyEnum));
+            this.noteRepository.save(note);
+        }
+        validateRecommendedAmountShouldNotBeGreaterThanProposedAmount(loan.getProposedPrincipal(), recommendedAmount);
+
+        this.businessEventNotifierService.notifyPostBusinessEvent(
+                new LoanDecisionAcceptedEvent(loan, savedObj, note));
+
+        return new CommandProcessingResultBuilder() //
+                .withCommandId(command.commandId()) //
+                .withEntityId(savedObj.getId()) //
+                .withOfficeId(loan.getOfficeId()) //
+                .withClientId(loan.getClientId()) //
+                .withGroupId(loan.getGroupId()) //
+                .withLoanId(loanId) //
+                .withResourceIdAsString(savedObj.getId().toString()).build();
+    }
+
+    /**
+     * Dynamic IC Review Decision Reject - supports unlimited levels
+     * This method handles IC review decision rejections for any level number (1, 2, 3, 4, 5, 6, 7, ...)
+     */
+    @Override
+    public CommandProcessingResult rejectIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber) {
+        final AppUser currentUser = getAppUserIfPresent();
+
+        // Get the IC review level configuration
+        IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
+        if (levelConfig == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.ic.review.level.not.found",
+                    String.format("IC Review Level %d is not configured or not active", levelNumber));
+        }
+
+        // Validate the current state
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+
+        if (!loan.getLoanDecisionState().equals(levelConfig.getDecisionStateValue())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    String.format("Loan Decision state is invalid for reject operation. Expected IC_REVIEW_LEVEL_%s.",
+                            levelConfig.getLevelName()));
+        }
+
+        // Determine previous stage
+        Integer previousState = dynamicIcReviewLevelHelper.getPreviousIcReviewDecisionState(levelConfig.getDecisionStateValue());
+        if (previousState == null) {
+            // If no previous IC review level, revert to DUE_DILIGENCE
+            previousState = LoanDecisionState.DUE_DILIGENCE.getValue();
+        }
+
+        // Revert to the previous stage
+        loan.setLoanDecisionState(previousState);
+        loanDecision.setLoanDecisionState(previousState);
+        loanDecision.setNextLoanIcReviewDecisionState(levelConfig.getDecisionStateValue());
+
+        // Save rejection in dynamic table - check for existing record first
+        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(loanDecision.getId(), levelNumber);
+
+        if (decisionLevel == null) {
+            decisionLevel = new LoanDecisionLevel();
+            decisionLevel.setLoanDecision(loanDecision);
+            decisionLevel.setIcReviewLevel(levelConfig);
+            decisionLevel.setLevelNumber(levelNumber);
+        }
+
+        decisionLevel.setNote(command.stringValueOfParameterNamed("note"));
+        decisionLevel.setIsSigned(false);
+        decisionLevel.setIsRejected(true);
+        decisionLevel.setDecisionOn(LocalDate.now(ZoneId.systemDefault()));
+        decisionLevel.setDecisionBy(currentUser);
+
+        loanDecisionLevelRepository.save(decisionLevel);
+
+        // Also update the legacy fields for backward compatibility (levels 1-5)
+        if (levelNumber <= 5) {
+            updateLegacyIcReviewRejectFields(loanDecision, levelNumber);
+        }
+
+        Note note = null;
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            note = Note.loanNote(loan, "Returned IC Review-Decision Level " + levelConfig.getLevelName() + " : " + noteText);
+            this.noteRepository.save(note);
+        }
+
+        // Save changes
+        this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanDecisionRepository.saveAndFlush(loanDecision);
+
+        // Notify business event
+        this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionRejectEvent(loan, loanDecision, note));
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
+                .build();
+    }
+
+    /**
+     * Validate IC review decision business rules for a specific level
+     */
+    private void validateIcReviewDecisionBusinessRule(JsonCommand command, Loan loan, LoanDecision loanDecision,
+            LocalDate icReviewOn, Integer levelNumber, IcReviewLevelConfig levelConfig) {
+
+        Boolean isExtendLoanLifeCycleConfig = loanDecisionStateUtilService.getExtendLoanLifeCycleConfig().isEnabled();
+
+        if (!isExtendLoanLifeCycleConfig) {
+            throw new GeneralPlatformDomainRuleException("error.msg.Add-More-Stages-To-A-Loan-Life-Cycle.is.not.set",
+                    "Add-More-Stages-To-A-Loan-Life-Cycle settings is not set. So this operation is not permitted");
+        }
+
+        if (loanDecision == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.account.should.not.found.in.decision.engine",
+                    "Loan Account not found in decision engine. Operation [IC Review Level " + levelNumber + "] is not allowed");
+        }
+
+        loanDecisionStateUtilService.checkClientOrGroupActive(loan);
+        loanDecisionStateUtilService.validateLoanDisbursementDataWithMeetingDate(loan);
+        loanDecisionStateUtilService.validateLoanTopUp(loan);
+
+        // Validate date is after previous stage
+        LocalDate previousStageDate = getPreviousStageDate(loanDecision, levelNumber);
+        if (previousStageDate != null && icReviewOn.isBefore(previousStageDate)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.ic.review.date.should.be.after.previous.stage.date",
+                    "IC Review Level " + levelNumber + " date " + icReviewOn + " should be after previous stage date " + previousStageDate);
+        }
+
+        // IC Review date should not be before loan submission date
+        if (icReviewOn.isBefore(loan.getSubmittedOnDate())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.ic.review.date.should.be.after.submission.date",
+                    "IC Review Level " + levelNumber + " date " + icReviewOn + " should be after Loan submission date " + loan.getSubmittedOnDate());
+        }
+
+        if (!loan.status().isSubmittedAndPendingApproval()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.current.status.is.invalid",
+                    "Loan Account current status is invalid. Expected SUBMITTED_AND_PENDING_APPROVAL but found " + loan.status().getCode());
+        }
+
+        // Validate current decision state matches expected state for this level
+        Integer expectedPreviousState = levelNumber == 1 ?
+                LoanDecisionState.DUE_DILIGENCE.getValue() :
+                dynamicIcReviewLevelHelper.getPreviousIcReviewDecisionState(levelConfig.getDecisionStateValue());
+
+        if (expectedPreviousState != null && !loan.getLoanDecisionState().equals(expectedPreviousState)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.is.invalid",
+                    "Loan Account Decision state is invalid for IC Review Level " + levelNumber + ". Expected " + expectedPreviousState + " but found " + loan.getLoanDecisionState());
+        }
+
+        if (!loan.getLoanDecisionState().equals(loanDecision.getLoanDecisionState())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.does.not.reconcile",
+                    "Loan Account Decision state Does not reconcile. Operation is terminated");
+        }
+    }
+
+    /**
+     * Get the date of the previous stage for validation
+     */
+    private LocalDate getPreviousStageDate(LoanDecision loanDecision, Integer levelNumber) {
+        // Validate levelNumber to prevent arithmetic underflow
+        if (levelNumber == null || levelNumber < 1) {
+            return null;
+        }
+
+        if (levelNumber == 1) {
+            return loanDecision.getDueDiligenceOn();
+        } else if (levelNumber == 2) {
+            return loanDecision.getIcReviewDecisionLevelOneOn();
+        } else if (levelNumber == 3) {
+            return loanDecision.getIcReviewDecisionLevelTwoOn();
+        } else if (levelNumber == 4) {
+            return loanDecision.getIcReviewDecisionLevelThreeOn();
+        } else if (levelNumber == 5) {
+            return loanDecision.getIcReviewDecisionLevelFourOn();
+        } else if (levelNumber > 5) {
+            // For levels > 5, check the dynamic table
+            // Safe: levelNumber is validated to be > 5, so levelNumber - 1 >= 5
+            int previousLevelNumber = levelNumber - 1;
+            LoanDecisionLevel level = loanDecisionLevelRepository.findByLoanIdAndLevelNumber(
+                    loanDecision.getLoan().getId(), previousLevelNumber);
+            return level != null ? level.getDecisionOn() : null;
+        }
+        return null;
+    }
+
+    /**
+     * Update legacy IC review fields for backward compatibility (levels 1-5)
+     */
+    private void updateLegacyIcReviewFields(LoanDecision loanDecision, Integer levelNumber, JsonCommand command,
+            AppUser currentUser, LocalDate icReviewOn, BigDecimal recommendedAmount,
+            Integer termFrequency, Integer termPeriodFrequencyEnum, boolean isReject) {
+
+        String note = command.stringValueOfParameterNamed("note");
+
+        switch (levelNumber) {
+            case 1:
+                loanDecision.setIcReviewDecisionLevelOneNote(note);
+                loanDecision.setIcReviewDecisionLevelOneSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelOneSigned(isReject);
+                loanDecision.setIcReviewDecisionLevelOneOn(icReviewOn);
+                loanDecision.setIcReviewDecisionLevelOneBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelOneRecommendedAmount(recommendedAmount);
+                loanDecision.setIcReviewDecisionLevelOneTermFrequency(termFrequency);
+                loanDecision.setIcReviewDecisionLevelOneTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                break;
+            case 2:
+                loanDecision.setIcReviewDecisionLevelTwoNote(note);
+                loanDecision.setIcReviewDecisionLevelTwoSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelTwoSigned(isReject);
+                loanDecision.setIcReviewDecisionLevelTwoOn(icReviewOn);
+                loanDecision.setIcReviewDecisionLevelTwoBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelTwoRecommendedAmount(recommendedAmount);
+                loanDecision.setIcReviewDecisionLevelTwoTermFrequency(termFrequency);
+                loanDecision.setIcReviewDecisionLevelTwoTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                break;
+            case 3:
+                loanDecision.setIcReviewDecisionLevelThreeNote(note);
+                loanDecision.setIcReviewDecisionLevelThreeSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelThreeSigned(isReject);
+                loanDecision.setIcReviewDecisionLevelThreeOn(icReviewOn);
+                loanDecision.setIcReviewDecisionLevelThreeBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelThreeRecommendedAmount(recommendedAmount);
+                loanDecision.setIcReviewDecisionLevelThreeTermFrequency(termFrequency);
+                loanDecision.setIcReviewDecisionLevelThreeTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                break;
+            case 4:
+                loanDecision.setIcReviewDecisionLevelFourNote(note);
+                loanDecision.setIcReviewDecisionLevelFourSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelFourSigned(isReject);
+                loanDecision.setIcReviewDecisionLevelFourOn(icReviewOn);
+                loanDecision.setIcReviewDecisionLevelFourBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelFourRecommendedAmount(recommendedAmount);
+                loanDecision.setIcReviewDecisionLevelFourTermFrequency(termFrequency);
+                loanDecision.setIcReviewDecisionLevelFourTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                break;
+            case 5:
+                loanDecision.setIcReviewDecisionLevelFiveNote(note);
+                loanDecision.setIcReviewDecisionLevelFiveSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelFiveSigned(isReject);
+                loanDecision.setIcReviewDecisionLevelFiveOn(icReviewOn);
+                loanDecision.setIcReviewDecisionLevelFiveBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelFiveRecommendedAmount(recommendedAmount);
+                loanDecision.setIcReviewDecisionLevelFiveTermFrequency(termFrequency);
+                loanDecision.setIcReviewDecisionLevelFiveTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                break;
+        }
+    }
+
+    /**
+     * Update legacy IC review reject fields for backward compatibility (levels 1-5)
+     */
+    private void updateLegacyIcReviewRejectFields(LoanDecision loanDecision, Integer levelNumber) {
+        switch (levelNumber) {
+            case 1:
+                loanDecision.setRejectIcReviewDecisionLevelOneSigned(true);
+                break;
+            case 2:
+                loanDecision.setRejectIcReviewDecisionLevelTwoSigned(true);
+                break;
+            case 3:
+                loanDecision.setRejectIcReviewDecisionLevelThreeSigned(true);
+                break;
+            case 4:
+                loanDecision.setRejectIcReviewDecisionLevelFourSigned(true);
+                break;
+            case 5:
+                loanDecision.setRejectIcReviewDecisionLevelFiveSigned(true);
+                break;
+        }
+    }
+
+    /**
+     * Set next approver dynamically - supports both legacy and new levels
+     */
+    private void setNextApproverDynamic(LoanDecision decision, Integer nextStage, AppUser nextApprover) {
+        // First try the legacy switch statement
+        setNextApprover(decision, nextStage, nextApprover);
+
+        // For levels beyond 5, store in the dynamic table
+        if (dynamicIcReviewLevelHelper.isIcReviewLevel(nextStage)) {
+            Integer levelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(nextStage);
+            if (levelNumber != null && levelNumber > 5) {
+                // The next approver will be set when the level is actually processed
+                // For now, we just ensure the next stage is set correctly
+                decision.setNextLoanIcReviewDecisionState(nextStage);
+            }
+        }
     }
 }

@@ -31,14 +31,19 @@ import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
+import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.lang.reflect.Type;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 
@@ -50,6 +55,7 @@ public class EmailHookProcessor implements HookProcessor {
     private final ClientRepositoryWrapper clientRepository;
     private final LoanRepository loanRepository;
     private final StaffRepository staffRepository;
+    private final AppUserRepository appUserRepository;
     private final GmailBackedPlatformEmailService emailService;
     @Value("${CBS_ENVIRONMENT_LINK}")
     private String cbsEnvironmentLink;
@@ -60,6 +66,7 @@ public class EmailHookProcessor implements HookProcessor {
         log.debug("Processing email hook {}", hook);
 
         if (cbsEnvironmentLink == null) {
+            log.error("Failed to process email notification cbsEnvironmentLink is null");
             throw new Exception("cbsEnvironmentLink is null");
         }
 
@@ -88,7 +95,15 @@ public class EmailHookProcessor implements HookProcessor {
         }
 
         // Extract rejection info if any
-        String rejectionDate = request != null ? (String) request.get("rejectedOnDate") : null;
+        String rejectionDate = Optional.ofNullable(request)
+                .map(r -> r.get("rejectedOnDate"))
+                .map(Object::toString)
+                .filter(s -> !s.isBlank())
+                .orElseGet(() ->
+                        LocalDate.now(ZoneId.systemDefault())
+                                .format(DateTimeFormatter.ofPattern("dd MMMM yyyy"))
+                );
+
         String rejectionReason = request != null ? (String) request.get("note") : null;
 
         // Fetch loan entity
@@ -104,13 +119,13 @@ public class EmailHookProcessor implements HookProcessor {
         if (loan.getCreatedBy().isPresent()) {
             Long creatorId = loan.getCreatedBy().get();
             Map<String, String> creatorMap = new HashMap<>();
-            staffRepository.findById(creatorId).ifPresentOrElse(
+            appUserRepository.findById(creatorId).ifPresentOrElse(
                     creator -> {
 
-                        creatorMap.put("email" , creator.emailAddress());
-                        creatorMap.put("name", creator.fullName());
+                        creatorMap.put("email" , creator.getEmail());
+                        creatorMap.put("name", creator.getUsername());
                         recipients.add(creatorMap);
-                        loanCreatorName.set(creator.fullName());
+                        loanCreatorName.set(creator.getFirstname() + " " + creator.getLastname());
                     },
                     () -> log.warn("Loan creator not found for loan: {}", loanId)
             );
@@ -158,13 +173,12 @@ public class EmailHookProcessor implements HookProcessor {
         String subject;
         String message;
 
-
-        String loanLink = String.format("%s/loans/%s", cbsEnvironmentLink, loanId);
+        String loanLink = String.format("%s/disbursement-request#/viewloanaccount/%s", cbsEnvironmentLink, loanId);
 
 
         switch (actionName) {
 
-            case "APPROVE":
+            case "DISBURSE":
                 subject = String.format("Loan Disbursed – %s – %s", loanId, clientFullName);
 
                 message = String.format(
@@ -188,7 +202,7 @@ public class EmailHookProcessor implements HookProcessor {
                         recipientNames,
                         loanId,
                         clientFullName,
-                        loan.getDisbursedAmount(),
+                        loan.getNetDisbursalAmount(),
                         loan.getCurrency().getCode(),
                         loan.getDisbursementDate(),
                         loanLink,
@@ -197,7 +211,7 @@ public class EmailHookProcessor implements HookProcessor {
                 );
                 break;
 
-            case "REJECT":
+            case "REJECTDISBURSEMENT":
                 subject = String.format("Loan Rejected – %s – %s", loanId, client != null ? client.getDisplayName() : "Client");
 
                  message = "<p>Dear " + recipientNames + ",</p>"
@@ -209,8 +223,9 @@ public class EmailHookProcessor implements HookProcessor {
                     + "<li>Rejection Date: " + (rejectionDate != null ? rejectionDate : "N/A") + "</li>"
                     + "<li>Rejection Reason: " + (rejectionReason != null ? rejectionReason : "N/A") + "</li>"
                     + "</ul>"
-                    + "<p>You can open the loan record in the Core Banking System using the link below:<br>[CBSLink]</p>"
-                    + "<p>This notification was sent to:<br>"
+                    + "<p>You can open the loan record in the Core Banking System using the link below:<br>" +
+                    "CBS Link: " + loanLink +  "<br>" +
+                    "<p>This notification was sent to:<br>"
                     + "Loan creator: " + loanCreatorName.get() + "<br>"
                     + "Assigned loan officer: " + loanOfficerName.get() + "</p>"
                     + "<p>Please review and take any necessary follow-up actions with the client or internal teams.</p>"

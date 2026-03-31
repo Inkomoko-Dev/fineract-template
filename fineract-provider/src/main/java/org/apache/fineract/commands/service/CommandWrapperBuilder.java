@@ -3992,6 +3992,32 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    /**
+     * Dynamic IC Review Decision Accept - supports any level number (6+)
+     * For levels 1-5, use the specific methods above for backward compatibility.
+     */
+    public CommandWrapperBuilder acceptIcReviewDecisionDynamic(final long loanId, final int levelNumber) {
+        this.actionName = "ACCEPT";
+        this.entityName = "LOANICREVIEWDECISIONDYNAMIC";
+        this.href = "/loans/decision/icReviewDecision/level/" + levelNumber + "/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
+    /**
+     * Dynamic IC Review Decision Reject - supports any level number (6+)
+     * For levels 1-5, use the specific methods above for backward compatibility.
+     */
+    public CommandWrapperBuilder rejectIcReviewDecisionDynamic(final long loanId, final int levelNumber) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANICREVIEWDECISIONDYNAMIC";
+        this.href = "/loans/decision/icReviewDecision/level/" + levelNumber + "/reject/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
     public CommandWrapperBuilder acceptPrepareAndSignContract(final long loanId) {
         this.actionName = "ACCEPT";
         this.entityName = "LOANPREPAREANDSIGNCONTRACT";
