@@ -45,6 +45,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Embedded;
@@ -3234,7 +3235,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     public ChangedTransactionDetail makeRepayment(final LoanTransaction repaymentTransaction,
             final LoanLifecycleStateMachine loanLifecycleStateMachine, final List<Long> existingTransactionIds,
             final List<Long> existingReversedTransactionIds, boolean isRecoveryRepayment, final ScheduleGeneratorDTO scheduleGeneratorDTO,
-            Boolean isHolidayValidationDone) {
+            Boolean isHolidayValidationDone, final boolean bypassLastTransactionDateValidation) {
         HolidayDetailDTO holidayDetailDTO = null;
         LoanEvent event = null;
         if (isRecoveryRepayment) {
@@ -3250,7 +3251,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             validateRecoveryRepaymentDateIsOnOrAfterWriteOffDate(repaymentTransaction.getTransactionDate());
         }
         validateActivityNotBeforeClientOrGroupTransferDate(event, repaymentTransaction.getTransactionDate());
-        validateActivityNotBeforeLastTransactionDate(event, repaymentTransaction.getTransactionDate());
+        if (!bypassLastTransactionDateValidation) {
+            validateActivityNotBeforeLastTransactionDate(event, repaymentTransaction.getTransactionDate());
+        }
         if (!isHolidayValidationDone) {
             validateRepaymentDateIsOnHoliday(repaymentTransaction.getTransactionDate(), holidayDetailDTO.isAllowTransactionsOnHoliday(),
                     holidayDetailDTO.getHolidays());
@@ -4642,9 +4645,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         accountingBridgeData.put("isAccountTransfer", isAccountTransfer);
 
         final List<Map<String, Object>> newLoanTransactions = new ArrayList<>();
+        final Set<Long> reversedOriginalTransactionIds = this.loanTransactions.stream().filter(LoanTransaction::isReversalTransaction)
+                .map(LoanTransaction::getOriginalTransactionId).filter(Objects::nonNull).collect(Collectors.toSet());
         for (final LoanTransaction transaction : this.loanTransactions) {
             if (transaction.isReversed() && existingTransactionIds.contains(transaction.getId())
-                    && !existingReversedTransactionIds.contains(transaction.getId())) {
+                    && !existingReversedTransactionIds.contains(transaction.getId())
+                    && !reversedOriginalTransactionIds.contains(transaction.getId())) {
                 newLoanTransactions.add(transaction.toMapData(currencyData));
             } else if (!existingTransactionIds.contains(transaction.getId())) {
                 newLoanTransactions.add(transaction.toMapData(currencyData));

@@ -139,6 +139,12 @@ final class LoanTransactionsApiResourceSwagger {
         public LocalDate submittedOnDate;
         @Schema(example = "false")
         public Boolean manuallyReversed;
+        @Schema(example = "42")
+        public Long originalTransactionId;
+        @Schema(example = "false")
+        public Boolean reversalTransaction;
+        @Schema(example = "[2012, 6, 1]")
+        public LocalDate correctionDate;
         public GetLoansCurrency currency;
         @Schema(example = "559.88")
         public Double amount;
@@ -165,6 +171,10 @@ final class LoanTransactionsApiResourceSwagger {
         public String externalId;
         @Schema(example = "3")
         public Integer paymentTypeId;
+        @Schema(example = "42", description = "Optional for reposted recovery payments. Links the corrected transaction back to the original reversed recovery transaction.")
+        public Long originalTransactionId;
+        @Schema(example = "30 June 2022", description = "Required when the original reversed recovery transaction falls in a closed accounting period.")
+        public String correctionDate;
     }
 
     @Schema(description = "PostLoansLoanIdTransactionsResponse")
@@ -195,6 +205,8 @@ final class LoanTransactionsApiResourceSwagger {
         public Double transactionAmount;
         @Schema(example = "An optional note about why your adjusting or changing the transaction.")
         public String note;
+        @Schema(example = "30 June 2022", description = "Required for reversing recovery payments when the original recovery transaction date falls in a closed accounting period.")
+        public String correctionDate;
     }
 
     @Schema(description = "PostLoansLoanIdTransactionsTransactionIdResponse")

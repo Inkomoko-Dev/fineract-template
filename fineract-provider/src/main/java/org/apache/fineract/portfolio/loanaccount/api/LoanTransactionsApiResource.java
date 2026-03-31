@@ -302,17 +302,24 @@ public class LoanTransactionsApiResource {
     @Path("{transactionId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Adjust a Transaction", description = "Note: there is no need to specify command={transactionType} parameter.\n\n"
-            + "Mandatory Fields: transactionDate, transactionAmount")
+    @Operation(summary = "Adjust or Reverse a Transaction", description = "Use the default request to adjust a transaction. "
+            + "Use `command=reverseRecoveryPayment` to reverse a recovery payment on a written-off loan.\n\n"
+            + "Adjust mandatory fields: transactionDate, transactionAmount")
     @RequestBody(required = true, content = @Content(schema = @Schema(implementation = LoanTransactionsApiResourceSwagger.PostLoansLoanIdTransactionsTransactionIdRequest.class)))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanTransactionsApiResourceSwagger.PostLoansLoanIdTransactionsTransactionIdResponse.class))) })
     public String adjustLoanTransaction(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
             @PathParam("transactionId") @Parameter(description = "transactionId") final Long transactionId,
+            @QueryParam("command") @Parameter(description = "command") final String commandParam,
             @Parameter(hidden = true) final String apiRequestBodyAsJson) {
 
         final CommandWrapperBuilder builder = new CommandWrapperBuilder().withJson(apiRequestBodyAsJson);
-        final CommandWrapper commandRequest = builder.adjustTransaction(loanId, transactionId).build();
+        final CommandWrapper commandRequest;
+        if (is(commandParam, "reverseRecoveryPayment")) {
+            commandRequest = builder.reverseRecoveryPaymentTransaction(loanId, transactionId).build();
+        } else {
+            commandRequest = builder.adjustTransaction(loanId, transactionId).build();
+        }
 
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
 

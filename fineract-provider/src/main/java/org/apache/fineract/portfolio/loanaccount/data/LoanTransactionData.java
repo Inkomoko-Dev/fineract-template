@@ -123,6 +123,15 @@ public class LoanTransactionData {
 
     private final LocalDateTime createdDate;
 
+    @Setter
+    private Long originalTransactionId;
+
+    @Setter
+    private Boolean reversalTransaction;
+
+    @Setter
+    private LocalDate correctionDate;
+
     private Boolean isLoanDisbursementRequestEnabled;
 
     public static LoanTransactionData importInstance(BigDecimal repaymentAmount, LocalDate lastRepaymentDate, Long repaymentTypeId,
