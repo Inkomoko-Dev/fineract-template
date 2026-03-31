@@ -795,6 +795,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder adjustLoanInsuranceCharge(final Long loanId, final Long loanChargeId) {
+        this.actionName = "ADJUSTINSURANCE";
+        this.entityName = "LOANCHARGE";
+        this.loanId = loanId;
+        this.entityId = loanChargeId;
+        this.href = "/loans/" + loanId + "/charges/" + loanChargeId;
+        return this;
+    }
+
     public CommandWrapperBuilder deleteLoanCharge(final Long loanId, final Long loanChargeId) {
         this.actionName = "DELETE";
         this.entityName = "LOANCHARGE";
