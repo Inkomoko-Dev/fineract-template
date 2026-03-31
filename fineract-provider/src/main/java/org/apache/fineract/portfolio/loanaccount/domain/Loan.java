@@ -5852,7 +5852,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             installment = loanScheduleGenerator.calculatePrepaymentAmount(getCurrency(), onDate, loanApplicationTerms, mc, this,
                     scheduleGeneratorDTO.getHolidayDetailDTO(), loanRepaymentScheduleTransactionProcessor);
         } else {
-            installment = this.getTotalOutstandingOnLoan();
+            // For loans without interest recalculation, calculate pro-rata accrued interest
+            // up to the prepayment date instead of charging all scheduled interest
+            installment = this.getTotalOutstandingOnLoanAsOfDate(onDate);
         }
         return installment;
     }
@@ -5950,6 +5952,65 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         LocalDate businessDate = DateUtils.getBusinessLocalDate();
         return new LoanRepaymentScheduleInstallment(null, 0, businessDate, businessDate, totalPrincipal.getAmount(),
                 totalInterest.getAmount(), feeCharges.getAmount(), penaltyCharges.getAmount(), false, compoundingDetails);
+    }
+
+    /**
+     * Calculates the total outstanding amount on a loan as of a specific date,
+     * using pro-rata accrued interest calculation for prepayment/early settlement scenarios.
+     *
+     * This method ensures that:
+     * - Only interest that has actually accrued up to the specified date is included
+     * - Future/unearned interest from installments after the specified date is NOT charged
+     * - For partial periods (prepayment mid-period), interest is calculated on a pro-rata daily basis
+     *
+     * @param asOfDate the date up to which interest should be accrued (typically the prepayment date)
+     * @return a LoanRepaymentScheduleInstallment containing the calculated outstanding amounts
+     */
+    private LoanRepaymentScheduleInstallment getTotalOutstandingOnLoanAsOfDate(final LocalDate asOfDate) {
+        Money feeCharges = Money.zero(loanCurrency());
+        Money penaltyCharges = Money.zero(loanCurrency());
+        Money totalPrincipal = Money.zero(loanCurrency());
+        Money totalAccruedInterest = Money.zero(loanCurrency());
+        final Set<LoanInterestRecalcualtionAdditionalDetails> compoundingDetails = null;
+
+        // Use provided date or fall back to business date
+        final LocalDate effectiveDate = asOfDate != null ? asOfDate : DateUtils.getBusinessLocalDate();
+
+        List<LoanRepaymentScheduleInstallment> repaymentSchedule = getRepaymentScheduleInstallments();
+
+        for (final LoanRepaymentScheduleInstallment scheduledRepayment : repaymentSchedule) {
+            // Always include outstanding principal from all installments
+            totalPrincipal = totalPrincipal.plus(scheduledRepayment.getPrincipalOutstanding(loanCurrency()));
+
+            // Include fees and penalties that are due (already charged)
+            feeCharges = feeCharges.plus(scheduledRepayment.getFeeChargesOutstanding(loanCurrency()));
+            penaltyCharges = penaltyCharges.plus(scheduledRepayment.getPenaltyChargesOutstanding(loanCurrency()));
+
+            // Calculate interest based on the installment's relationship to the effective date
+            if (scheduledRepayment.isObligationsMet()) {
+                // Installment already paid - no interest to add
+                continue;
+            }
+
+            if (scheduledRepayment.isFutureInstallment(effectiveDate)) {
+                // Future installment - do NOT include any interest (not yet accrued)
+                // Principal is already included above
+                continue;
+            }
+
+            if (scheduledRepayment.getDueDate() != null && !effectiveDate.isBefore(scheduledRepayment.getDueDate())) {
+                // Past due installment - include full outstanding interest
+                totalAccruedInterest = totalAccruedInterest.plus(scheduledRepayment.getInterestOutstanding(loanCurrency()));
+            } else {
+                // Current period installment (prepayment date falls within this period)
+                // Calculate pro-rata accrued interest up to the effective date
+                Money accruedInterestForPeriod = scheduledRepayment.calculateAccruedInterestToDate(loanCurrency(), effectiveDate);
+                totalAccruedInterest = totalAccruedInterest.plus(accruedInterestForPeriod);
+            }
+        }
+
+        return new LoanRepaymentScheduleInstallment(null, 0, effectiveDate, effectiveDate, totalPrincipal.getAmount(),
+                totalAccruedInterest.getAmount(), feeCharges.getAmount(), penaltyCharges.getAmount(), false, compoundingDetails);
     }
 
     public LocalDate getAccruedTill() {
