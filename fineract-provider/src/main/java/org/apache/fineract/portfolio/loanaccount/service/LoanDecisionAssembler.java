@@ -27,9 +27,13 @@ import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrappe
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApprovalMatrixConstants;
+import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfig;
+import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfigRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrix;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevel;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevelRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
 import org.apache.fineract.useradministration.domain.AppUser;
@@ -41,6 +45,8 @@ import org.springframework.stereotype.Service;
 public class LoanDecisionAssembler {
 
     private final CodeValueRepositoryWrapper codeValueRepository;
+    private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
+    private final LoanDecisionLevelRepository loanDecisionLevelRepository;
 
     public LoanDecision assembleFrom(final JsonCommand command, Loan loanId, AppUser currentUser) {
 
@@ -433,7 +439,8 @@ public class LoanDecisionAssembler {
         LoanDecision loanDecision = savedLoanDecision;
 
         loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue());
-        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        // NOTE: NextLoanIcReviewDecisionState should already be set by determineTheNextDecisionStage()
+        // Don't hardcode it here - it may be Level 6+ if configured, or PREPARE_AND_SIGN_CONTRACT if Level 5 is the last
         loanDecision.setIcReviewDecisionLevelFiveNote(noteText);
         loanDecision.setIcReviewDecisionLevelFiveBy(currentUser);
         loanDecision.setIcReviewDecisionLevelFiveOn(icReviewOn);
@@ -472,5 +479,175 @@ public class LoanDecisionAssembler {
         loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
         loanDecision.setRejectPrepareAndSignContractSigned(Boolean.FALSE);
         return loanDecision;
+    }
+
+    /**
+     * Dynamic IC Review Decision assembler that works for any IC review level (1, 2, 3, 4, 5, 6, 7, ...).
+     * This method saves decision data in the m_loan_decision_level table for dynamic levels.
+     * For levels 1-5, it also updates the legacy fields in m_loan_decision for backward compatibility.
+     *
+     * @param command The JSON command containing decision data
+     * @param currentUser The user making the decision
+     * @param savedLoanDecision The existing loan decision object
+     * @param isReject Whether this is a rejection (true) or approval (false)
+     * @param icReviewOn The date of the IC review decision
+     * @param recommendedAmount The recommended loan amount (optional)
+     * @param termFrequency The recommended term frequency (optional)
+     * @param termPeriodFrequencyEnum The term period frequency type (optional)
+     * @param levelNumber The IC review level number (1, 2, 3, 4, 5, 6, 7, ...)
+     * @return The updated LoanDecision object
+     */
+    public LoanDecision assembleIcReviewDecisionDynamicFrom(final JsonCommand command, AppUser currentUser,
+                                                             LoanDecision savedLoanDecision, Boolean isReject, LocalDate icReviewOn,
+                                                             BigDecimal recommendedAmount, Integer termFrequency,
+                                                             Integer termPeriodFrequencyEnum, Integer levelNumber) {
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+
+        // Get the IC review level configuration
+        IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
+
+        if (levelConfig == null) {
+            log.warn("IC Review Level {} configuration not found. Using default behavior.", levelNumber);
+        }
+
+        // Update the main loan decision state
+        LoanDecision loanDecision = savedLoanDecision;
+
+        // Set the decision state based on level number
+        if (levelConfig != null) {
+            loanDecision.setLoanDecisionState(levelConfig.getDecisionStateValue());
+        } else {
+            // Fallback to calculating state value
+            // Validate levelNumber to prevent arithmetic underflow (must be >= 1)
+            if (levelNumber != null && levelNumber >= 1) {
+                loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue() + ((levelNumber - 1) * 100));
+            } else {
+                // Default to level one if invalid
+                log.warn("Invalid level number: {}. Defaulting to IC_REVIEW_LEVEL_ONE.", levelNumber);
+                loanDecision.setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+            }
+        }
+
+        // For backward compatibility, update legacy fields for levels 1-5
+        if (levelNumber >= 1 && levelNumber <= 5) {
+            updateLegacyIcReviewFields(loanDecision, levelNumber, noteText, currentUser, icReviewOn,
+                    recommendedAmount, termFrequency, termPeriodFrequencyEnum, isReject);
+        }
+
+        // Save decision data in the dynamic m_loan_decision_level table
+        saveDynamicLevelDecision(loanDecision, levelConfig, levelNumber, noteText, currentUser, icReviewOn,
+                recommendedAmount, termFrequency, termPeriodFrequencyEnum, isReject);
+
+        return loanDecision;
+    }
+
+    /**
+     * Updates legacy IC review fields in the m_loan_decision table for backward compatibility (levels 1-5).
+     */
+    private void updateLegacyIcReviewFields(LoanDecision loanDecision, Integer levelNumber, String noteText,
+                                             AppUser currentUser, LocalDate icReviewOn, BigDecimal recommendedAmount,
+                                             Integer termFrequency, Integer termPeriodFrequencyEnum, Boolean isReject) {
+
+        switch (levelNumber) {
+            case 1:
+                loanDecision.setIcReviewDecisionLevelOneNote(noteText);
+                loanDecision.setIcReviewDecisionLevelOneBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelOneOn(icReviewOn);
+                if (recommendedAmount != null) loanDecision.setIcReviewDecisionLevelOneRecommendedAmount(recommendedAmount);
+                if (termFrequency != null) loanDecision.setIcReviewDecisionLevelOneTermFrequency(termFrequency);
+                if (termPeriodFrequencyEnum != null) loanDecision.setIcReviewDecisionLevelOneTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                loanDecision.setIcReviewDecisionLevelOneSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelOneSigned(isReject);
+                break;
+            case 2:
+                loanDecision.setIcReviewDecisionLevelTwoNote(noteText);
+                loanDecision.setIcReviewDecisionLevelTwoBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelTwoOn(icReviewOn);
+                if (recommendedAmount != null) loanDecision.setIcReviewDecisionLevelTwoRecommendedAmount(recommendedAmount);
+                if (termFrequency != null) loanDecision.setIcReviewDecisionLevelTwoTermFrequency(termFrequency);
+                if (termPeriodFrequencyEnum != null) loanDecision.setIcReviewDecisionLevelTwoTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                loanDecision.setIcReviewDecisionLevelTwoSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelTwoSigned(isReject);
+                break;
+            case 3:
+                loanDecision.setIcReviewDecisionLevelThreeNote(noteText);
+                loanDecision.setIcReviewDecisionLevelThreeBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelThreeOn(icReviewOn);
+                if (recommendedAmount != null) loanDecision.setIcReviewDecisionLevelThreeRecommendedAmount(recommendedAmount);
+                if (termFrequency != null) loanDecision.setIcReviewDecisionLevelThreeTermFrequency(termFrequency);
+                if (termPeriodFrequencyEnum != null) loanDecision.setIcReviewDecisionLevelThreeTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                loanDecision.setIcReviewDecisionLevelThreeSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelThreeSigned(isReject);
+                break;
+            case 4:
+                loanDecision.setIcReviewDecisionLevelFourNote(noteText);
+                loanDecision.setIcReviewDecisionLevelFourBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelFourOn(icReviewOn);
+                if (recommendedAmount != null) loanDecision.setIcReviewDecisionLevelFourRecommendedAmount(recommendedAmount);
+                if (termFrequency != null) loanDecision.setIcReviewDecisionLevelFourTermFrequency(termFrequency);
+                if (termPeriodFrequencyEnum != null) loanDecision.setIcReviewDecisionLevelFourTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                loanDecision.setIcReviewDecisionLevelFourSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelFourSigned(isReject);
+                break;
+            case 5:
+                loanDecision.setIcReviewDecisionLevelFiveNote(noteText);
+                loanDecision.setIcReviewDecisionLevelFiveBy(currentUser);
+                loanDecision.setIcReviewDecisionLevelFiveOn(icReviewOn);
+                if (recommendedAmount != null) loanDecision.setIcReviewDecisionLevelFiveRecommendedAmount(recommendedAmount);
+                if (termFrequency != null) loanDecision.setIcReviewDecisionLevelFiveTermFrequency(termFrequency);
+                if (termPeriodFrequencyEnum != null) loanDecision.setIcReviewDecisionLevelFiveTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+                loanDecision.setIcReviewDecisionLevelFiveSigned(!isReject);
+                loanDecision.setRejectIcReviewDecisionLevelFiveSigned(isReject);
+                // Level 5 is the last hardcoded level
+                loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+                break;
+            default:
+                // No legacy fields for levels beyond 5
+                break;
+        }
+    }
+
+    /**
+     * Saves IC review decision data in the m_loan_decision_level table for dynamic level support.
+     */
+    private void saveDynamicLevelDecision(LoanDecision loanDecision, IcReviewLevelConfig levelConfig, Integer levelNumber,
+                                           String noteText, AppUser currentUser, LocalDate icReviewOn,
+                                           BigDecimal recommendedAmount, Integer termFrequency,
+                                           Integer termPeriodFrequencyEnum, Boolean isReject) {
+
+        // Find existing decision level or create new one
+        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(loanDecision.getId(), levelNumber);
+
+        if (decisionLevel == null) {
+            decisionLevel = new LoanDecisionLevel();
+            decisionLevel.setLoanDecision(loanDecision);
+            decisionLevel.setIcReviewLevel(levelConfig);
+            decisionLevel.setLevelNumber(levelNumber);
+        }
+
+        // Update decision level data
+        decisionLevel.setNote(noteText);
+        decisionLevel.setDecisionBy(currentUser);
+        decisionLevel.setDecisionOn(icReviewOn);
+        decisionLevel.setIsSigned(!isReject);
+        decisionLevel.setIsRejected(isReject);
+
+        if (recommendedAmount != null) {
+            decisionLevel.setRecommendedAmount(recommendedAmount);
+        }
+        if (termFrequency != null) {
+            decisionLevel.setTermFrequency(termFrequency);
+        }
+        if (termPeriodFrequencyEnum != null) {
+            decisionLevel.setTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+        }
+
+        // Save to database
+        loanDecisionLevelRepository.saveAndFlush(decisionLevel);
+
+        log.info("Saved IC Review Decision for Level {} - Loan Decision ID: {}, Rejected: {}",
+                levelNumber, loanDecision.getId(), isReject);
     }
 }

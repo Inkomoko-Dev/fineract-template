@@ -101,4 +101,15 @@ public interface LoanApprovalMatrixConstants {
     String levelFiveSecuredSecondCycleMinTerm = "levelFiveSecuredSecondCycleMinTerm";
     String levelFiveSecuredSecondCycleMaxTerm = "levelFiveSecuredSecondCycleMaxTerm";
     String ADD_MORE_STAGES_TO_A_LOAN_LIFE_CYCLE = "Add-More-Stages-To-A-Loan-Life-Cycle";
+
+    // Dynamic IC Review Level parameters
+    String numberOfLevelsParameterName = "numberOfLevels";
+    String levelNamesParameterName = "levelNames";
+
+    /**
+     * Maximum supported dynamic level number for approval matrix.
+     * This allows accepting parameters for levels 6-20 (or higher) even without database configuration.
+     * Increase this value if more levels are needed.
+     */
+    int MAX_DYNAMIC_LEVEL = 20;
 }
