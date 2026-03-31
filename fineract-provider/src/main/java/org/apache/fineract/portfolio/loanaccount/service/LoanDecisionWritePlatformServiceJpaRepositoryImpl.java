@@ -1875,6 +1875,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
         setNextApproverDynamic(loanDecision, nextStage, nextApprover);
 
+        // Update loanDecision state to keep in sync with loan state
+        loanDecision.setLoanDecisionState(levelConfig.getDecisionStateValue());
+
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecision);
 
         Loan loanObj = loan;
