@@ -124,6 +124,9 @@ public class LoanTransactionData {
     private final LocalDateTime createdDate;
 
     @Setter
+    private String createdByUsername;
+
+    @Setter
     private Long originalTransactionId;
 
     @Setter
@@ -131,6 +134,21 @@ public class LoanTransactionData {
 
     @Setter
     private LocalDate correctionDate;
+
+    @Setter
+    private Boolean correctionAllowed;
+
+    @Setter
+    private Boolean correctionDateRequired;
+
+    @Setter
+    private LocalDate latestClosedAccountingDate;
+
+    @Setter
+    private LocalDate earliestCorrectionDate;
+
+    @Setter
+    private LocalDate latestCorrectionDate;
 
     private Boolean isLoanDisbursementRequestEnabled;
 
@@ -251,6 +269,17 @@ public class LoanTransactionData {
                 loanTransactionData.externalId, loanTransactionData.transfer, loanTransactionData.fixedEmiAmount,
                 loanTransactionData.outstandingLoanBalance, loanTransactionData.manuallyReversed, loanTransactionData.createdDate);
         templateOnTop.writeOffOnDate = loanTransactionData.writeOffOnDate;
+        templateOnTop.loanId = loanTransactionData.loanId;
+        templateOnTop.loanExternalId = loanTransactionData.loanExternalId;
+        templateOnTop.createdByUsername = loanTransactionData.createdByUsername;
+        templateOnTop.originalTransactionId = loanTransactionData.originalTransactionId;
+        templateOnTop.reversalTransaction = loanTransactionData.reversalTransaction;
+        templateOnTop.correctionDate = loanTransactionData.correctionDate;
+        templateOnTop.correctionAllowed = loanTransactionData.correctionAllowed;
+        templateOnTop.correctionDateRequired = loanTransactionData.correctionDateRequired;
+        templateOnTop.latestClosedAccountingDate = loanTransactionData.latestClosedAccountingDate;
+        templateOnTop.earliestCorrectionDate = loanTransactionData.earliestCorrectionDate;
+        templateOnTop.latestCorrectionDate = loanTransactionData.latestCorrectionDate;
         return templateOnTop;
     }
 

@@ -129,7 +129,8 @@ public class LoanTransactionsApiResource {
             @QueryParam("command") @Parameter(description = "command") final String commandParam, @Context final UriInfo uriInfo,
             @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat,
             @QueryParam("transactionDate") @Parameter(description = "transactionDate") final DateParam transactionDateParam,
-            @QueryParam("locale") @Parameter(description = "locale") final String locale) {
+            @QueryParam("locale") @Parameter(description = "locale") final String locale,
+            @QueryParam("originalTransactionId") @Parameter(description = "originalTransactionId", required = false) final Long originalTransactionId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -164,7 +165,7 @@ public class LoanTransactionsApiResource {
         }else if (is(commandParam, "disburseToSavings")) {
             transactionData = this.loanReadPlatformService.retrieveDisbursalTemplate(loanId, false);
         } else if (is(commandParam, "recoverypayment")) {
-            transactionData = this.loanReadPlatformService.retrieveRecoveryPaymentTemplate(loanId);
+            transactionData = this.loanReadPlatformService.retrieveRecoveryPaymentTemplate(loanId, originalTransactionId);
         } else if (is(commandParam, "prepayLoan")) {
             LocalDate transactionDate = null;
             if (transactionDateParam == null) {
