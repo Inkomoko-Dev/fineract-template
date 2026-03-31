@@ -2737,6 +2737,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.requires.reversal",
                     "The original recovery payment must be reversed before a corrected recovery can be reposted.");
         }
+        if (this.loanTransactionRepository.existsActiveCorrectedRecoveryTransaction(originalTransactionId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.already.exists",
+                    "An active corrected recovery payment already exists for the referenced original recovery payment.");
+        }
         return originalTransaction;
     }
 

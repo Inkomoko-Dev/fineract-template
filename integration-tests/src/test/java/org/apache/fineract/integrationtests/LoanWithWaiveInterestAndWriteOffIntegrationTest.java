@@ -70,6 +70,8 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
     private static final String RECOVERY_PAYMENT = "recoverypayment";
     private static final String RECOVERY_PAYMENT_BEFORE_WRITEOFF_ERROR =
             "error.msg.loan.recovery.payment.date.cannot.be.before.writeoff.date";
+    private static final String DUPLICATE_CORRECTED_RECOVERY_ERROR =
+            "error.msg.loan.recovery.payment.correction.already.exists";
     private LoanTransactionHelper loanTransactionHelper;
     private LoanTransactionHelper loanTransactionHelperValidationError;
 
@@ -284,6 +286,41 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         Assertions.assertEquals(Long.valueOf(originalRecoveryId),
                 Long.valueOf(String.valueOf(correctedRecoveryTransaction.get("originalTransactionId"))));
         Assertions.assertEquals(Boolean.TRUE, originalRecoveryTransaction.get("manuallyReversed"));
+    }
+
+    @Test
+    public void correctedRecoveryTemplateExposesMetadataAndPreventsDuplicateActiveReposts() {
+        final Integer loanID = createDisburseAndWriteOffLoan("01 January 2011");
+
+        final Integer originalRecoveryId = (Integer) this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT,
+                "02 January 2011", 100.0f, loanID, "resourceId");
+        this.loanTransactionHelper.reverseRecoveryPayment(loanID, originalRecoveryId, "04 January 2011", null, "resourceId");
+
+        final HashMap correctedRecoveryTemplate = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
+                "/fineract-provider/api/v1/loans/" + loanID + "/transactions/template?command=" + RECOVERY_PAYMENT
+                        + "&originalTransactionId=" + originalRecoveryId + "&" + Utils.TENANT_IDENTIFIER,
+                "");
+        Assertions.assertEquals(Long.valueOf(originalRecoveryId),
+                Long.valueOf(String.valueOf(correctedRecoveryTemplate.get("originalTransactionId"))));
+        Assertions.assertEquals(Boolean.TRUE, correctedRecoveryTemplate.get("correctionAllowed"));
+        Assertions.assertEquals(Boolean.FALSE, correctedRecoveryTemplate.get("correctionDateRequired"));
+
+        final Integer correctedRecoveryId = (Integer) this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT,
+                "02 January 2011", 120.0f, loanID, originalRecoveryId, null, "resourceId");
+        final HashMap correctedRecoveryTransaction = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
+                "/fineract-provider/api/v1/loans/" + loanID + "/transactions/" + correctedRecoveryId + "?template=true&"
+                        + Utils.TENANT_IDENTIFIER,
+                "");
+        Assertions.assertEquals(Long.valueOf(originalRecoveryId),
+                Long.valueOf(String.valueOf(correctedRecoveryTransaction.get("originalTransactionId"))));
+        Assertions.assertEquals(Boolean.FALSE, correctedRecoveryTransaction.get("reversalTransaction"));
+        Assertions.assertEquals(Boolean.TRUE, correctedRecoveryTransaction.get("correctionAllowed"));
+        Assertions.assertEquals(Boolean.FALSE, correctedRecoveryTransaction.get("correctionDateRequired"));
+        Assertions.assertNotNull(correctedRecoveryTransaction.get("createdByUsername"));
+
+        final ArrayList<HashMap> errors = (ArrayList<HashMap>) this.loanTransactionHelperValidationError.makeRepaymentTypePayment(
+                RECOVERY_PAYMENT, "02 January 2011", 130.0f, loanID, originalRecoveryId, null, "errors");
+        assertEquals(DUPLICATE_CORRECTED_RECOVERY_ERROR, errors.get(0).get(CommonConstants.RESPONSE_ERROR_MESSAGE_CODE));
     }
 
     private Integer createDisburseAndWriteOffLoan(final String writeOffDate) {
