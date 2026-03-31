@@ -239,6 +239,53 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
                 "Checking for total recovered ");
     }
 
+    @Test
+    public void reversedRecoveryPaymentCanBeRepostedWithoutReopeningWrittenOffLoan() {
+        final Integer loanID = createDisburseAndWriteOffLoan("01 January 2011");
+
+        final Integer originalRecoveryId = (Integer) this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT,
+                "02 January 2011", 100.0f, loanID, "resourceId");
+        this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT, "03 January 2011", 150.0f, loanID, null);
+
+        HashMap loanSummary = this.loanTransactionHelper.getLoanSummary(requestSpec, responseSpec, loanID);
+        Assertions.assertTrue(
+                Float.valueOf("250.0").compareTo(Float.valueOf(String.valueOf(loanSummary.get("totalRecovered")))) == 0,
+                "Checking for total recovered before reversal ");
+
+        final Integer reversalTransactionId = (Integer) this.loanTransactionHelper.reverseRecoveryPayment(loanID, originalRecoveryId,
+                "04 January 2011", null, "resourceId");
+
+        loanSummary = this.loanTransactionHelper.getLoanSummary(requestSpec, responseSpec, loanID);
+        Assertions.assertTrue(
+                Float.valueOf("150.0").compareTo(Float.valueOf(String.valueOf(loanSummary.get("totalRecovered")))) == 0,
+                "Checking for total recovered after reversal ");
+        LoanStatusChecker
+                .verifyLoanAccountIsClosed(LoanStatusChecker.getStatusOfLoan(this.requestSpec, this.responseSpec, loanID));
+
+        final Integer correctedRecoveryId = (Integer) this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT,
+                "02 January 2011", 120.0f, loanID, originalRecoveryId, null, "resourceId");
+
+        loanSummary = this.loanTransactionHelper.getLoanSummary(requestSpec, responseSpec, loanID);
+        Assertions.assertTrue(
+                Float.valueOf("270.0").compareTo(Float.valueOf(String.valueOf(loanSummary.get("totalRecovered")))) == 0,
+                "Checking for total recovered after repost ");
+        LoanStatusChecker
+                .verifyLoanAccountIsClosed(LoanStatusChecker.getStatusOfLoan(this.requestSpec, this.responseSpec, loanID));
+
+        final ArrayList<HashMap> loanTransactions = this.loanTransactionHelper.getLoanTransactions(this.requestSpec, this.responseSpec,
+                loanID);
+        final HashMap originalRecoveryTransaction = findTransaction(loanTransactions, originalRecoveryId);
+        final HashMap reversalTransaction = findTransaction(loanTransactions, reversalTransactionId);
+        final HashMap correctedRecoveryTransaction = findTransaction(loanTransactions, correctedRecoveryId);
+
+        Assertions.assertEquals(Boolean.TRUE, reversalTransaction.get("reversalTransaction"));
+        Assertions.assertEquals(Long.valueOf(originalRecoveryId), Long.valueOf(String.valueOf(reversalTransaction.get("originalTransactionId"))));
+        Assertions.assertEquals(Boolean.FALSE, correctedRecoveryTransaction.get("reversalTransaction"));
+        Assertions.assertEquals(Long.valueOf(originalRecoveryId),
+                Long.valueOf(String.valueOf(correctedRecoveryTransaction.get("originalTransactionId"))));
+        Assertions.assertEquals(Boolean.TRUE, originalRecoveryTransaction.get("manuallyReversed"));
+    }
+
     private Integer createDisburseAndWriteOffLoan(final String writeOffDate) {
         final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec, DATE_OF_JOINING);
         ClientHelper.verifyClientCreatedOnServer(this.requestSpec, this.responseSpec, clientID);
@@ -256,6 +303,16 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         LoanStatusChecker.verifyLoanIsActive(loanStatusHashMap);
         LoanStatusChecker.verifyLoanAccountIsClosed(this.loanTransactionHelper.writeOffLoan(writeOffDate, loanID));
         return loanID;
+    }
+
+    private HashMap findTransaction(final ArrayList<HashMap> loanTransactions, final Integer transactionId) {
+        for (final HashMap loanTransaction : loanTransactions) {
+            if (Integer.valueOf(String.valueOf(loanTransaction.get("id"))).equals(transactionId)) {
+                return loanTransaction;
+            }
+        }
+        Assertions.fail("Transaction not found: " + transactionId);
+        return null;
     }
 
     private Integer createLoanProduct() {
