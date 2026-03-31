@@ -57,7 +57,9 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
 
             if (correctionRequired) {
                 loanTransactionDTO.setCorrection(true);
-                loanTransactionDTO.setCorrectionDate(DateUtils.getStartOfCurrentMonth()); // first day of current month
+                if (loanTransactionDTO.getCorrectionDate() == null) {
+                    loanTransactionDTO.setCorrectionDate(DateUtils.getStartOfCurrentMonth());
+                }
             }
 
             /** Handle Disbursements and reversals of disbursements **/

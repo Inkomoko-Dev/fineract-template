@@ -56,6 +56,8 @@ public interface LoanWritePlatformService {
 
     CommandProcessingResult adjustLoanTransaction(Long loanId, Long transactionId, JsonCommand command, Boolean isUndoForeClosure);
 
+    CommandProcessingResult reverseLoanRecoveryPayment(Long loanId, Long transactionId, JsonCommand command);
+
     CommandProcessingResult waiveInterestOnLoan(Long loanId, JsonCommand command);
 
     CommandProcessingResult writeOff(Long loanId, JsonCommand command);
