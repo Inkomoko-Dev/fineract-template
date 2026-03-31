@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import com.google.common.base.Splitter;
+import com.google.errorprone.annotations.Keep;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -6005,6 +6006,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return annualNominalInterestRate;
     }
 
+    @Keep
     private LoanRepaymentScheduleInstallment getTotalOutstandingOnLoan() {
         Money feeCharges = Money.zero(loanCurrency());
         Money penaltyCharges = Money.zero(loanCurrency());
