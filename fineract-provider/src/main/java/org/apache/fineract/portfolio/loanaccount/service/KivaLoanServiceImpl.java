@@ -29,6 +29,7 @@ import java.io.File;
 import java.io.IOException;
 import java.sql.Date;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
@@ -251,7 +252,7 @@ public class KivaLoanServiceImpl implements KivaLoanService {
                     LOG.warn("[NOT REPORTED LOAN] KIVA Repayment Report via GET - "
                             + "Loan ID: {} | Client ID: {} | Timestamp: {} | "
                             + "Reason: Loan ID not found in CBS (MIS). Excluded from repayment report.", notReported.getLoan_id(),
-                            notReported.getClient_id(), java.time.LocalDateTime.now());
+                            notReported.getClient_id(), java.time.LocalDateTime.now(ZoneId.systemDefault()));
                 }
                 LOG.warn("===== Total Not Reported Loans: {} =====", notReportedLoans.size());
             }
