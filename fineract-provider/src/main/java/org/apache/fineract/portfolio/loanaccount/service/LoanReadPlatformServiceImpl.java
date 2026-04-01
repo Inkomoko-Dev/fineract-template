@@ -2868,15 +2868,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public LoanTransactionData retrieveLoanPayoffTemplate(Long loanId) {
-        final LoanAccountData loan = this.retrieveOne(loanId);
-        final BigDecimal outstandingLoanBalance = null;
-        final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.PAY_OFF);
-        final BigDecimal unrecognizedIncomePortion = null;
+        // Use the prepayment calculation to ensure only accrued interest is included
+        // This prevents overcharging clients with future/unearned interest on loan payoff
+        final LocalDate payoffDate = DateUtils.getBusinessLocalDate();
+        final LoanTransactionData loanTransactionData = this.retrieveLoanPrePaymentTemplate(LoanTransactionType.PAY_OFF, loanId, payoffDate);
+
+        // Add write-off reason options for the payoff template
         final List<CodeValueData> writeOffReasonOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(LoanApiConstants.WRITEOFFREASONS));
-        LoanTransactionData loanTransactionData = new LoanTransactionData(null, null, null, transactionType, null, loan.currency(),
-                DateUtils.getBusinessLocalDate(), loan.getTotalOutstandingAmount(), loan.getNetDisbursalAmount(), null, null, null, null,
-                null, null, null, null, outstandingLoanBalance, unrecognizedIncomePortion, false, null);
         loanTransactionData.setWriteOffReasonOptions(writeOffReasonOptions);
         return loanTransactionData;
     }
