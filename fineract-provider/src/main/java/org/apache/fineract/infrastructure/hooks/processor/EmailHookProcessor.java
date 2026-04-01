@@ -54,7 +54,6 @@ public class EmailHookProcessor implements HookProcessor {
 
     private final ClientRepositoryWrapper clientRepository;
     private final LoanRepository loanRepository;
-    private final StaffRepository staffRepository;
     private final AppUserRepository appUserRepository;
     private final GmailBackedPlatformEmailService emailService;
     @Value("${CBS_ENVIRONMENT_LINK}")
@@ -135,12 +134,12 @@ public class EmailHookProcessor implements HookProcessor {
         if (loan.getLoanOfficer() != null && loan.getLoanOfficer().getId() != null) {
             Long officerId = loan.getLoanOfficer().getId();
             Map<String, String> officerMap = new HashMap<>();
-            staffRepository.findById(officerId).ifPresentOrElse(
+            appUserRepository.findById(officerId).ifPresentOrElse(
                     officer -> {
-                        officerMap.put("email" , officer.emailAddress());
-                        officerMap.put("name", officer.fullName());
+                        officerMap.put("email" , officer.getEmail());
+                        officerMap.put("name", officer.getUsername());
                         recipients.add(officerMap);
-                        loanOfficerName.set(officer.fullName());
+                        loanOfficerName.set(officer.getFirstname() + " " + officer.getLastname());
                     },
                     () -> log.warn("Loan officer not found for loan: {}", loanId)
             );
