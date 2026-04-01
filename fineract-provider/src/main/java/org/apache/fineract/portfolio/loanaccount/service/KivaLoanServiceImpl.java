@@ -240,7 +240,23 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
                 saveKivaLoanAccountsAwaitingForRepayment(kivaLoanAwaitingRepaymentData);
             }
-            // Now send repayments to Kiva
+
+            // Check for loans not found in CBS and log warnings
+            final Collection<KivaLoanAwaitingApprovalData> notReportedLoans = this.kivaLoanAwaitingApprovalReadPlatformService
+                    .retrieveNotReportedLoans();
+
+            if (!CollectionUtils.isEmpty(notReportedLoans)) {
+                LOG.warn("===== NOT REPORTED LOANS - KIVA Repayment Report via GET =====");
+                for (KivaLoanAwaitingApprovalData notReported : notReportedLoans) {
+                    LOG.warn("[NOT REPORTED LOAN] KIVA Repayment Report via GET - "
+                            + "Loan ID: {} | Client ID: {} | Timestamp: {} | "
+                            + "Reason: Loan ID not found in CBS (MIS). Excluded from repayment report.", notReported.getLoan_id(),
+                            notReported.getClient_id(), java.time.LocalDateTime.now());
+                }
+                LOG.warn("===== Total Not Reported Loans: {} =====", notReportedLoans.size());
+            }
+
+            // Now send repayments to Kiva (only loans found in CBS)
             KivaLoanRepaymentData kivaLoanRepaymentData = new KivaLoanRepaymentData();
             final Collection<KivaLoanAwaitingApprovalData> loanAwaitingApprovalData = this.kivaLoanAwaitingApprovalReadPlatformService
                     .retrieveAllKivaLoanAwaitingApproval();

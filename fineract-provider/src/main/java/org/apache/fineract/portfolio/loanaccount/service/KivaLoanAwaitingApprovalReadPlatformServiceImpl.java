@@ -42,12 +42,37 @@ public class KivaLoanAwaitingApprovalReadPlatformServiceImpl implements KivaLoan
         return this.jdbcTemplate.query(sql, mapper, new Object[] {});
     }
 
+    @Override
+    public Collection<KivaLoanAwaitingApprovalData> retrieveNotReportedLoans() {
+        final NotReportedLoanMapper mapper = new NotReportedLoanMapper();
+        final String sql = "select " + mapper.schema();
+        return this.jdbcTemplate.query(sql, mapper, new Object[] {});
+    }
+
     private static final class KivaLoanMapper implements RowMapper<KivaLoanAwaitingApprovalData> {
 
         public String schema() {
             return " mklaa.id as id, mklaa.internal_client_id AS client_id,mklaa.internal_loan_id AS loan_id, "
-                    + " Coalesce(ml.principal_repaid_derived,0) AS amount " + " FROM m_kiva_loan_awaiting_approval mklaa "
-                    + " LEFT JOIN m_loan ml on mklaa.internal_loan_id = ml.kiva_id";
+                    + " ml.principal_repaid_derived AS amount " + " FROM m_kiva_loan_awaiting_approval mklaa "
+                    + " INNER JOIN m_loan ml on mklaa.internal_loan_id = ml.kiva_id";
+        }
+
+        @Override
+        public KivaLoanAwaitingApprovalData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
+            final BigDecimal amount = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "amount");
+            final String loan_id = rs.getString("loan_id");
+            final String client_id = rs.getString("client_id");
+
+            return new KivaLoanAwaitingApprovalData(loan_id, client_id, amount);
+        }
+    }
+
+    private static final class NotReportedLoanMapper implements RowMapper<KivaLoanAwaitingApprovalData> {
+
+        public String schema() {
+            return " mklaa.id as id, mklaa.internal_client_id AS client_id, mklaa.internal_loan_id AS loan_id, "
+                    + " 0 AS amount " + " FROM m_kiva_loan_awaiting_approval mklaa "
+                    + " LEFT JOIN m_loan ml on mklaa.internal_loan_id = ml.kiva_id " + " WHERE ml.id IS NULL";
         }
 
         @Override
