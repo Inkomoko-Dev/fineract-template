@@ -26,7 +26,6 @@ import org.apache.fineract.infrastructure.core.domain.EmailDetail;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.service.GmailBackedPlatformEmailService;
 import org.apache.fineract.infrastructure.hooks.domain.Hook;
-import org.apache.fineract.organisation.staff.domain.StaffRepository;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
