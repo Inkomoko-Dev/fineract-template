@@ -1395,18 +1395,20 @@ public class LoanDecisionStateUtilService {
         boolean isLastLevel = maxLevel != null && nextLevel.getLevelNumber().equals(maxLevel);
 
         // Determine next stage based on loan amount and terms
-        LoanDecisionState expectedNextIcReviewStage = LoanDecisionState.fromInt(nextLevel.getDecisionStateValue());
+        // IMPORTANT: Use the actual decision state value from the database (e.g., 1801 for Level 6)
+        // rather than LoanDecisionState enum which maps dynamic levels (1801-1899) back to IC_REVIEW_LEVEL_FIVE (1800)
+        Integer nextDecisionStateValue = nextLevel.getDecisionStateValue();
 
         if (isLastLevel) {
             // Last level uses different logic (similar to level 5)
-            generateTheNextIcReviewStageFive(dueDiligenceRecommendedAmount, nextStageMaxAmount,
+            generateTheNextIcReviewStageFiveDynamic(dueDiligenceRecommendedAmount, nextStageMaxAmount,
                     loan.getNumberOfRepayments(), nextStageMinTerm, nextStageMaxTerm, loanDecision,
-                    expectedNextIcReviewStage, currentStageMaxAmount);
+                    nextDecisionStateValue, currentStageMaxAmount);
         } else {
             // Middle levels use standard logic
-            generateTheNextIcReviewStage(dueDiligenceRecommendedAmount, nextStageMaxAmount,
+            generateTheNextIcReviewStageDynamic(dueDiligenceRecommendedAmount, nextStageMaxAmount,
                     loan.getNumberOfRepayments(), nextStageMinTerm, nextStageMaxTerm, loanDecision,
-                    expectedNextIcReviewStage, currentStageMaxAmount);
+                    nextDecisionStateValue, currentStageMaxAmount);
         }
 
         log.debug("Loan {} at level {} - determined next stage: {}", loan.getId(), currentLevelNumber,
