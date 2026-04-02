@@ -146,4 +146,18 @@ final class DocumentManagementApiResourceSwagger {
         }
     }
 
+    @Schema(description = "Update Document Metadata Request")
+    public static final class UpdateDocumentMetadataRequest {
+
+        private UpdateDocumentMetadataRequest() {
+
+        }
+
+        @Schema(example = "New Document Name", description = "The new name for the document")
+        public String name;
+
+        @Schema(example = "Updated description for the document", description = "The new description for the document")
+        public String description;
+    }
+
 }

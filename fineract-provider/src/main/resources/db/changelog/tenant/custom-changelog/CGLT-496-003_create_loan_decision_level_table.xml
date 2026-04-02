@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!-- Create Loan Decision Level Table (Dynamic IC Review Decisions) -->
+    <changeSet id="create-m_loan_decision_level" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_decision_level"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_decision_level">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="loan_decision_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="FK_loan_decision_level-decision_id" references="m_loan_decision(id)"/>
+            </column>
+            <column name="ic_review_level_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="FK_loan_decision_level-ic_level_id" references="m_ic_review_level_config(id)"/>
+            </column>
+            <column name="level_number" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="note" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="is_signed" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_rejected" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="decision_on" type="date">
+                <constraints nullable="true"/>
+            </column>
+            <column name="decision_by" type="bigint">
+                <constraints nullable="true" foreignKeyName="FK_loan_decision_level-decision_by" references="m_appuser(id)"/>
+            </column>
+            <column name="recommended_amount" type="decimal(19,6)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="term_frequency" type="int">
+                <constraints nullable="true"/>
+            </column>
+            <column name="term_period_frequency_enum" type="int">
+                <constraints nullable="true"/>
+            </column>
+            <column name="createdby_id" type="bigint">
+                <constraints nullable="true" foreignKeyName="FK_m_loan_decision_level-created_by" references="m_appuser(id)"/>
+            </column>
+            <column name="created_date" type="timestamp" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="lastmodifiedby_id" type="bigint">
+                <constraints nullable="true" foreignKeyName="FK_m_loan_decision_level-lastmodifiedby_id" references="m_appuser(id)"/>
+            </column>
+            <column name="lastmodified_date" type="timestamp" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Add unique constraint to ensure one entry per decision per level -->
+    <changeSet id="add-unique-constraint-loan-decision-level" author="Felix Mutua">
+        <addUniqueConstraint tableName="m_loan_decision_level"
+                             columnNames="loan_decision_id, ic_review_level_id"
+                             constraintName="UK_loan_decision_level"/>
+    </changeSet>
+
+    <!-- Migrate existing IC Review Decision data from m_loan_decision to m_loan_decision_level -->
+    <changeSet id="migrate-existing-loan-decision-data" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_loan_decision"/>
+            <tableExists tableName="m_loan_decision_level"/>
+            <tableExists tableName="m_ic_review_level_config"/>
+        </preConditions>
+        <sql>
+            -- Migrate IC Review Level One data
+            INSERT INTO m_loan_decision_level
+            (loan_decision_id, ic_review_level_id, level_number, note, is_signed, is_rejected,
+             decision_on, decision_by, recommended_amount, term_frequency, term_period_frequency_enum,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                ld.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 1),
+                1,
+                ld.ic_review_decision_level_one_note,
+                COALESCE(ld.is_ic_review_decision_level_one_signed, false),
+                COALESCE(ld.is_reject_ic_review_decision_level_one, false),
+                ld.ic_review_decision_level_one_on,
+                ld.ic_review_decision_level_one_by,
+                ld.ic_review_decision_level_one_recommended_amount,
+                ld.ic_review_decision_level_one_term_frequency,
+                ld.ic_review_decision_level_one_term_period_frequency_enum,
+                ld.createdby_id, ld.created_date, ld.lastmodifiedby_id, ld.lastmodified_date
+            FROM m_loan_decision ld
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 1)
+            AND (ld.ic_review_decision_level_one_note IS NOT NULL
+                 OR ld.is_ic_review_decision_level_one_signed IS NOT NULL
+                 OR ld.is_reject_ic_review_decision_level_one IS NOT NULL
+                 OR ld.ic_review_decision_level_one_on IS NOT NULL);
+
+            -- Migrate IC Review Level Two data
+            INSERT INTO m_loan_decision_level
+            (loan_decision_id, ic_review_level_id, level_number, note, is_signed, is_rejected,
+             decision_on, decision_by, recommended_amount, term_frequency, term_period_frequency_enum,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                ld.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 2),
+                2,
+                ld.ic_review_decision_level_two_note,
+                COALESCE(ld.is_ic_review_decision_level_two_signed, false),
+                COALESCE(ld.is_reject_ic_review_decision_level_two, false),
+                ld.ic_review_decision_level_two_on,
+                ld.ic_review_decision_level_two_by,
+                ld.ic_review_decision_level_two_recommended_amount,
+                ld.ic_review_decision_level_two_term_frequency,
+                ld.ic_review_decision_level_two_term_period_frequency_enum,
+                ld.createdby_id, ld.created_date, ld.lastmodifiedby_id, ld.lastmodified_date
+            FROM m_loan_decision ld
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 2)
+            AND (ld.ic_review_decision_level_two_note IS NOT NULL
+                 OR ld.is_ic_review_decision_level_two_signed IS NOT NULL
+                 OR ld.is_reject_ic_review_decision_level_two IS NOT NULL
+                 OR ld.ic_review_decision_level_two_on IS NOT NULL);
+
+            -- Migrate IC Review Level Three data
+            INSERT INTO m_loan_decision_level
+            (loan_decision_id, ic_review_level_id, level_number, note, is_signed, is_rejected,
+             decision_on, decision_by, recommended_amount, term_frequency, term_period_frequency_enum,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                ld.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 3),
+                3,
+                ld.ic_review_decision_level_three_note,
+                COALESCE(ld.is_ic_review_decision_level_three_signed, false),
+                COALESCE(ld.is_reject_ic_review_decision_level_three, false),
+                ld.ic_review_decision_level_three_on,
+                ld.ic_review_decision_level_three_by,
+                ld.ic_review_decision_level_three_recommended_amount,
+                ld.ic_review_decision_level_three_term_frequency,
+                ld.ic_review_decision_level_three_term_period_frequency_enum,
+                ld.createdby_id, ld.created_date, ld.lastmodifiedby_id, ld.lastmodified_date
+            FROM m_loan_decision ld
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 3)
+            AND (ld.ic_review_decision_level_three_note IS NOT NULL
+                 OR ld.is_ic_review_decision_level_three_signed IS NOT NULL
+                 OR ld.is_reject_ic_review_decision_level_three IS NOT NULL
+                 OR ld.ic_review_decision_level_three_on IS NOT NULL);
+
+            -- Migrate IC Review Level Four data
+            INSERT INTO m_loan_decision_level
+            (loan_decision_id, ic_review_level_id, level_number, note, is_signed, is_rejected,
+             decision_on, decision_by, recommended_amount, term_frequency, term_period_frequency_enum,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                ld.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 4),
+                4,
+                ld.ic_review_decision_level_four_note,
+                COALESCE(ld.is_ic_review_decision_level_four_signed, false),
+                COALESCE(ld.is_reject_ic_review_decision_level_four, false),
+                ld.ic_review_decision_level_four_on,
+                ld.ic_review_decision_level_four_by,
+                ld.ic_review_decision_level_four_recommended_amount,
+                ld.ic_review_decision_level_four_term_frequency,
+                ld.ic_review_decision_level_four_term_period_frequency_enum,
+                ld.createdby_id, ld.created_date, ld.lastmodifiedby_id, ld.lastmodified_date
+            FROM m_loan_decision ld
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 4)
+            AND (ld.ic_review_decision_level_four_note IS NOT NULL
+                 OR ld.is_ic_review_decision_level_four_signed IS NOT NULL
+                 OR ld.is_reject_ic_review_decision_level_four IS NOT NULL
+                 OR ld.ic_review_decision_level_four_on IS NOT NULL);
+
+            -- Migrate IC Review Level Five data
+            INSERT INTO m_loan_decision_level
+            (loan_decision_id, ic_review_level_id, level_number, note, is_signed, is_rejected,
+             decision_on, decision_by, recommended_amount, term_frequency, term_period_frequency_enum,
+             createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT
+                ld.id,
+                (SELECT id FROM m_ic_review_level_config WHERE level_number = 5),
+                5,
+                ld.ic_review_decision_level_five_note,
+                COALESCE(ld.is_ic_review_decision_level_five_signed, false),
+                COALESCE(ld.is_reject_ic_review_decision_level_five, false),
+                ld.ic_review_decision_level_five_on,
+                ld.ic_review_decision_level_five_by,
+                ld.ic_review_decision_level_five_recommended_amount,
+                ld.ic_review_decision_level_five_term_frequency,
+                ld.ic_review_decision_level_five_term_period_frequency_enum,
+                ld.createdby_id, ld.created_date, ld.lastmodifiedby_id, ld.lastmodified_date
+            FROM m_loan_decision ld
+            WHERE EXISTS (SELECT 1 FROM m_ic_review_level_config WHERE level_number = 5)
+            AND (ld.ic_review_decision_level_five_note IS NOT NULL
+                 OR ld.is_ic_review_decision_level_five_signed IS NOT NULL
+                 OR ld.is_reject_ic_review_decision_level_five IS NOT NULL
+                 OR ld.ic_review_decision_level_five_on IS NOT NULL);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

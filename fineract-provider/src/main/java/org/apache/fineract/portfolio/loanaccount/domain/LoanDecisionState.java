@@ -38,6 +38,9 @@ public enum LoanDecisionState {
     private final String code;
 
     public static LoanDecisionState fromInt(final Integer statusValue) {
+        if (statusValue == null) {
+            return LoanDecisionState.INVALID;
+        }
 
         LoanDecisionState enumeration = LoanDecisionState.INVALID;
         switch (statusValue) {
@@ -67,6 +70,14 @@ public enum LoanDecisionState {
                 break;
             case 1900:
                 enumeration = LoanDecisionState.PREPARE_AND_SIGN_CONTRACT;
+                break;
+            default:
+                // Handle dynamic IC review levels (6+): values 1801-1899
+                // Return IC_REVIEW_LEVEL_FIVE so that dynamic level handling code is triggered
+                // The actual level number is determined from the integer value, not the enum
+                if (statusValue > 1800 && statusValue < 1900) {
+                    enumeration = LoanDecisionState.IC_REVIEW_LEVEL_FIVE;
+                }
                 break;
         }
         return enumeration;
@@ -123,5 +134,49 @@ public enum LoanDecisionState {
 
     public boolean isPrepareAndSignContract() {
         return this.value.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+    }
+
+    /**
+     * Check if this state represents any IC Review level (dynamic support).
+     * This includes all hardcoded levels (1-5) and any future dynamic levels.
+     * IC Review levels are in the range 1400-1899.
+     */
+    public boolean isAnyIcReviewLevel() {
+        return this.value >= 1400 && this.value < 1900;
+    }
+
+    /**
+     * Get the IC Review level number from the state value.
+     * Returns null if this is not an IC Review level.
+     *
+     * Levels 1-5 use values: 1400, 1500, 1600, 1700, 1800 (100 increments)
+     * Levels 6+ use values: 1801, 1802, 1803, etc. (1 increment, fitting between 1800 and 1899)
+     *
+     * @return level number (1-5 for hardcoded, 6+ for dynamic) or null
+     */
+    public Integer getIcReviewLevelNumber() {
+        if (!isAnyIcReviewLevel()) {
+            return null;
+        }
+        // Handle levels 1-5 (values 1400-1800 with 100 increments)
+        if (this.value >= 1400 && this.value <= 1800 && (this.value - 1400) % 100 == 0) {
+            return ((this.value - 1400) / 100) + 1;
+        }
+        // Handle dynamic levels 6+ (values 1801-1899)
+        if (this.value > 1800 && this.value < 1900) {
+            return 5 + (this.value - 1800); // 1801 = level 6, 1802 = level 7, etc.
+        }
+        return null;
+    }
+
+    /**
+     * Check if this state is a specific IC Review level.
+     *
+     * @param levelNumber the level number to check (1, 2, 3, etc.)
+     * @return true if this state represents the specified level
+     */
+    public boolean isIcReviewLevel(Integer levelNumber) {
+        Integer currentLevel = getIcReviewLevelNumber();
+        return currentLevel != null && currentLevel.equals(levelNumber);
     }
 }

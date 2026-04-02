@@ -109,6 +109,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanCashFlowData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanCashFlowProjectionData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanCashFlowReport;
 import org.apache.fineract.portfolio.loanaccount.data.LoanDecisionData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanDecisionLevelData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanDueDiligenceData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanFinancialRatioData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanInterestRecalculationData;
@@ -210,6 +211,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final CurrencyReadPlatformService currencyReadPlatformService;
     private final LoanTransactionRepository loanTransactionRepository;
     private final AppUserReadPlatformService appUserReadPlatformService;
+    private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
 
     @Autowired
     public LoanReadPlatformServiceImpl(final PlatformSecurityContext context,
@@ -229,7 +231,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                        final GLClosureRepository glClosureRepository, PaginationHelper paginationHelper,
                                        SearchReadPlatformService searchReadPlatformService, final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository,
                                        final ConfigurationReadPlatformService configurationReadPlatformService,
-                                       final CurrencyReadPlatformService currencyReadPlatformService, final LoanTransactionRepository loanTransactionRepository, AppUserReadPlatformService appUserReadPlatformService) {
+                                       final CurrencyReadPlatformService currencyReadPlatformService, final LoanTransactionRepository loanTransactionRepository,
+                                       AppUserReadPlatformService appUserReadPlatformService, final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper) {
         this.context = context;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
         this.applicationCurrencyRepository = applicationCurrencyRepository;
@@ -262,6 +265,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.currencyReadPlatformService = currencyReadPlatformService;
         this.loanTransactionRepository = loanTransactionRepository;
         this.appUserReadPlatformService = appUserReadPlatformService;
+        this.dynamicIcReviewLevelHelper = dynamicIcReviewLevelHelper;
     }
 
     @Override
@@ -726,18 +730,22 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 termFrequencyTypeOptions, currency, loanDecisionData, approverOptions);
     }
 
+    /**
+     * Gets the permission required for the next stage approver based on the current loan decision state.
+     * This method supports dynamic IC review levels (unlimited levels beyond the hardcoded 5).
+     *
+     * @param loanDecisionState The current loan decision state value
+     * @return The permission code for the next stage approver, or null if no next stage exists
+     */
     private String getNextStageApproverPermission(Integer loanDecisionState) {
-        String nextStagePermission = null;
-        //the current state is the loan decision state which
-        switch (LoanDecisionState.fromInt(loanDecisionState)) {
-            case REVIEW_APPLICATION -> nextStagePermission = "ACCEPT_LOANICREVIEWDECISIONLEVELONE";
-            case DUE_DILIGENCE -> nextStagePermission = "ACCEPT_LOANICREVIEWDECISIONLEVELTWO";
-            case IC_REVIEW_LEVEL_ONE -> nextStagePermission = "ACCEPT_LOANICREVIEWDECISIONLEVELTHREE";
-            case IC_REVIEW_LEVEL_TWO -> nextStagePermission = "ACCEPT_LOANICREVIEWDECISIONLEVELFOUR";
-            case IC_REVIEW_LEVEL_THREE-> nextStagePermission = "ACCEPT_LOANICREVIEWDECISIONLEVELFIVE";
-            case IC_REVIEW_LEVEL_FIVE, IC_REVIEW_LEVEL_FOUR, PREPARE_AND_SIGN_CONTRACT, COLLATERAL_REVIEW, INVALID -> {
-            }
+        if (loanDecisionState == null) {
+            return null;
         }
+
+        // Use the dynamic helper to get the next stage permission
+        // This supports unlimited IC review levels (1, 2, 3, 4, 5, 6, 7, ...)
+        String nextStagePermission = dynamicIcReviewLevelHelper.getNextStagePermission(loanDecisionState);
+
         return nextStagePermission;
     }
 
@@ -3557,9 +3565,52 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         String sql = "select " + mapper.schema();
         List<LoanDecisionData> result = this.jdbcTemplate.query(sql, mapper, loanId);
         if (!result.isEmpty()) {
-            return result.get(0);
+            LoanDecisionData decisionData = result.get(0);
+            // Enrich with dynamic level data
+            enrichWithDynamicDecisionLevels(decisionData, loanId);
+            return decisionData;
         }
         return null;
+    }
+
+    /**
+     * Enriches LoanDecisionData with dynamic IC review level data from m_loan_decision_level table.
+     * This supports unlimited IC review levels beyond the hardcoded 5 levels.
+     */
+    private void enrichWithDynamicDecisionLevels(LoanDecisionData decisionData, Long loanId) {
+        // Query to get dynamic decision level data
+        String sql = "SELECT ldl.id, ldl.loan_decision_id, ldl.level_number, " +
+                "irlc.level_name, irlc.level_code, " +
+                "ldl.recommended_amount, ldl.note, ldl.decision_by, " +
+                "au.username as decision_by_name, ldl.decision_on, ldl.is_signed, ldl.is_rejected " +
+                "FROM m_loan_decision_level ldl " +
+                "INNER JOIN m_loan_decision ld ON ld.id = ldl.loan_decision_id " +
+                "LEFT JOIN m_ic_review_level_config irlc ON irlc.level_number = ldl.level_number AND irlc.is_active = true " +
+                "LEFT JOIN m_appuser au ON au.id = ldl.decision_by " +
+                "WHERE ld.loan_id = ? " +
+                "ORDER BY ldl.level_number ASC";
+
+        List<LoanDecisionLevelData> decisionLevels = this.jdbcTemplate.query(sql, (rs, rowNum) -> {
+            Long id = rs.getLong("id");
+            Long loanDecisionId = rs.getLong("loan_decision_id");
+            Integer levelNumber = rs.getInt("level_number");
+            String levelName = rs.getString("level_name");
+            String levelCode = rs.getString("level_code");
+            BigDecimal recommendedAmount = rs.getBigDecimal("recommended_amount");
+            String note = rs.getString("note");
+            Long decisionBy = JdbcSupport.getLong(rs, "decision_by");
+            String decisionByName = rs.getString("decision_by_name");
+            LocalDate decisionOn = JdbcSupport.getLocalDate(rs, "decision_on");
+            Boolean isSigned = rs.getBoolean("is_signed");
+            Boolean isRejected = rs.getBoolean("is_rejected");
+            // Derive decision status from is_signed and is_rejected flags
+            String decision = isRejected ? "REJECTED" : (isSigned ? "APPROVED" : "PENDING");
+
+            return new LoanDecisionLevelData(id, loanDecisionId, levelNumber, levelName, levelCode,
+                    recommendedAmount, note, decisionBy, decisionByName, decisionOn, decision);
+        }, loanId);
+
+        decisionData.setDecisionLevels(decisionLevels);
     }
 
     public static final class LoanDecisionDataMapper implements RowMapper<LoanDecisionData> {
