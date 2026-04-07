@@ -3744,21 +3744,15 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // 3. Find the active REPAYMENT_AT_DISBURSEMENT transaction linked to this charge
         LoanTransaction originalTransaction = null;
         for (final LoanTransaction lt : loan.getLoanTransactions()) {
-            if (lt.isReversed()) {
-                continue;
-            }
-            if (!LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.equals(lt.getTypeOf())) {
-                continue;
-            }
+            if (lt.isReversed()) continue;
+            if (!LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.equals(lt.getTypeOf())) continue;
             for (final LoanChargePaidBy paidBy : lt.getLoanChargesPaid()) {
                 if (paidBy.getLoanCharge().getId().equals(loanChargeId)) {
                     originalTransaction = lt;
                     break;
                 }
             }
-            if (originalTransaction != null) {
-                break;
-            }
+            if (originalTransaction != null) break;
         }
 
         if (originalTransaction == null) {
@@ -3775,14 +3769,28 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final BigDecimal oldAmount = originalTransaction.getAmount(loan.getCurrency()).getAmount();
 
-        // 5. Build changes map
+        // 5. If amounts are equal — do nothing, return early
+        if (newAmount.compareTo(oldAmount) == 0) {
+            return new CommandProcessingResultBuilder()
+                    .withCommandId(command.commandId())
+                    .withEntityId(loanChargeId)
+                    .withLoanId(loanId)
+                    .build();
+        }
+
+        // delta > 0 → underpayment: client owes more, loan balance increases
+        // delta < 0 → overpayment:  charge reduced, loan balance decreases
+        final BigDecimal delta = newAmount.subtract(oldAmount);
+        final BigDecimal absDelta = delta.abs();
+        final boolean isCredit = delta.compareTo(BigDecimal.ZERO) < 0;
+
+        // 6. Build changes map
         final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put("previousAmount", oldAmount);
         changes.put("previousTransactionDate", originalTransaction.getTransactionDate());
+        changes.put("amount", newAmount);
+        changes.put("delta", delta);
 
-        if (newAmount.compareTo(oldAmount) != 0) {
-            changes.put("amount", newAmount);
-        }
         if (!newTransactionDate.isEqual(originalTransaction.getTransactionDate())) {
             changes.put("transactionDate", newTransactionDate);
         }
@@ -3790,80 +3798,60 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             changes.put("notes", notes);
         }
 
-        // Nothing substantive changed return early with no DB writes
-        if (changes.size() <= 2) {
-            return new CommandProcessingResultBuilder()
-                    .withCommandId(command.commandId())
-                    .withEntityId(loanChargeId)
-                    .withLoanId(loanId)
-                    .with(changes)
-                    .build();
-        }
-
-        // 6. Track existing transaction IDs
+        // 7. Track existing transaction IDs before any changes
         final List<Long> existingTransactionIds = new ArrayList<>(loan.findExistingTransactionIds());
         final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
 
-        // 7. Reverse the original transaction
-        originalTransaction.reverse();
-        originalTransaction.setManuallyAdjustedOrReversed();
-        this.loanTransactionRepository.saveAndFlush(originalTransaction);
+        // 8. Post INSURANCE_CHARGE_ADJUSTMENT transaction for the delta.
+        final Money deltaMoney = Money.of(loan.getCurrency(), absDelta);
 
-        // 8. Create the corrected REPAYMENT_AT_DISBURSEMENT transaction
-        final Money correctedMoney = Money.of(loan.getCurrency(), newAmount);
-        final LoanTransaction adjustedTransaction = LoanTransaction.repaymentAtDisbursement(
+        final LoanTransaction chargeAdjustmentTransaction = LoanTransaction.insuranceChargeAdjustment(
+                loan,
                 loan.getOffice(),
-                correctedMoney,
-                originalTransaction.getPaymentDetail(),
+                deltaMoney,
                 newTransactionDate,
+                isCredit);
+
+        chargeAdjustmentTransaction.updateLoan(loan);
+
+        // Link adjustment transaction to the charge for audit trail
+        final LoanChargePaidBy adjustmentChargePaidBy = new LoanChargePaidBy(
+                chargeAdjustmentTransaction,
+                loanCharge,
+                isCredit ? absDelta.negate() : absDelta,
                 null);
-        adjustedTransaction.updateLoan(loan);
+        chargeAdjustmentTransaction.getLoanChargesPaid().add(adjustmentChargePaidBy);
 
-        adjustedTransaction.updateChargesComponents(
-                correctedMoney,
-                Money.zero(loan.getCurrency()));
+        this.loanTransactionRepository.saveAndFlush(chargeAdjustmentTransaction);
+        loan.getLoanTransactions().add(chargeAdjustmentTransaction);
 
-        // 9. Re-link the corrected transaction to the charge via LoanChargePaidBy
-        final LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(
-                adjustedTransaction, loanCharge, newAmount, null);
-        adjustedTransaction.getLoanChargesPaid().add(newChargePaidBy);
+        // 9. Update LoanCharge state
 
-        this.loanTransactionRepository.saveAndFlush(adjustedTransaction);
-        loan.getLoanTransactions().add(adjustedTransaction);
+        //  update charge amount to newAmount
+        loanCharge.updateAmount(newAmount);
 
-        // 10. Update LoanCharge paid/outstanding state to reflect the new amount
-        //     Step A: reset paid state so amounts are clean
-        loanCharge.resetPaidAmount(loan.getCurrency());
+        loanCharge.resetOutstandingAmount(delta);
 
-        //     Step B: if the amount itself changed, update it
-        if (newAmount.compareTo(oldAmount) != 0) {
-            loanCharge.updateAmount(newAmount);
-            loanCharge.resetOutstandingAmount(newAmount);
-        }
-
-        //     Step C: mark as fully paid again with the corrected amount
-        loanCharge.markAsFullyPaid();
         this.loanChargeRepository.saveAndFlush(loanCharge);
 
-        // 11. Persist note against the new transaction if provided
+        // Re-sync totalFeeChargesDueAtDisbursement and netDisbursalAmount.
+        loan.refreshFeeChargesDueAtDisbursement();
+
+        // 10. Persist note against the adjustment transaction if provided
         if (StringUtils.isNotBlank(notes)) {
-            final Note note = Note.loanTransactionNote(loan, adjustedTransaction, notes);
+            final Note note = Note.loanTransactionNote(loan, chargeAdjustmentTransaction, notes);
             this.noteRepository.save(note);
         }
 
-        // 12. Recalculate loan summary derived fields
+        // 11. Recalculate loan summary derived fields.
         loan.updateLoanSummaryDerivedFields();
         saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
-        // 13. Post GL journal entries
+        // 12. Post GL journal entries for the charge adjustment transaction.
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
 
-        // 14.  clean up old LoanChargePaidBy links on the reversed transaction
-        originalTransaction.getLoanChargesPaid().clear();
-        this.loanTransactionRepository.saveAndFlush(originalTransaction);
-
-        changes.put("reversedTransactionId", originalTransaction.getId());
-        changes.put("adjustedTransactionId", adjustedTransaction.getId());
+        changes.put("originalTransactionId", originalTransaction.getId());
+        changes.put("chargeAdjustmentTransactionId", chargeAdjustmentTransaction.getId());
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())

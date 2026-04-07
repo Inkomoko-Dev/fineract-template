@@ -829,6 +829,34 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return submittedOnDate;
     }
 
+
+    public static LoanTransaction insuranceChargeAdjustment(
+            final Loan loan,
+            final Office office,
+            final Money amount,
+            final LocalDate transactionDate,
+            final boolean isCredit) {
+
+        final LoanTransaction loanTransaction = new LoanTransaction();
+        loanTransaction.loan = loan;
+        loanTransaction.office = office;
+        loanTransaction.typeOf = LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getValue();
+        loanTransaction.principalPortion = BigDecimal.ZERO;
+        loanTransaction.interestPortion = BigDecimal.ZERO;
+        loanTransaction.penaltyChargesPortion = BigDecimal.ZERO;
+        loanTransaction.dateOf = transactionDate;
+        loanTransaction.submittedOnDate = DateUtils.getBusinessLocalDate();
+
+        final BigDecimal signedAmount = isCredit
+                ? amount.getAmount().negate()
+                : amount.getAmount();
+
+        loanTransaction.amount = signedAmount;
+        loanTransaction.feeChargesPortion = signedAmount;
+
+        return loanTransaction;
+    }
+
     // TODO missing hashCode(), equals(Object obj), but probably OK as long as
     // this is never stored in a Collection.
 }
