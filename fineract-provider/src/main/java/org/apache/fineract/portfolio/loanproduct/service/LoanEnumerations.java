@@ -454,6 +454,12 @@ public final class LoanEnumerations {
                 optionData = new LoanTransactionEnumData(LoanTransactionType.PAY_OFF.getValue().longValue(),
                         LoanTransactionType.PAY_OFF.getCode(), "Payoff");
             break;
+            case INSURANCE_CHARGE_ADJUSTMENT:
+                optionData = new LoanTransactionEnumData(
+                        LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getValue().longValue(),
+                        LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getCode(),
+                        "Insurance Charge Adjustment");
+            break;
         }
         return optionData;
     }
