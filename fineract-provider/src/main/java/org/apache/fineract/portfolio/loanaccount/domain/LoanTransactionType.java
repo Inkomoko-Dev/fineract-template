@@ -60,7 +60,8 @@ public enum LoanTransactionType {
     BNPL_VENDOR_TRANSFER(24, "loanTransactionType.bnplVendorTransfer"), WITHDRAWAL_REDRAW(26, "loanTransactionType.withdrawalRedraw"),
 
     DEPOSIT_REDRAW(27, "loanTransactionType.depositRedraw"), PAY_OFF(28, "loanTransactionType.payOff"),
-    DISBURSEMENT_CHARGE_ADJUSTMENT(29, "loanTransactionType.disbursementChargeAdjustment");
+    DISBURSEMENT_CHARGE_ADJUSTMENT(29, "loanTransactionType.disbursementChargeAdjustment"),
+    INSURANCE_CHARGE_ADJUSTMENT(30, "loanTransactionType.insuranceChargeAdjustment");
 
 
     private final Integer value;
@@ -171,6 +172,9 @@ public enum LoanTransactionType {
             case 29:
                 loanTransactionType = LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT;
                 break;
+            case 30:
+                loanTransactionType = LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT;
+                break;
             default:
                 loanTransactionType = LoanTransactionType.INVALID;
             break;
@@ -252,5 +256,9 @@ public enum LoanTransactionType {
 
     public boolean isWithdrawalRedraw() {
         return this.value.equals(WITHDRAWAL_REDRAW.getValue());
+    }
+
+    public boolean isInsuranceChargeAdjustment() {
+        return this.value.equals(INSURANCE_CHARGE_ADJUSTMENT.getValue());
     }
 }
