@@ -1824,13 +1824,17 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final BigDecimal dueDiligenceRecommendedAmount = loanDecision.getDueDiligenceRecommendedAmount();
 
         // Validate against approval matrix for this level
+        // Note: For dynamic levels (6+), fromInt() returns IC_REVIEW_LEVEL_FIVE but validation still works
+        // because validateLoanAccountToComplyToApprovalMatrixStage uses getIcReviewLevelNumber() internally
         LoanDecisionState currentLevelState = LoanDecisionState.fromInt(levelConfig.getDecisionStateValue());
         loanDecisionStateUtilService.validateLoanAccountToComplyToApprovalMatrixStage(loan, approvalMatrix, isLoanFirstCycle,
                 isLoanUnsecure, currentLevelState, dueDiligenceRecommendedAmount);
 
         // Determine the next decision stage
+        // IMPORTANT: Use the overloaded method with levelNumber directly to avoid lossy conversion
+        // through LoanDecisionState.fromInt() which maps 1801-1899 back to IC_REVIEW_LEVEL_FIVE (1800)
         loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
-                currentLevelState, dueDiligenceRecommendedAmount);
+                levelNumber, dueDiligenceRecommendedAmount);
 
         final Integer nextDecisionStage = loanDecision.getNextLoanIcReviewDecisionState();
         if (nextDecisionStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
