@@ -7329,4 +7329,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return loanStatus;
     }
 
+
+    public void refreshFeeChargesDueAtDisbursement() {
+        final BigDecimal feesDueAtDisbursement = deriveSumTotalOfChargesDueAtDisbursement();
+        updateSummaryWithTotalFeeChargesDueAtDisbursement(feesDueAtDisbursement);
+        this.netDisbursalAmount = this.approvedPrincipal.subtract(feesDueAtDisbursement);
+    }
+
 }
