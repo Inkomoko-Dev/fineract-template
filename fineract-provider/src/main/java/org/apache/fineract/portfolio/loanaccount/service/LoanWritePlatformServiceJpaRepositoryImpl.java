@@ -3827,14 +3827,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         // 9. Update LoanCharge state
 
-        //  update charge amount to newAmount
         loanCharge.updateAmount(newAmount);
 
         loanCharge.resetOutstandingAmount(delta);
 
         this.loanChargeRepository.saveAndFlush(loanCharge);
 
-        // Re-sync totalFeeChargesDueAtDisbursement and netDisbursalAmount.
         loan.refreshFeeChargesDueAtDisbursement();
 
         // 10. Persist note against the adjustment transaction if provided
