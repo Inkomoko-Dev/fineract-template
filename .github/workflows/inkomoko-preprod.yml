@@ -1,0 +1,92 @@
+name: Fineract Client Build - Preprod
+
+on:
+  push:
+    branches:
+      - inkomoko-preprod
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get branch name
+        id: branch-name
+        uses: tj-actions/branch-names@v6
+
+      - uses: actions/checkout@v2
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v1
+        with:
+          java-version: 17
+
+      #- name: SonarQube Scan
+      #  env:
+      #    SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      #    SONARR_HOST_URL: https://dev.inkomoko.com:1128
+       # run: |
+        #  ./gradlew --info --stacktrace sonarqube -x test -x compileTestJava \
+         #   -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+          #  -Dsonar.host.url=${SONARR_HOST_URL} \
+           # -Dsonar.login=${SONAR_TOKEN}
+## -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+      - name: Build with Gradles
+        run: ./gradlew --no-daemon -q -x rat -x compileTestJava -x test -x spotlessJavaCheck -x spotlessJava bootJar
+
+      - name: List directory contents
+        run: |
+          echo "Listing contents of the directory:"
+          ls -l ./fineract-provider/build/libs/
+
+      - name: Get Shortened Commit SHA
+        id: shortened_sha
+        run: |
+          FULL_SHA=$GITHUB_SHA
+          SHORTENED_SHA=${FULL_SHA:0:8}
+          echo "::set-output name=shortened_sha::$SHORTENED_SHA"
+
+
+      - name: Update known hosts
+        run: |
+          mkdir -p ~/.ssh
+          touch ~/.ssh/known_hosts
+          ssh-keyscan -p ${{ secrets.VM_PORT_STAG }} -t rsa ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+
+      # Added diagnostic SSH test step
+      - name: Test SSH Connection to VM
+        run: |
+          echo "${{ secrets.VM_KEY_STAG }}" > /tmp/key.pem
+          chmod 600 /tmp/key.pem
+          ls -al
+          echo "Testing SSH connection to ${{ secrets.VM_HOST }} on port ${{ secrets.VM_PORT_STAG }}..."
+          ssh -i /tmp/key.pem -p ${{ secrets.VM_PORT_STAG }} -o StrictHostKeyChecking=no -v ${{ secrets.VM_USER_STAG }}@${{ secrets.VM_HOST }} "echo '✅ SSH connection successful!'"
+        continue-on-error: false
+
+      - name: Verify remote directory permissions
+        run: |
+          # Save SSH key to writable location
+          echo "${{ secrets.VM_KEY_STAG }}" > $HOME/key.pem
+          chmod 400 $HOME/key.pem
+          echo "Checking permissions on target directory..."
+          ssh -i $HOME/key.pem -p ${{ secrets.VM_PORT_STAG }} -o StrictHostKeyChecking=no \
+            ${{ secrets.VM_USER_STAG }}@${{ secrets.VM_HOST }} \
+            "ls -ld /home/mifosstaging/fineract_preprod/fineract/ && whoami && groups && touch /home/mifosstaging/fineract_preprod/fineract/test_file && rm -f /home/mifosstaging/fineract_preprod/fineract/test_file"
+            
+      - name: Copy file using SCP
+        run: |
+          HOST=${{ secrets.VM_HOST }}
+          USER=${{ secrets.VM_USER_STAG }}
+          SOURCE_FILE=./fineract-provider/build/libs/fineract-provider-0.0.0-${{ steps.shortened_sha.outputs.shortened_sha }}.jar
+          DESTINATION_DIR=/home/mifosstaging/fineract_preprod/fineract/
+          PENTAHO_FILE_SOURCE=./fineract-provider/pentahoReports/
+          PENTAHO_FILE_DESTINATION=/home/mifosstaging/fineract_preprod/fineract/pentaho/  
+          echo "${{ secrets.VM_KEY_STAG }}" > /tmp/key.pem
+          chmod 400 /tmp/key.pem
+          ls -al $HOME/
+          ls -al /tmp/
+          scp -i /tmp/key.pem -P ${{ secrets.VM_PORT_STAG }} -o StrictHostKeyChecking=no $SOURCE_FILE $USER@$HOST:$DESTINATION_DIR
+          scp -r -i /tmp/key.pem -P ${{ secrets.VM_PORT_STAG }} -o StrictHostKeyChecking=no $PENTAHO_FILE_SOURCE $USER@$HOST:$PENTAHO_FILE_DESTINATION
+          
+     # - name: Build image on server and deploy
+     #   run: ssh -i $HOME/key.pem -p ${{ secrets.VM_PORT_STAG}} -o StrictHostKeyChecking=no -l ${{ secrets.VM_USER_STAG}} ${{ secrets.VM_HOST }} '/home/mifosstaging/fineract_preprod/fineract/build.sh'
