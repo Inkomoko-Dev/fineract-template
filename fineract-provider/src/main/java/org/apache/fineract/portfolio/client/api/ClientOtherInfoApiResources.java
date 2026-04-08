@@ -56,7 +56,7 @@ import org.springframework.stereotype.Component;
 public class ClientOtherInfoApiResources {
 
     private final Set<String> responseDataParameters = new HashSet<>(Arrays.asList("id", "clientId", "numberOfChildren",
-            "numberOfDependents", "yearArrivedInHostCountry", "co_signors", "guarantor"));
+            "numberOfDependents", "yearArrivedInHostCountry", "co_signors", "guarantor" ,"bankId", "bank"));
     private final String resourceNameForPermissions = "ClientOtherInfo";
     private final PlatformSecurityContext context;
     private final ClientOtherInfoReadPlatformService readPlatformService;

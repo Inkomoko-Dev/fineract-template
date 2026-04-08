@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.FetchType;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.OneToOne;
@@ -89,6 +90,11 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
     @Column(name = "bank_name")
     private String bankName;
 
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "bank_id", nullable = true)
+    private RefBank bank;
+
     public ClientOtherInfo() {}
 
     public ClientOtherInfo(Client client, CodeValue strata, LocalDate yearArrivedInHostCountry, CodeValue nationality,
@@ -127,7 +133,8 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
 
     }
 
-    public static ClientOtherInfo createNew(JsonCommand command, Client client, final CodeValue strata, final CodeValue nationality) {
+    public static ClientOtherInfo createNew(JsonCommand command, Client client, final CodeValue strata, final CodeValue nationality,
+                                            final RefBank bank) {
 
         final Integer numberOfChildren = command.integerValueOfParameterNamed(ClientApiConstants.numberOfChildren);
         final Integer numberOfDependents = command.integerValueOfParameterNamed(ClientApiConstants.numberOfDependents);
@@ -135,15 +142,22 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
                 .stringValueOfParameterNamedAllowingNull(ClientApiConstants.NATIONAL_IDENTIFICATION_NUMBER);
         final String passportNumber = command.stringValueOfParameterNamed(ClientApiConstants.PASSPORT_NUMBER);
         final String bankAccountNumber = command.stringValueOfParameterNamed(ClientApiConstants.BANK_ACCOUNT_NUMBER);
-        final String bankName = command.stringValueOfParameterNamed(ClientApiConstants.BANK_NAME);
+        final String bankName = bank != null ? null : command.stringValueOfParameterNamed(ClientApiConstants.BANK_NAME);
         final String telephoneNo = command.stringValueOfParameterNamed(ClientApiConstants.telephoneNoParamName);
         final LocalDate yearArrivedInHostCountry = command
                 .localDateValueOfParameterNamed(ClientApiConstants.yearArrivedInHostCountryParamName);
-        return new ClientOtherInfo(client, strata, yearArrivedInHostCountry, nationality, numberOfChildren, numberOfDependents,
-                nationalIdentificationNumber, passportNumber, bankAccountNumber, bankName, telephoneNo);
+
+        final ClientOtherInfo clientOtherInfo = new ClientOtherInfo(client, strata, yearArrivedInHostCountry, nationality,
+                numberOfChildren, numberOfDependents, nationalIdentificationNumber, passportNumber,
+                bankAccountNumber, bankName, telephoneNo);
+
+        clientOtherInfo.bank = bank;
+
+        return clientOtherInfo;
     }
 
-    public static ClientOtherInfo createNewForEntity(JsonCommand command, Client client, final CodeValue strata) {
+    public static ClientOtherInfo createNewForEntity(JsonCommand command, Client client, final CodeValue strata,
+                                                     final RefBank bank) {
 
         final String coSignors = command.stringValueOfParameterNamedAllowingNull(ClientApiConstants.coSignors);
         final String guarantor = command.stringValueOfParameterNamedAllowingNull(ClientApiConstants.guarantor);
@@ -153,14 +167,19 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
         final BigDecimal incomeGeneratingActivityMonthlyAmount = command
                 .bigDecimalValueOfParameterNamed(ClientApiConstants.incomeGeneratingActivityMonthlyAmountParamName);
         final String bankAccountNumber = command.stringValueOfParameterNamed(ClientApiConstants.BANK_ACCOUNT_NUMBER);
-        final String bankName = command.stringValueOfParameterNamed(ClientApiConstants.BANK_NAME);
+        final String bankName = bank != null ? null : command.stringValueOfParameterNamed(ClientApiConstants.BANK_NAME);
         final String telephoneNo = command.stringValueOfParameterNamedAllowingNull(ClientApiConstants.telephoneNoParamName);
         final LocalDate yearArrivedInHostCountry = command
                 .localDateValueOfParameterNamed(ClientApiConstants.yearArrivedInHostCountryParamName);
 
-        return new ClientOtherInfo(client, strata, businessLocation, taxIdentificationNumber, incomeGeneratingActivity,
-                incomeGeneratingActivityMonthlyAmount, telephoneNo, coSignors, guarantor, bankAccountNumber, bankName,
-                yearArrivedInHostCountry);
+        final ClientOtherInfo clientOtherInfo = new ClientOtherInfo(client, strata, businessLocation, taxIdentificationNumber,
+                incomeGeneratingActivity, incomeGeneratingActivityMonthlyAmount, telephoneNo, coSignors, guarantor,
+                bankAccountNumber, bankName, yearArrivedInHostCountry);
+
+        // Set bank FK
+        clientOtherInfo.bank = bank;
+
+        return clientOtherInfo;
     }
 
     public Map<String, Object> update(final JsonCommand command, final Integer legalFormId) {
@@ -219,6 +238,13 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
                 actualChanges.put(ClientApiConstants.BANK_NAME, newValue);
                 this.bankName = newValue;
             }
+
+            if (command.isChangeInLongParameterNamed(ClientApiConstants.BANK_ID, this.getBankId())) {
+                final Long newValue = command.longValueOfParameterNamed(ClientApiConstants.BANK_ID);
+                actualChanges.put(ClientApiConstants.BANK_ID, newValue);
+                this.bankName = null;
+                actualChanges.put(ClientApiConstants.BANK_NAME, null);
+            }
             if (command.isChangeInStringParameterNamed(ClientApiConstants.telephoneNoParamName, this.telephoneNo)) {
                 final String newValue = command.stringValueOfParameterNamed(ClientApiConstants.telephoneNoParamName);
                 actualChanges.put(ClientApiConstants.telephoneNoParamName, newValue);
@@ -273,6 +299,13 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
                 actualChanges.put(ClientApiConstants.BANK_NAME, newValue);
                 this.bankName = newValue;
             }
+
+            if (command.isChangeInLongParameterNamed(ClientApiConstants.BANK_ID, this.getBankId())) {
+                final Long newValue = command.longValueOfParameterNamed(ClientApiConstants.BANK_ID);
+                actualChanges.put(ClientApiConstants.BANK_ID, newValue);
+                this.bankName = null;
+                actualChanges.put(ClientApiConstants.BANK_NAME, null);
+            }
         }
         return actualChanges;
     }
@@ -323,5 +356,17 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
 
     public String getNationalIdentificationNumber() {
         return nationalIdentificationNumber;
+    }
+
+    public RefBank getBank() {
+        return bank;
+    }
+
+    public void setBank(RefBank bank) {
+        this.bank = bank;
+    }
+
+    public Long getBankId() {
+        return bank != null ? bank.getId() : null;
     }
 }
