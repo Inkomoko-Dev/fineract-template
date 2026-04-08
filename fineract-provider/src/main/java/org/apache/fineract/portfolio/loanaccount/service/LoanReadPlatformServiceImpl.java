@@ -43,6 +43,8 @@ import java.util.Objects;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.fineract.accounting.closure.domain.GLClosure;
+import org.apache.fineract.accounting.closure.domain.GLClosureRepository;
 import org.apache.fineract.accounting.common.AccountingRuleType;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.codes.service.CodeValueReadPlatformService;
@@ -137,6 +139,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariationType;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactionTypeException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanOverdueReminderData;
@@ -200,6 +203,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final AccountDetailsReadPlatformService accountDetailsReadPlatformService;
     private final ColumnValidator columnValidator;
     private final DatabaseSpecificSQLGenerator sqlGenerator;
+    private final GLClosureRepository glClosureRepository;
     private final PortfolioAccountReadPlatformService portfolioAccountReadPlatformService;
     private final SearchReadPlatformService searchReadPlatformService;
     private final ConfigurationReadPlatformService configurationReadPlatformService;
@@ -223,7 +227,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                        final ConfigurationDomainService configurationDomainService,
                                        final PortfolioAccountReadPlatformService portfolioAccountReadPlatformService,
                                        final AccountDetailsReadPlatformService accountDetailsReadPlatformService, final LoanRepositoryWrapper loanRepositoryWrapper,
-                                       final ColumnValidator columnValidator, DatabaseSpecificSQLGenerator sqlGenerator, PaginationHelper paginationHelper,
+                                       final ColumnValidator columnValidator, DatabaseSpecificSQLGenerator sqlGenerator,
+                                       final GLClosureRepository glClosureRepository, PaginationHelper paginationHelper,
                                        SearchReadPlatformService searchReadPlatformService, final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository,
                                        final ConfigurationReadPlatformService configurationReadPlatformService,
                                        final CurrencyReadPlatformService currencyReadPlatformService, final LoanTransactionRepository loanTransactionRepository,
@@ -251,6 +256,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.columnValidator = columnValidator;
         this.loanMapper = new LoanMapper(sqlGenerator,paymentTypeReadPlatformService);
         this.sqlGenerator = sqlGenerator;
+        this.glClosureRepository = glClosureRepository;
         this.paginationHelper = paginationHelper;
         this.portfolioAccountReadPlatformService = portfolioAccountReadPlatformService;
         this.searchReadPlatformService = searchReadPlatformService;
@@ -849,7 +855,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         try {
             final LoanTransactionsMapper rm = new LoanTransactionsMapper(sqlGenerator);
             final String sql = "select " + rm.loanPaymentsSchema() + " where l.id = ? and tr.id = ? ";
-            return this.jdbcTemplate.queryForObject(sql, rm, loanId, transactionId); // NOSONAR
+            final LoanTransactionData loanTransactionData = this.jdbcTemplate.queryForObject(sql, rm, loanId, transactionId); // NOSONAR
+            final LoanTransaction loanTransaction = this.loanTransactionRepository.findById(transactionId)
+                    .orElseThrow(() -> new LoanTransactionNotFoundException(transactionId));
+            if (loanTransaction.isRecoveryRepaymentType()) {
+                populateRecoveryCorrectionMetadata(loanTransactionData, loanTransaction.getLoan(), loanTransaction.getTransactionDate());
+            }
+            return loanTransactionData;
         } catch (final EmptyResultDataAccessException e) {
             throw new LoanTransactionNotFoundException(transactionId, e);
         }
@@ -1643,8 +1655,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " tr.fee_charges_portion_derived as fees, tr.penalty_charges_portion_derived as penalties, "
                     + " tr.overpayment_portion_derived as overpayment, tr.outstanding_loan_balance_derived as outstandingLoanBalance, "
                     + " tr.unrecognized_income_portion as unrecognizedIncome,"
+                    + " tr.original_transaction_id as originalTransactionId, tr.is_reversal as reversalTransaction, tr.correction_date as correctionDate, "
                     + " tr.submitted_on_date as submittedOnDate,tr.created_on_utc as createdDate, "
-                    + " tr.manually_adjusted_or_reversed as manuallyReversed, mo.id officeId,au.id userId, mc.id clientId,"
+                    + " tr.manually_adjusted_or_reversed as manuallyReversed, mo.id officeId,au.id userId, au.username as createdByUsername, mc.id clientId,"
                     + " pd.payment_type_id as paymentType,pd.account_number as accountNumber,pd.check_number as checkNumber, "
                     + " pd.receipt_number as receiptNumber, pd.bank_number as bankNumber,pd.routing_code as routingCode, l.net_disbursal_amount as netDisbursalAmount,"
                     + " l.currency_code as currencyCode, l.currency_digits as currencyDigits, l.currency_multiplesof as inMultiplesOf, rc."
@@ -1683,6 +1696,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final String loanExternalId = rs.getString("loanExternalId");
             final Long officeId = rs.getLong("officeId");
             final String officeName = rs.getString("officeName");
+            final String createdByUsername = rs.getString("createdByUsername");
             final Integer transactionTypeInt = JdbcSupport.getInteger(rs, "transactionType");
             final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(transactionTypeInt);
             final boolean manuallyReversed = rs.getBoolean("manuallyReversed");
@@ -1715,6 +1729,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final BigDecimal unrecognizedIncomePortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "unrecognizedIncome");
             final BigDecimal outstandingLoanBalance = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "outstandingLoanBalance");
             final String externalId = rs.getString("externalId");
+            final Long originalTransactionId = JdbcSupport.getLong(rs, "originalTransactionId");
+            final boolean reversalTransaction = rs.getBoolean("reversalTransaction");
+            final LocalDate correctionDate = JdbcSupport.getLocalDate(rs, "correctionDate");
 
             final BigDecimal netDisbursalAmount = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "netDisbursalAmount");
 
@@ -1743,6 +1760,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     penaltyChargesPortion, overPaymentPortion, unrecognizedIncomePortion, externalId, transfer, null,
                     outstandingLoanBalance, submittedOnDate, manuallyReversed, createDate, accountId);
             loanTransactionData.setLoanExternalId(loanExternalId);
+            loanTransactionData.setCreatedByUsername(createdByUsername);
+            loanTransactionData.setOriginalTransactionId(originalTransactionId);
+            loanTransactionData.setReversalTransaction(reversalTransaction);
+            loanTransactionData.setCorrectionDate(correctionDate);
             return loanTransactionData;
         }
     }
@@ -2239,6 +2260,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public LoanTransactionData retrieveRecoveryPaymentTemplate(Long loanId) {
+        return retrieveRecoveryPaymentTemplate(loanId, null);
+    }
+
+    @Override
+    public LoanTransactionData retrieveRecoveryPaymentTemplate(Long loanId, Long originalTransactionId) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.RECOVERY_REPAYMENT);
         final List<LoanTransaction> transaction = loanTransactionRepository.findWriteOffLoanTransaction(loanId);
@@ -2261,8 +2287,53 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 DateUtils.getBusinessLocalDate(), totalWrittenOff, loan.getNetDisbursalAmount(), null, null, null, null, null,
                 unrecognizedIncomePortion, paymentOptions, null, null, null, outstandingLoanBalance, false, null);
         loanTransactionData.setWriteOffOnDate(writeOffOnDate);
+        if (originalTransactionId != null) {
+            final LoanTransaction originalRecoveryTransaction = retrieveRecoveryCorrectionReference(loan, originalTransactionId);
+            loanTransactionData.setOriginalTransactionId(originalTransactionId);
+            populateRecoveryCorrectionMetadata(loanTransactionData, loan, originalRecoveryTransaction.getTransactionDate());
+        }
         return loanTransactionData;
 
+    }
+
+    private LoanTransaction retrieveRecoveryCorrectionReference(final Loan loan, final Long originalTransactionId) {
+        final LoanTransaction originalTransaction = this.loanTransactionRepository.findById(originalTransactionId)
+                .orElseThrow(() -> new LoanTransactionNotFoundException(originalTransactionId));
+        if (originalTransaction.isNotBelongingToLoanOf(loan)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.loan.mismatch",
+                    "The referenced original recovery payment does not belong to this loan.");
+        }
+        if (!originalTransaction.isRecoveryRepaymentType()) {
+            throw new InvalidLoanTransactionTypeException("originalTransactionId",
+                    "recovery.payment.correction.requires.recovery.transaction",
+                    "Only recovery payment transactions can be reposted as corrections.");
+        }
+        if (originalTransaction.isNotReversed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.requires.reversal",
+                    "The original recovery payment must be reversed before a corrected recovery can be reposted.");
+        }
+        return originalTransaction;
+    }
+
+    private void populateRecoveryCorrectionMetadata(final LoanTransactionData loanTransactionData, final Loan loan,
+            final LocalDate originalTransactionDate) {
+        loanTransactionData.setCorrectionAllowed(Boolean.TRUE);
+        loanTransactionData.setCorrectionDateRequired(Boolean.FALSE);
+
+        final GLClosure latestGLClosure = this.glClosureRepository.getLatestGLClosureByBranch(loan.getOfficeId());
+        if (latestGLClosure == null || originalTransactionDate.isAfter(latestGLClosure.getClosingDate())) {
+            return;
+        }
+
+        loanTransactionData.setLatestClosedAccountingDate(latestGLClosure.getClosingDate());
+        if (!this.configurationDomainService.isCorrectionsInClosedPeriodsAllowed()) {
+            loanTransactionData.setCorrectionAllowed(Boolean.FALSE);
+            return;
+        }
+
+        loanTransactionData.setCorrectionDateRequired(Boolean.TRUE);
+        loanTransactionData.setEarliestCorrectionDate(latestGLClosure.getClosingDate().plusDays(1));
+        loanTransactionData.setLatestCorrectionDate(DateUtils.getBusinessLocalDate());
     }
 
     @Override

@@ -43,6 +43,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlatformService;
+import org.apache.fineract.accounting.closure.domain.GLClosure;
+import org.apache.fineract.accounting.closure.domain.GLClosureRepository;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -264,6 +266,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final PaymentDetailWritePlatformService paymentDetailWritePlatformService;
     private final HolidayRepositoryWrapper holidayRepository;
     private final ConfigurationDomainService configurationDomainService;
+    private final GLClosureRepository glClosureRepository;
     private final WorkingDaysRepositoryWrapper workingDaysRepository;
     private final AccountTransfersWritePlatformService accountTransfersWritePlatformService;
     private final AccountTransfersReadPlatformService accountTransfersReadPlatformService;
@@ -1120,6 +1123,22 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final LocalDate transactionDate = command.localDateValueOfParameterNamed("transactionDate");
             final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
             final String txnExternalId = command.stringValueOfParameterNamedAllowingNull("externalId");
+            final Long originalTransactionId = isRecoveryRepayment ? command.longValueOfParameterNamed("originalTransactionId") : null;
+            final boolean correctedRecoveryRepost = isRecoveryRepayment && originalTransactionId != null;
+            if (!isRecoveryRepayment && (originalTransactionId != null || command.parameterExists("correctionDate"))) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.correction.not.supported",
+                        "Correction metadata is only supported for recovery payments on written-off loans.");
+            }
+            if (isRecoveryRepayment && !correctedRecoveryRepost && command.parameterExists("correctionDate")) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.reference.required",
+                        "A correction date is only supported when reposting a reversed recovery payment.");
+            }
+            final LoanTransaction originalRecoveryTransaction = originalTransactionId == null ? null
+                    : validateRecoveryCorrectionReference(loan, originalTransactionId);
+            final LocalDate correctionDate = correctedRecoveryRepost
+                    ? validateCorrectionDate(loan, originalRecoveryTransaction.getTransactionDate(),
+                            command.localDateValueOfParameterNamed("correctionDate"))
+                    : null;
 
             final Map<String, Object> changes = new LinkedHashMap<>();
             changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
@@ -1127,6 +1146,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             changes.put("locale", command.locale());
             changes.put("dateFormat", command.dateFormat());
             changes.put("paymentTypeId", command.stringValueOfParameterNamed("paymentTypeId"));
+            if (originalTransactionId != null) {
+                changes.put("originalTransactionId", originalTransactionId);
+            }
+            if (correctionDate != null) {
+                changes.put("correctionDate", correctionDate.toString());
+            }
 
             final String noteText = command.stringValueOfParameterNamed("note");
             if (StringUtils.isNotBlank(noteText)) {
@@ -1139,7 +1164,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
             LoanTransaction loanTransaction = this.loanAccountDomainService.makeRepayment(repaymentTransactionType, loan,
                     commandProcessingResultBuilder, transactionDate, transactionAmount, paymentDetail, noteText, txnExternalId,
-                    isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
+                    isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, false,
+                    originalRecoveryTransaction == null ? null : originalRecoveryTransaction.getId(), correctionDate,
+                    originalRecoveryTransaction != null);
 
             // Update loan transaction on repayment.
             if (AccountType.fromInt(loan.getLoanType()).isIndividualAccount()) {
@@ -1397,6 +1424,95 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         businessEventNotifierService.notifyPostBusinessEvent(new LoanAdjustTransactionBusinessEvent(eventData));
 
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(transactionId)
+                .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
+                .with(changes).build();
+    }
+
+    @Transactional
+    @Override
+    public CommandProcessingResult reverseLoanRecoveryPayment(final Long loanId, final Long transactionId, final JsonCommand command) {
+
+        AppUser currentUser = getAppUserIfPresent();
+        this.loanEventApiJsonValidator.validateRecoveryPaymentReversal(command.json());
+
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        checkClientOrGroupActive(loan);
+        final LoanTransaction transactionToReverse = this.loanTransactionRepository.findById(transactionId)
+                .orElseThrow(() -> new LoanTransactionNotFoundException(transactionId));
+        businessEventNotifierService.notifyPreBusinessEvent(
+                new LoanAdjustTransactionBusinessEvent(new LoanAdjustTransactionBusinessEvent.Data(transactionToReverse)));
+
+        if (transactionToReverse.isNotBelongingToLoanOf(loan)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.loan.mismatch",
+                    "The selected transaction does not belong to the specified loan.");
+        }
+        if (this.accountTransfersReadPlatformService.isAccountTransfer(transactionId, PortfolioAccountType.LOAN)) {
+            throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
+                    "Loan transaction:" + transactionId + " update not allowed as it involves in account transfer", transactionId);
+        }
+        if (!loan.isClosedWrittenOff()) {
+            throw new PlatformServiceUnavailableException("error.msg.loan.recovery.payment.reverse.not.allowed",
+                    "Recovery payments can only be reversed while the loan remains written off.", transactionId);
+        }
+        if (!transactionToReverse.isRecoveryRepaymentType()) {
+            throw new InvalidLoanTransactionTypeException("transaction",
+                    "reverse.recovery.payment.is.only.allowed.for.recovery.transactions",
+                    "Only recovery payment transactions can be reversed with this command.");
+        }
+        if (transactionToReverse.isReversed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.already.reversed",
+                    "The selected recovery payment has already been reversed.");
+        }
+
+        final LocalDate reversalDate = command.localDateValueOfParameterNamed("transactionDate");
+        validateRecoveryPaymentReversalDate(transactionToReverse, reversalDate);
+        final LocalDate correctionDate = validateCorrectionDate(loan, transactionToReverse.getTransactionDate(),
+                command.parameterExists("correctionDate") ? command.localDateValueOfParameterNamed("correctionDate") : null);
+
+        final List<Long> existingTransactionIds = new ArrayList<>();
+        final List<Long> existingReversedTransactionIds = new ArrayList<>();
+        existingTransactionIds.addAll(loan.findExistingTransactionIds());
+        existingReversedTransactionIds.addAll(loan.findExistingReversedTransactionIds());
+
+        transactionToReverse.reverse();
+        transactionToReverse.manuallyAdjustedOrReversed();
+
+        final LoanTransaction reversalTransaction = LoanTransaction.reversal(transactionToReverse, reversalDate, correctionDate);
+        loan.addLoanTransaction(reversalTransaction);
+        final ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
+
+        saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+        if (changedTransactionDetail != null) {
+            for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
+                this.loanTransactionRepository.save(mapEntry.getValue());
+                loan.addLoanTransaction(mapEntry.getValue());
+                this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
+            }
+        }
+
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
+        changes.put("locale", command.locale());
+        changes.put("dateFormat", command.dateFormat());
+        if (correctionDate != null) {
+            changes.put("correctionDate", correctionDate.toString());
+        }
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            changes.put("note", noteText);
+            final Note note = Note.loanTransactionNote(loan, reversalTransaction, noteText);
+            this.noteRepository.save(note);
+        }
+
+        postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+        this.loanAccountDomainService.recalculateAccruals(loan);
+
+        final LoanAdjustTransactionBusinessEvent.Data eventData = new LoanAdjustTransactionBusinessEvent.Data(transactionToReverse);
+        eventData.setNewTransactionDetail(reversalTransaction);
+        businessEventNotifierService.notifyPostBusinessEvent(new LoanAdjustTransactionBusinessEvent(eventData));
+
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(reversalTransaction.getId())
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
                 .with(changes).build();
     }
@@ -2605,6 +2721,80 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .withGroupId(loan.getGroupId()) //
                 .withLoanId(loanId) //
                 .build();
+    }
+
+    private LoanTransaction validateRecoveryCorrectionReference(final Loan loan, final Long originalTransactionId) {
+        final LoanTransaction originalTransaction = this.loanTransactionRepository.findById(originalTransactionId)
+                .orElseThrow(() -> new LoanTransactionNotFoundException(originalTransactionId));
+        if (originalTransaction.isNotBelongingToLoanOf(loan)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.loan.mismatch",
+                    "The referenced original recovery payment does not belong to this loan.");
+        }
+        if (!originalTransaction.isRecoveryRepaymentType()) {
+            throw new InvalidLoanTransactionTypeException("originalTransactionId",
+                    "recovery.payment.correction.requires.recovery.transaction",
+                    "Only recovery payment transactions can be reposted as corrections.");
+        }
+        if (originalTransaction.isNotReversed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.requires.reversal",
+                    "The original recovery payment must be reversed before a corrected recovery can be reposted.");
+        }
+        if (this.loanTransactionRepository.existsActiveCorrectedRecoveryTransaction(originalTransactionId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.already.exists",
+                    "An active corrected recovery payment already exists for the referenced original recovery payment.");
+        }
+        return originalTransaction;
+    }
+
+    private LocalDate validateCorrectionDate(final Loan loan, final LocalDate transactionDate, final LocalDate correctionDate) {
+        final GLClosure latestGLClosure = this.glClosureRepository.getLatestGLClosureByBranch(loan.getOfficeId());
+        if (latestGLClosure != null && !transactionDate.isAfter(latestGLClosure.getClosingDate())) {
+            if (!this.configurationDomainService.isCorrectionsInClosedPeriodsAllowed()) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.closed.period.corrections.not.allowed",
+                        "Corrections in closed accounting periods are not allowed.");
+            }
+            if (correctionDate == null) {
+                throwTransactionValidationError("error.msg.loan.transaction.correction.date.required",
+                        "A correction date is required because the transaction falls in a closed accounting period.",
+                        "correctionDate", transactionDate, latestGLClosure.getClosingDate());
+            }
+            if (!correctionDate.isAfter(latestGLClosure.getClosingDate())) {
+                throwTransactionValidationError("error.msg.loan.transaction.correction.date.must.be.in.open.period",
+                        "The correction date must fall after the latest accounting closure date.", "correctionDate", correctionDate,
+                        latestGLClosure.getClosingDate());
+            }
+            if (correctionDate.isAfter(DateUtils.getBusinessLocalDate())) {
+                throwTransactionValidationError("error.msg.loan.transaction.correction.date.cannot.be.future",
+                        "The correction date cannot be in the future.", "correctionDate", correctionDate);
+            }
+            return correctionDate;
+        }
+        if (correctionDate != null) {
+            throwTransactionValidationError("error.msg.loan.transaction.correction.date.not.allowed",
+                    "A correction date is only allowed when the transaction falls in a closed accounting period.", "correctionDate",
+                    correctionDate);
+        }
+        return null;
+    }
+
+    private void validateRecoveryPaymentReversalDate(final LoanTransaction transactionToReverse, final LocalDate reversalDate) {
+        if (reversalDate.isBefore(transactionToReverse.getTransactionDate())) {
+            throwTransactionValidationError("error.msg.loan.recovery.payment.reverse.date.before.original",
+                    "The reversal date cannot be earlier than the original recovery payment date.", "transactionDate", reversalDate,
+                    transactionToReverse.getTransactionDate());
+        }
+        if (reversalDate.isAfter(DateUtils.getBusinessLocalDate())) {
+            throwTransactionValidationError("error.msg.loan.recovery.payment.reverse.date.future",
+                    "The reversal date cannot be in the future.", "transactionDate", reversalDate);
+        }
+    }
+
+    private void throwTransactionValidationError(final String errorCode, final String defaultUserMessage, final String parameterName,
+            final Object... defaultUserMessageArgs) {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        dataValidationErrors.add(ApiParameterError.parameterError(errorCode, defaultUserMessage, parameterName, defaultUserMessageArgs));
+        throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                dataValidationErrors);
     }
 
     private void postJournalEntries(final Loan loan, final List<Long> existingTransactionIds,

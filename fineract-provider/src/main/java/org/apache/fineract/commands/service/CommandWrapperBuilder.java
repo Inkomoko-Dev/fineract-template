@@ -912,6 +912,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder reverseRecoveryPaymentTransaction(final Long loanId, final Long transactionId) {
+        this.actionName = "REVERSERECOVERYPAYMENT";
+        this.entityName = "LOAN";
+        this.entityId = transactionId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=reverserecoverypayment";
+        return this;
+    }
+
     public CommandWrapperBuilder refundLoanTransactionByCash(final Long loanId) {
         this.actionName = "REFUNDBYCASH";
         this.entityName = "LOAN";

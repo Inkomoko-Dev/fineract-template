@@ -53,7 +53,9 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
 
             if (correctionRequired) {
                 loanTransactionDTO.setCorrection(true);
-                loanTransactionDTO.setCorrectionDate(DateUtils.getStartOfCurrentMonth()); // first day of current month
+                if (loanTransactionDTO.getCorrectionDate() == null) {
+                    loanTransactionDTO.setCorrectionDate(DateUtils.getStartOfCurrentMonth());
+                }
             }
             /** Handle Disbursements **/
             if (loanTransactionDTO.getTransactionType().isDisbursement()) {
