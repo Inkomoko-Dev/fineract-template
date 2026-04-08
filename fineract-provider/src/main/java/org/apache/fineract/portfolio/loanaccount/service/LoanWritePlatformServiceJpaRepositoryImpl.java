@@ -3790,6 +3790,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         changes.put("previousTransactionDate", originalTransaction.getTransactionDate());
         changes.put("amount", newAmount);
         changes.put("delta", delta);
+        changes.put("adjustmentTransactionDate", originalTransaction.getTransactionDate());
 
         if (!newTransactionDate.isEqual(originalTransaction.getTransactionDate())) {
             changes.put("transactionDate", newTransactionDate);
@@ -3809,7 +3810,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 loan,
                 loan.getOffice(),
                 deltaMoney,
-                newTransactionDate,
+                originalTransaction.getTransactionDate(),
                 isCredit);
 
         chargeAdjustmentTransaction.updateLoan(loan);
