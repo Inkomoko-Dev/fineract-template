@@ -31,6 +31,7 @@ import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.client.api.ClientApiConstants;
 import org.apache.fineract.portfolio.client.data.ClientOtherInfoData;
+import org.apache.fineract.portfolio.client.data.RefBankData;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -57,9 +58,13 @@ public class ClientOtherInfoReadPlatformServiceImpl implements ClientOtherInfoRe
         public String schema() {
             return "co.id AS id, co.client_id AS clientId, co.strata_cv_id AS strataId, co.nationality_cv_id AS nationalityId, cv.code_value as strataName, co.year_arrived_in_country AS yearArrivedInHostCountry,"
                     + "cvn.code_value AS nationalityName, cy.code_value AS yearArrivedInHostCountryName, co.number_of_children AS numberOfChildren, co.number_of_dependents AS numberOfDependents, co.co_signors as coSignors, co.guarantor as guarantor,"
-                    + "co.national_identification_number AS nationalIdentificationNumber,co.passport_number AS passportNumber,co.bank_account_number AS bankAccountNumber,co.bank_name AS bankName,co.telephone_no as telephoneNumber "
-                    + " FROM m_client_other_info co" + " left join m_code_value cvn on co.nationality_cv_id=cvn.id"
-                    + " left join m_code_value cv on co.strata_cv_id=cv.id left join m_code_value cy on co.year_arrived_in_country_cv_id=cy.id";
+                    + "co.national_identification_number AS nationalIdentificationNumber, co.passport_number AS passportNumber, co.bank_account_number AS bankAccountNumber, co.bank_name AS bankName, co.telephone_no as telephoneNumber,"
+                    + "co.bank_id AS bankId, rb.bank_name AS refBankName, rb.bank_code AS refBankCode, rb.country AS refBankCountry "
+                    + " FROM m_client_other_info co"
+                    + " LEFT JOIN m_code_value cvn ON co.nationality_cv_id = cvn.id"
+                    + " LEFT JOIN m_code_value cv ON co.strata_cv_id = cv.id"
+                    + " LEFT JOIN m_code_value cy ON co.year_arrived_in_country_cv_id = cy.id"
+                    + " LEFT JOIN ref_banks rb ON co.bank_id = rb.id";
         }
 
         @Override
@@ -82,8 +87,18 @@ public class ClientOtherInfoReadPlatformServiceImpl implements ClientOtherInfoRe
             final String bankName = rs.getString("bankName");
             final String telephoneNumber = rs.getString("telephoneNumber");
 
+            final Long bankId = JdbcSupport.getLong(rs, "bankId");
+            RefBankData bank = null;
+            if (bankId != null) {
+                final String refBankName = rs.getString("refBankName");
+                final String refBankCode = rs.getString("refBankCode");
+                final String refBankCountry = rs.getString("refBankCountry");
+                bank = RefBankData.instance(bankId, refBankCode, refBankName, refBankCountry, true);
+            }
+
             return ClientOtherInfoData.instance(id, clientId, strata, yearArrivedInHostCountry, nationality, numberOfChildren,
-                    numberOfDependents, nationalIdentificationNumber, passportNumber, bankAccountNumber, bankName, telephoneNumber);
+                    numberOfDependents, nationalIdentificationNumber, passportNumber, bankAccountNumber, bankName, telephoneNumber,
+                    bankId, bank);
 
         }
     }
@@ -139,7 +154,8 @@ public class ClientOtherInfoReadPlatformServiceImpl implements ClientOtherInfoRe
                     + " co.guarantor AS guarantor, co.tax_identification_number as taxIdentificationNumber, co.business_location as businessLocation,"
                     + " co.income_generating_activity AS incomeGeneratingActivity, co.income_generating_activity_monthly_amount as incomeGeneratingActivityMonthlyAmount,"
                     + " co.telephone_no as telephoneNo, co.bank_account_number as bankAccountNumber, co.bank_name as bankName, "
-                    + " co.year_arrived_in_country AS yearArrivedInHostCountry, cy.code_value AS yearArrivedInHostCountryName"
+                    + " co.year_arrived_in_country AS yearArrivedInHostCountry, cy.code_value AS yearArrivedInHostCountryName,"
+                    + "co.bank_id AS bankId, rb.bank_name AS refBankName, rb.bank_code AS refBankCode, rb.country AS refBankCountry "
                     + " FROM m_client_other_info co"
                     + " left join m_code_value cv on co.strata_cv_id=cv.id left join m_code_value cy on co.year_arrived_in_country_cv_id=cy.id";
         }
@@ -164,9 +180,20 @@ public class ClientOtherInfoReadPlatformServiceImpl implements ClientOtherInfoRe
             final String bankAccountNumber = rs.getString("bankAccountNumber");
             final String bankName = rs.getString("bankName");
 
-            return ClientOtherInfoData.instanceEntity(id, clientId, coSignors, guarantor, strata, businessLocation, taxIdentificationNumber,
-                    incomeGeneratingActivity, incomeGeneratingActivityMonthlyAmount, telephoneNo, bankAccountNumber, bankName,
-                    yearArrivedInHostCountry);
+
+            final Long bankId = JdbcSupport.getLong(rs, "bankId");
+            RefBankData bank = null;
+            if (bankId != null) {
+                final String refBankName = rs.getString("refBankName");
+                final String refBankCode = rs.getString("refBankCode");
+                final String refBankCountry = rs.getString("refBankCountry");
+                bank = RefBankData.instance(bankId, refBankCode, refBankName, refBankCountry, true);
+            }
+
+            return ClientOtherInfoData.instanceEntity(id, clientId, coSignors, guarantor, strata, businessLocation,
+                    taxIdentificationNumber, incomeGeneratingActivity, incomeGeneratingActivityMonthlyAmount,
+                    telephoneNo, bankAccountNumber, bankName, yearArrivedInHostCountry,
+                    bankId, bank);
 
         }
     }

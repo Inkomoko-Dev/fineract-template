@@ -64,6 +64,9 @@ public final class ClientOtherInfoData implements Serializable {
 
     private String bankName;
 
+    private Long bankId;
+    private RefBankData bank;
+
     public ClientOtherInfoData(Long id, Long clientId, CodeValueData strata, LocalDate yearArrivedInHostCountry, CodeValueData nationality,
             Integer numberOfChildren, Integer numberOfDependents, Collection<CodeValueData> nationalityOptions,
             Collection<CodeValueData> strataOptions, Collection<CodeValueData> yearArrivedInHostCountryOptions,
@@ -121,18 +124,26 @@ public final class ClientOtherInfoData implements Serializable {
     public static ClientOtherInfoData instance(final Long id, final Long clientId, final CodeValueData strata,
             final LocalDate yearArrivedInHostCountry, final CodeValueData nationality, final Integer numberOfChildren,
             final Integer numberOfDependents, final String nationalIdentificationNumber, final String passportNumber,
-            final String bankAccountNumber, final String bankName, final String telephoneNumber) {
-        return new ClientOtherInfoData(id, clientId, strata, yearArrivedInHostCountry, nationality, numberOfChildren, numberOfDependents,
-                null, null, null, nationalIdentificationNumber, passportNumber, bankAccountNumber, bankName, telephoneNumber);
+            final String bankAccountNumber, final String bankName, final String telephoneNumber, final Long bankId, final RefBankData bank) {
+
+        ClientOtherInfoData data = new ClientOtherInfoData(id, clientId, strata, yearArrivedInHostCountry, nationality,
+                numberOfChildren, numberOfDependents, null, null, null, nationalIdentificationNumber, passportNumber,
+                bankAccountNumber, bankName, telephoneNumber);
+        data.bankId = bankId;
+        data.bank = bank;
+        return data;
     }
 
     public static ClientOtherInfoData instanceEntity(final Long id, final Long clientId, String coSignors, String guarantor,
             CodeValueData strata, String businessLocation, Long taxIdentificationNumber, Long incomeGeneratingActivity,
             BigDecimal incomeGeneratingActivityMonthlyAmount, String telephoneNumber, String bankAccountNumber, String bankName,
-            LocalDate yearArrivedInHostCountry) {
-        return new ClientOtherInfoData(id, clientId, coSignors, guarantor, strata, businessLocation, taxIdentificationNumber,
-                incomeGeneratingActivity, incomeGeneratingActivityMonthlyAmount, telephoneNumber, bankAccountNumber, bankName,
-                yearArrivedInHostCountry);
+            LocalDate yearArrivedInHostCountry, final Long bankId, final RefBankData bank) {
+        ClientOtherInfoData data = new ClientOtherInfoData(id, clientId, coSignors, guarantor, strata, businessLocation,
+                taxIdentificationNumber, incomeGeneratingActivity, incomeGeneratingActivityMonthlyAmount, telephoneNumber,
+                bankAccountNumber, bankName, yearArrivedInHostCountry);
+        data.bankId = bankId;
+        data.bank = bank;
+        return data;
     }
 
     public CodeValueData getStrata() {
