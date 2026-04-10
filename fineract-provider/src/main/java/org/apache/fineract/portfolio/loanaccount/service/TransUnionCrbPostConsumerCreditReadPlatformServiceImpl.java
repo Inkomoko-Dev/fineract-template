@@ -73,7 +73,7 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     + "       l.loan_status_id                                                                  AS loanStatus, "
                     + "       l.currency_code                                                                   AS currencyType, "
                     + "       country_cv.code_value                                                             AS country, "
-                    + "       mc.firstname                                                                      AS surName, ");
+                    + "       mc.lastname                                                                       AS surName, ");
             if (databaseTypeResolver.isMySQL()) {
                 sql.append(
                         "      COALESCE(DATEDIFF(NOW(), mlaa.overdue_since_date_derived)  ,0)                           AS daysInArrears, ");
