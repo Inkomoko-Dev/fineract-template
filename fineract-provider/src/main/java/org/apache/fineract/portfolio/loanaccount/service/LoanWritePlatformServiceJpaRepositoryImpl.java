@@ -3957,15 +3957,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final LocalDate newTransactionDate = command.localDateValueOfParameterNamed("transactionDate");
         final String notes = command.stringValueOfParameterNamed("notes");
 
-        final BigDecimal oldAmount = originalTransaction.getAmount(loan.getCurrency()).getAmount();
+        final BigDecimal oldAmount = loanCharge.getAmount(loan.getCurrency()).getAmount();
 
-        // 5. If amounts are equal — do nothing, return early
+        log.info("Current charge amount={}, incoming amount={}", oldAmount, newAmount);
+
+        // 5. If amounts are equal — throw validation error
         if (newAmount.compareTo(oldAmount) == 0) {
-            return new CommandProcessingResultBuilder()
-                    .withCommandId(command.commandId())
-                    .withEntityId(loanChargeId)
-                    .withLoanId(loanId)
-                    .build();
+            final ApiParameterError error = ApiParameterError.parameterError(
+                    "validation.msg.loan.charge.adjustment.amount.same",
+                    "Insurance charge adjustment amount is the same as the current amount: " + oldAmount,
+                    "amount"
+            );
+            throw new PlatformApiDataValidationException(List.of(error));
         }
 
         // delta > 0 → underpayment: client owes more, loan balance increases
@@ -4017,10 +4020,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loan.getLoanTransactions().add(chargeAdjustmentTransaction);
 
         // 9. Update LoanCharge state
-
         loanCharge.updateAmount(newAmount);
 
-        loanCharge.resetOutstandingAmount(delta);
+        // Recalculate outstanding: new due amount minus what has already been paid
+        final BigDecimal amountPaid = loanCharge.getAmountPaid(loan.getCurrency()).getAmount();
+        final BigDecimal newOutstanding = newAmount.subtract(amountPaid);
+
+        loanCharge.resetOutstandingAmount(newOutstanding); // ← pass calculated value, not delta
 
         this.loanChargeRepository.saveAndFlush(loanCharge);
 
