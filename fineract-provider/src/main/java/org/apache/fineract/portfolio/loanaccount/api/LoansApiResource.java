@@ -387,7 +387,7 @@ public class LoansApiResource {
             final String errorMsg = "Loan template type must be provided";
             throw new LoanTemplateTypeRequiredException(errorMsg);
         } else if (templateType.equals("approval")) {
-            loanApprovalTemplate = this.loanReadPlatformService.retrieveApprovalTemplate(loanId);
+            loanApprovalTemplate = this.loanReadPlatformService.retrieveApprovalTemplate(loanId, true);
         } else if (templateType.equals("icreview")) {
             loanApprovalTemplate = this.loanReadPlatformService.retrieveICReviewTemplate(loanId);
         }
@@ -1006,11 +1006,16 @@ public class LoansApiResource {
         } else if (is(commandParam, "disburseToSavings")) {
             final CommandWrapper commandRequest = builder.disburseLoanToSavingsApplication(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
-        } else if (is(commandParam, "disbursementRequest")) {
+        } else if (is(commandParam, "disbursementpreapprovalrequest")) {
+            final CommandWrapper commandRequest = builder.disbursePreApprovalRequestLoanApplication(loanId).build();
+            result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        }else if (is(commandParam, "disbursementapproval")) {
             final CommandWrapper commandRequest = builder.disburseRequestLoanApplication(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
-        }
-
+        } else if (is(commandParam, "rejectdisbursement")) {
+            final CommandWrapper commandRequest = builder.rejectDisbursement(loanId).build();
+            result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+         }
         if (is(commandParam, "undoapproval")) {
             final CommandWrapper commandRequest = builder.undoLoanApplicationApproval(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);

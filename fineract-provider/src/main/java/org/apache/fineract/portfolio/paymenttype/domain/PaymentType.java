@@ -45,17 +45,21 @@ public class PaymentType extends AbstractPersistableCustom {
     @Column(name = "order_position")
     private Long position;
 
+    @Column(name = "is_mobile_money")
+    private Boolean isMobileMoney;
+
     protected PaymentType() {}
 
-    public PaymentType(final String name, final String description, final Boolean isCashPayment, final Long position) {
+    public PaymentType(final String name, final String description, final Boolean isCashPayment, final Boolean isMobileMoney, final Long position) {
         this.name = name;
         this.description = description;
         this.isCashPayment = isCashPayment;
+        this.isMobileMoney = isMobileMoney;
         this.position = position;
     }
 
-    public static PaymentType create(String name, String description, Boolean isCashPayment, Long position) {
-        return new PaymentType(name, description, isCashPayment, position);
+    public static PaymentType create(String name, String description, Boolean isCashPayment, Boolean isMobileMoney, Long position) {
+        return new PaymentType(name, description, isCashPayment, isMobileMoney, position);
     }
 
     public Map<String, Object> update(final JsonCommand command) {
@@ -80,6 +84,12 @@ public class PaymentType extends AbstractPersistableCustom {
             this.isCashPayment = newCashPaymentType.booleanValue();
         }
 
+        if (command.isChangeInBooleanParameterNamed(PaymentTypeApiResourceConstants.ISMOBILEMONEY, this.isMobileMoney)) {
+            final Boolean newMobileMoneyType = command.booleanObjectValueOfParameterNamed(PaymentTypeApiResourceConstants.ISMOBILEMONEY);
+            actualChanges.put(PaymentTypeApiResourceConstants.ISMOBILEMONEY, newMobileMoneyType);
+            this.isMobileMoney = newMobileMoneyType.booleanValue();
+        }
+
         if (command.isChangeInLongParameterNamed(PaymentTypeApiResourceConstants.POSITION, this.position)) {
             final Long newPosition = command.longValueOfParameterNamed(PaymentTypeApiResourceConstants.POSITION);
             actualChanges.put(PaymentTypeApiResourceConstants.POSITION, newPosition);
@@ -90,7 +100,7 @@ public class PaymentType extends AbstractPersistableCustom {
     }
 
     public PaymentTypeData toData() {
-        return PaymentTypeData.instance(getId(), this.name, this.description, this.isCashPayment, this.position);
+        return PaymentTypeData.instance(getId(), this.name, this.description, this.isCashPayment, this.isMobileMoney, this.position);
     }
 
     public Boolean isCashPayment() {
@@ -101,4 +111,7 @@ public class PaymentType extends AbstractPersistableCustom {
         return name;
     }
 
+    public Boolean isMobileMoney() {
+        return isMobileMoney;
+    }
 }

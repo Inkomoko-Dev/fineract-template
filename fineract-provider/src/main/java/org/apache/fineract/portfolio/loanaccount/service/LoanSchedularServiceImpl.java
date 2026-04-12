@@ -353,7 +353,7 @@ public class LoanSchedularServiceImpl implements LoanSchedularService {
         // get the size of current paginated dataset
         int size = loanIds.size();
         // calculate the batch size
-        double toGetCeilValue = size / threadPoolSize;
+        double toGetCeilValue = size / ((double) threadPoolSize);
         batchSize = (int) Math.ceil(toGetCeilValue);
 
         if (batchSize == 0) {

@@ -259,8 +259,12 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
-                .withEntityId(loan.getId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
                 .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
     }
 
@@ -421,6 +425,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             this.noteRepository.save(note);
         }
 
+
         // Save changes
         this.loanRepositoryWrapper.saveAndFlush(loan);
         this.loanDecisionRepository.saveAndFlush(loanDecision);
@@ -430,8 +435,12 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
-                .withEntityId(loan.getId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
                 .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
     }
 
@@ -507,8 +516,12 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
-                .withEntityId(loan.getId())
+                .withEntityId(loanDecision.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
                 .withLoanId(loanId)
+                .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
     }
 

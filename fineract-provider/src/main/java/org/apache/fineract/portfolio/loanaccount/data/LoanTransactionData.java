@@ -23,6 +23,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+
+import lombok.Setter;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.portfolio.account.data.AccountTransferData;
@@ -78,13 +80,41 @@ public class LoanTransactionData {
     private String locale;
     private BigDecimal transactionAmount;
     private LocalDate transactionDate;
+
+    @Setter
     private Long paymentTypeId;
+
+    @Setter
     private String accountNumber;
+
+    @Setter
     private Integer checkNumber;
+
+    @Setter
     private Integer routingCode;
+
+    @Setter
     private Integer receiptNumber;
+
+    @Setter
     private Integer bankNumber;
+
     private transient Long accountId;
+
+    @Setter
+    private String clientAccountNumber;
+
+    @Setter
+    private String clientBankName;
+
+    @Setter
+    private String clientPhoneNumber;
+
+    @Setter
+    private Integer paymentTo;
+
+    @Setter
+    private String beneficiaryName;
 
     private Long loanId;
     private String loanExternalId;
@@ -296,16 +326,14 @@ public class LoanTransactionData {
     public static LoanTransactionData loanTransactionDataForDisbursalTemplate(final LoanTransactionEnumData transactionType,
             final LocalDate expectedDisbursedOnLocalDateForTemplate, final BigDecimal disburseAmountForTemplate,
             final BigDecimal netDisbursalAmount, final Collection<PaymentTypeData> paymentOptions, final BigDecimal retriveLastEmiAmount,
-            final LocalDate possibleNextRepaymentDate, final LocalDateTime createdDate) {
+            final LocalDate possibleNextRepaymentDate, final LocalDateTime createdDate,
+            final BigDecimal principalPortion,final BigDecimal interestPortion,final BigDecimal feeChargesPortion ) {
         final Long id = null;
         final Long officeId = null;
         final String officeName = null;
         final PaymentDetailData paymentDetailData = null;
         final CurrencyData currency = null;
         final BigDecimal unrecognizedIncomePortion = null;
-        final BigDecimal principalPortion = null;
-        final BigDecimal interestPortion = null;
-        final BigDecimal feeChargesPortion = null;
         final BigDecimal penaltyChargesPortion = null;
         final BigDecimal overpaymentPortion = null;
         final String externalId = null;

@@ -19,13 +19,15 @@
 
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import com.google.common.base.Splitter;
+import com.google.common.collect.Iterables;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.util.Set;
+import java.util.Collection;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import okhttp3.Credentials;
@@ -34,14 +36,21 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import org.apache.fineract.accounting.glaccount.data.GLAccountData;
+import org.apache.fineract.accounting.producttoaccountmapping.data.PaymentTypeToGLAccountMapper;
+import org.apache.fineract.accounting.producttoaccountmapping.service.ProductToGLAccountMappingReadPlatformService;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.portfolio.client.domain.ClientAddressRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.ClientOtherInfo;
 import org.apache.fineract.portfolio.client.domain.ClientOtherInfoRepository;
 import org.apache.fineract.portfolio.client.exception.ClientOtherInfoNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementRequestData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursementRequestException;
+import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
@@ -63,6 +72,13 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
 
     private final NoteRepository noteRepository;
+
+    private final ClientAddressRepositoryWrapper clientAddressRepositoryWrapper;
+
+    private final LoanProductReadPlatformService loanProductReadPlatformService;
+
+    final ProductToGLAccountMappingReadPlatformService accountMappingReadPlatformService;
+
     private OkHttpClient client = new OkHttpClient();
     private Gson gson = new Gson();
     @Autowired
@@ -126,11 +142,59 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
         Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
         final PaymentTypeData paymentTypes = this.paymentTypeReadPlatformService.retrieveOne(paymentTypeId);
-        String uniqueId = UUID.randomUUID().toString() + "-" + System.currentTimeMillis();
+        String uniqueId = UUID.randomUUID() + "-" + System.currentTimeMillis();
         final String requestId = "cbs_" + loan.getId() + "_" + uniqueId;
+        final String loanOfficer = loan.getLoanOfficer().emailAddress();
+        final String clientName = loan.getClient().getDisplayName();
+        final String narration = "Loan Disbursement for Loan Account No: " + loan.getAccountNumber() + "  Client " + clientName;
+        final String location = clientAddressRepositoryWrapper.findAddressesForClient(loan.getClient().getId()).stream().findFirst()
+                .map(address -> address.getAddress().getLocation()).orElse("N/A");
+        LoanProductData loanProductData=  this.loanProductReadPlatformService.retrieveLoanProduct(loan.getLoanProduct().getId());
+
+        Collection<PaymentTypeToGLAccountMapper> paymentChannelToFundSourceMappings = null;
+
+        if (loanProductData.hasAccountingEnabled()) {
+            paymentChannelToFundSourceMappings = this.accountMappingReadPlatformService
+                    .fetchPaymentTypeToFundSourceMappingsForLoanProduct(loan.getLoanProduct().getId());
+        }
+
+        GLAccountData fundSource = null;
+
+        if (paymentChannelToFundSourceMappings != null) {
+            for (PaymentTypeToGLAccountMapper m : paymentChannelToFundSourceMappings) {
+                if (m.getPaymentType().getId().equals(paymentTypes.getId())) {
+                    fundSource = m.getFundSourceAccount();
+                    break;
+                }
+            }
+        }
+
+        String glCode = null;
+        if (fundSource != null) {
+            glCode = Iterables.get(Splitter.on('-').split(fundSource.getGlCode()), 0);
+        }
+
+        LoanDisbursementDetails disbursementDetail = null;
+        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
+            disbursementDetail = loan.getDisbursementDetails().iterator().next();
+        }
+
+        assert disbursementDetail != null;
         DisbursementRequestData disbursementRequestData = new DisbursementRequestData(requestId, loan.getAccountNumber(),
-                totalPrincipalToBeDisbursed, loan.getPrincpal().getCurrencyCode(), paymentTypes.getName(), clientOtherInfo.getTelephoneNo(),
-                clientOtherInfo.getBankAccountNumber(), clientOtherInfo.getBankName(), "CBS", paymentTypeId);
+                totalPrincipalToBeDisbursed, loan.getPrincpal().getCurrencyCode(), paymentTypes.getName(), paymentTypes.getId(), disbursementDetail.getClientPhoneNumber(),
+                disbursementDetail.getClientAccountNumber(), disbursementDetail.getClientBankName(), "CBS", paymentTypeId);
+
+        if (disbursementDetail.getPaymentToType().equals(LoanDisbursementDetails.PaymentToType.CLIENT)) {
+            disbursementRequestData.setBeneficiaryName(clientName);
+        } else if (disbursementDetail.getPaymentToType().equals(LoanDisbursementDetails.PaymentToType.SUPPLIER)){
+            disbursementRequestData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
+        }
+
+        disbursementRequestData.setNarration(narration);
+        disbursementRequestData.setNotifier(loanOfficer);
+        disbursementRequestData.setLocation(location);
+        disbursementRequestData.setGlCode(glCode);
+        disbursementRequestData.setTransactionType("DISBURSEMENT");
 
         MediaType JSON = MediaType.get("application/json; charset=utf-8");
         String requestJson = gson.toJson(disbursementRequestData);
@@ -160,9 +224,9 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         }
     }
 
-    private static BigDecimal getDisbursementChargeAmount(Loan loan) {
+    public static BigDecimal getDisbursementChargeAmount(Loan loan) {
         BigDecimal chargeAmount = BigDecimal.ZERO;
-        final Set<LoanCharge> loanCharges = loan.charges();
+        final Collection<LoanCharge> loanCharges = loan.getLoanCharges();
 
         for (final LoanCharge loanCharge : loanCharges) {
             if (loanCharge.isDueAtDisbursement() && loanCharge.isChargePending()) {

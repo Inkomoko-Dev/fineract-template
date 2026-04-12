@@ -24,7 +24,8 @@ public enum LoanSubStatus {
 
     INVALID(0, "loanSubStatusType.invalid"), //
     FORECLOSED(100, "loanSubStatusType.foreclosed"), //
-    PENDINGDISBURSEMENT(200, "loanSubStatusType.pending.disbursement");
+    PENDINGDISBURSEMENT(200, "loanSubStatusType.pending.disbursement"),
+    PENDINGDISBURSEMENTAPPROVAL(300, "loanSubStatusType.pre.disbursement"),;
 
     private final Integer value;
     private final String code;
@@ -39,6 +40,9 @@ public enum LoanSubStatus {
             case 200:
                 enumeration = LoanSubStatus.PENDINGDISBURSEMENT;
             break;
+            case 300:
+                enumeration = LoanSubStatus.PENDINGDISBURSEMENTAPPROVAL;
+                break;
         }
         return enumeration;
     }
@@ -84,6 +88,10 @@ public enum LoanSubStatus {
                 optionData = new EnumOptionData(LoanSubStatus.PENDINGDISBURSEMENT.getValue().longValue(),
                         codePrefix + LoanSubStatus.PENDINGDISBURSEMENT.getCode(), "Pending Disbursement");
             break;
+            case PENDINGDISBURSEMENTAPPROVAL:
+                optionData = new EnumOptionData(LoanSubStatus.PENDINGDISBURSEMENTAPPROVAL.getValue().longValue(),
+                        codePrefix + LoanSubStatus.PENDINGDISBURSEMENTAPPROVAL.getCode(), "Pending Disbursement Approval");
+                break;
             default:
                 optionData = new EnumOptionData(LoanSubStatus.INVALID.getValue().longValue(), LoanSubStatus.INVALID.getCode(), "Invalid");
             break;
