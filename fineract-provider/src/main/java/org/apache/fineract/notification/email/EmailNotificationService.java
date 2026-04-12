@@ -153,6 +153,7 @@ public class EmailNotificationService {
                         Dear %s,<br><br>
 
                         %s for account <strong>%s</strong>, client <strong>%s</strong>, was returned to you.<br>
+
                         Note: %s <br><br>
 
                         Please <a href="%s">log in </a> to the system to review and take the next action.<br><br>
@@ -164,6 +165,7 @@ public class EmailNotificationService {
                 loan.getAccountNumber(),
                 loan.getClient().getDisplayName(),
                 note.getNote(),
+
                 loanUrl
         );
         return new EmailDetail(subject,body, user.getEmail(), user.getDisplayName());

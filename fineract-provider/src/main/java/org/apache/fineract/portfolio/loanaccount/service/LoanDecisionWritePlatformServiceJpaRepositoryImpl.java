@@ -425,6 +425,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             this.noteRepository.save(note);
         }
 
+
         // Save changes
         this.loanRepositoryWrapper.saveAndFlush(loan);
         this.loanDecisionRepository.saveAndFlush(loanDecision);

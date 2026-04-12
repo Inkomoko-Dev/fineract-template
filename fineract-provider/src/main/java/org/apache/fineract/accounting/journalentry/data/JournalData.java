@@ -37,6 +37,7 @@ public class JournalData {
     private Boolean isCorrection;
     private String correctionDate;
     private String location;
+    private Long fundSource;
     private List<JournalItemData> journalItems;
 
 }

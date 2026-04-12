@@ -2234,6 +2234,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.RECOVERY_REPAYMENT);
         final List<LoanTransaction> transaction = loanTransactionRepository.findWriteOffLoanTransaction(loanId);
+        final LocalDate writeOffOnDate = loan.getWrittenOffDate();
 
         BigDecimal totalWrittenOff = loan.getTotalWrittenOff();
 
@@ -2248,9 +2249,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         BigDecimal outstandingLoanBalance = null;
         final BigDecimal unrecognizedIncomePortion = null;
-        return new LoanTransactionData(null, null, null, transactionType, null, null, null, totalWrittenOff, loan.getNetDisbursalAmount(),
-                null, null, null, null, null, unrecognizedIncomePortion, paymentOptions, null, null, null, outstandingLoanBalance, false,
-                null);
+        LoanTransactionData loanTransactionData = new LoanTransactionData(null, null, null, transactionType, null, null,
+                DateUtils.getBusinessLocalDate(), totalWrittenOff, loan.getNetDisbursalAmount(), null, null, null, null, null,
+                unrecognizedIncomePortion, paymentOptions, null, null, null, outstandingLoanBalance, false, null);
+        loanTransactionData.setWriteOffOnDate(writeOffOnDate);
+        return loanTransactionData;
 
     }
 
@@ -3800,7 +3803,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         public String loanTransactionNotPostedToOdoo() {
             return "DISTINCT gl.loan_transaction_id AS loanTransactionId, gl.entity_id AS loanId, ml.currency_code as currency, mlt.transaction_date as transactionDate, " +
-                    "mlt.transaction_type_enum AS transactionType, mlt.is_reversed AS isReversed, ml.account_no as loanAccountNo, mc.office_id as office, ma.location " +
+                    "mlt.transaction_type_enum AS transactionType, mlt.is_reversed AS isReversed, ml.account_no as loanAccountNo, mc.office_id as office,ml.fund_id as fundId, ma.location " +
                     "FROM acc_gl_journal_entry gl " +
                     "INNER JOIN m_loan_transaction mlt on gl.loan_transaction_id = mlt.id " +
                     "INNER JOIN m_loan ml on mlt.loan_id = ml.id " +
@@ -3827,8 +3830,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final LocalDate transactionDate = rs.getDate("transactionDate").toLocalDate();
             final String currencyCode = rs.getString("currency");
             final String location = rs.getString("location");
+            final Long fundId = rs.getLong("fundId");
 
-            return new LoanTransactionNotPostedToOdooInstanceData(loanTransactionId, loanId, loanAccountNo, transactionType, isReversed, office, transactionDate, currencyCode, location);
+            return new LoanTransactionNotPostedToOdooInstanceData(loanTransactionId, loanId, loanAccountNo, transactionType, isReversed, office, transactionDate, currencyCode, location,fundId);
         }
     }
 

@@ -66,52 +66,66 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
 
         private LoanProductProvisioningEntryMapper(DatabaseSpecificSQLGenerator sqlGenerator) {
 
-            sqlQuery = new StringBuilder().append("SELECT DISTINCT ")
-                    .append("(CASE WHEN loan.loan_type_enum = 1 THEN mclient.office_id ELSE mgroup.office_id END) AS office_id, ")
-                    .append("loan.loan_type_enum, ")
-                    .append("pcd.criteria_id AS criteriaid, ")
-                    .append("loan.product_id, loan.currency_code, loan.id AS loanId, loan.account_no, ")
-                    .append("IFNULL(CASE WHEN max_date = min_date OR max_date > min_date ")
-                    .append("THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) AS numberofdaysoverdue, ")
-                    .append("sch.duedate, pcd.category_id, pcd.provision_percentage, ")
-                    .append("(loan.principal_disbursed_derived + loan.interest_charged_derived + IFNULL(chargesTbl.charge_amount,0) ")
-                    .append("- IFNULL(paymentTbl.princ_paid, 0) - IFNULL(paymentTbl.int_paid, 0) - IFNULL(paymentTbl.fee_paid, 0) - IFNULL(paymentTbl.charge_paid, 0) ")
-                    .append("- IFNULL(waiverTbl.int_waived, 0) - IFNULL(chargesTbl.charge_waived, 0)) AS outstandingbalance, ")
-                    .append("pcd.liability_account, pcd.expense_account ")
-                    .append("FROM m_loan_repayment_schedule sch ")
-                    .append("LEFT JOIN m_loan loan ON sch.loan_id = loan.id ")
-                    .append("LEFT JOIN (SELECT COUNT(*) AS Instalment, lrs.loan_id, MAX(lrs.duedate) AS max_date, MIN(lrs.duedate) AS min_date ")
-                    .append("FROM m_loan_repayment_schedule lrs ")
-                    .append("WHERE lrs.duedate <= DATE(?) ")
-                    .append("AND ((lrs.completed_derived = FALSE AND lrs.obligations_met_on_date IS NULL) OR lrs.obligations_met_on_date > DATE(?)) ")
-                    .append("GROUP BY lrs.loan_id) as repaymentInstalmentTbl ON repaymentInstalmentTbl.loan_id = loan.id ")
-                    .append("JOIN m_loanproduct_provisioning_mapping lpm ON lpm.product_id = loan.product_id ")
-                    .append("JOIN m_provisioning_criteria_definition pcd ON pcd.criteria_id = lpm.criteria_id ")
-                    .append("AND pcd.min_age <= IFNULL(CASE WHEN max_date = min_date OR max_date > min_date ")
-                    .append("THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) ")
-                    .append("AND IFNULL(CASE WHEN max_date = min_date OR max_date > min_date ")
-                    .append("THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) <= pcd.max_age ")
-                    .append("LEFT JOIN m_client mclient ON mclient.id = loan.client_id ")
-                    .append("LEFT JOIN m_group mgroup ON mgroup.id = loan.group_id ")
-                    .append("LEFT JOIN (SELECT t.loan_id, SUM(IFNULL(t.amount, 0)) AS Actual_paid, SUM(IFNULL(t.principal_portion_derived, 0)) AS princ_paid, ")
-                    .append("SUM(IFNULL(t.interest_portion_derived, 0)) AS int_paid, SUM(IFNULL(t.penalty_charges_portion_derived, 0)) AS charge_paid, SUM(IFNULL(t.fee_charges_portion_derived, 0)) AS fee_paid ")
-                    .append("FROM m_loan_transaction t ")
-                    .append("WHERE  (t.transaction_type_enum = 2 or t.transaction_type_enum = 5) AND t.is_reversed = 0 AND (DATE(t.transaction_date) <= DATE(?)) ")
-                    .append("GROUP BY t.loan_id) as paymentTbl ON paymentTbl.loan_id = loan.id ")
-                    .append("LEFT JOIN (SELECT t.loan_id, SUM(IFNULL(t.interest_portion_derived, 0)) AS int_waived ")
-                    .append("FROM m_loan_transaction t ")
-                    .append("WHERE t.transaction_type_enum = 4 AND t.is_reversed = 0 AND (DATE(t.transaction_date) <= DATE(?)) ")
-                    .append("GROUP BY t.loan_id) as waiverTbl ON waiverTbl.loan_id = loan.id ")
-                    .append("LEFT JOIN (SELECT t.loan_id, SUM(IFNULL(t.amount,0)) AS charge_amount, ")
-                    .append("SUM(IFNULL(t.amount_waived_derived, 0)) AS charge_waived, SUM(IFNULL(t.amount_paid_derived, 0)) AS charge_paid ")
-                    .append("FROM m_loan_charge t ")
-                    .append("WHERE (DATE(t.due_for_collection_as_of_date) <= DATE(?) or t.due_for_collection_as_of_date is NULL) AND t.is_active = 1 ")
-                    .append("GROUP BY t.loan_id) AS chargesTbl ON chargesTbl.loan_id = loan.id ")
-                    .append("WHERE loan.loan_status_id IN (700, 602, 601, 600, 300) ")
-                    .append("AND sch.duedate = (SELECT MIN(sch1.duedate) FROM m_loan_repayment_schedule sch1 ")
-                    .append("WHERE sch1.loan_id = loan.id AND sch1.duedate <= DATE(?) ")
-                    .append("AND ((sch1.completed_derived = FALSE AND sch1.obligations_met_on_date IS NULL) ")
-                    .append("OR sch1.obligations_met_on_date > DATE(?))) order by numberofdaysoverdue");
+            sqlQuery = new StringBuilder("SELECT DISTINCT " +
+                    "(CASE WHEN loan.loan_type_enum = 1 THEN mclient.office_id ELSE mgroup.office_id END) AS office_id, " +
+                    "loan.loan_type_enum, " +
+                    "pcd.criteria_id AS criteriaid, " +
+                    "loan.product_id, loan.currency_code, loan.id AS loanId, loan.account_no, " +
+                    "IFNULL(CASE WHEN max_date = min_date OR max_date > min_date " +
+                    "THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) AS numberofdaysoverdue, " +
+                    "sch.duedate, pcd.category_id, pcd.provision_percentage, " +
+
+                    // Principal Outstanding
+                    "(IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) AS principal_outstanding, " +
+
+                    // Accrued Interest up to cut-off from repayment schedule
+                    "(IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0)) AS accrued_interest_to_cutoff, " +
+
+                    // Total Exposure = Principal Outstanding + Accrued Interest
+                    "((IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) " +
+                    "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) AS total_exposure, " +
+
+                    // Provision Amount
+                    "(((IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) " +
+                    "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) " +
+                    "* IFNULL(pcd.provision_percentage, 0) / 100) AS provision_amount, " +
+                    "pcd.liability_account, pcd.expense_account " +
+                    "FROM m_loan_repayment_schedule sch " +
+                    "LEFT JOIN m_loan loan ON sch.loan_id = loan.id " +
+                    "LEFT JOIN (SELECT COUNT(*) AS Instalment, lrs.loan_id, MAX(lrs.duedate) AS max_date, MIN(lrs.duedate) AS min_date " +
+                    "FROM m_loan_repayment_schedule lrs " +
+                    "WHERE lrs.duedate <= DATE(?) " +
+                    "AND ((lrs.completed_derived = 0 AND lrs.obligations_met_on_date IS NULL) OR lrs.obligations_met_on_date > DATE(?)) " +
+                    "GROUP BY lrs.loan_id) AS repaymentInstalmentTbl ON repaymentInstalmentTbl.loan_id = loan.id " +
+
+                    // Scheduled interest due up to cut-off date
+                    "LEFT JOIN (SELECT rs.loan_id, SUM(IFNULL(rs.interest_amount, 0)) AS interest_due_to_cutoff " +
+                    "FROM m_loan_repayment_schedule rs " +
+                    "WHERE rs.duedate <= DATE(?) " +
+                    "GROUP BY rs.loan_id) AS scheduleInterestTbl ON scheduleInterestTbl.loan_id = loan.id " +
+                    "JOIN m_loanproduct_provisioning_mapping lpm ON lpm.product_id = loan.product_id " +
+                    "JOIN m_provisioning_criteria_definition pcd ON pcd.criteria_id = lpm.criteria_id " +
+                    "AND pcd.min_age <= IFNULL(CASE WHEN max_date = min_date OR max_date > min_date " +
+                    "THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) " +
+                    "AND IFNULL(CASE WHEN max_date = min_date OR max_date > min_date " +
+                    "THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) <= pcd.max_age " +
+                    "LEFT JOIN m_client mclient ON mclient.id = loan.client_id " +
+                    "LEFT JOIN m_group mgroup ON mgroup.id = loan.group_id " +
+                    "LEFT JOIN (SELECT t.loan_id, SUM(IFNULL(t.amount, 0)) AS Actual_paid, " +
+                    "SUM(IFNULL(t.principal_portion_derived, 0)) AS princ_paid, " +
+                    "SUM(IFNULL(t.interest_portion_derived, 0)) AS int_paid, " +
+                    "SUM(IFNULL(t.penalty_charges_portion_derived, 0)) AS charge_paid, " +
+                    "SUM(IFNULL(t.fee_charges_portion_derived, 0)) AS fee_paid " +
+                    "FROM m_loan_transaction t " +
+                    "WHERE (t.transaction_type_enum = 2 OR t.transaction_type_enum = 5) " +
+                    "AND t.is_reversed = 0 AND (DATE(t.transaction_date) <= DATE(?)) " +
+                    "GROUP BY t.loan_id) AS paymentTbl ON paymentTbl.loan_id = loan.id " +
+                    "WHERE loan.loan_status_id IN (700, 602, 601, 600, 300) " +
+                    "AND sch.duedate = (SELECT MIN(sch1.duedate) FROM m_loan_repayment_schedule sch1 " +
+                    "WHERE sch1.loan_id = loan.id AND sch1.duedate <= DATE(?) " +
+                    "AND ((sch1.completed_derived = 0 AND sch1.obligations_met_on_date IS NULL) " +
+                    "OR sch1.obligations_met_on_date > DATE(?))) " +
+                    "ORDER BY numberofdaysoverdue");
 
         }
 

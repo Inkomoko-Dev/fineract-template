@@ -134,4 +134,6 @@ public interface ConfigurationDomainService {
     boolean isMakerCheckerNotificationEnabled();
 
     boolean isCorrectionsInClosedPeriodsAllowed();
+
+    boolean isPostTransferCorrectionsEnabled();
 }

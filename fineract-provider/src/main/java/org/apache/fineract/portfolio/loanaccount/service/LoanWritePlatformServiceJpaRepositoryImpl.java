@@ -1315,9 +1315,19 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
 
+        // Determine if this is a post-transfer correction that should bypass transfer date validation
+        boolean bypassTransferDateValidation = false;
+        Client client = loan.client();
+        if (client != null && client.getOfficeJoiningLocalDate() != null) {
+            final LocalDate clientOfficeJoiningDate = client.getOfficeJoiningLocalDate();
+            if (transactionToAdjust.getTransactionDate().isBefore(clientOfficeJoiningDate)) {
+                bypassTransferDateValidation = true;
+            }
+        }
+
         final ChangedTransactionDetail changedTransactionDetail = loan.adjustExistingTransaction(newTransactionDetail,
                 defaultLoanLifecycleStateMachine(), transactionToAdjust, existingTransactionIds, existingReversedTransactionIds,
-                scheduleGeneratorDTO);
+                scheduleGeneratorDTO, bypassTransferDateValidation);
 
         if (newTransactionDetail.isGreaterThanZero(loan.getPrincpal().getCurrency())) {
             if (paymentDetail != null) {
@@ -1342,16 +1352,21 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
 
         final String noteText = command.stringValueOfParameterNamed("note");
-        if (StringUtils.isNotBlank(noteText)) {
-            changes.put("note", noteText);
+        String enhancedNoteText = noteText;
+        if (bypassTransferDateValidation){
+            enhancedNoteText = "[POST-CLIENT-TRANSFER-CORRECTION] Performed By "+ currentUser.getDisplayName()  + " : "+(noteText != null ? noteText : "Post-transfer adjustment");
+
+        }
+        if (StringUtils.isNotBlank(enhancedNoteText)) {
+            changes.put("note", enhancedNoteText);
             Note note = null;
             /**
              * If a new transaction is not created, associate note with the transaction to be adjusted
              **/
             if (newTransactionDetail.isGreaterThanZero(loan.getPrincpal().getCurrency())) {
-                note = Note.loanTransactionNote(loan, newTransactionDetail, noteText);
+                note = Note.loanTransactionNote(loan, newTransactionDetail, enhancedNoteText);
             } else {
-                note = Note.loanTransactionNote(loan, transactionToAdjust, noteText);
+                note = Note.loanTransactionNote(loan, transactionToAdjust, enhancedNoteText);
             }
             this.noteRepository.save(note);
         }
