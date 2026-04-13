@@ -136,28 +136,27 @@ public class EmailHookProcessor implements HookProcessor {
         if (loan.getLoanOfficer() != null && loan.getLoanOfficer().getId() != null) {
             Long officerId = loan.getLoanOfficer().getId();
             Map<String, String> officerMap = new HashMap<>();
-            appUserRepository.findById(officerId).ifPresentOrElse(
-                    officer -> {
-                        officerMap.put("email", officer.getEmail());
-                        officerMap.put("name", officer.getUsername());
+            staffRepository.findById(officerId).ifPresentOrElse(
+                    staff -> {
+                        officerMap.put("email", staff.emailAddress());
+                        officerMap.put("name", staff.fullName());
                         recipients.add(officerMap);
-                        loanOfficerName.set(officer.getFirstname() + " " + officer.getLastname());
+                        loanOfficerName.set(staff.fullName());
                     },
                     () -> {
-                        // Fallback — loan officer is a Staff record, not an AppUser
-                        staffRepository.findById(officerId).ifPresentOrElse(
-                                staff -> {
-                                    officerMap.put("email", staff.emailAddress());
-                                    officerMap.put("name", staff.fullName());
+                        // Fallback — loan officer is an AppUser record, not a Staff
+                        appUserRepository.findById(officerId).ifPresentOrElse(
+                                officer -> {
+                                    officerMap.put("email", officer.getEmail());
+                                    officerMap.put("name", officer.getUsername());
                                     recipients.add(officerMap);
-                                    loanOfficerName.set(staff.fullName());
+                                    loanOfficerName.set(officer.getFirstname() + " " + officer.getLastname());
                                 },
-                                () -> log.warn("Loan officer not found in AppUser or Staff for loan: {}", loanId)
+                                () -> log.warn("Loan officer not found in Staff or AppUser for loan: {}", loanId)
                         );
                     }
-
             );
-            log.info("Loan officer found: {} for loan id  {}", officerMap.get("email"), loanId);
+            log.info("Loan officer found: {} for loan id {}", officerMap.get("email"), loanId);
         }
         // Fetch client
         Long clientId = response.get("clientId") instanceof Number
