@@ -26,6 +26,7 @@ import org.apache.fineract.infrastructure.core.domain.EmailDetail;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.service.GmailBackedPlatformEmailService;
 import org.apache.fineract.infrastructure.hooks.domain.Hook;
+import org.apache.fineract.organisation.staff.domain.StaffRepository;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -54,6 +55,7 @@ public class EmailHookProcessor implements HookProcessor {
     private final ClientRepositoryWrapper clientRepository;
     private final LoanRepository loanRepository;
     private final AppUserRepository appUserRepository;
+    private final StaffRepository staffRepository;
     private final GmailBackedPlatformEmailService emailService;
     @Value("${CBS_ENVIRONMENT_LINK}")
     private String cbsEnvironmentLink;
@@ -127,6 +129,7 @@ public class EmailHookProcessor implements HookProcessor {
                     },
                     () -> log.warn("Loan creator not found for loan: {}", loanId)
             );
+            log.info("Loan creator found: {}", creatorMap.get("email"));
         }
 
         // Loan officer
@@ -135,15 +138,27 @@ public class EmailHookProcessor implements HookProcessor {
             Map<String, String> officerMap = new HashMap<>();
             appUserRepository.findById(officerId).ifPresentOrElse(
                     officer -> {
-                        officerMap.put("email" , officer.getEmail());
+                        officerMap.put("email", officer.getEmail());
                         officerMap.put("name", officer.getUsername());
                         recipients.add(officerMap);
                         loanOfficerName.set(officer.getFirstname() + " " + officer.getLastname());
                     },
-                    () -> log.warn("Loan officer not found for loan: {}", loanId)
-            );
-        }
+                    () -> {
+                        // Fallback — loan officer is a Staff record, not an AppUser
+                        staffRepository.findById(officerId).ifPresentOrElse(
+                                staff -> {
+                                    officerMap.put("email", staff.emailAddress());
+                                    officerMap.put("name", staff.fullName());
+                                    recipients.add(officerMap);
+                                    loanOfficerName.set(staff.fullName());
+                                },
+                                () -> log.warn("Loan officer not found in AppUser or Staff for loan: {}", loanId)
+                        );
+                    }
 
+            );
+            log.info("Loan officer found: {} for loan id  {}", officerMap.get("email"), loanId);
+        }
         // Fetch client
         Long clientId = response.get("clientId") instanceof Number
                 ? ((Number) response.get("clientId")).longValue()
