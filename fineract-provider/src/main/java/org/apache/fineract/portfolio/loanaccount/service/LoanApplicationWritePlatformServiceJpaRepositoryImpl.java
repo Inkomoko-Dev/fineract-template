@@ -2533,6 +2533,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         }
         this.loanCashFlowProjectionRepository.deleteByLoanId(loanId);
 
+        // Log the cashflow generation/regeneration action for audit purposes
+        if (isRegeneration) {
+            LOG.info("Cashflow REGENERATION initiated for loan {} by user {} at {}",
+                    loanId, currentUser != null ? currentUser.getUsername() : "unknown", java.time.LocalDateTime.now());
+        } else {
+            LOG.info("Cashflow GENERATION initiated for loan {} by user {} at {}",
+                    loanId, currentUser != null ? currentUser.getUsername() : "unknown", java.time.LocalDateTime.now());
+        }
+
         for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
             LOG.info("installment id: " + installment.getId() + " Month " + installment.getInstallmentNumber());
 
@@ -2603,12 +2612,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             // incomeProjectionRate = projectionRate;
             // expenseProjectionRate = projectionRate;
         }
-        // Create audit note for cashflow generation/regeneration
-        final String actionType = isRegeneration ? "REGENERATION" : "GENERATION";
-        final String noteText = String.format("Cashflow %s completed successfully. User: %s",
-                actionType, currentUser != null ? currentUser.getUsername() : "unknown");
-        final Note note = Note.loanNote(loan, noteText);
-        this.noteRepository.save(note);
+        // Log successful completion
+        LOG.info("Cashflow {} completed successfully for loan {} by user {}",
+                isRegeneration ? "regeneration" : "generation", loanId, currentUser != null ? currentUser.getUsername() : "unknown");
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
