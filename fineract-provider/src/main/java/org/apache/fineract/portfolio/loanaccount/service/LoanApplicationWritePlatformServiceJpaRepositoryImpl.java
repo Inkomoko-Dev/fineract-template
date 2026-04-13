@@ -2575,11 +2575,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     @Override
     public CommandProcessingResult generateCashFlow(Long loanId, JsonCommand command) {
         final Loan loan = retrieveLoanBy(loanId);
+        final AppUser currentUser = getAppUserIfPresent();
 
+        // Validate that loan is in Due Diligence stage - cashflows can only be generated/regenerated in this stage
         if (loan.getLoanDecisionState() == null || !loan.status().isSubmittedAndPendingApproval()
-                || !loan.getLoanDecisionState().equals(LoanDecisionState.REVIEW_APPLICATION.getValue())) {
+                || !loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue())) {
+            LOG.warn("Cashflow generation/regeneration blocked for loan {} - Loan is not in Due Diligence stage. Current state: {}, User: {}",
+                    loanId, loan.getLoanDecisionState(), currentUser != null ? currentUser.getUsername() : "unknown");
             throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.cashflow.cannot.be.generated",
-                    "Loan is not in Due Diligence Stage so CashFlow cannot be generated");
+                    "Cashflows can only be generated or regenerated while the loan is in Due Diligence stage.");
         }
         List<LoanCashFlowData> loanCashFlowDataList = this.loanReadPlatformService.retrieveCashFlow(loanId);
         if (CollectionUtils.isEmpty(loanCashFlowDataList)) {
@@ -2596,12 +2600,11 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         }
         List<LoanCashFlowProjectionData> cashFlowProjectionList = this.loanReadPlatformService.retrieveCashFlowProjection(loanId);
 
+        // Determine if this is a generation or regeneration for logging purposes
+        final boolean isRegeneration = !CollectionUtils.isEmpty(cashFlowProjectionList);
         final Integer cashFlowType = command.integerValueOfParameterNamed("cashFlowType");
-        if (cashFlowType == null && !CollectionUtils.isEmpty(cashFlowProjectionList)) {
-            throw new GeneralPlatformDomainRuleException(
-                    "error.msg.loan.cashflow.projection.data.is.already.available.so.cashflow.cannot.be.regenerated",
-                    "Loan CashFlow Projection data is already Generated so CashFlow cannot be regenerated");
-        }
+
+        // Allow regeneration while in Due Diligence stage - removed the previous restriction that blocked regeneration
 
         if (cashFlowType != null) {
             this.fromApiJsonDeserializer.validateCashFlowProjectionUpdate(command.json());
@@ -2630,6 +2633,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             }
         }
         this.loanCashFlowProjectionRepository.deleteByLoanId(loanId);
+
+        // Log the cashflow generation/regeneration action for audit purposes
+        if (isRegeneration) {
+            LOG.info("Cashflow REGENERATION initiated for loan {} by user {} at {}",
+                    loanId, currentUser != null ? currentUser.getUsername() : "unknown", java.time.LocalDateTime.now());
+        } else {
+            LOG.info("Cashflow GENERATION initiated for loan {} by user {} at {}",
+                    loanId, currentUser != null ? currentUser.getUsername() : "unknown", java.time.LocalDateTime.now());
+        }
 
         for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
             LOG.info("installment id: " + installment.getId() + " Month " + installment.getInstallmentNumber());
@@ -2701,6 +2713,10 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             // incomeProjectionRate = projectionRate;
             // expenseProjectionRate = projectionRate;
         }
+        // Log successful completion
+        LOG.info("Cashflow {} completed successfully for loan {} by user {}",
+                isRegeneration ? "regeneration" : "generation", loanId, currentUser != null ? currentUser.getUsername() : "unknown");
+
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
                 .withEntityId(loan.getId()) //
@@ -2713,11 +2729,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     @Override
     public CommandProcessingResult generateFinancialRatios(Long loanId, JsonCommand command) {
         final Loan loan = retrieveLoanBy(loanId);
+        final AppUser currentUser = getAppUserIfPresent();
 
+        // Validate that loan is in Due Diligence stage - financial ratios can only be generated in this stage
         if (loan.getLoanDecisionState() == null || !loan.status().isSubmittedAndPendingApproval()
-                || !loan.getLoanDecisionState().equals(LoanDecisionState.REVIEW_APPLICATION.getValue())) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.cashflow.cannot.be.generated",
-                    "Loan is not in Due Diligence Stage so CashFlow cannot be generated");
+                || !loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue())) {
+            LOG.warn("Financial ratio generation blocked for loan {} - Loan is not in Due Diligence stage. Current state: {}, User: {}",
+                    loanId, loan.getLoanDecisionState(), currentUser != null ? currentUser.getUsername() : "unknown");
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.financial.ratios.cannot.be.generated",
+                    "Financial ratios can only be generated while the loan is in Due Diligence stage.");
         }
         LoanFinancialRatioData financialRatioData = this.loanReadPlatformService.retrieveLoanFinancialRatioData(loanId);
 
