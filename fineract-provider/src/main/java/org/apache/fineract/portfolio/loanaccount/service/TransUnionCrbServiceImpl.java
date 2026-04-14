@@ -18,23 +18,23 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonParser;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
-import java.util.Set;
-import java.util.LinkedHashSet;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.UUID;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +46,7 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.fineract.infrastructure.core.exception.CrbBusinessRuleException;
+import org.apache.fineract.infrastructure.core.exception.CrbPreSubmissionValidationException;
 import org.apache.fineract.infrastructure.core.exception.CrbSystemException;
 import org.apache.fineract.infrastructure.core.exception.CrbValidationException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -80,6 +81,8 @@ import org.springframework.stereotype.Service;
 public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
     private static final Logger LOG = LoggerFactory.getLogger(TransUnionCrbServiceImpl.class);
+    private static final String DEFAULT_BALANCE_INDICATOR = "D";
+    private static final int MAX_DAYS_IN_ARREARS_FOR_CURRENT_INDICATOR = 90;
     public static final String FORM_URL_CONTENT_TYPE = "application/json";
     private final TransUnionCrbPostConsumerCreditReadPlatformServiceImpl transUnionCrbPostConsumerCreditReadPlatformServiceImpl;
     private final TransUnionCrbPostCorporateCreditReadPlatformServiceImpl transUnionCrbPostCorporateCreditReadPlatformServiceImpl;
@@ -255,6 +258,7 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                     String payload = convertConsumerCreditPayloadToJson(rwandaCorporateCreditData);
 
                     try {
+                        validateCorporateCreditRecord(creditData);
                         String callbackId = postRwandaCorporateCreditToTransUnion(token, payload);
 
                         // success
@@ -330,6 +334,31 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
         }
 
+    }
+
+    void validateCorporateCreditRecord(TransUnionRwandaCorporateCreditData creditData) {
+        final String indicator = Objects.toString(creditData.getCurrentBalanceIndicator(), "");
+        final int daysInArrears = Objects.requireNonNullElse(creditData.getDaysInArrears(), 0);
+
+        if (!DEFAULT_BALANCE_INDICATOR.equals(indicator) || daysInArrears > MAX_DAYS_IN_ARREARS_FOR_CURRENT_INDICATOR) {
+            return;
+        }
+
+        final String loanReference = Objects.toString(creditData.getAccountNumber(), String.valueOf(creditData.getLoanId()));
+        final String message = String.format(
+                "Corporate CRB submission blocked before sending for Loan %s. Invalid Current Balance Indicator / Days in Arrears combination: indicator '%s' requires days in arrears greater than %d, but the payload has %d. Review the corporate CRB mapping and source arrears data before retrying.",
+                loanReference,
+                indicator,
+                MAX_DAYS_IN_ARREARS_FOR_CURRENT_INDICATOR,
+                daysInArrears
+        );
+
+        throw new CrbPreSubmissionValidationException(
+                loanReference,
+                "Current Balance Indicator / Days in Arrears",
+                indicator + " / " + daysInArrears,
+                message
+        );
     }
 
 
