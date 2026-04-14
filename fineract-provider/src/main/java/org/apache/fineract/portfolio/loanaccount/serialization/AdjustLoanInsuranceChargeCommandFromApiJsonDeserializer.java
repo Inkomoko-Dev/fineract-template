@@ -45,7 +45,7 @@ import org.springframework.stereotype.Component;
 public class AdjustLoanInsuranceChargeCommandFromApiJsonDeserializer {
 
     private static final Set<String> SUPPORTED_PARAMS = new HashSet<>(
-            Arrays.asList("amount", "transactionDate", "notes", "locale", "dateFormat"));
+            Arrays.asList("amount", "transactionDate", "notes", "locale", "dateFormat", "glAccountId"));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -65,7 +65,7 @@ public class AdjustLoanInsuranceChargeCommandFromApiJsonDeserializer {
         final JsonElement element = this.fromApiJsonHelper.parse(json);
 
         final BigDecimal amount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed("amount", element);
-        validator.reset().parameter("amount").value(amount).notNull().positiveAmount();
+        validator.reset().parameter("amount").value(amount).notNull().zeroOrPositiveAmount();
 
         final LocalDate transactionDate = this.fromApiJsonHelper
                 .extractLocalDateNamed("transactionDate", element);
@@ -73,6 +73,11 @@ public class AdjustLoanInsuranceChargeCommandFromApiJsonDeserializer {
 
         final String notes = this.fromApiJsonHelper.extractStringNamed("notes", element);
         validator.reset().parameter("notes").value(notes).ignoreIfNull().notExceedingLengthOf(500);
+
+        if (this.fromApiJsonHelper.parameterExists("glAccountId", element)) {
+            final Long newGlAccountId = this.fromApiJsonHelper.extractLongNamed("glAccountId", element);
+            validator.reset().parameter("glAccountId").value(newGlAccountId).notNull().longGreaterThanZero();
+        }
 
         if (!errors.isEmpty()) {
             throw new PlatformApiDataValidationException(errors);
