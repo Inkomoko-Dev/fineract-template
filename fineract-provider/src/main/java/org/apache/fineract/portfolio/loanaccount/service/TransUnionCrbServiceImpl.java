@@ -46,6 +46,7 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.fineract.infrastructure.core.exception.CrbBusinessRuleException;
+import org.apache.fineract.infrastructure.core.exception.CrbLocalValidationException;
 import org.apache.fineract.infrastructure.core.exception.CrbSystemException;
 import org.apache.fineract.infrastructure.core.exception.CrbValidationException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -120,13 +121,16 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
             for (TransUnionRwandaConsumerCreditData creditData : records) {
 
                 try {
-                    RwandaConsumerCreditData rwandaConsumerCreditData = new RwandaConsumerCreditData();
-                    rwandaConsumerCreditData.setConsumerCreditInformationRecord(creditData);
-                    rwandaConsumerCreditData.setRecordType("IC");
-
-                    String payload = convertConsumerCreditPayloadToJson(rwandaConsumerCreditData);
+                    String payload = null;
 
                     try {
+                        validateConsumerAddressForCrb(creditData);
+
+                        RwandaConsumerCreditData rwandaConsumerCreditData = new RwandaConsumerCreditData();
+                        rwandaConsumerCreditData.setConsumerCreditInformationRecord(creditData);
+                        rwandaConsumerCreditData.setRecordType("IC");
+
+                        payload = convertConsumerCreditPayloadToJson(rwandaConsumerCreditData);
 
                         String callbackId = postRwandaConsumerCreditToTransUnion(token, payload);
 
@@ -149,8 +153,8 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                     }
 
                     // Data / business rejection → log and STOP reposting
-                    catch (CrbValidationException | CrbBusinessRuleException e) {
-                        LOG.info("Consumer credit rejected by CRB rules for loanId={}", creditData.getLoanId());
+                    catch (CrbLocalValidationException | CrbValidationException | CrbBusinessRuleException e) {
+                        LOG.info("Consumer credit rejected during CRB validation for loanId={}", creditData.getLoanId());
 
                         saveCrbPostingLogger(
                                 creditData.getLoanId(),
@@ -248,13 +252,17 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
             for (TransUnionRwandaCorporateCreditData creditData : records) {
 
                 try{
-                    RwandaCorporateCreditData rwandaCorporateCreditData = new RwandaCorporateCreditData();
-                    rwandaCorporateCreditData.setCorporateCreditInformationRecord(creditData);
-                    rwandaCorporateCreditData.setRecordType("CI");
-
-                    String payload = convertConsumerCreditPayloadToJson(rwandaCorporateCreditData);
+                    String payload = null;
 
                     try {
+                        validateCorporateAddressForCrb(creditData);
+
+                        RwandaCorporateCreditData rwandaCorporateCreditData = new RwandaCorporateCreditData();
+                        rwandaCorporateCreditData.setCorporateCreditInformationRecord(creditData);
+                        rwandaCorporateCreditData.setRecordType("CI");
+
+                        payload = convertConsumerCreditPayloadToJson(rwandaCorporateCreditData);
+
                         String callbackId = postRwandaCorporateCreditToTransUnion(token, payload);
 
                         // success
@@ -276,9 +284,9 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                     }
 
                     // Business / validation rejection → log and STOP reposting
-                    catch (CrbValidationException | CrbBusinessRuleException e) {
+                    catch (CrbLocalValidationException | CrbValidationException | CrbBusinessRuleException e) {
 
-                        LOG.info("Corporate credit rejected by CRB rules for loanId={}", creditData.getLoanId());
+                        LOG.info("Corporate credit rejected during CRB validation for loanId={}", creditData.getLoanId());
 
                         saveCrbPostingLogger(
                                 creditData.getLoanId(),
@@ -330,6 +338,38 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
         }
 
+    }
+
+    void validateConsumerAddressForCrb(TransUnionRwandaConsumerCreditData creditData) {
+        validateSelectedAddressForCrb(creditData.getAccountNumber(), creditData.getSelectedAddressId(),
+                creditData.getSelectedAddressType(), creditData.getCountry());
+    }
+
+    void validateCorporateAddressForCrb(TransUnionRwandaCorporateCreditData creditData) {
+        validateSelectedAddressForCrb(creditData.getAccountNumber(), creditData.getSelectedAddressId(),
+                creditData.getSelectedAddressType(), creditData.getCountry());
+    }
+
+    private void validateSelectedAddressForCrb(String accountNumber, Long selectedAddressId, String selectedAddressType, String country) {
+        if (selectedAddressId == null) {
+            throw new CrbLocalValidationException(buildLocalValidationMessage(accountNumber,
+                    "the client has no active address. Country must come from the active client address, preferring CURRENT ADDRESS."),
+                    null);
+        }
+
+        if (country == null || country.isBlank()) {
+            final String addressType = (selectedAddressType == null || selectedAddressType.isBlank()) ? "selected active address"
+                    : selectedAddressType;
+            throw new CrbLocalValidationException(buildLocalValidationMessage(accountNumber,
+                    "the selected " + addressType + " has no country. Country must come from the address country field."), null);
+        }
+    }
+
+    private String buildLocalValidationMessage(String accountNumber, String detail) {
+        if (accountNumber == null || accountNumber.isBlank()) {
+            return "CRB posting skipped because " + detail;
+        }
+        return "Loan " + accountNumber + " cannot be posted to CRB because " + detail;
     }
 
 
