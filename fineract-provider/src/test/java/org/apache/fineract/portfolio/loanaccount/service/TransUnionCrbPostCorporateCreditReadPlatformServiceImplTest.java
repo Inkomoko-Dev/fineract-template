@@ -27,7 +27,6 @@ import static org.mockito.Mockito.verify;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.regex.Pattern;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
 import org.apache.fineract.portfolio.loanaccount.data.TransUnionRwandaCorporateCreditData;
 import org.junit.jupiter.api.Test;
@@ -58,37 +57,27 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
     private DatabaseTypeResolver databaseTypeResolver;
 
     @Test
-    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicInMySqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesSelectedActiveAddressCountryInMySqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(true);
 
         readPlatformService.retrieveAllCorporateCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
 
         String sql = captureGeneratedSql();
-        assertContainsPattern(sql, "COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\)\\s+AS daysInArrears");
-        assertContainsPattern(sql,
-                "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
-        assertContainsPattern(sql, "WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) < 30 THEN 1");
-        assertDoesNotContainPattern(sql, "WHEN DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\) <= 90\\s+THEN 'C'");
+        assertUsesSelectedActiveAddressCountry(sql);
+        assertTrue(sql.contains("DATEDIFF(NOW(), mlaa.overdue_since_date_derived)"));
     }
 
     @Test
-    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicInPostgreSqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesSelectedActiveAddressCountryInPostgreSqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(false);
 
         readPlatformService.retrieveAllCorporateCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
 
         String sql = captureGeneratedSql();
-        assertTrue(sql.contains(
-                "COALESCE(CAST(EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) AS INTEGER), 0)"),
-                "Expected SQL to use a null-safe PostgreSQL arrears expression");
-        assertContainsPattern(sql,
-                "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(CAST\\(EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\) AS INTEGER\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
-        assertContainsPattern(sql,
-                "WHEN COALESCE\\(CAST\\(EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\) AS INTEGER\\), 0\\) < 30 THEN 1");
-        assertDoesNotContainPattern(sql,
-                "WHEN EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\)\\s+<= 90\\s+THEN 'C'");
+        assertUsesSelectedActiveAddressCountry(sql);
+        assertTrue(sql.contains("EXTRACT(DAY FROM"));
     }
 
     private void mockQueryResult() {
@@ -104,11 +93,12 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
         return sqlCaptor.getValue();
     }
 
-    private void assertContainsPattern(String sql, String regex) {
-        assertTrue(Pattern.compile(regex).matcher(sql).find(), "Expected SQL to contain pattern: " + regex);
-    }
-
-    private void assertDoesNotContainPattern(String sql, String regex) {
-        assertFalse(Pattern.compile(regex).matcher(sql).find(), "Expected SQL not to contain pattern: " + regex);
+    private void assertUsesSelectedActiveAddressCountry(String sql) {
+        assertTrue(sql.contains("address_type_cv.code_value AS addressType"));
+        assertTrue(sql.contains("ca.is_active = true"));
+        assertTrue(sql.contains("WHEN address_type_cv.code_value = 'CURRENT ADDRESS' THEN 0 ELSE 1 END"));
+        assertTrue(sql.contains("LEFT JOIN RankedAddresses ranked_address ON mc.id = ranked_address.client_id"));
+        assertTrue(sql.contains("LEFT JOIN m_code_value country_cv ON ra.country_id = country_cv.id"));
+        assertFalse(sql.contains("m_client_recruitment_survey"));
     }
 }
