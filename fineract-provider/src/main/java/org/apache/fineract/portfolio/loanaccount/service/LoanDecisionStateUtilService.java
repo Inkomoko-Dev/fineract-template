@@ -890,13 +890,20 @@ public class LoanDecisionStateUtilService {
                     "Loan Account current status is invalid. Expected" + loan.status().getCode() + " but found " + loan.status().getCode());
         }
         if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelOne()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.is.invalid",
-                    "Loan Account Decision state is invalid. Expected" + LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue() + " but found "
-                            + loan.getLoanDecisionState());
+            // Use dynamicIcReviewLevelHelper to get proper display name for dynamic levels (6+)
+            String currentStateName = dynamicIcReviewLevelHelper.getLevelDisplayName(loan.getLoanDecisionState());
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.is.invalid.for.ic.level.two",
+                    "Loan cannot be processed at IC Review Level Two because it is currently at stage '"
+                            + currentStateName + "' (state " + loan.getLoanDecisionState()
+                            + "). Expected stage: IC_REVIEW_LEVEL_ONE (state 1400). "
+                            + "Please ensure IC Review Level One is completed before proceeding with Level Two, "
+                            + "or contact system administrator if the loan state needs correction.");
         }
         if (!loan.getLoanDecisionState().equals(loanDecision.getLoanDecisionState())) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.does.not.reconcile",
-                    "Loan Account Decision state Does not reconcile . Operation is terminated");
+                    "Loan Account Decision state is out of sync between loan and decision tables. "
+                            + "Loan state: " + loan.getLoanDecisionState() + ", Decision state: " + loanDecision.getLoanDecisionState()
+                            + ". Please contact system administrator to resolve this inconsistency.");
         }
     }
 
