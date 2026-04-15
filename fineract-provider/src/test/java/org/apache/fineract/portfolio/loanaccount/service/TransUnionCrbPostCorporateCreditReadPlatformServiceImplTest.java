@@ -58,13 +58,14 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
     private DatabaseTypeResolver databaseTypeResolver;
 
     @Test
-    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicInMySqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicAndSelectedActiveAddressCountryInMySqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(true);
 
         readPlatformService.retrieveAllCorporateCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
 
         String sql = captureGeneratedSql();
+        assertUsesSelectedActiveAddressCountry(sql);
         assertContainsPattern(sql, "COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\)\\s+AS daysInArrears");
         assertContainsPattern(sql,
                 "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
@@ -73,13 +74,14 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
     }
 
     @Test
-    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicInPostgreSqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicAndSelectedActiveAddressCountryInPostgreSqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(false);
 
         readPlatformService.retrieveAllCorporateCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
 
         String sql = captureGeneratedSql();
+        assertUsesSelectedActiveAddressCountry(sql);
         assertTrue(sql.contains(
                 "COALESCE(CAST(EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) AS INTEGER), 0)"),
                 "Expected SQL to use a null-safe PostgreSQL arrears expression");
@@ -102,6 +104,15 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
         verify(jdbcTemplate).query(sqlCaptor.capture(), org.mockito.ArgumentMatchers.<RowMapper<TransUnionRwandaCorporateCreditData>>any(),
                 eq(LAST_LOAN_ID), eq(PAGE_SIZE));
         return sqlCaptor.getValue();
+    }
+
+    private void assertUsesSelectedActiveAddressCountry(String sql) {
+        assertTrue(sql.contains("address_type_cv.code_value AS addressType"));
+        assertTrue(sql.contains("ca.is_active = true"));
+        assertTrue(sql.contains("WHEN address_type_cv.code_value = 'CURRENT ADDRESS' THEN 0 ELSE 1 END"));
+        assertTrue(sql.contains("LEFT JOIN RankedAddresses ranked_address ON mc.id = ranked_address.client_id"));
+        assertTrue(sql.contains("LEFT JOIN m_code_value country_cv ON ra.country_id = country_cv.id"));
+        assertFalse(sql.contains("m_client_recruitment_survey"));
     }
 
     private void assertContainsPattern(String sql, String regex) {

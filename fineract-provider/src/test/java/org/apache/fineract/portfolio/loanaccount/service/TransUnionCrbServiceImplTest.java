@@ -23,8 +23,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.fineract.infrastructure.core.exception.CrbLocalValidationException;
 import org.apache.fineract.infrastructure.core.exception.CrbPreSubmissionValidationException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.portfolio.loanaccount.data.TransUnionRwandaConsumerCreditData;
 import org.apache.fineract.portfolio.loanaccount.data.TransUnionRwandaCorporateCreditData;
 import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
@@ -69,6 +71,43 @@ class TransUnionCrbServiceImplTest {
 
     @Mock
     private Environment env;
+
+    @Test
+    void validateConsumerAddressForCrbRejectsMissingActiveAddress() {
+        TransUnionRwandaConsumerCreditData creditData = new TransUnionRwandaConsumerCreditData();
+        creditData.setAccountNumber("LN-001");
+
+        CrbLocalValidationException exception = assertThrows(CrbLocalValidationException.class,
+                () -> service.validateConsumerAddressForCrb(creditData));
+
+        assertTrue(exception.getMessage().contains("no active address"));
+    }
+
+    @Test
+    void validateConsumerAddressForCrbRejectsMissingCountryOnSelectedAddress() {
+        TransUnionRwandaConsumerCreditData creditData = new TransUnionRwandaConsumerCreditData();
+        creditData.setAccountNumber("LN-002");
+        creditData.setSelectedAddressId(44L);
+        creditData.setSelectedAddressType("CURRENT ADDRESS");
+        creditData.setCountry(" ");
+
+        CrbLocalValidationException exception = assertThrows(CrbLocalValidationException.class,
+                () -> service.validateConsumerAddressForCrb(creditData));
+
+        assertTrue(exception.getMessage().contains("CURRENT ADDRESS"));
+        assertTrue(exception.getMessage().contains("has no country"));
+    }
+
+    @Test
+    void validateCorporateAddressForCrbAllowsSelectedAddressWithCountry() {
+        TransUnionRwandaCorporateCreditData creditData = new TransUnionRwandaCorporateCreditData();
+        creditData.setAccountNumber("LN-003");
+        creditData.setSelectedAddressId(55L);
+        creditData.setSelectedAddressType("CURRENT ADDRESS");
+        creditData.setCountry("Rwanda");
+
+        assertDoesNotThrow(() -> service.validateCorporateAddressForCrb(creditData));
+    }
 
     @Test
     void validateCorporateCreditRecordRejectsDefaultIndicatorWhenDaysInArrearsIsZero() {
