@@ -75,7 +75,6 @@ public class SmsCampaignApiResource {
     private final DefaultToApiJsonSerializer<CampaignPreviewData> previewCampaignMessageDefaultToApiJsonSerializer;
     private final SmsCampaignWritePlatformService smsCampaignWritePlatformService;
 
-    private final String resourceNameForPermissions = "SMS_CAMPAIGN";
     private final PlatformSecurityContext context;
 
     @Autowired
@@ -195,7 +194,7 @@ public class SmsCampaignApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String preview(final String apiRequestBodyAsJson, @Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
+        this.context.authenticatedUser().validateHasReadPermission(SmsCampaignConstants.RESOURCE_NAME);
 
         CampaignPreviewData campaignMessage = null;
         final JsonElement parsedQuery = this.fromJsonHelper.parse(apiRequestBodyAsJson);
