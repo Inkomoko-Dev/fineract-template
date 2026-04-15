@@ -31,15 +31,13 @@
          =============================== -->
     <changeSet id="20260205-01-transaction-loan-permissions" author="niceta@inkomoko.com">
         <preConditions onFail="MARK_RAN">
-            <not>
-                <sqlCheck expectedResult="0">
-                    SELECT COUNT(*) FROM m_permission
-                    WHERE code IN (
-                    'DISBURSEMENTPREAPPROVAL_LOAN',
-                    'REJECTDISBURSEMENT_LOAN'
-                    )
-                </sqlCheck>
-            </not>
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'DISBURSEMENTPREAPPROVAL_LOAN'
+            </sqlCheck>
+
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'REJECTDISBURSEMENT_LOAN'
+            </sqlCheck>
         </preConditions>
 
         <insert tableName="m_permission">
@@ -64,21 +62,19 @@
          =============================== -->
     <changeSet id="20260205-02-portfolio-reject-permissions" author="niceta">
         <preConditions onFail="MARK_RAN">
-            <not>
-                <sqlCheck expectedResult="0">
-                    SELECT COUNT(*) FROM m_permission
-                    WHERE code IN (
-                    'REJECT_LOANAPPLICATIONREVIEW',
-                    'REJECT_DUEDILIGENCE',
-                    'REJECT_LOANICREVIEWDECISIONLEVELONE',
-                    'REJECT_LOANICREVIEWDECISIONLEVELTWO',
-                    'REJECT_LOANICREVIEWDECISIONLEVELTHREE',
-                    'REJECT_LOANICREVIEWDECISIONLEVELFOUR',
-                    'REJECT_LOANICREVIEWDECISIONLEVELFIVE',
-                    'REJECT_LOANPREPAREANDSIGNCONTRACT'
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission
+                WHERE code IN (
+                               'REJECT_LOANAPPLICATIONREVIEW',
+                               'REJECT_DUEDILIGENCE',
+                               'REJECT_LOANICREVIEWDECISIONLEVELONE',
+                               'REJECT_LOANICREVIEWDECISIONLEVELTWO',
+                               'REJECT_LOANICREVIEWDECISIONLEVELTHREE',
+                               'REJECT_LOANICREVIEWDECISIONLEVELFOUR',
+                               'REJECT_LOANICREVIEWDECISIONLEVELFIVE',
+                               'REJECT_LOANPREPAREANDSIGNCONTRACT'
                     )
-                </sqlCheck>
-            </not>
+            </sqlCheck>
         </preConditions>
 
         <insert tableName="m_permission">
