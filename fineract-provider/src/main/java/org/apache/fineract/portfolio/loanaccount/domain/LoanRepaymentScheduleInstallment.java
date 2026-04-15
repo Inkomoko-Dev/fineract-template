@@ -476,6 +476,49 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return interestPortionOfTransaction;
     }
 
+    /**
+     * Pays only the accrued interest up to the transaction date and writes off any unearned interest.
+     * This method is used for early/advance payments (prepayments) to ensure clients are not charged
+     * interest that has not yet accrued.
+     *
+     * @param transactionDate the date of the payment (used to calculate accrued interest)
+     * @param transactionAmountRemaining the amount available for payment
+     * @return the amount actually allocated to interest (only the accrued portion)
+     */
+    public Money payAccruedInterestComponentAndWriteOffUnearned(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money interestPortionOfTransaction = Money.zero(currency);
+
+        // Calculate pro-rata accrued interest up to transaction date
+        final Money accruedInterestDue = calculateAccruedInterestToDate(currency, transactionDate);
+        final Money totalInterestOutstanding = getInterestOutstanding(currency);
+
+        // Pay only the accrued interest portion
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(accruedInterestDue)) {
+            this.interestPaid = getInterestPaid(currency).plus(accruedInterestDue).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(accruedInterestDue);
+        } else {
+            this.interestPaid = getInterestPaid(currency).plus(transactionAmountRemaining).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(transactionAmountRemaining);
+        }
+
+        this.interestPaid = defaultToNullIfZero(this.interestPaid);
+
+        // Write off unearned interest (the difference between total outstanding and accrued)
+        final Money unearnedInterest = totalInterestOutstanding.minus(accruedInterestDue);
+        if (unearnedInterest.isGreaterThanZero()) {
+            this.interestWrittenOff = getInterestWrittenOff(currency).plus(unearnedInterest).getAmount();
+            this.interestWrittenOff = defaultToNullIfZero(this.interestWrittenOff);
+        }
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        trackAdvanceAndLateTotalsForRepaymentPeriod(transactionDate, currency, interestPortionOfTransaction);
+
+        return interestPortionOfTransaction;
+    }
+
     public Money payPrincipalComponent(final LocalDate transactionDate, final Money transactionAmountRemaining) {
 
         final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();

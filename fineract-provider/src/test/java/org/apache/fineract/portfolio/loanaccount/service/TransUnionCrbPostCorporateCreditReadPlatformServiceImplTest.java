@@ -27,6 +27,7 @@ import static org.mockito.Mockito.verify;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
 import org.apache.fineract.portfolio.loanaccount.data.TransUnionRwandaCorporateCreditData;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
     private DatabaseTypeResolver databaseTypeResolver;
 
     @Test
-    void retrieveAllCorporateCreditsPageUsesSelectedActiveAddressCountryInMySqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicAndSelectedActiveAddressCountryInMySqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(true);
 
@@ -65,11 +66,15 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
 
         String sql = captureGeneratedSql();
         assertUsesSelectedActiveAddressCountry(sql);
-        assertTrue(sql.contains("DATEDIFF(NOW(), mlaa.overdue_since_date_derived)"));
+        assertContainsPattern(sql, "COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\)\\s+AS daysInArrears");
+        assertContainsPattern(sql,
+                "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
+        assertContainsPattern(sql, "WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) < 30 THEN 1");
+        assertDoesNotContainPattern(sql, "WHEN DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\) <= 90\\s+THEN 'C'");
     }
 
     @Test
-    void retrieveAllCorporateCreditsPageUsesSelectedActiveAddressCountryInPostgreSqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicAndSelectedActiveAddressCountryInPostgreSqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(false);
 
@@ -77,7 +82,15 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
 
         String sql = captureGeneratedSql();
         assertUsesSelectedActiveAddressCountry(sql);
-        assertTrue(sql.contains("EXTRACT(DAY FROM"));
+        assertTrue(sql.contains(
+                "COALESCE(CAST(EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) AS INTEGER), 0)"),
+                "Expected SQL to use a null-safe PostgreSQL arrears expression");
+        assertContainsPattern(sql,
+                "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(CAST\\(EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\) AS INTEGER\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
+        assertContainsPattern(sql,
+                "WHEN COALESCE\\(CAST\\(EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\) AS INTEGER\\), 0\\) < 30 THEN 1");
+        assertDoesNotContainPattern(sql,
+                "WHEN EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\)\\s+<= 90\\s+THEN 'C'");
     }
 
     private void mockQueryResult() {
@@ -100,5 +113,13 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
         assertTrue(sql.contains("LEFT JOIN RankedAddresses ranked_address ON mc.id = ranked_address.client_id"));
         assertTrue(sql.contains("LEFT JOIN m_code_value country_cv ON ra.country_id = country_cv.id"));
         assertFalse(sql.contains("m_client_recruitment_survey"));
+    }
+
+    private void assertContainsPattern(String sql, String regex) {
+        assertTrue(Pattern.compile(regex).matcher(sql).find(), "Expected SQL to contain pattern: " + regex);
+    }
+
+    private void assertDoesNotContainPattern(String sql, String regex) {
+        assertFalse(Pattern.compile(regex).matcher(sql).find(), "Expected SQL not to contain pattern: " + regex);
     }
 }
