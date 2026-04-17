@@ -36,13 +36,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.accounting.common.AccountingConstants;
 import org.apache.fineract.accounting.glaccount.domain.GLAccount;
 import org.apache.fineract.accounting.glaccount.domain.GLAccountRepository;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
@@ -52,6 +52,8 @@ import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlat
 import org.apache.fineract.accounting.closure.domain.GLClosure;
 import org.apache.fineract.accounting.closure.domain.GLClosureRepository;
 import org.apache.fineract.accounting.producttoaccountmapping.domain.PortfolioProductType;
+import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMapping;
+import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMappingRepository;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -304,6 +306,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanApplicationCommandFromApiJsonHelper fromApiJsonDeserializer;
     private final JournalEntryRepository journalEntryRepository;
     private final GLAccountRepository glAccountRepository;
+    private final ProductToGLAccountMappingRepository productToGLAccountMappingRepository;
+
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -4021,8 +4025,42 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final boolean isCredit = delta.compareTo(BigDecimal.ZERO) < 0;
         final boolean isZeroing = newAmount.compareTo(BigDecimal.ZERO) == 0;
 
+        // If zeroing — block if previous adjustments exist on this charge
+        // Zeroing after adjustments risks DR and CR on same GL — must be done manually
+        if (isZeroing) {
+            final boolean hasPreviousAdjustments = loan.getLoanTransactions().stream()
+                    .filter(lt -> !lt.isReversed())
+                    .filter(lt -> LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(lt.getTypeOf()))
+                    .anyMatch(lt -> lt.getLoanChargesPaid().stream()
+                            .anyMatch(paid -> paid.getLoanCharge().getId().equals(loanChargeId)));
+
+            if (hasPreviousAdjustments) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.zeroing.not.allowed",
+                        "Cannot zero an insurance charge that has already been adjusted. Please contact finance to manually reverse the GL entries.",
+                        loanChargeId
+                );
+            }
+        }
+
         // If zeroing — skip reclassification even if glAccountId was passed
-        final Long effectiveGlAccountId = isZeroing ? null : newGlAccountId;
+        log.info("Insurance adjustment START - isZeroing={}, newGlAccountId={}, delta={}", isZeroing, newGlAccountId, delta);
+
+        Long effectiveGlAccountId;
+        if (isZeroing) {
+            log.info("Insurance adjustment - isZeroing, skipping GL");
+            effectiveGlAccountId = null;
+        } else if (newGlAccountId != null) {
+            log.info("Insurance adjustment - using passed glAccountId={}", newGlAccountId);
+            effectiveGlAccountId = newGlAccountId;
+        } else {
+            log.info("Insurance adjustment - no glAccountId passed, looking up last used GL");
+            final JournalEntry activeCreditEntry = findActiveCreditEntry(
+                    loan, originalTransaction, null);
+            effectiveGlAccountId = activeCreditEntry != null
+                    ? activeCreditEntry.getGlAccount().getId() : null;
+            log.info("Insurance adjustment - resolved effectiveGlAccountId={}", effectiveGlAccountId);
+        }
 
 
         // Build changes map
@@ -4067,9 +4105,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loan.getLoanTransactions().add(chargeAdjustmentTransaction);
 
 
-        // GL Reclassification (only if newGlAccountId passed)
+        // GL Reclassification (only if effectiveGlAccountId resolved)
         // Reverses the wrong income GL entry and reposts to correct GL
         if (effectiveGlAccountId != null) {
+            log.info("Insurance adjustment - effectiveGlAccountId={}, isZeroing={}", effectiveGlAccountId, isZeroing);
             final GLAccount newGlAccount = glAccountRepository.findById(effectiveGlAccountId)
                     .orElseThrow(() -> new GeneralPlatformDomainRuleException(
                             "error.msg.loan.insurance.adjustment.gl.account.not.found",
@@ -4078,20 +4117,19 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     ));
 
             // Find the original CREDIT (income) entry — type_enum = 1
-            final List<JournalEntry> originalEntries = journalEntryRepository
-                    .findActiveByLoanTransactionId(originalTransaction.getId());
-
-
+            // Walks original transaction first, then previous adjustment transactions
             final Long originalTransactionId = originalTransaction.getId();
 
-            final JournalEntry originalCreditEntry = originalEntries.stream()
-                    .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
-                    .findFirst()
-                    .orElseThrow(() -> new GeneralPlatformDomainRuleException(
-                            "error.msg.loan.insurance.adjustment.no.credit.entry",
-                            "No active credit journal entry found for original transaction: " + originalTransactionId,
-                            originalTransactionId
-                    ));
+            final JournalEntry originalCreditEntry = findActiveCreditEntry(
+                    loan, originalTransaction, chargeAdjustmentTransaction);
+
+            if (originalCreditEntry == null) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.no.credit.entry",
+                        "No active credit journal entry found for original or adjustment transactions for charge: " + originalTransactionId,
+                        originalTransactionId
+                );
+            }
 
             final GLAccount oldGlAccount = originalCreditEntry.getGlAccount();
             final BigDecimal reclassAmount = originalCreditEntry.getAmount();
@@ -4125,11 +4163,64 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
 
 
-         // Update LoanCharge state
+        // Update LoanCharge state
         if (isZeroing) {
             // Full reversal — zero out all charge fields
             loanCharge.updateAmount(BigDecimal.ZERO);
             loanCharge.resetOutstandingAmount(BigDecimal.ZERO);
+
+            // No previous adjustments guaranteed above — original credit is still active
+            // Reverse the original credit entry:
+            // DR Insurance Income GL (reverse the original credit)
+            // CR Loan Portfolio GL (reduce the loan asset — mirror of original disbursement entry)
+            final List<JournalEntry> originalEntries = journalEntryRepository
+                    .findActiveByLoanTransactionId(originalTransaction.getId());
+
+            final LocalDate originalTransactionDate = originalTransaction.getTransactionDate();
+
+            // Fetch loan portfolio GL account from product mapping
+            final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                    .findCoreProductToFinAccountMapping(
+                            loan.productId(),
+                            PortfolioProductType.LOAN.getValue(),
+                            AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                    );
+
+            if (loanPortfolioMapping == null) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.loan.portfolio.gl.not.found",
+                        "Loan portfolio GL account mapping not found for loan product: " + loan.productId(),
+                        loan.productId()
+                );
+            }
+
+            final GLAccount loanPortfolioGlAccount = loanPortfolioMapping.getGlAccount();
+
+            originalEntries.stream()
+                    .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
+                    .findFirst()
+                    .ifPresent(creditEntry -> {
+                        creditEntry.setReversed(true);
+                        journalEntryRepository.save(creditEntry);
+
+                        // DR Insurance Income GL (reverse the original credit)
+                        final JournalEntry reversalDebit = buildManualJournalEntry(
+                                loan, creditEntry.getGlAccount(), JournalEntryType.DEBIT,
+                                creditEntry.getAmount(),
+                                "Zeroing insurance charge - reversal of income GL",
+                                chargeAdjustmentTransaction,
+                                originalTransactionDate);
+                        journalEntryRepository.save(reversalDebit);
+
+                        // CR Loan Portfolio GL (reduce loan asset — mirrors original disbursement reversal)
+                        final JournalEntry portfolioCredit = buildManualJournalEntry(
+                                loan, loanPortfolioGlAccount, JournalEntryType.CREDIT,
+                                creditEntry.getAmount(),
+                                "Zeroing insurance charge - reduce loan portfolio",
+                                chargeAdjustmentTransaction,
+                                originalTransactionDate);
+                        journalEntryRepository.save(portfolioCredit);
+                    });
         } else {
             // Partial adjustment — recalculate outstanding
             loanCharge.updateAmount(newAmount);
@@ -4141,17 +4232,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loan.refreshFeeChargesDueAtDisbursement();
 
 
-         // Persist mandatory note against adjustment transaction
+        // Persist mandatory note against adjustment transaction
         final Note note = Note.loanTransactionNote(loan, chargeAdjustmentTransaction, notes);
         this.noteRepository.save(note);
 
 
-         // Recalculate loan summary derived fields
+        // Recalculate loan summary derived fields
         loan.updateLoanSummaryDerivedFields();
         saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
 
-         // Post GL journal entries for the delta adjustment
+        // Post GL journal entries for the delta adjustment
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
 
         changes.put("originalTransactionId", originalTransaction.getId());
@@ -4167,7 +4258,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .with(changes)
                 .build();
     }
-
     private void validateIsMultiDisbursalLoanAndDisbursedMoreThanOneTranche(Loan loan) {
         if (!loan.isMultiDisburmentLoan()) {
             final String errorMessage = "loan.product.does.not.support.multiple.disbursals.cannot.undo.last.disbursal";
@@ -4231,7 +4321,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 null,                                      // paymentDetail
                 glAccount,                                 // glAccount
                 loan.getCurrency().getCode(),              // currencyCode
-                UUID.randomUUID().toString(),              // transactionId (unique ref)
+                "L" + loanTransaction.getId(),              // transactionId
                 false,                                     // manualEntry
                 entryDate,                                 // transactionDate
                 entryType,                                 // journalEntryType
@@ -4245,6 +4335,41 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 null,                                      // clientTransaction
                 null                                       // shareTransactionId
         );
+    }
+
+    private JournalEntry findActiveCreditEntry(
+            final Loan loan,
+            final LoanTransaction originalTransaction,
+            final LoanTransaction currentAdjustmentTransaction) {
+
+        // First check original disbursement transaction
+        List<JournalEntry> entries = journalEntryRepository
+                .findAllByLoanTransactionId(originalTransaction.getId());
+
+        JournalEntry creditEntry = entries.stream()
+                .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
+                .filter(e -> !e.isReversed())
+                .findFirst()
+                .orElse(null);
+
+        // Fallback — walk previous adjustment transactions
+        if (creditEntry == null) {
+            for (final LoanTransaction lt : loan.getLoanTransactions()) {
+                if (lt.isReversed()) continue;
+                if (!LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(lt.getTypeOf())) continue;
+                if (lt.getId().equals(currentAdjustmentTransaction.getId())) continue;
+                final List<JournalEntry> adjEntries = journalEntryRepository
+                        .findAllByLoanTransactionId(lt.getId());
+                creditEntry = adjEntries.stream()
+                        .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
+                        .filter(e -> !e.isReversed())
+                        .findFirst()
+                        .orElse(null);
+                if (creditEntry != null) break;
+            }
+        }
+
+        return creditEntry;
     }
 
 }
