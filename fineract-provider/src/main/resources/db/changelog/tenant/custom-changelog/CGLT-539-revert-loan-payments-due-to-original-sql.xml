@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- CGLT-539: Revert 'Loan payments due' SQL back to original CURDATE()-based query -->
+
+    <changeSet id="CGLT-539-revert-loan-payments-due-to-original-sql" author="nickson@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due'
+            </sqlCheck>
+        </preConditions>
+
+        <update tableName="stretchy_report">
+            <column name="report_sql" value="SELECT cl.id AS &quot;id&quot;, cl.firstname AS &quot;firstName&quot;, cl.middlename AS &quot;middleName&quot;, cl.lastname AS &quot;lastName&quot;, cl.display_name AS &quot;fullName&quot;, cl.mobile_no AS &quot;mobileNo&quot;, l.principal_amount AS &quot;loanAmount&quot;, mo.id AS &quot;officeNumber&quot;, (IFNULL(l.principal_outstanding_derived, 0) + IFNULL(l.interest_outstanding_derived, 0) + IFNULL(l.fee_charges_outstanding_derived, 0) + IFNULL(l.penalty_charges_outstanding_derived, 0)) AS &quot;loanOutstanding&quot;, l.principal_disbursed_derived AS &quot;loanDisbursed&quot;, MAX(ls.duedate) AS &quot;latestPaymentDueDate&quot;, (IFNULL(SUM(ls.principal_amount), 0) - IFNULL(SUM(ls.principal_writtenoff_derived), 0) + IFNULL(SUM(ls.interest_amount), 0) - IFNULL(SUM(ls.interest_writtenoff_derived), 0) - IFNULL(SUM(ls.interest_waived_derived), 0) + IFNULL(SUM(ls.fee_charges_amount), 0) - IFNULL(SUM(ls.fee_charges_writtenoff_derived), 0) - IFNULL(SUM(ls.fee_charges_waived_derived), 0) + IFNULL(SUM(ls.penalty_charges_amount), 0) - IFNULL(SUM(ls.penalty_charges_writtenoff_derived), 0) - IFNULL(SUM(ls.penalty_charges_waived_derived), 0)) AS &quot;totalDue&quot;, laa.total_overdue_derived AS &quot;totalOverdue&quot;, l.account_no AS &quot;loanAccountId&quot;, MAX(gua.lastname) AS &quot;guarantorLastName&quot;, COUNT(DISTINCT gua.id) AS &quot;numberOfGuarantors&quot;, gp.display_name AS &quot;groupName&quot; FROM m_office mo LEFT JOIN m_client cl ON mo.id = cl.office_id LEFT JOIN m_loan l ON cl.id = l.client_id LEFT JOIN m_group_client gc ON gc.client_id = cl.id LEFT JOIN m_group gp ON gp.id = l.group_id LEFT JOIN m_loan_repayment_schedule ls ON l.id = ls.loan_id LEFT JOIN m_guarantor gua ON gua.loan_id = l.id LEFT JOIN m_product_loan lp ON lp.id = l.product_id INNER JOIN m_loan_arrears_aging laa ON laa.loan_id = l.id WHERE mo.id = ${officeId} AND (${loanOfficerId} = -1 OR l.loan_officer_id = ${loanOfficerId}) AND DATEDIFF(CURDATE(), ls.duedate) BETWEEN ${fromX} AND ${toY} AND mo.hierarchy LIKE CONCAT((SELECT ino.hierarchy FROM m_office ino WHERE ino.id = ${officeId}), '%') AND (${isIslamic} = -1 OR lp.is_islamic = ${isIslamic}) GROUP BY cl.id, cl.firstname, cl.middlename, cl.lastname, cl.display_name, cl.mobile_no, l.principal_amount, l.principal_disbursed_derived, l.account_no, l.id, mo.id, laa.total_overdue_derived, gp.display_name ORDER BY mo.hierarchy, l.currency_code, cl.account_no, l.account_no"/>
+            <where>report_name = 'Loan payments due'</where>
+        </update>
+    </changeSet>
+
+    <!-- Remove asAtDate mapping from 'Loan payments due' -->
+    <changeSet id="CGLT-539-unmap-asAtDate-from-loan-payments-due" author="nickson@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
+                WHERE sr.report_name = 'Loan payments due'
+                AND sp.parameter_name = 'asAtDate'
+            </sqlCheck>
+        </preConditions>
+
+        <delete tableName="stretchy_report_parameter">
+            <where>
+                report_id = (SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due')
+                AND parameter_id = (SELECT id FROM stretchy_parameter WHERE parameter_name = 'asAtDate')
+            </where>
+        </delete>
+    </changeSet>
+
+    <!-- Remove gracePeriod mapping from 'Loan payments due' -->
+    <changeSet id="CGLT-539-unmap-gracePeriod-from-loan-payments-due" author="nickson@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
+                WHERE sr.report_name = 'Loan payments due'
+                AND sp.parameter_name = 'gracePeriod'
+            </sqlCheck>
+        </preConditions>
+
+        <delete tableName="stretchy_report_parameter">
+            <where>
+                report_id = (SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due')
+                AND parameter_id = (SELECT id FROM stretchy_parameter WHERE parameter_name = 'gracePeriod')
+            </where>
+        </delete>
+    </changeSet>
+
+    <!-- Remove loanProductId (id=25) mapping from 'Loan payments due' -->
+    <changeSet id="CGLT-539-unmap-loanProductId-from-loan-payments-due" author="nickson@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                WHERE sr.report_name = 'Loan payments due'
+                AND srp.parameter_id = 25
+            </sqlCheck>
+        </preConditions>
+
+        <delete tableName="stretchy_report_parameter">
+            <where>
+                report_id = (SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due')
+                AND parameter_id = 25
+            </where>
+        </delete>
+    </changeSet>
+
+    <!-- Remove currencyId (id=10) mapping from 'Loan payments due' -->
+    <changeSet id="CGLT-539-unmap-currencyId-from-loan-payments-due" author="nickson@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                WHERE sr.report_name = 'Loan payments due'
+                AND srp.parameter_id = 10
+            </sqlCheck>
+        </preConditions>
+
+        <delete tableName="stretchy_report_parameter">
+            <where>
+                report_id = (SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due')
+                AND parameter_id = 10
+            </where>
+        </delete>
+    </changeSet>
+
+</databaseChangeLog>
