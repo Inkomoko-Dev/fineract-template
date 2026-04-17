@@ -18,6 +18,8 @@
  */
 package org.apache.fineract.portfolio.loanaccount.data;
 
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+
 /**
  * Immutable data object represent loan status enumerations.
  */
@@ -181,6 +183,10 @@ public class LoanTransactionEnumData {
 
     public boolean isCreditBalanceRefund() {
         return this.creditBalanceRefund;
+    }
+
+    public boolean isInsuranceChargeAdjustment() {
+        return LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getValue().equals(this.id);
     }
 
 }
