@@ -21,16 +21,12 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Callable;
-import java.util.stream.Collectors;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
-import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanScheduleData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Scope;
@@ -77,24 +73,15 @@ public class ApplyChargeToOverdueLoansPoster implements Callable<Void> {
         ThreadLocalContextUtil.init(this.context);
         Integer maxNumberOfRetries = this.context.getTenantContext().getConnection().getMaxRetriesOnDeadlock();
         Integer maxIntervalBetweenRetries = this.context.getTenantContext().getConnection().getMaxIntervalBetweenRetries();
-        final Long penaltyWaitPeriodValue = configurationDomainService.retrievePenaltyWaitPeriod();
-        final Boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();
-
         int i = 0;
         if (!loanIds.isEmpty()) {
-            final Collection<OverdueLoanScheduleData> overdueLoanScheduledInstallments = loanReadPlatformService
-                    .retrieveAllLoansWithOverdueInstallments(penaltyWaitPeriodValue, backdatePenalties, loanIds.get(0),
-                            loanIds.get(loanIds.size() - 1));
-            Map<Long, List<OverdueLoanScheduleData>> groupedOverdueData = overdueLoanScheduledInstallments.stream()
-                    .collect(Collectors.groupingBy(OverdueLoanScheduleData::getLoanId));
-
             List<Throwable> errors = new ArrayList<>();
             for (Long loanId : loanIds) {
                 LOG.info("Loan ID {}", loanId);
                 Integer numberOfRetries = 0;
                 while (numberOfRetries <= maxNumberOfRetries) {
                     try {
-                        this.loanWritePlatformService.applyOverdueChargesForLoan(loanId, groupedOverdueData.get(loanId));
+                        this.loanWritePlatformService.applyOverdueChargesForLoan(loanId, null);
                         numberOfRetries = maxNumberOfRetries + 1;
                     } catch (CannotAcquireLockException | ObjectOptimisticLockingFailureException exception) {
                         LOG.info("Recalulate interest job has been retried {} time(s)", numberOfRetries);

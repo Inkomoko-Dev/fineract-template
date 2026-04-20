@@ -81,6 +81,8 @@ public class LoanChargeData {
 
     private BigDecimal amountUnrecognized;
 
+    private Boolean systemGeneratedDailyLateFee;
+
     private String externalId;
 
     private BigDecimal minAmount;
@@ -147,6 +149,7 @@ public class LoanChargeData {
         this.installmentChargeData = installmentChargeData;
         this.amountAccrued = null;
         this.amountUnrecognized = null;
+        this.systemGeneratedDailyLateFee = false;
         this.externalId = externalId;
         this.minAmount = minAmount;
         this.maxAmount = maxAmount;
@@ -194,6 +197,7 @@ public class LoanChargeData {
         this.installmentChargeData = installmentChargeData;
         this.amountAccrued = null;
         this.amountUnrecognized = null;
+        this.systemGeneratedDailyLateFee = false;
     }
 
     public LoanChargeData(final Long id, final LocalDate dueAsOfDate, final BigDecimal amountOutstanding, EnumOptionData chargeTimeType,
@@ -225,6 +229,7 @@ public class LoanChargeData {
         this.installmentChargeData = installmentChargeData;
         this.amountAccrued = null;
         this.amountUnrecognized = null;
+        this.systemGeneratedDailyLateFee = false;
     }
 
     public LoanChargeData(final Long id, final Long chargeId, final LocalDate dueAsOfDate, EnumOptionData chargeTimeType,
@@ -256,6 +261,7 @@ public class LoanChargeData {
         this.installmentChargeData = null;
         this.amountAccrued = amountAccrued;
         this.amountUnrecognized = null;
+        this.systemGeneratedDailyLateFee = false;
     }
 
     public LoanChargeData(final BigDecimal amountUnrecognized, final LoanChargeData chargeData) {
@@ -286,6 +292,7 @@ public class LoanChargeData {
         this.installmentChargeData = null;
         this.amountAccrued = chargeData.amountAccrued;
         this.amountUnrecognized = amountUnrecognized;
+        this.systemGeneratedDailyLateFee = chargeData.systemGeneratedDailyLateFee;
     }
 
     public LoanChargeData(LoanChargeData chargeData, Collection<LoanInstallmentChargeData> installmentChargeData) {
@@ -316,6 +323,7 @@ public class LoanChargeData {
         this.installmentChargeData = installmentChargeData;
         this.amountAccrued = chargeData.amountAccrued;
         this.amountUnrecognized = chargeData.amountUnrecognized;
+        this.systemGeneratedDailyLateFee = chargeData.systemGeneratedDailyLateFee;
         this.externalId = chargeData.externalId;
         this.minAmount = chargeData.minAmount;
         this.maxAmount = chargeData.maxAmount;
@@ -350,6 +358,7 @@ public class LoanChargeData {
         this.installmentChargeData = null;
         this.amountAccrued = null;
         this.amountUnrecognized = null;
+        this.systemGeneratedDailyLateFee = false;
     }
 
     public LoanChargeData(final Long id, final LocalDate dueAsOfDate, final BigDecimal amountOrPercentage) {
@@ -380,6 +389,7 @@ public class LoanChargeData {
         this.installmentChargeData = null;
         this.amountAccrued = null;
         this.amountUnrecognized = null;
+        this.systemGeneratedDailyLateFee = false;
     }
 
     public boolean isChargePayable() {
@@ -452,6 +462,18 @@ public class LoanChargeData {
 
     public BigDecimal getAmountUnrecognized() {
         return this.amountUnrecognized;
+    }
+
+    public void updateAmountUnrecognized(BigDecimal amountUnrecognized) {
+        this.amountUnrecognized = amountUnrecognized;
+    }
+
+    public Boolean getSystemGeneratedDailyLateFee() {
+        return this.systemGeneratedDailyLateFee;
+    }
+
+    public void updateSystemGeneratedDailyLateFee(final boolean systemGeneratedDailyLateFee) {
+        this.systemGeneratedDailyLateFee = systemGeneratedDailyLateFee;
     }
 
     public String getExternalId() {
