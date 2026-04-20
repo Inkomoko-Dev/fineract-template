@@ -98,6 +98,8 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
     @CronTarget(jobName = JobName.POST_RWANDA_CONSUMER_CREDIT_TO_TRANSUNION_CRB)
     public void ConsumerCreditDataUploadToTransUnion() {
 
+        System.out.println("Starting Corporate Credit Data Upload To TransUnion CRB");
+
         LOG.info("Starting Consumer Credit Data Upload To TransUnion CRB");
         final AppUser currentUser = this.context.authenticatedUser();
 
