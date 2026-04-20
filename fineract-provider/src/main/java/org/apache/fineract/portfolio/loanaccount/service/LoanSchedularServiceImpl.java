@@ -111,7 +111,7 @@ public class LoanSchedularServiceImpl implements LoanSchedularService {
         final int pageSize = batchSize * threadPoolSize;
         Long maxLoanIdInList = 0L;
         final Long penaltyWaitPeriodValue = this.configurationDomainService.retrievePenaltyWaitPeriod();
-        final Boolean backdatePenalties = this.configurationDomainService.isBackdatePenaltiesEnabled();
+        final Boolean backdatePenalties = Boolean.TRUE;
         final List<Long> overdueLoanIds = this.loanReadPlatformService.retrieveAllLoanIdsWithOverdueInstallments(penaltyWaitPeriodValue,
                 backdatePenalties, maxLoanIdInList, pageSize);
 
