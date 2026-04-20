@@ -78,7 +78,8 @@ public class LoanChargesApiResource {
     private final Set<String> responseDataParameters = new HashSet<>(
             Arrays.asList("id", "chargeId", "name", "penalty", "chargeTimeType", "dueAsOfDate", "chargeCalculationType", "percentage",
                     "amountPercentageAppliedTo", "currency", "amountWaived", "amountWrittenOff", "amountOutstanding", "amountOrPercentage",
-                    "amount", "amountPaid", "chargeOptions", "installmentChargeData"));
+                    "amount", "amountPaid", "amountAccrued", "amountUnrecognized", "systemGeneratedDailyLateFee",
+                    "chargeOptions", "installmentChargeData"));
 
     private final String resourceNameForPermissions = "LOAN";
 

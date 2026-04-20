@@ -66,12 +66,22 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
                     + "lc.due_for_collection_as_of_date as dueAsOfDate, " + "lc.charge_calculation_enum as chargeCalculation, "
                     + "lc.charge_payment_mode_enum as chargePaymentMode, " + "lc.is_paid_derived as paid, " + "lc.waived as waived, "
                     + "lc.min_cap as minCap, lc.max_cap as maxCap, " + "lc.charge_amount_or_percentage as amountOrPercentage, "
+                    + "acc.amountAccrued as amountAccrued, unrec.amountUnrecognized as amountUnrecognized, "
+                    + "case when dlf.id is null then false else true end as systemGeneratedDailyLateFee, "
                     + "c.currency_code as currencyCode, oc.name as currencyName, "
                     + "date(coalesce(dd.disbursedon_date,dd.expected_disburse_date)) as disbursementDate, "
                     + "oc.decimal_places as currencyDecimalPlaces, oc.currency_multiplesof as inMultiplesOf, oc.display_symbol as currencyDisplaySymbol, "
                     + "oc.internationalized_name_code as currencyNameCode,c.min_amount AS minAmount, c.max_amount AS maxAmount from m_charge c "
                     + "join m_organisation_currency oc on c.currency_code = oc.code " + "join m_loan_charge lc on lc.charge_id = c.id "
-                    + "left join m_loan_tranche_disbursement_charge dc on dc.loan_charge_id=lc.id left join m_loan_disbursement_detail dd on dd.id=dc.disbursement_detail_id ";
+                    + "left join m_loan_tranche_disbursement_charge dc on dc.loan_charge_id=lc.id "
+                    + "left join m_loan_disbursement_detail dd on dd.id=dc.disbursement_detail_id "
+                    + "left join (select cpb.loan_charge_id, sum(cpb.amount) as amountAccrued from m_loan_charge_paid_by cpb "
+                    + "join m_loan_transaction lt on lt.id = cpb.loan_transaction_id and lt.is_reversed = false and lt.transaction_type_enum = ? and lt.loan_id = ? "
+                    + "group by cpb.loan_charge_id) acc on acc.loan_charge_id = lc.id "
+                    + "left join (select cpb.loan_charge_id, sum(lt.unrecognized_income_portion) as amountUnrecognized from m_loan_charge_paid_by cpb "
+                    + "join m_loan_transaction lt on lt.id = cpb.loan_transaction_id and lt.is_reversed = false and lt.transaction_type_enum = ? and lt.loan_id = ? "
+                    + "group by cpb.loan_charge_id) unrec on unrec.loan_charge_id = lc.id "
+                    + "left join m_loan_daily_late_fee dlf on dlf.loan_charge_id = lc.id and dlf.is_active = true ";
         }
 
         @Override
@@ -117,15 +127,23 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             final BigDecimal maxCap = rs.getBigDecimal("maxCap");
             final BigDecimal amountOrPercentage = rs.getBigDecimal("amountOrPercentage");
             final LocalDate disbursementDate = JdbcSupport.getLocalDate(rs, "disbursementDate");
+            final BigDecimal amountAccrued = rs.getBigDecimal("amountAccrued");
+            final BigDecimal amountUnrecognized = rs.getBigDecimal("amountUnrecognized");
+            final boolean systemGeneratedDailyLateFee = rs.getBoolean("systemGeneratedDailyLateFee");
 
             if (disbursementDate != null) {
                 dueAsOfDate = disbursementDate;
             }
             final String externalId = rs.getString("externalId");
 
-            return new LoanChargeData(id, chargeId, name, currency, amount, amountPaid, amountWaived, amountWrittenOff, amountOutstanding,
+            final LoanChargeData loanChargeData = new LoanChargeData(id, chargeId, name, currency, amount, amountPaid, amountWaived,
+                    amountWrittenOff, amountOutstanding,
                     chargeTimeType, dueAsOfDate, chargeCalculationType, percentageOf, amountPercentageAppliedTo, penalty, paymentMode, paid,
                     waived, null, minCap, maxCap, amountOrPercentage, null, externalId, minAmount, maxAmount);
+            loanChargeData.updateAmountAccrued(amountAccrued);
+            loanChargeData.updateAmountUnrecognized(amountUnrecognized);
+            loanChargeData.updateSystemGeneratedDailyLateFee(systemGeneratedDailyLateFee);
+            return loanChargeData;
         }
     }
 
@@ -168,7 +186,8 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
 
         final String sql = "select " + rm.schema() + " where lc.id=? and lc.loan_id=?";
 
-        return this.jdbcTemplate.queryForObject(sql, rm, id, loanId); // NOSONAR
+        return this.jdbcTemplate.queryForObject(sql, rm, LoanTransactionType.ACCRUAL.getValue(), loanId,
+                LoanTransactionType.WAIVE_CHARGES.getValue(), loanId, id, loanId); // NOSONAR
     }
 
     @Override
@@ -178,7 +197,8 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
         final String sql = "select " + rm.schema() + " where lc.loan_id=? AND lc.is_active = true"
                 + " order by coalesce(lc.due_for_collection_as_of_date,date(coalesce(dd.disbursedon_date,dd.expected_disburse_date))),lc.charge_time_enum ASC, lc.due_for_collection_as_of_date ASC, lc.is_penalty ASC";
 
-        return this.jdbcTemplate.query(sql, rm, loanId); // NOSONAR
+        return this.jdbcTemplate.query(sql, rm, LoanTransactionType.ACCRUAL.getValue(), loanId,
+                LoanTransactionType.WAIVE_CHARGES.getValue(), loanId, loanId); // NOSONAR
     }
 
     @Override

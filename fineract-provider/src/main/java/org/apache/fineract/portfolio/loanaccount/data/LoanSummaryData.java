@@ -53,6 +53,10 @@ public class LoanSummaryData {
     private final BigDecimal penaltyChargesWrittenOff;
     private final BigDecimal penaltyChargesOutstanding;
     private final BigDecimal penaltyChargesOverdue;
+    private final BigDecimal dailyLateFeeChargedToDate;
+    private final BigDecimal dailyLateFeeOutstanding;
+    private final BigDecimal dailyLateFeeCapAmount;
+    private final Boolean dailyLateFeeCapReached;
     private final BigDecimal totalExpectedRepayment;
     private final BigDecimal totalRepayment;
     private final BigDecimal totalExpectedCostOfLoan;
@@ -74,10 +78,12 @@ public class LoanSummaryData {
             final BigDecimal feeChargesWaived, final BigDecimal feeChargesWrittenOff, final BigDecimal feeChargesOutstanding,
             final BigDecimal feeChargesOverdue, final BigDecimal penaltyChargesCharged, final BigDecimal penaltyChargesPaid,
             final BigDecimal penaltyChargesWaived, final BigDecimal penaltyChargesWrittenOff, final BigDecimal penaltyChargesOutstanding,
-            final BigDecimal penaltyChargesOverdue, final BigDecimal totalExpectedRepayment, final BigDecimal totalRepayment,
-            final BigDecimal totalExpectedCostOfLoan, final BigDecimal totalCostOfLoan, final BigDecimal totalWaived,
-            final BigDecimal totalWrittenOff, final BigDecimal totalOutstanding, final BigDecimal totalOverdue,
-            final LocalDate overdueSinceDate, final Long writeoffReasonId, final String writeoffReason, final BigDecimal totalRecovered) {
+            final BigDecimal penaltyChargesOverdue, final BigDecimal dailyLateFeeChargedToDate,
+            final BigDecimal dailyLateFeeOutstanding, final BigDecimal dailyLateFeeCapAmount, final Boolean dailyLateFeeCapReached,
+            final BigDecimal totalExpectedRepayment, final BigDecimal totalRepayment, final BigDecimal totalExpectedCostOfLoan,
+            final BigDecimal totalCostOfLoan, final BigDecimal totalWaived, final BigDecimal totalWrittenOff,
+            final BigDecimal totalOutstanding, final BigDecimal totalOverdue, final LocalDate overdueSinceDate,
+            final Long writeoffReasonId, final String writeoffReason, final BigDecimal totalRecovered) {
         this.currency = currency;
         this.principalDisbursed = principalDisbursed;
         this.principalPaid = principalPaid;
@@ -103,6 +109,10 @@ public class LoanSummaryData {
         this.penaltyChargesWrittenOff = penaltyChargesWrittenOff;
         this.penaltyChargesOutstanding = penaltyChargesOutstanding;
         this.penaltyChargesOverdue = penaltyChargesOverdue;
+        this.dailyLateFeeChargedToDate = dailyLateFeeChargedToDate;
+        this.dailyLateFeeOutstanding = dailyLateFeeOutstanding;
+        this.dailyLateFeeCapAmount = dailyLateFeeCapAmount;
+        this.dailyLateFeeCapReached = dailyLateFeeCapReached;
         this.totalExpectedRepayment = totalExpectedRepayment;
         this.totalRepayment = totalRepayment;
         this.totalExpectedCostOfLoan = totalExpectedCostOfLoan;
