@@ -246,4 +246,8 @@ public enum LoanTransactionType {
     public boolean isInsuranceChargeAdjustment() {
         return this.value.equals(INSURANCE_CHARGE_ADJUSTMENT.getValue());
     }
+
+    public boolean isDepositRedraw() {
+        return this.value.equals(DEPOSIT_REDRAW.getValue());
+    }
 }
