@@ -16,16 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.organisation.provisioning.service;
+package org.apache.fineract.accounting.provisioning.domain;
 
-import java.util.Collection;
-import org.apache.fineract.organisation.provisioning.data.ProvisioningCategoryData;
-
-public interface ProvisioningCategoryReadPlatformService {
-
-    Collection<ProvisioningCategoryData> retrieveAllProvisionCategories();
-
-    Collection<ProvisioningCategoryData> retrieveActiveProvisionCategories();
-
-    ProvisioningCategoryData retrieveProvisionCategory(Long categoryId);
+public enum ProvisioningClassificationType {
+    PROVISION_BUCKET,
+    WRITTEN_OFF_PORTFOLIO
 }

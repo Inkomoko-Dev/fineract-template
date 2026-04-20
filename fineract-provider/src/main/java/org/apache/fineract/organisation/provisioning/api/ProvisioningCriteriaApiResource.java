@@ -72,11 +72,15 @@ public class ProvisioningCriteriaApiResource {
 
     private static final Set<String> PROVISIONING_CRITERIA_TEMPLATE_PARAMETER = new HashSet<>(
             Arrays.asList(ProvisioningCriteriaConstants.DEFINITIONS_PARAM, ProvisioningCriteriaConstants.LOANPRODUCTS_PARAM,
-                    ProvisioningCriteriaConstants.GLACCOUNTS_PARAM));
+                    ProvisioningCriteriaConstants.CATEGORIES_PARAM, ProvisioningCriteriaConstants.GLACCOUNTS_PARAM,
+                    ProvisioningCriteriaConstants.ACTIVE_VERSION_ID_PARAM, ProvisioningCriteriaConstants.VERSION_NO_PARAM,
+                    ProvisioningCriteriaConstants.EFFECTIVE_FROM_PARAM));
 
     private static final Set<String> PROVISIONING_CRITERIA_PARAMETERS = new HashSet<>(
             Arrays.asList(ProvisioningCriteriaConstants.CRITERIA_PARAM, ProvisioningCriteriaConstants.LOANPRODUCTS_PARAM,
-                    ProvisioningCriteriaConstants.DEFINITIONS_PARAM));
+                    ProvisioningCriteriaConstants.DEFINITIONS_PARAM, ProvisioningCriteriaConstants.CATEGORIES_PARAM,
+                    ProvisioningCriteriaConstants.GLACCOUNTS_PARAM, ProvisioningCriteriaConstants.ACTIVE_VERSION_ID_PARAM,
+                    ProvisioningCriteriaConstants.VERSION_NO_PARAM, ProvisioningCriteriaConstants.EFFECTIVE_FROM_PARAM));
 
     private static final Set<String> ALL_PROVISIONING_CRITERIA_PARAMETERS = new HashSet<>(
             Arrays.asList(ProvisioningCriteriaConstants.CRITERIA_ID_PARAM, ProvisioningCriteriaConstants.CRITERIA_NAME_PARAM,

@@ -35,14 +35,27 @@ public class ProvisioningCriteriaDefinition extends AbstractPersistableCustom {
     @JoinColumn(name = "criteria_id", referencedColumnName = "id", nullable = false)
     private ProvisioningCriteria criteria;
 
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "criteria_version_id", referencedColumnName = "id", nullable = false)
+    private ProvisioningCriteriaVersion criteriaVersion;
+
     @ManyToOne
     @JoinColumn(name = "category_id", nullable = false)
     private ProvisioningCategory provisioningCategory;
 
+    @Column(name = "category_code", nullable = false)
+    private String categoryCode;
+
+    @Column(name = "category_name", nullable = false)
+    private String categoryName;
+
+    @Column(name = "display_order", nullable = false)
+    private Integer displayOrder;
+
     @Column(name = "min_age", nullable = false)
     private Long minimumAge;
 
-    @Column(name = "max_age", nullable = false)
+    @Column(name = "max_age")
     private Long maximumAge;
 
     @Column(name = "provision_percentage", nullable = false)
@@ -60,10 +73,15 @@ public class ProvisioningCriteriaDefinition extends AbstractPersistableCustom {
 
     }
 
-    private ProvisioningCriteriaDefinition(ProvisioningCriteria criteria, ProvisioningCategory provisioningCategory, Long minimumAge,
-            Long maximumAge, BigDecimal provisioningPercentage, GLAccount liabilityAccount, GLAccount expenseAccount) {
+    private ProvisioningCriteriaDefinition(ProvisioningCriteria criteria, ProvisioningCriteriaVersion criteriaVersion,
+            ProvisioningCategory provisioningCategory, Long minimumAge, Long maximumAge, BigDecimal provisioningPercentage,
+            GLAccount liabilityAccount, GLAccount expenseAccount) {
         this.criteria = criteria;
+        this.criteriaVersion = criteriaVersion;
         this.provisioningCategory = provisioningCategory;
+        this.categoryCode = provisioningCategory.getCategoryCode();
+        this.categoryName = provisioningCategory.getCategoryName();
+        this.displayOrder = provisioningCategory.getDisplayOrder();
         this.minimumAge = minimumAge;
         this.maximumAge = maximumAge;
         this.provisioningPercentage = provisioningPercentage;
@@ -71,23 +89,74 @@ public class ProvisioningCriteriaDefinition extends AbstractPersistableCustom {
         this.expenseAccount = expenseAccount;
     }
 
-    public static ProvisioningCriteriaDefinition newPrivisioningCriteria(ProvisioningCriteria criteria,
-            ProvisioningCategory provisioningCategory, Long minimumAge, Long maximumAge, BigDecimal provisioningPercentage,
-            GLAccount liabilityAccount, GLAccount expenseAccount) {
+    public static ProvisioningCriteriaDefinition newProvisioningCriteriaDefinition(ProvisioningCriteria criteria,
+            ProvisioningCriteriaVersion criteriaVersion, ProvisioningCategory provisioningCategory, Long minimumAge, Long maximumAge,
+            BigDecimal provisioningPercentage, GLAccount liabilityAccount, GLAccount expenseAccount) {
 
-        return new ProvisioningCriteriaDefinition(criteria, provisioningCategory, minimumAge, maximumAge, provisioningPercentage,
-                liabilityAccount, expenseAccount);
+        return new ProvisioningCriteriaDefinition(criteria, criteriaVersion, provisioningCategory, minimumAge, maximumAge,
+                provisioningPercentage, liabilityAccount, expenseAccount);
     }
 
-    public void update(Long minAge, Long maxAge, BigDecimal percentage, GLAccount lia, GLAccount exp) {
-        this.minimumAge = minAge;
-        this.maximumAge = maxAge;
-        this.provisioningPercentage = percentage;
-        this.liabilityAccount = lia;
-        this.expenseAccount = exp;
+    public static ProvisioningCriteriaDefinition newPrivisioningCriteria(ProvisioningCriteria criteria,
+            ProvisioningCriteriaVersion criteriaVersion, ProvisioningCategory provisioningCategory, Long minimumAge, Long maximumAge,
+            BigDecimal provisioningPercentage, GLAccount liabilityAccount, GLAccount expenseAccount) {
+        return new ProvisioningCriteriaDefinition(criteria, criteriaVersion, provisioningCategory, minimumAge, maximumAge,
+                provisioningPercentage, liabilityAccount, expenseAccount);
+    }
+
+    public ProvisioningCategory getProvisioningCategory() {
+        return this.provisioningCategory;
+    }
+
+    public String getCategoryCode() {
+        return this.categoryCode;
+    }
+
+    public String getCategoryName() {
+        return this.categoryName;
+    }
+
+    public Integer getDisplayOrder() {
+        return this.displayOrder;
+    }
+
+    public Long getMinimumAge() {
+        return this.minimumAge;
+    }
+
+    public Long getMaximumAge() {
+        return this.maximumAge;
+    }
+
+    public BigDecimal getProvisioningPercentage() {
+        return this.provisioningPercentage;
+    }
+
+    public GLAccount getLiabilityAccount() {
+        return this.liabilityAccount;
+    }
+
+    public GLAccount getExpenseAccount() {
+        return this.expenseAccount;
+    }
+
+    public ProvisioningCriteriaVersion getCriteriaVersion() {
+        return this.criteriaVersion;
+    }
+
+    public boolean matches(Long overdueInDays) {
+        if (overdueInDays == null) {
+            return false;
+        }
+        if (this.maximumAge == null) {
+            return this.minimumAge <= overdueInDays;
+        }
+        return this.minimumAge <= overdueInDays && overdueInDays <= this.maximumAge;
     }
 
     public boolean isOverlapping(ProvisioningCriteriaDefinition def) {
-        return this.minimumAge <= def.maximumAge && def.minimumAge <= this.maximumAge;
+        long thisMaximumAge = this.maximumAge == null ? Long.MAX_VALUE : this.maximumAge;
+        long otherMaximumAge = def.maximumAge == null ? Long.MAX_VALUE : def.maximumAge;
+        return this.minimumAge <= otherMaximumAge && def.minimumAge <= thisMaximumAge;
     }
 }
