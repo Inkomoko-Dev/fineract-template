@@ -111,7 +111,7 @@ public class ProvisioningCategoryWritePlatformServiceJpaRepositoryImpl implement
     }
 
     private boolean isAnyLoanProductsAssociateWithThisProvisioningCategory(final Long categoryID) {
-        final String sql = "select (CASE WHEN (exists (select 1 from m_loanproduct_provisioning_details lpd where lpd.category_id = ?)) = 1 THEN 'true' ELSE 'false' END)";
+        final String sql = "select (CASE WHEN (exists (select 1 from m_provisioning_criteria_definition pcd where pcd.category_id = ?)) = 1 THEN 'true' ELSE 'false' END)";
         final String isLoansUsingCharge = this.jdbcTemplate.queryForObject(sql, String.class, new Object[] { categoryID });
         return Boolean.valueOf(isLoansUsingCharge);
     }
@@ -123,9 +123,13 @@ public class ProvisioningCategoryWritePlatformServiceJpaRepositoryImpl implement
             final NonTransientDataAccessException dve) {
 
         if (realCause.getMessage().contains("category_name")) {
-            final String name = command.stringValueOfParameterNamed("category_name");
+            final String name = command.stringValueOfParameterNamed("categoryname");
             throw new PlatformDataIntegrityException("error.msg.provisioning.duplicate.categoryname",
                     "Provisioning Cateory with name `" + name + "` already exists", "category name", name);
+        } else if (realCause.getMessage().contains("uk_m_provision_category_code")) {
+            final String code = command.stringValueOfParameterNamed("categorycode");
+            throw new PlatformDataIntegrityException("error.msg.provisioning.duplicate.categorycode",
+                    "Provisioning Category with code `" + code + "` already exists", "category code", code);
         }
         LOG.error("Error occured.", dve);
         throw new PlatformDataIntegrityException("error.msg.charge.unknown.data.integrity.issue",
@@ -135,9 +139,13 @@ public class ProvisioningCategoryWritePlatformServiceJpaRepositoryImpl implement
     private void handleDataIntegrityIssues(final JsonCommand command, final Throwable realCause, final PersistenceException dve) {
 
         if (realCause.getMessage().contains("category_name")) {
-            final String name = command.stringValueOfParameterNamed("category_name");
+            final String name = command.stringValueOfParameterNamed("categoryname");
             throw new PlatformDataIntegrityException("error.msg.provisioning.duplicate.categoryname",
                     "Provisioning Cateory with name `" + name + "` already exists", "category name", name);
+        } else if (realCause.getMessage().contains("uk_m_provision_category_code")) {
+            final String code = command.stringValueOfParameterNamed("categorycode");
+            throw new PlatformDataIntegrityException("error.msg.provisioning.duplicate.categorycode",
+                    "Provisioning Category with code `" + code + "` already exists", "category code", code);
         }
         LOG.error("Error occured.", dve);
         throw new PlatformDataIntegrityException("error.msg.charge.unknown.data.integrity.issue",

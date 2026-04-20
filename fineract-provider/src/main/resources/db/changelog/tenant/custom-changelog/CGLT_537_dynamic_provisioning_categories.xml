@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- CGLT-537: dynamic provisioning categories, versioned criteria, and historical entry snapshots -->
+    <changeSet id="CGLT-537-1-create-provisioning-criteria-version" author="codex">
+        <createTable tableName="m_provisioning_criteria_version">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="criteria_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version_no" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="effective_from" type="date">
+                <constraints nullable="false"/>
+            </column>
+            <column defaultValueComputed="NULL" name="retired_on" type="date"/>
+            <column defaultValueComputed="NULL" name="createdby_id" type="BIGINT"/>
+            <column defaultValueComputed="NULL" name="created_date" type="datetime"/>
+            <column defaultValueComputed="NULL" name="lastmodifiedby_id" type="BIGINT"/>
+            <column defaultValueComputed="NULL" name="lastmodified_date" type="datetime"/>
+        </createTable>
+
+        <createIndex indexName="fk_provisioning_criteria_version_criteria" tableName="m_provisioning_criteria_version">
+            <column name="criteria_id"/>
+        </createIndex>
+
+        <addUniqueConstraint tableName="m_provisioning_criteria_version" columnNames="criteria_id, version_no"
+                             constraintName="uk_provisioning_criteria_version"/>
+
+        <addForeignKeyConstraint baseColumnNames="criteria_id" baseTableName="m_provisioning_criteria_version"
+                                 constraintName="fk_provisioning_criteria_version_criteria"
+                                 referencedColumnNames="id" referencedTableName="m_provisioning_criteria"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT" validate="true"/>
+        <addForeignKeyConstraint baseColumnNames="createdby_id" baseTableName="m_provisioning_criteria_version"
+                                 constraintName="fk_provisioning_criteria_version_createdby"
+                                 referencedColumnNames="id" referencedTableName="m_appuser"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT" validate="true"/>
+        <addForeignKeyConstraint baseColumnNames="lastmodifiedby_id" baseTableName="m_provisioning_criteria_version"
+                                 constraintName="fk_provisioning_criteria_version_lastmodifiedby"
+                                 referencedColumnNames="id" referencedTableName="m_appuser"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT" validate="true"/>
+    </changeSet>
+
+    <changeSet id="CGLT-537-2-extend-provisioning-category" author="codex">
+        <addColumn tableName="m_provision_category">
+            <column name="category_code" type="VARCHAR(100)"/>
+            <column defaultValueNumeric="0" name="display_order" type="INT"/>
+            <column defaultValueBoolean="true" name="is_active" type="boolean"/>
+        </addColumn>
+
+        <sql>
+            UPDATE m_provision_category
+               SET category_code = CASE id
+                       WHEN 1 THEN 'STANDARD'
+                       WHEN 2 THEN 'SUB_STANDARD'
+                       WHEN 3 THEN 'DOUBTFUL'
+                       WHEN 4 THEN 'LOSS'
+                       ELSE CONCAT('PROVISION_CATEGORY_', id)
+                   END,
+                   display_order = id,
+                   is_active = true
+             WHERE category_code IS NULL;
+        </sql>
+
+        <addNotNullConstraint tableName="m_provision_category" columnName="category_code" columnDataType="VARCHAR(100)"/>
+        <addNotNullConstraint tableName="m_provision_category" columnName="display_order" columnDataType="INT"/>
+        <addNotNullConstraint tableName="m_provision_category" columnName="is_active" columnDataType="boolean"/>
+        <addUniqueConstraint tableName="m_provision_category" columnNames="category_code"
+                             constraintName="uk_m_provision_category_code"/>
+    </changeSet>
+
+    <changeSet id="CGLT-537-3-backfill-criteria-versions-and-definition-metadata" author="codex">
+        <addColumn tableName="m_provisioning_criteria_definition">
+            <column name="criteria_version_id" type="BIGINT"/>
+            <column name="category_code" type="VARCHAR(100)"/>
+            <column name="category_name" type="VARCHAR(100)"/>
+            <column defaultValueNumeric="0" name="display_order" type="INT"/>
+        </addColumn>
+
+        <dropNotNullConstraint tableName="m_provisioning_criteria_definition" columnName="max_age" columnDataType="BIGINT"/>
+
+        <sql>
+            INSERT INTO m_provisioning_criteria_version
+                (criteria_id, version_no, effective_from, retired_on, createdby_id, created_date, lastmodifiedby_id, lastmodified_date)
+            SELECT id, 1, '1900-01-01', NULL, createdby_id, created_date, lastmodifiedby_id, lastmodified_date
+              FROM m_provisioning_criteria;
+        </sql>
+
+        <sql dbms="mysql,mariadb">
+            UPDATE m_provisioning_criteria_definition pcd
+              JOIN m_provision_category pc ON pc.id = pcd.category_id
+              JOIN m_provisioning_criteria_version pcv ON pcv.criteria_id = pcd.criteria_id AND pcv.version_no = 1
+               SET pcd.criteria_version_id = pcv.id,
+                   pcd.category_code = pc.category_code,
+                   pcd.category_name = pc.category_name,
+                   pcd.display_order = pc.display_order;
+        </sql>
+        <sql dbms="postgresql">
+            UPDATE m_provisioning_criteria_definition pcd
+               SET criteria_version_id = pcv.id,
+                   category_code = pc.category_code,
+                   category_name = pc.category_name,
+                   display_order = pc.display_order
+              FROM m_provision_category pc, m_provisioning_criteria_version pcv
+             WHERE pc.id = pcd.category_id
+               AND pcv.criteria_id = pcd.criteria_id
+               AND pcv.version_no = 1;
+        </sql>
+
+        <addNotNullConstraint tableName="m_provisioning_criteria_definition" columnName="criteria_version_id" columnDataType="BIGINT"/>
+        <addNotNullConstraint tableName="m_provisioning_criteria_definition" columnName="category_code" columnDataType="VARCHAR(100)"/>
+        <addNotNullConstraint tableName="m_provisioning_criteria_definition" columnName="category_name" columnDataType="VARCHAR(100)"/>
+        <addNotNullConstraint tableName="m_provisioning_criteria_definition" columnName="display_order" columnDataType="INT"/>
+
+        <createIndex indexName="fk_provisioning_criteria_definition_version" tableName="m_provisioning_criteria_definition">
+            <column name="criteria_version_id"/>
+        </createIndex>
+
+        <addForeignKeyConstraint baseColumnNames="criteria_version_id" baseTableName="m_provisioning_criteria_definition"
+                                 constraintName="fk_provisioning_criteria_definition_version"
+                                 referencedColumnNames="id" referencedTableName="m_provisioning_criteria_version"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT" validate="true"/>
+    </changeSet>
+
+    <changeSet id="CGLT-537-4-extend-provisioning-entry-storage" author="codex">
+        <addColumn tableName="m_loanproduct_provisioning_entry">
+            <column defaultValue="PROVISION_BUCKET" name="classification_type" type="VARCHAR(50)"/>
+            <column name="criteria_version_id" type="BIGINT"/>
+            <column name="criteria_definition_id" type="BIGINT"/>
+        </addColumn>
+
+        <sql dbms="mysql,mariadb">
+            UPDATE m_loanproduct_provisioning_entry entry_tbl
+              JOIN m_provisioning_criteria_version version_tbl
+                ON version_tbl.criteria_id = entry_tbl.criteria_id
+               AND version_tbl.version_no = 1
+              JOIN m_provisioning_criteria_definition definition_tbl
+                ON definition_tbl.criteria_version_id = version_tbl.id
+               AND definition_tbl.category_id = entry_tbl.category_id
+               SET entry_tbl.criteria_version_id = version_tbl.id,
+                   entry_tbl.criteria_definition_id = definition_tbl.id
+             WHERE entry_tbl.criteria_version_id IS NULL;
+        </sql>
+        <sql dbms="postgresql">
+            UPDATE m_loanproduct_provisioning_entry entry_tbl
+               SET criteria_version_id = version_tbl.id,
+                   criteria_definition_id = definition_tbl.id
+              FROM m_provisioning_criteria_version version_tbl, m_provisioning_criteria_definition definition_tbl
+             WHERE version_tbl.criteria_id = entry_tbl.criteria_id
+               AND version_tbl.version_no = 1
+               AND definition_tbl.criteria_version_id = version_tbl.id
+               AND definition_tbl.category_id = entry_tbl.category_id
+               AND entry_tbl.criteria_version_id IS NULL;
+        </sql>
+
+        <addNotNullConstraint tableName="m_loanproduct_provisioning_entry" columnName="classification_type"
+                              columnDataType="VARCHAR(50)"/>
+        <addNotNullConstraint tableName="m_loanproduct_provisioning_entry" columnName="criteria_version_id"
+                              columnDataType="BIGINT"/>
+        <addNotNullConstraint tableName="m_loanproduct_provisioning_entry" columnName="criteria_definition_id"
+                              columnDataType="BIGINT"/>
+
+        <dropNotNullConstraint tableName="m_loanproduct_provisioning_entry" columnName="category_id" columnDataType="BIGINT"/>
+
+        <createIndex indexName="fk_loanproduct_provisioning_entry_version" tableName="m_loanproduct_provisioning_entry">
+            <column name="criteria_version_id"/>
+        </createIndex>
+        <createIndex indexName="fk_loanproduct_provisioning_entry_definition" tableName="m_loanproduct_provisioning_entry">
+            <column name="criteria_definition_id"/>
+        </createIndex>
+
+        <addForeignKeyConstraint baseColumnNames="criteria_version_id" baseTableName="m_loanproduct_provisioning_entry"
+                                 constraintName="fk_loanproduct_provisioning_entry_version"
+                                 referencedColumnNames="id" referencedTableName="m_provisioning_criteria_version"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT" validate="true"/>
+        <addForeignKeyConstraint baseColumnNames="criteria_definition_id" baseTableName="m_loanproduct_provisioning_entry"
+                                 constraintName="fk_loanproduct_provisioning_entry_definition"
+                                 referencedColumnNames="id" referencedTableName="m_provisioning_criteria_definition"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT" validate="true"/>
+    </changeSet>
+
+    <changeSet id="CGLT-537-5-extend-provisioning-entry-loan-snapshots" author="codex">
+        <addColumn tableName="m_loanproduct_provisioning_entry_loans">
+            <column name="account_no" type="VARCHAR(100)"/>
+            <column defaultValueNumeric="0.000000" name="outstanding_balance" type="DECIMAL(20, 6)"/>
+            <column defaultValueNumeric="0.000000" name="provisioning_amount" type="DECIMAL(20, 6)"/>
+        </addColumn>
+
+        <sql dbms="mysql,mariadb">
+            UPDATE m_loanproduct_provisioning_entry_loans entry_loan
+              JOIN m_loan loan ON loan.id = entry_loan.loan_id
+               SET entry_loan.account_no = loan.account_no,
+                   entry_loan.outstanding_balance = COALESCE(loan.total_outstanding_derived, 0),
+                   entry_loan.provisioning_amount = 0
+             WHERE entry_loan.account_no IS NULL;
+        </sql>
+        <sql dbms="postgresql">
+            UPDATE m_loanproduct_provisioning_entry_loans entry_loan
+               SET account_no = loan.account_no,
+                   outstanding_balance = COALESCE(loan.total_outstanding_derived, 0),
+                   provisioning_amount = 0
+              FROM m_loan loan
+             WHERE loan.id = entry_loan.loan_id
+               AND entry_loan.account_no IS NULL;
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-537-6-add-update-provision-category-permission" author="codex">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'UPDATE_PROVISIONCATEGORY'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="LOAN_PROVISIONING"/>
+            <column name="code" value="UPDATE_PROVISIONCATEGORY"/>
+            <column name="entity_name" value="PROVISIONCATEGORY"/>
+            <column name="action_name" value="UPDATE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+</databaseChangeLog>

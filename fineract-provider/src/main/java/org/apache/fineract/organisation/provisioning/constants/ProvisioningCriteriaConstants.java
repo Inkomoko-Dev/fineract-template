@@ -21,8 +21,10 @@ package org.apache.fineract.organisation.provisioning.constants;
 public interface ProvisioningCriteriaConstants {
 
     String JSON_LOCALE_PARAM = "locale";
+    String JSON_DATE_FORMAT_PARAM = "dateFormat";
     String JSON_CRITERIAID_PARAM = "criteriaId";
     String JSON_CRITERIANAME_PARAM = "criteriaName";
+    String JSON_EFFECTIVE_FROM_PARAM = "effectiveFrom";
     String JSON_LOANPRODUCTS_PARAM = "loanProducts";
     String JSON_LOAN_PRODUCT_ID_PARAM = "id";
     String JSON_LOAN_PRODUCTNAME_PARAM = "name";
@@ -37,9 +39,13 @@ public interface ProvisioningCriteriaConstants {
     String JSON_EXPENSE_ACCOUNT_PARAM = "expenseAccount";
     String DEFINITIONS_PARAM = "definitions";
     String LOANPRODUCTS_PARAM = "loanProducts";
+    String CATEGORIES_PARAM = "categories";
     String GLACCOUNTS_PARAM = "glAccounts";
     String CRITERIA_PARAM = "criteriaName";
     String CRITERIA_ID_PARAM = "criteriaId";
     String CRITERIA_NAME_PARAM = "criterianame";
     String CREATED_BY_PARAM = "createdby";
+    String ACTIVE_VERSION_ID_PARAM = "activeVersionId";
+    String VERSION_NO_PARAM = "versionNo";
+    String EFFECTIVE_FROM_PARAM = "effectiveFrom";
 }

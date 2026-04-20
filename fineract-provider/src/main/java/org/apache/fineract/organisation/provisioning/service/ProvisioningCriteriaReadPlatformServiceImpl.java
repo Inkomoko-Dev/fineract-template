@@ -23,7 +23,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.apache.fineract.accounting.glaccount.data.GLAccountData;
 import org.apache.fineract.accounting.glaccount.service.GLAccountReadPlatformService;
 import org.apache.fineract.organisation.provisioning.data.ProvisioningCategoryData;
@@ -64,30 +66,39 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
     public ProvisioningCriteriaData retrievePrivisiongCriteriaTemplate() {
         boolean onlyActive = true;
         final Collection<ProvisioningCategoryData> categories = this.provisioningCategoryReadPlatformService
-                .retrieveAllProvisionCategories();
+                .retrieveActiveProvisionCategories();
         final Collection<LoanProductData> allLoanProducts = this.loanProductReadPlatformService
                 .retrieveAllLoanProductsForLookup(onlyActive);
         final Collection<GLAccountData> glAccounts = this.glAccountReadPlatformService.retrieveAllEnabledDetailGLAccounts();
-        return ProvisioningCriteriaData.toTemplate(constructCriteriaTemplate(categories), allLoanProducts, glAccounts);
+        return ProvisioningCriteriaData.toTemplate(categories, new ArrayList<>(), allLoanProducts, glAccounts);
     }
 
     @Override
     public ProvisioningCriteriaData retrievePrivisiongCriteriaTemplate(ProvisioningCriteriaData data) {
         boolean onlyActive = true;
-        final Collection<ProvisioningCategoryData> categories = this.provisioningCategoryReadPlatformService
-                .retrieveAllProvisionCategories();
+        final Collection<ProvisioningCategoryData> categories = mergeTemplateCategories(data,
+                this.provisioningCategoryReadPlatformService.retrieveActiveProvisionCategories());
         final Collection<LoanProductData> allLoanProducts = this.loanProductReadPlatformService
                 .retrieveAllLoanProductsForLookup(onlyActive);
         final Collection<GLAccountData> glAccounts = this.glAccountReadPlatformService.retrieveAllEnabledDetailGLAccounts();
-        return ProvisioningCriteriaData.toTemplate(data, constructCriteriaTemplate(categories), allLoanProducts, glAccounts);
+        return ProvisioningCriteriaData.toTemplate(data, categories, allLoanProducts, glAccounts);
     }
 
-    private Collection<ProvisioningCriteriaDefinitionData> constructCriteriaTemplate(Collection<ProvisioningCategoryData> categories) {
-        List<ProvisioningCriteriaDefinitionData> definitions = new ArrayList<>();
-        for (ProvisioningCategoryData data : categories) {
-            definitions.add(ProvisioningCriteriaDefinitionData.template(data.getId(), data.getCategoryName()));
+    private Collection<ProvisioningCategoryData> mergeTemplateCategories(ProvisioningCriteriaData data,
+            Collection<ProvisioningCategoryData> activeCategories) {
+        Map<Long, ProvisioningCategoryData> merged = new LinkedHashMap<>();
+        for (ProvisioningCategoryData category : activeCategories) {
+            merged.put(category.getId(), category);
         }
-        return definitions;
+        if (data.getDefinitions() != null) {
+            for (ProvisioningCriteriaDefinitionData definition : data.getDefinitions()) {
+                if (definition.getCategoryId() != null && !merged.containsKey(definition.getCategoryId())) {
+                    merged.put(definition.getCategoryId(), new ProvisioningCategoryData(definition.getCategoryId(),
+                            definition.getCategoryName(), null, definition.getCategoryCode(), definition.getDisplayOrder(), Boolean.FALSE));
+                }
+            }
+        }
+        return new ArrayList<>(merged.values());
     }
 
     @Override
@@ -115,43 +126,44 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
     @Override
     public ProvisioningCriteriaData retrieveProvisioningCriteria(Long criteriaId) {
         try {
-            String criteriaName = retrieveCriteriaName(criteriaId);
+            CriteriaHeaderData criteriaHeader = retrieveCriteriaHeader(criteriaId);
             Collection<LoanProductData> loanProducts = loanProductReaPlatformService.retrieveAllLoanProductsForLookup(
                     "select product_id from m_loanproduct_provisioning_mapping where m_loanproduct_provisioning_mapping.criteria_id="
                             + criteriaId);
-            List<ProvisioningCriteriaDefinitionData> definitions = retrieveProvisioningDefinitions(criteriaId);
-            return ProvisioningCriteriaData.toLookup(criteriaId, criteriaName, loanProducts, definitions);
+            List<ProvisioningCriteriaDefinitionData> definitions = retrieveProvisioningDefinitions(criteriaHeader.activeVersionId);
+            return ProvisioningCriteriaData.toLookup(criteriaHeader.criteriaId, criteriaHeader.criteriaName, loanProducts, definitions,
+                    criteriaHeader.activeVersionId, criteriaHeader.versionNo, criteriaHeader.effectiveFrom);
         } catch (EmptyResultDataAccessException e) {
             throw new ProvisioningCriteriaNotFoundException(criteriaId, e);
         }
 
     }
 
-    private List<ProvisioningCriteriaDefinitionData> retrieveProvisioningDefinitions(Long criteriaId) {
+    private List<ProvisioningCriteriaDefinitionData> retrieveProvisioningDefinitions(Long criteriaVersionId) {
         ProvisioningCriteriaDefinitionRowMapper rowMapper = new ProvisioningCriteriaDefinitionRowMapper();
-        final String sql = "select " + rowMapper.schema() + " where pc.criteria_id = ?";
-        return this.jdbcTemplate.query(sql, rowMapper, new Object[] { criteriaId }); // NOSONAR
+        final String sql = "select " + rowMapper.schema() + " where pc.criteria_version_id = ? order by pc.display_order, pc.min_age";
+        return this.jdbcTemplate.query(sql, rowMapper, new Object[] { criteriaVersionId }); // NOSONAR
     }
 
     private static final class ProvisioningCriteriaDefinitionRowMapper implements RowMapper<ProvisioningCriteriaDefinitionData> {
 
         private final StringBuilder sqlQuery = new StringBuilder()
-                .append("pc.id, pc.criteria_id, pc.category_id, mpc.category_name, pc.min_age, pc.max_age, ")
+                .append("pc.id, pc.criteria_id, pc.category_id, pc.category_code, pc.category_name, pc.display_order, pc.min_age, pc.max_age, ")
                 .append("pc.provision_percentage, pc.liability_account, pc.expense_account, lia.gl_code as liabilitycode, expe.gl_code as expensecode, ")
                 .append("lia.name as liabilityname, expe.name as expensename ").append("from m_provisioning_criteria_definition as pc ")
                 .append("LEFT JOIN acc_gl_account lia ON lia.id = pc.liability_account ")
-                .append("LEFT JOIN acc_gl_account expe ON expe.id = pc.expense_account ")
-                .append("LEFT JOIN m_provision_category mpc ON mpc.id = pc.category_id");
+                .append("LEFT JOIN acc_gl_account expe ON expe.id = pc.expense_account ");
 
         @Override
         public ProvisioningCriteriaDefinitionData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum)
                 throws SQLException {
             Long id = rs.getLong("id");
-            // Long criteriaId = rs.getLong("criteria_id");
             Long categoryId = rs.getLong("category_id");
+            String categoryCode = rs.getString("category_code");
             String categoryName = rs.getString("category_name");
+            Integer displayOrder = rs.getInt("display_order");
             Long minAge = rs.getLong("min_age");
-            Long maxAge = rs.getLong("max_age");
+            Long maxAge = rs.getObject("max_age") == null ? null : rs.getLong("max_age");
             BigDecimal provisioningPercentage = rs.getBigDecimal("provision_percentage");
             Long liabilityAccount = rs.getLong("liability_account");
             String liabilityAccountCode = rs.getString("liabilitycode");
@@ -160,8 +172,9 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
             String expenseAccountCode = rs.getString("expensecode");
             String expenseAccountName = rs.getString("expensename");
 
-            return new ProvisioningCriteriaDefinitionData(id, categoryId, categoryName, minAge, maxAge, provisioningPercentage,
-                    liabilityAccount, liabilityAccountCode, liabilityAccountName, expenseAccount, expenseAccountCode, expenseAccountName);
+            return new ProvisioningCriteriaDefinitionData(id, categoryId, categoryCode, categoryName, displayOrder, minAge, maxAge,
+                    provisioningPercentage, liabilityAccount, liabilityAccountCode, liabilityAccountName, expenseAccount,
+                    expenseAccountCode, expenseAccountName);
         }
 
         public String schema() {
@@ -169,21 +182,43 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
         }
     }
 
-    private String retrieveCriteriaName(Long criteriaId) {
-        ProvisioningCriteriaNameRowMapper rowMapper = new ProvisioningCriteriaNameRowMapper();
-        final String sql = "select " + rowMapper.schema() + " from m_provisioning_criteria pc where pc.id = ?";
+    private CriteriaHeaderData retrieveCriteriaHeader(Long criteriaId) {
+        CriteriaHeaderRowMapper rowMapper = new CriteriaHeaderRowMapper();
+        final String sql = "select " + rowMapper.schema()
+                + " where pc.id = ? order by pcv.version_no desc limit 1";
         return this.jdbcTemplate.queryForObject(sql, rowMapper, new Object[] { criteriaId }); // NOSONAR
     }
 
-    private static final class ProvisioningCriteriaNameRowMapper implements RowMapper<String> {
+    private static final class CriteriaHeaderRowMapper implements RowMapper<CriteriaHeaderData> {
 
         @Override
-        public String mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
-            return rs.getString("criteriaName");
+        public CriteriaHeaderData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
+            return new CriteriaHeaderData(rs.getLong("criteriaId"), rs.getString("criteriaName"), rs.getLong("activeVersionId"),
+                    rs.getInt("versionNo"), rs.getDate("effectiveFrom").toLocalDate());
         }
 
         public String schema() {
-            return " pc.criteria_name as criteriaName";
+            return "pc.id as criteriaId, pc.criteria_name as criteriaName, pcv.id as activeVersionId, pcv.version_no as versionNo, "
+                    + "pcv.effective_from as effectiveFrom from m_provisioning_criteria pc "
+                    + "join m_provisioning_criteria_version pcv on pcv.criteria_id = pc.id";
+        }
+    }
+
+    private static final class CriteriaHeaderData {
+
+        private final Long criteriaId;
+        private final String criteriaName;
+        private final Long activeVersionId;
+        private final Integer versionNo;
+        private final java.time.LocalDate effectiveFrom;
+
+        private CriteriaHeaderData(Long criteriaId, String criteriaName, Long activeVersionId, Integer versionNo,
+                java.time.LocalDate effectiveFrom) {
+            this.criteriaId = criteriaId;
+            this.criteriaName = criteriaName;
+            this.activeVersionId = activeVersionId;
+            this.versionNo = versionNo;
+            this.effectiveFrom = effectiveFrom;
         }
     }
 }
