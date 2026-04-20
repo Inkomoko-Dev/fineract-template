@@ -42,19 +42,11 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
     private final Long activeVersionId;
     private final Integer versionNo;
     private final LocalDate effectiveFrom;
-    private final String policyChangeReason;
-    private final Long effectiveForTodayVersionId;
-    private final Integer effectiveForTodayVersionNo;
-    private final LocalDate effectiveForTodayFrom;
-    private final String versionDisplayStatus;
-    private final Collection<ProvisioningCriteriaDefinitionData> effectiveDefinitions;
 
     private ProvisioningCriteriaData(final Long criteriaId, final String criteriaName, final Collection<LoanProductData> loanProducts,
             Collection<ProvisioningCriteriaDefinitionData> definitions, Collection<ProvisioningCategoryData> categories,
             Collection<GLAccountData> glAccounts, final String createdBy, final Long activeVersionId, final Integer versionNo,
-            final LocalDate effectiveFrom, final String policyChangeReason, final Long effectiveForTodayVersionId,
-            final Integer effectiveForTodayVersionNo, final LocalDate effectiveForTodayFrom, final String versionDisplayStatus,
-            final Collection<ProvisioningCriteriaDefinitionData> effectiveDefinitions) {
+            final LocalDate effectiveFrom) {
         this.criteriaId = criteriaId;
         this.criteriaName = criteriaName;
         this.loanProducts = loanProducts;
@@ -65,12 +57,6 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
         this.activeVersionId = activeVersionId;
         this.versionNo = versionNo;
         this.effectiveFrom = effectiveFrom;
-        this.policyChangeReason = policyChangeReason;
-        this.effectiveForTodayVersionId = effectiveForTodayVersionId;
-        this.effectiveForTodayVersionNo = effectiveForTodayVersionNo;
-        this.effectiveForTodayFrom = effectiveForTodayFrom;
-        this.versionDisplayStatus = versionDisplayStatus;
-        this.effectiveDefinitions = effectiveDefinitions;
     }
 
     private ProvisioningCriteriaData(ProvisioningCriteriaData data, final Collection<LoanProductData> loanProducts,
@@ -87,25 +73,16 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
         this.activeVersionId = data.activeVersionId;
         this.versionNo = data.versionNo;
         this.effectiveFrom = data.effectiveFrom;
-        this.policyChangeReason = data.policyChangeReason;
-        this.effectiveForTodayVersionId = data.effectiveForTodayVersionId;
-        this.effectiveForTodayVersionNo = data.effectiveForTodayVersionNo;
-        this.effectiveForTodayFrom = data.effectiveForTodayFrom;
-        this.versionDisplayStatus = data.versionDisplayStatus;
-        this.effectiveDefinitions = data.effectiveDefinitions;
     }
 
     public static ProvisioningCriteriaData toLookup(final Long criteriaId, final String criteriaName,
             final Collection<LoanProductData> loanProducts, final List<ProvisioningCriteriaDefinitionData> definitions,
-            final Long activeVersionId, final Integer versionNo, final LocalDate effectiveFrom, final String policyChangeReason,
-            final Long effectiveForTodayVersionId, final Integer effectiveForTodayVersionNo, final LocalDate effectiveForTodayFrom,
-            final String versionDisplayStatus, final Collection<ProvisioningCriteriaDefinitionData> effectiveDefinitions) {
+            final Long activeVersionId, final Integer versionNo, final LocalDate effectiveFrom) {
         Collection<GLAccountData> glAccounts = null;
         Collection<ProvisioningCategoryData> categories = null;
         String createdBy = null;
         return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, categories, glAccounts, createdBy,
-                activeVersionId, versionNo, effectiveFrom, policyChangeReason, effectiveForTodayVersionId, effectiveForTodayVersionNo,
-                effectiveForTodayFrom, versionDisplayStatus, effectiveDefinitions);
+                activeVersionId, versionNo, effectiveFrom);
     }
 
     public static ProvisioningCriteriaData toLookup(final Long criteriaId, final String criteriaName, String createdBy) {
@@ -117,7 +94,7 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
         Integer versionNo = null;
         LocalDate effectiveFrom = null;
         return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, categories, glAccounts, createdBy,
-                activeVersionId, versionNo, effectiveFrom, null, null, null, null, null, null);
+                activeVersionId, versionNo, effectiveFrom);
     }
 
     public static ProvisioningCriteriaData toTemplate(final Collection<ProvisioningCategoryData> categories,
@@ -130,13 +107,57 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
         Integer versionNo = null;
         LocalDate effectiveFrom = null;
         return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, categories, glAccounts, createdBy,
-                activeVersionId, versionNo, effectiveFrom, null, null, null, null, null, null);
+                activeVersionId, versionNo, effectiveFrom);
     }
 
     public static ProvisioningCriteriaData toTemplate(final ProvisioningCriteriaData data,
             final Collection<ProvisioningCategoryData> categories, final Collection<LoanProductData> loanProducts,
             final Collection<GLAccountData> glAccounts) {
         return new ProvisioningCriteriaData(data, loanProducts, categories, glAccounts);
+    }
+
+    public Long getCriteriaId() {
+        return this.criteriaId;
+    }
+
+    public String getCriteriaName() {
+        return this.criteriaName;
+    }
+
+    public String getCreatedBy() {
+        return this.createdBy;
+    }
+
+    public Collection<LoanProductData> getLoanProducts() {
+        return this.loanProducts;
+    }
+
+    public Collection<LoanProductData> getSelectedLoanProducts() {
+        return this.selectedLoanProducts;
+    }
+
+    public Collection<ProvisioningCriteriaDefinitionData> getDefinitions() {
+        return this.definitions;
+    }
+
+    public Collection<ProvisioningCategoryData> getCategories() {
+        return this.categories;
+    }
+
+    public Collection<GLAccountData> getGlAccounts() {
+        return this.glAccounts;
+    }
+
+    public Long getActiveVersionId() {
+        return this.activeVersionId;
+    }
+
+    public Integer getVersionNo() {
+        return this.versionNo;
+    }
+
+    public LocalDate getEffectiveFrom() {
+        return this.effectiveFrom;
     }
 
     @Override

@@ -48,11 +48,14 @@ public class ProvisioningCriteriaDefinitionJsonDeserializer implements Provision
 
     private static final Set<String> supportedParametersForCreate = new HashSet<>(
             Arrays.asList(JSON_LOCALE_PARAM, JSON_DATE_FORMAT_PARAM, JSON_CRITERIANAME_PARAM, JSON_EFFECTIVE_FROM_PARAM,
-                    JSON_LOANPRODUCTS_PARAM, JSON_PROVISIONING_DEFINITIONS_PARAM, JSON_POLICY_CHANGE_REASON_PARAM));
+                    JSON_LOANPRODUCTS_PARAM, JSON_PROVISIONING_DEFINITIONS_PARAM));
 
     private static final Set<String> supportedParametersForUpdate = new HashSet<>(Arrays.asList(JSON_CRITERIAID_PARAM, JSON_LOCALE_PARAM,
             JSON_DATE_FORMAT_PARAM, JSON_CRITERIANAME_PARAM, JSON_EFFECTIVE_FROM_PARAM, JSON_LOANPRODUCTS_PARAM,
-            JSON_PROVISIONING_DEFINITIONS_PARAM, JSON_POLICY_CHANGE_REASON_PARAM));
+            JSON_PROVISIONING_DEFINITIONS_PARAM));
+
+    private static final Set<String> loanProductSupportedParams = new HashSet<>(
+            Arrays.asList(JSON_LOAN_PRODUCT_ID_PARAM, JSON_LOAN_PRODUCTNAME_PARAM, JSON_LOAN_PRODUCT_BORROWERCYCLE_PARAM));
 
     private static final Set<String> provisioningcriteriaSupportedParams = new HashSet<>(
             Arrays.asList("id", JSON_CATEOGRYID_PARAM, JSON_CATEOGRYNAME_PARAM, JSON_MINIMUM_AGE_PARAM, JSON_MAXIMUM_AGE_PARAM,
@@ -81,7 +84,6 @@ public class ProvisioningCriteriaDefinitionJsonDeserializer implements Provision
         baseDataValidator.reset().parameter(ProvisioningCriteriaConstants.JSON_CRITERIANAME_PARAM).value(name).notBlank()
                 .notExceedingLengthOf(200);
         validateOptionalEffectiveFrom(dataValidationErrors, element);
-        validateOptionalPolicyChangeReason(dataValidationErrors, element);
 
         // if the param present, then we should have the loan product ids. If
         // not we will load all loan products
@@ -167,7 +169,6 @@ public class ProvisioningCriteriaDefinitionJsonDeserializer implements Provision
         final JsonElement element = this.fromApiJsonHelper.parse(json);
         final Locale locale = this.fromApiJsonHelper.extractLocaleParameter(element.getAsJsonObject());
         validateOptionalEffectiveFrom(dataValidationErrors, element);
-        validateOptionalPolicyChangeReason(dataValidationErrors, element);
 
         if (this.fromApiJsonHelper.parameterExists(ProvisioningCriteriaConstants.JSON_CRITERIANAME_PARAM, element)) {
             final String name = this.fromApiJsonHelper.extractStringNamed(ProvisioningCriteriaConstants.JSON_CRITERIANAME_PARAM, element);
@@ -252,18 +253,6 @@ public class ProvisioningCriteriaDefinitionJsonDeserializer implements Provision
             new DataValidatorBuilder(dataValidationErrors).resource("provisioningcriteria").reset().parameter(JSON_DATE_FORMAT_PARAM)
                     .value(dateFormat).notBlank();
             this.fromApiJsonHelper.extractLocalDateNamed(JSON_EFFECTIVE_FROM_PARAM, element);
-        }
-    }
-
-    private void validateOptionalPolicyChangeReason(final List<ApiParameterError> dataValidationErrors, final JsonElement element) {
-        if (!this.fromApiJsonHelper.parameterExists(ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM, element)) {
-            return;
-        }
-        final String reason = this.fromApiJsonHelper
-                .extractStringNamed(ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM, element);
-        if (StringUtils.isNotBlank(reason)) {
-            new DataValidatorBuilder(dataValidationErrors).resource("provisioningcriteria").reset()
-                    .parameter(ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM).value(reason).notExceedingLengthOf(500);
         }
     }
 

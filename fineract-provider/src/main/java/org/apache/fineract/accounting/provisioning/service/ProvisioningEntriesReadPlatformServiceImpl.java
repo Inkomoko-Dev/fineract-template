@@ -63,7 +63,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
         LoanProductProvisioningEntryMapper mapper = new LoanProductProvisioningEntryMapper(sqlGenerator);
         final String sql = mapper.schema();
         return this.jdbcTemplate.query(sql, mapper, formattedDate, formattedDate, formattedDate, formattedDate, formattedDate,
-                formattedDate, formattedDate);
+                formattedDate, formattedDate, formattedDate);
     }
 
     private static final class LoanProductProvisioningEntryMapper implements RowMapper<LoanProvisioningCandidateData> {
@@ -218,7 +218,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
     private static final class LoanProductProvisioningEntryRowMapper implements RowMapper<LoanProductProvisioningEntryData> {
 
         private final StringBuilder sqlQuery = new StringBuilder().append(
-                " entry.id, entry.history_id as historyId, entry.office_id, entry.criteria_id as criteriaid, entry.criteria_version_id as criteriaVersionId, pcv.version_no as criteriaVersionNo, ")
+                " entry.id, entry.history_id as historyId, entry.office_id, entry.criteria_id as criteriaid, entry.criteria_version_id as criteriaVersionId, ")
                 .append("entry.criteria_definition_id as criteriaDefinitionId, entry.classification_type, office.name as officename, product.name as productname, entry.product_id, ")
                 .append("mlpel.loan_id as loanId, mlpel.account_no as loanAccountNo, mlpel.outstanding_balance as outstandingBalance, mlpel.provisioning_amount as provisioningAmount, ")
                 .append("entry.category_id, definition.category_code, CASE WHEN entry.classification_type = 'WRITTEN_OFF_PORTFOLIO' THEN 'Written-Off Portfolio' ELSE definition.category_name END as category_name, liability.id as liabilityid, liability.gl_code as liabilitycode, liability.name as liabilityname, ")
@@ -226,7 +226,6 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
                 .append("left join m_office office ON office.id = entry.office_id ")
                 .append("left join m_product_loan product ON product.id = entry.product_id ")
                 .append("left join m_provisioning_criteria_definition definition ON definition.id = entry.criteria_definition_id ")
-                .append("left join m_provisioning_criteria_version pcv ON pcv.id = entry.criteria_version_id ")
                 .append("left join acc_gl_account liability ON liability.id = entry.liability_account ")
                 .append("left join acc_gl_account expense ON expense.id = entry.expense_account ")
                 .append("left join m_loanproduct_provisioning_entry_loans mlpel on mlpel.loanproduct_provision_entry_id = entry.id ");
@@ -254,7 +253,6 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
             Long expenseAccountCode = rs.getObject("expenseid") == null ? null : rs.getLong("expenseid");
             Long criteriaId = rs.getLong("criteriaid");
             Long criteriaVersionId = rs.getLong("criteriaVersionId");
-            Integer criteriaVersionNo = rs.getObject("criteriaVersionNo") == null ? null : rs.getInt("criteriaVersionNo");
             Long criteriaDefinitionId = rs.getObject("criteriaDefinitionId") == null ? null : rs.getLong("criteriaDefinitionId");
             String liabilityAccountName = rs.getString("liabilityname");
             String expenseAccountName = rs.getString("expensename");
@@ -264,7 +262,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
             LoanProductProvisioningEntryData data = new LoanProductProvisioningEntryData(historyId, officeId, officeName, currentcyCode,
                     productId, productName, categoryId, categoryCode, categoryName, classificationType, overdueDays, amountreserved,
                     liabilityAccountCode, liabilityAccountglCode, liabilityAccountName, expenseAccountCode, expenseAccountglCode,
-                    expenseAccountName, criteriaId, criteriaVersionId, criteriaVersionNo, criteriaDefinitionId, loans);
+                    expenseAccountName, criteriaId, criteriaVersionId, criteriaDefinitionId, loans);
 
             do {
                 if (rs.getObject("loanId") == null) {

@@ -47,7 +47,6 @@ public class LoanProductProvisioningEntryData {
     private final String expenseAccountName;
     private final Long criteriaId;
     private final Long criteriaVersionId;
-    private final Integer criteriaVersionNo;
     private final Long criteriaDefinitionId;
     private final Long loanId;
 
@@ -86,7 +85,6 @@ public class LoanProductProvisioningEntryData {
         this.expenseAccountName = null;
         this.criteriaId = criteriaId;
         this.criteriaVersionId = criteriaVersionId;
-        this.criteriaVersionNo = null;
         this.criteriaDefinitionId = criteriaDefinitionId;
         this.loanId = loanId;
         this.loans = null;
@@ -98,18 +96,6 @@ public class LoanProductProvisioningEntryData {
             String liabilityAccountglCode, String liabilityAccountName, Long expenseAccount, String expenseAccountglCode,
             String expenseAccountName, final Long criteriaId, final Long criteriaVersionId, final Long criteriaDefinitionId,
             final List<LoanData> loans) {
-        this(historyId, officeId, officeName, currencyCode, productId, productName, categoryId, categoryCode, categoryName,
-                classificationType, overdueInDays, amountreserved, liablityAccount, liabilityAccountglCode, liabilityAccountName,
-                expenseAccount, expenseAccountglCode, expenseAccountName, criteriaId, criteriaVersionId, null, criteriaDefinitionId,
-                loans);
-    }
-
-    public LoanProductProvisioningEntryData(final Long historyId, final Long officeId, final String officeName, final String currencyCode,
-            final Long productId, final String productName, final Long categoryId, final String categoryCode, final String categoryName,
-            final String classificationType, final Long overdueInDays, final BigDecimal amountreserved, Long liablityAccount,
-            String liabilityAccountglCode, String liabilityAccountName, Long expenseAccount, String expenseAccountglCode,
-            String expenseAccountName, final Long criteriaId, final Long criteriaVersionId, final Integer criteriaVersionNo,
-            final Long criteriaDefinitionId, final List<LoanData> loans) {
         this.historyId = historyId;
         this.officeId = officeId;
         this.currencyCode = currencyCode;
@@ -132,7 +118,6 @@ public class LoanProductProvisioningEntryData {
         this.expenseAccountName = expenseAccountName;
         this.criteriaId = criteriaId;
         this.criteriaVersionId = criteriaVersionId;
-        this.criteriaVersionNo = criteriaVersionNo;
         this.criteriaDefinitionId = criteriaDefinitionId;
         this.loanId = null;
         this.loans = loans;

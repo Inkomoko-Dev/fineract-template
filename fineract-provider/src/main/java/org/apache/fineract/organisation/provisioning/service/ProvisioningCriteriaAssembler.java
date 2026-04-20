@@ -98,20 +98,6 @@ public class ProvisioningCriteriaAssembler {
         }
 
         definitions.sort(Comparator.comparing(ProvisioningCriteriaDefinition::getMinimumAge));
-
-        validateNoOverlaps(definitions);
-        for (int i = 0; i < definitions.size(); i++) {
-            ProvisioningCriteriaDefinition definition = definitions.get(i);
-            if (definition.getMaximumAge() == null && i < definitions.size() - 1) {
-                throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.open.ended.bucket.not.last",
-                        "Only the last provisioning bucket may be open ended");
-            }
-        }
-
-        if (relaxContiguousProvisioningBands()) {
-            return;
-        }
-
         if (definitions.get(0).getMinimumAge() != 0L) {
             throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.range.must.start.at.zero",
                     "Provisioning bucket ranges must start at 0 days");
@@ -124,18 +110,17 @@ public class ProvisioningCriteriaAssembler {
                 throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.gapped.ranges",
                         "Provisioning bucket ranges must be continuous without gaps");
             }
-            if (definition.getMaximumAge() != null) {
-                expectedMinimumAge = definition.getMaximumAge() + 1;
+            if (definition.getMaximumAge() == null && i < definitions.size() - 1) {
+                throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.open.ended.bucket.not.last",
+                        "Only the last provisioning bucket may be open ended");
             }
-        }
-    }
-
-    private void validateNoOverlaps(List<ProvisioningCriteriaDefinition> definitions) {
-        for (int i = 0; i < definitions.size(); i++) {
             for (int j = i + 1; j < definitions.size(); j++) {
-                if (definitions.get(i).isOverlapping(definitions.get(j))) {
+                if (definition.isOverlapping(definitions.get(j))) {
                     throw new ProvisioningCriteriaOverlappingDefinitionException();
                 }
+            }
+            if (definition.getMaximumAge() != null) {
+                expectedMinimumAge = definition.getMaximumAge() + 1;
             }
         }
     }
@@ -187,13 +172,6 @@ public class ProvisioningCriteriaAssembler {
         }
         validateRange(definitions);
         version.setDefinitions(new HashSet<>(definitions));
-        if (this.fromApiJsonHelper.parameterExists(ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM, jsonElement)) {
-            final String reason = this.fromApiJsonHelper
-                    .extractStringNamed(ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM, jsonElement);
-            if (StringUtils.isNotBlank(reason)) {
-                version.setPolicyChangeReason(reason.trim());
-            }
-        }
         return version;
     }
 
