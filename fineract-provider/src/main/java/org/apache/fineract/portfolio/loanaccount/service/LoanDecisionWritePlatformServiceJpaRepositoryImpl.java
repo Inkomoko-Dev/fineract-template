@@ -2063,14 +2063,24 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             expectedCurrentState = LoanDecisionState.DUE_DILIGENCE.getValue();
         }
 
-        if (!loan.getLoanDecisionState().equals(expectedCurrentState)) {
+        Integer currentLoanState = loan.getLoanDecisionState();
+        Integer levelState = levelConfig.getDecisionStateValue();
+        boolean isAtPreviousCompletedLevel = currentLoanState.equals(expectedCurrentState);
+        boolean isAtCurrentCompletedLevel = currentLoanState.equals(levelState);
+
+        // Support both cases:
+        // 1) Reject pending level N (loan is at N-1 completed state)
+        // 2) Return after approving level N (loan is at N completed state)
+        if (!isAtPreviousCompletedLevel && !isAtCurrentCompletedLevel) {
             String expectedStateDisplayName = dynamicIcReviewLevelHelper.getLevelDisplayName(expectedCurrentState);
+            String currentLevelDisplayName = dynamicIcReviewLevelHelper.getLevelDisplayName(levelState);
             throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
-                    String.format("Loan Decision state is invalid for reject operation. Expected %s (state %d) but found %d.",
-                            expectedStateDisplayName, expectedCurrentState, loan.getLoanDecisionState()));
+                    String.format(
+                            "Loan Decision state is invalid for reject operation. Expected either %s (state %d) or %s (state %d) but found %d.",
+                            expectedStateDisplayName, expectedCurrentState, currentLevelDisplayName, levelState, currentLoanState));
         }
 
-        // Determine previous stage
+        // Determine target stage after rejection/return
         Integer previousState = expectedCurrentState;
         if (previousState == null) {
             // If no previous IC review level, revert to DUE_DILIGENCE
