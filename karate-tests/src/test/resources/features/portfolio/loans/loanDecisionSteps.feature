@@ -234,6 +234,42 @@ Feature: Create loan stapes
     Then match $ contains { resourceId: '#notnull' }
 
   @ignore
+  @icReviewDecisionDynamicAcceptStage
+  Scenario: Dynamic IC Review Decision Accept Stage
+    Given configure ssl = true
+    * def loansData = read('classpath:templates/loansDecision.json')
+    Given path 'loans/decision/icReviewDecision/level',levelNumber,loanId
+    And header Accept = 'application/json'
+    And header Authorization = authToken
+    And header fineract-platform-tenantid = tenantId
+    And request loansData.icReview
+    When method POST
+    Then status 200
+    Then match $ contains { resourceId: '#notnull' }
+
+  @ignore
+  @icReviewDecisionDynamicRejectStage
+  Scenario: Dynamic IC Review Decision Reject Stage
+    Given configure ssl = true
+    * def rejectPayload =
+    """
+    {
+      "rejectedOnDate": "#(rejectedOnDate)",
+      "dateFormat": "#(format)",
+      "locale": "en",
+      "note": "#(faker.lorem().characters(70))"
+    }
+    """
+    Given path 'loans/decision/icReviewDecision/level',levelNumber,'reject',loanId
+    And header Accept = 'application/json'
+    And header Authorization = authToken
+    And header fineract-platform-tenantid = tenantId
+    And request rejectPayload
+    When method POST
+    Then status 200
+    Then match $ contains { resourceId: '#notnull' }
+
+  @ignore
   @prepareAndSignContractStage
   Scenario: Prepare And Sign Contract   Stage
     Given configure ssl = true
