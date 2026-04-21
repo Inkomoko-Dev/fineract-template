@@ -25,21 +25,20 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
 
-
     <changeSet id="CGLT-539-6-unmap-loanProductId-from-loan-payments-due" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
                 SELECT COUNT(*) FROM stretchy_report_parameter srp
                 JOIN stretchy_report sr ON sr.id = srp.report_id
+                JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
                 WHERE sr.report_name = 'Loan payments due'
-                AND srp.parameter_id = 25
+                AND sp.parameter_name = 'loanProductIdSelectAll'
             </sqlCheck>
         </preConditions>
-
         <delete tableName="stretchy_report_parameter">
             <where>
                 report_id = (SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due')
-                AND parameter_id = 25
+                AND parameter_id = (SELECT id FROM stretchy_parameter WHERE parameter_name = 'loanProductIdSelectAll')
             </where>
         </delete>
     </changeSet>

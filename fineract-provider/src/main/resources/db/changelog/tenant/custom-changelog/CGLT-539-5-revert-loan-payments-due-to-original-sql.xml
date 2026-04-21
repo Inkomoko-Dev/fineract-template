@@ -79,40 +79,40 @@
         </delete>
     </changeSet>
 
-    <!-- Remove loanProductId (id=25) mapping from 'Loan payments due' -->
+    <!-- Remove loanProductId mapping from 'Loan payments due' -->
     <changeSet id="CGLT-539-unmap-loanProductId-from-loan-payments-due" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
                 SELECT COUNT(*) FROM stretchy_report_parameter srp
                 JOIN stretchy_report sr ON sr.id = srp.report_id
+                JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
                 WHERE sr.report_name = 'Loan payments due'
-                AND srp.parameter_id = 25
+                AND sp.parameter_name = 'loanProductIdSelectAll'
             </sqlCheck>
         </preConditions>
-
         <delete tableName="stretchy_report_parameter">
             <where>
                 report_id = (SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due')
-                AND parameter_id = 25
+                AND parameter_id = (SELECT id FROM stretchy_parameter WHERE parameter_name = 'loanProductIdSelectAll')
             </where>
         </delete>
     </changeSet>
 
-    <!-- Remove currencyId (id=10) mapping from 'Loan payments due' -->
+    <!-- Remove currencyId mapping from 'Loan payments due' -->
     <changeSet id="CGLT-539-unmap-currencyId-from-loan-payments-due" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
                 SELECT COUNT(*) FROM stretchy_report_parameter srp
                 JOIN stretchy_report sr ON sr.id = srp.report_id
+                JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
                 WHERE sr.report_name = 'Loan payments due'
-                AND srp.parameter_id = 10
+                AND sp.parameter_name = 'currencyIdSelectAll'
             </sqlCheck>
         </preConditions>
-
         <delete tableName="stretchy_report_parameter">
             <where>
                 report_id = (SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due')
-                AND parameter_id = 10
+                AND parameter_id = (SELECT id FROM stretchy_parameter WHERE parameter_name = 'currencyIdSelectAll')
             </where>
         </delete>
     </changeSet>
