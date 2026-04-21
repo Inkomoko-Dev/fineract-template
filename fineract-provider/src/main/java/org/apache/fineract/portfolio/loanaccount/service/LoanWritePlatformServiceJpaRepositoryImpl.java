@@ -257,7 +257,6 @@ import org.apache.fineract.useradministration.domain.AppUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
@@ -276,9 +275,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanEventApiJsonValidator loanEventApiJsonValidator;
     private final LoanUpdateCommandFromApiJsonDeserializer loanUpdateCommandFromApiJsonDeserializer;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
-    @Autowired
-    @Lazy
-    private LoanAccountDomainService loanAccountDomainService;
+    private final LoanAccountDomainService loanAccountDomainService;
     private final NoteRepository noteRepository;
     private final LoanTransactionRepository loanTransactionRepository;
     private final LoanAssembler loanAssembler;
@@ -293,9 +290,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final ConfigurationDomainService configurationDomainService;
     private final GLClosureRepository glClosureRepository;
     private final WorkingDaysRepositoryWrapper workingDaysRepository;
-    @Autowired
-    @Lazy
-    private AccountTransfersWritePlatformService accountTransfersWritePlatformService;
+    private final AccountTransfersWritePlatformService accountTransfersWritePlatformService;
     private final AccountTransfersReadPlatformService accountTransfersReadPlatformService;
     private final AccountAssociationsReadPlatformService accountAssociationsReadPlatformService;
     private final LoanChargeReadPlatformService loanChargeReadPlatformService;
@@ -327,7 +322,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final GLAccountRepository glAccountRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ProductToGLAccountMappingRepository productToGLAccountMappingRepository;
-
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -1254,7 +1248,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final LoanTransaction originalRecoveryTransaction = originalTransactionId == null ? null
                     : validateRecoveryCorrectionReference(loan, originalTransactionId);
             final LocalDate correctionDate = correctedRecoveryRepost
-                    ? validateCorrectionDate(loan, originalRecoveryTransaction.getTransactionDate(),
+                    ? resolveCorrectionDate(loan, originalRecoveryTransaction.getTransactionDate(),
                             command.localDateValueOfParameterNamed("correctionDate"))
                     : null;
 
@@ -1584,7 +1578,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final LocalDate reversalDate = command.localDateValueOfParameterNamed("transactionDate");
         validateRecoveryPaymentReversalDate(transactionToReverse, reversalDate);
-        final LocalDate correctionDate = validateCorrectionDate(loan, transactionToReverse.getTransactionDate(),
+        final LocalDate correctionDate = resolveCorrectionDate(loan, transactionToReverse.getTransactionDate(),
                 command.parameterExists("correctionDate") ? command.localDateValueOfParameterNamed("correctionDate") : null);
 
         final List<Long> existingTransactionIds = new ArrayList<>();
@@ -2866,17 +2860,20 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return originalTransaction;
     }
 
-    private LocalDate validateCorrectionDate(final Loan loan, final LocalDate transactionDate, final LocalDate correctionDate) {
+    private LocalDate resolveCorrectionDate(final Loan loan, final LocalDate transactionDate, final LocalDate correctionDate) {
         final GLClosure latestGLClosure = this.glClosureRepository.getLatestGLClosureByBranch(loan.getOfficeId());
         if (latestGLClosure != null && !transactionDate.isAfter(latestGLClosure.getClosingDate())) {
             if (!this.configurationDomainService.isCorrectionsInClosedPeriodsAllowed()) {
                 throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.closed.period.corrections.not.allowed",
                         "Corrections in closed accounting periods are not allowed.");
             }
+            final LocalDate automaticCorrectionDate = latestGLClosure.getClosingDate().plusDays(1);
             if (correctionDate == null) {
-                throwTransactionValidationError("error.msg.loan.transaction.correction.date.required",
-                        "A correction date is required because the transaction falls in a closed accounting period.",
-                        "correctionDate", transactionDate, latestGLClosure.getClosingDate());
+                if (automaticCorrectionDate.isAfter(DateUtils.getBusinessLocalDate())) {
+                    throwTransactionValidationError("error.msg.loan.transaction.correction.date.cannot.be.future",
+                            "The correction date cannot be in the future.", "correctionDate", automaticCorrectionDate);
+                }
+                return automaticCorrectionDate;
             }
             if (!correctionDate.isAfter(latestGLClosure.getClosingDate())) {
                 throwTransactionValidationError("error.msg.loan.transaction.correction.date.must.be.in.open.period",
