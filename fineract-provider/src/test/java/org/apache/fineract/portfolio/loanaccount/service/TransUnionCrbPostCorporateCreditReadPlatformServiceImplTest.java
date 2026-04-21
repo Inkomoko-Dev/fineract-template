@@ -65,7 +65,7 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
         readPlatformService.retrieveAllCorporateCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
 
         String sql = captureGeneratedSql();
-        assertUsesSelectedActiveAddressCountry(sql);
+        assertUsesPreferredAddressFallback(sql);
         assertContainsPattern(sql, "COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\)\\s+AS daysInArrears");
         assertContainsPattern(sql,
                 "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
@@ -81,7 +81,7 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
         readPlatformService.retrieveAllCorporateCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
 
         String sql = captureGeneratedSql();
-        assertUsesSelectedActiveAddressCountry(sql);
+        assertUsesPreferredAddressFallback(sql);
         assertTrue(sql.contains(
                 "COALESCE(CAST(EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) AS INTEGER), 0)"),
                 "Expected SQL to use a null-safe PostgreSQL arrears expression");
@@ -106,12 +106,15 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
         return sqlCaptor.getValue();
     }
 
-    private void assertUsesSelectedActiveAddressCountry(String sql) {
+    private void assertUsesPreferredAddressFallback(String sql) {
         assertTrue(sql.contains("address_type_cv.code_value AS addressType"));
-        assertTrue(sql.contains("ca.is_active = true"));
-        assertTrue(sql.contains("WHEN address_type_cv.code_value = 'CURRENT ADDRESS' THEN 0 ELSE 1 END"));
+        assertTrue(sql.contains("CASE WHEN ca.is_active = true THEN 0 ELSE 1 END"));
+        assertTrue(sql.contains("UPPER(address_type_cv.code_value) IN ('CURRENT ADDRESS', 'PRIMARY', 'PRIMARY ADDRESS') THEN 0"));
+        assertTrue(sql.contains("UPPER(address_type_cv.code_value) IN ('HOME', 'RESIDENTIAL', 'RESIDENTIAL ADDRESS') THEN 1"));
+        assertTrue(sql.contains("UPPER(address_type_cv.code_value) = 'BUSINESS' THEN 2"));
         assertTrue(sql.contains("LEFT JOIN RankedAddresses ranked_address ON mc.id = ranked_address.client_id"));
         assertTrue(sql.contains("LEFT JOIN m_code_value country_cv ON ra.country_id = country_cv.id"));
+        assertFalse(sql.contains("WHERE ca.is_active = true"));
         assertFalse(sql.contains("m_client_recruitment_survey"));
     }
 
