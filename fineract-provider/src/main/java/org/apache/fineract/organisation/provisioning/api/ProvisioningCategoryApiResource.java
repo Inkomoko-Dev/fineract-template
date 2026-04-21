@@ -82,6 +82,18 @@ public class ProvisioningCategoryApiResource {
         return this.toApiJsonSerializer.serialize(settings, provisionCategoriesSet);
     }
 
+    @GET
+    @Path("{categoryId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveProvisioningCategory(@PathParam("categoryId") final Long categoryId,
+            @Context final UriInfo uriInfo) {
+        this.platformSecurityContext.authenticatedUser();
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        final ProvisioningCategoryData data = this.provisioningCategoryReadPlatformService.retrieveProvisionCategory(categoryId);
+        return this.toApiJsonSerializer.serialize(settings, data);
+    }
+
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })

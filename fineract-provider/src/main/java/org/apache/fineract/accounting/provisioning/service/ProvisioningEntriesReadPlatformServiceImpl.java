@@ -29,6 +29,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.accounting.provisioning.data.LoanData;
+import org.apache.fineract.accounting.provisioning.data.LoanProvisioningCandidateData;
 import org.apache.fineract.accounting.provisioning.data.LoanProductProvisioningEntryData;
 import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryData;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -53,14 +54,15 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
     private final DatabaseSpecificSQLGenerator sqlGenerator;
 
     @Override
-    public Collection<LoanProductProvisioningEntryData> retrieveLoanProductsProvisioningData(LocalDate date) {
+    public Collection<LoanProvisioningCandidateData> retrieveLoanProductsProvisioningData(LocalDate date) {
         String formattedDate = DateUtils.DEFAULT_DATE_FORMATER.format(date);
         LoanProductProvisioningEntryMapper mapper = new LoanProductProvisioningEntryMapper(sqlGenerator);
         final String sql = mapper.schema();
-        return this.jdbcTemplate.query(sql, mapper, formattedDate, formattedDate, formattedDate, formattedDate, formattedDate, formattedDate,formattedDate, formattedDate, formattedDate);
+        return this.jdbcTemplate.query(sql, mapper, formattedDate, formattedDate, formattedDate, formattedDate, formattedDate,
+                formattedDate, formattedDate, formattedDate);
     }
 
-    private static final class LoanProductProvisioningEntryMapper implements RowMapper<LoanProductProvisioningEntryData> {
+    private static final class LoanProductProvisioningEntryMapper implements RowMapper<LoanProvisioningCandidateData> {
 
         private final StringBuilder sqlQuery;
 
@@ -69,11 +71,11 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
             sqlQuery = new StringBuilder("SELECT DISTINCT " +
                     "(CASE WHEN loan.loan_type_enum = 1 THEN mclient.office_id ELSE mgroup.office_id END) AS office_id, " +
                     "loan.loan_type_enum, " +
-                    "pcd.criteria_id AS criteriaid, " +
-                    "loan.product_id, loan.currency_code, loan.id AS loanId, loan.account_no, " +
+                    "lpm.criteria_id AS criteriaid, " +
+                    "loan.product_id, loan.currency_code, loan.id AS loanId, loan.account_no, loan.loan_status_id, " +
                     "IFNULL(CASE WHEN max_date = min_date OR max_date > min_date " +
                     "THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) AS numberofdaysoverdue, " +
-                    "sch.duedate, pcd.category_id, pcd.provision_percentage, " +
+                    "sch.duedate, " +
 
                     // Principal Outstanding
                     "(IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) AS principal_outstanding, " +
@@ -85,11 +87,6 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
                     "((IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) " +
                     "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) AS outstandingbalance, " +
 
-                    // Provision Amount
-                    "(((IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) " +
-                    "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) " +
-                    "* IFNULL(pcd.provision_percentage, 0) / 100) AS provision_amount, " +
-                    "pcd.liability_account, pcd.expense_account " +
                     "FROM m_loan_repayment_schedule sch " +
                     "LEFT JOIN m_loan loan ON sch.loan_id = loan.id " +
                     "LEFT JOIN (SELECT COUNT(*) AS Instalment, lrs.loan_id, MAX(lrs.duedate) AS max_date, MIN(lrs.duedate) AS min_date " +
@@ -104,11 +101,6 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
                     "WHERE rs.duedate <= DATE(?) " +
                     "GROUP BY rs.loan_id) AS scheduleInterestTbl ON scheduleInterestTbl.loan_id = loan.id " +
                     "JOIN m_loanproduct_provisioning_mapping lpm ON lpm.product_id = loan.product_id " +
-                    "JOIN m_provisioning_criteria_definition pcd ON pcd.criteria_id = lpm.criteria_id " +
-                    "AND pcd.min_age <= IFNULL(CASE WHEN max_date = min_date OR max_date > min_date " +
-                    "THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) " +
-                    "AND IFNULL(CASE WHEN max_date = min_date OR max_date > min_date " +
-                    "THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) <= pcd.max_age " +
                     "LEFT JOIN m_client mclient ON mclient.id = loan.client_id " +
                     "LEFT JOIN m_group mgroup ON mgroup.id = loan.group_id " +
                     "LEFT JOIN (SELECT t.loan_id, SUM(IFNULL(t.amount, 0)) AS Actual_paid, " +
@@ -131,22 +123,19 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
 
         @Override
         @SuppressWarnings("unused")
-        public LoanProductProvisioningEntryData mapRow(ResultSet rs, int rowNum) throws SQLException {
+        public LoanProvisioningCandidateData mapRow(ResultSet rs, int rowNum) throws SQLException {
             Long officeId = rs.getLong("office_id");
             Long productId = rs.getLong("product_id");
             String currentcyCode = rs.getString("currency_code");
             Long overdueDays = rs.getLong("numberofdaysoverdue");
-            Long categoryId = rs.getLong("category_id");
-            BigDecimal percentage = rs.getBigDecimal("provision_percentage");
             BigDecimal outstandingBalance = rs.getBigDecimal("outstandingbalance");
-            Long liabilityAccountCode = rs.getLong("liability_account");
-            Long expenseAccountCode = rs.getLong("expense_account");
             Long criteriaId = rs.getLong("criteriaid");
-            Long historyId = null;
-            Long loanAccountNo = rs.getLong("loanId");
+            Long loanId = rs.getLong("loanId");
+            String accountNo = rs.getString("account_no");
+            Integer loanStatusId = rs.getInt("loan_status_id");
 
-            return new LoanProductProvisioningEntryData(historyId, officeId, currentcyCode, productId, categoryId, overdueDays, percentage,
-                    outstandingBalance, liabilityAccountCode, expenseAccountCode, criteriaId, loanAccountNo);
+            return new LoanProvisioningCandidateData(officeId, productId, currentcyCode, loanId, accountNo, overdueDays,
+                    outstandingBalance, criteriaId, loanStatusId);
         }
 
         public String schema() {
@@ -194,18 +183,17 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
     private static final class LoanProductProvisioningEntryRowMapper implements RowMapper<LoanProductProvisioningEntryData> {
 
         private final StringBuilder sqlQuery = new StringBuilder().append(
-                " entry.id, entry.history_id as historyId, entry.office_id, entry.criteria_id as criteriaid, office.name as officename, product.name as productname, entry.product_id, ")
-                .append("loan.id as loanId, loan.account_no as loanAccountNo, loan.total_outstanding_derived as outstandingBalance, loan.total_outstanding_derived * pcd.provision_percentage/100 as provisioningAmount, ")
-                .append("entry.category_id, category.category_name, liability.id as liabilityid, liability.gl_code as liabilitycode, liability.name as liabilityname, ")
+                " entry.id, entry.history_id as historyId, entry.office_id, entry.criteria_id as criteriaid, entry.criteria_version_id as criteriaVersionId, ")
+                .append("entry.criteria_definition_id as criteriaDefinitionId, entry.classification_type, office.name as officename, product.name as productname, entry.product_id, ")
+                .append("mlpel.loan_id as loanId, mlpel.account_no as loanAccountNo, mlpel.outstanding_balance as outstandingBalance, mlpel.provisioning_amount as provisioningAmount, ")
+                .append("entry.category_id, definition.category_code, CASE WHEN entry.classification_type = 'WRITTEN_OFF_PORTFOLIO' THEN 'Written-Off Portfolio' ELSE definition.category_name END as category_name, liability.id as liabilityid, liability.gl_code as liabilitycode, liability.name as liabilityname, ")
                 .append("expense.id as expenseid, expense.gl_code as expensecode, expense.name as expensename, entry.currency_code, entry.overdue_in_days, entry.reseve_amount from m_loanproduct_provisioning_entry entry ")
                 .append("left join m_office office ON office.id = entry.office_id ")
                 .append("left join m_product_loan product ON product.id = entry.product_id ")
-                .append("left join m_provision_category category ON category.id = entry.category_id ")
+                .append("left join m_provisioning_criteria_definition definition ON definition.id = entry.criteria_definition_id ")
                 .append("left join acc_gl_account liability ON liability.id = entry.liability_account ")
                 .append("left join acc_gl_account expense ON expense.id = entry.expense_account ")
-                .append("left join m_loanproduct_provisioning_entry_loans mlpel on mlpel.loanproduct_provision_entry_id = entry.id " +
-                        "left join m_loan loan on loan.id = mlpel.loan_id " +
-                        "left join m_provisioning_criteria_definition pcd ON pcd.category_id = entry.category_id ");
+                .append("left join m_loanproduct_provisioning_entry_loans mlpel on mlpel.loanproduct_provision_entry_id = entry.id ");
 
         @Override
         @SuppressWarnings("unused")
@@ -219,31 +207,39 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
             String productName = rs.getString("productname");
             String currentcyCode = rs.getString("currency_code");
             Long overdueDays = rs.getLong("overdue_in_days");
-            Long categoryId = rs.getLong("category_id");
+            Long categoryId = rs.getObject("category_id") == null ? null : rs.getLong("category_id");
+            String categoryCode = rs.getString("category_code");
             String categoryName = rs.getString("category_name");
+            String classificationType = rs.getString("classification_type");
             BigDecimal amountreserved = rs.getBigDecimal("reseve_amount");
-            Long liabilityAccountCode = rs.getLong("liabilityid");
+            Long liabilityAccountCode = rs.getObject("liabilityid") == null ? null : rs.getLong("liabilityid");
             String liabilityAccountglCode = rs.getString("liabilitycode");
             String expenseAccountglCode = rs.getString("expensecode");
-            Long expenseAccountCode = rs.getLong("expenseid");
+            Long expenseAccountCode = rs.getObject("expenseid") == null ? null : rs.getLong("expenseid");
             Long criteriaId = rs.getLong("criteriaid");
+            Long criteriaVersionId = rs.getLong("criteriaVersionId");
+            Long criteriaDefinitionId = rs.getObject("criteriaDefinitionId") == null ? null : rs.getLong("criteriaDefinitionId");
             String liabilityAccountName = rs.getString("liabilityname");
             String expenseAccountName = rs.getString("expensename");
 
             List<LoanData> loans = new ArrayList<>();
 
-            LoanProductProvisioningEntryData data = new LoanProductProvisioningEntryData(historyId, officeId, officeName, currentcyCode, productId, productName, categoryId,
-                    categoryName, overdueDays, amountreserved, liabilityAccountCode, liabilityAccountglCode, liabilityAccountName,
-                    expenseAccountCode, expenseAccountglCode, expenseAccountName, criteriaId, loans);
+            LoanProductProvisioningEntryData data = new LoanProductProvisioningEntryData(historyId, officeId, officeName, currentcyCode,
+                    productId, productName, categoryId, categoryCode, categoryName, classificationType, overdueDays, amountreserved,
+                    liabilityAccountCode, liabilityAccountglCode, liabilityAccountName, expenseAccountCode, expenseAccountglCode,
+                    expenseAccountName, criteriaId, criteriaVersionId, criteriaDefinitionId, loans);
 
             do {
+                if (rs.getObject("loanId") == null) {
+                    break;
+                }
                 Long loanId = rs.getLong("loanId");
                 String accountNo = rs.getString("loanAccountNo");
                 BigDecimal outstandingBalance= rs.getBigDecimal("outstandingBalance");
                 BigDecimal provisioningAmount =rs.getBigDecimal("provisioningAmount");
 
                 loans.add(new LoanData(loanId,accountNo,outstandingBalance,provisioningAmount));
-            } while (rs.next() && rs.getInt("id") == id);
+            } while (rs.next() && rs.getLong("id") == id);
 
             return data;
         }

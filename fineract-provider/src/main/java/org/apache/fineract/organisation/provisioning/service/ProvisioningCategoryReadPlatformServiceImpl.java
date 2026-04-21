@@ -23,7 +23,9 @@ import java.sql.SQLException;
 import java.util.Collection;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.organisation.provisioning.data.ProvisioningCategoryData;
+import org.apache.fineract.organisation.provisioning.exception.ProvisioningCategoryNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -42,10 +44,25 @@ public class ProvisioningCategoryReadPlatformServiceImpl implements Provisioning
 
     @Override
     public Collection<ProvisioningCategoryData> retrieveAllProvisionCategories() {
-        // User is already authenticated by API. So we no need to check again
-        // here
-        final String sql = "select " + this.provisionCategoryRowMapper.schema() + " from m_provision_category pc order by pc.id";
+        final String sql = "select " + this.provisionCategoryRowMapper.schema() + " from m_provision_category pc order by pc.display_order, pc.id";
         return this.jdbcTemplate.query(sql, this.provisionCategoryRowMapper); // NOSONAR
+    }
+
+    @Override
+    public Collection<ProvisioningCategoryData> retrieveActiveProvisionCategories() {
+        final String sql = "select " + this.provisionCategoryRowMapper.schema()
+                + " from m_provision_category pc where pc.is_active = true order by pc.display_order, pc.id";
+        return this.jdbcTemplate.query(sql, this.provisionCategoryRowMapper); // NOSONAR
+    }
+
+    @Override
+    public ProvisioningCategoryData retrieveProvisionCategory(final Long categoryId) {
+        final String sql = "select " + this.provisionCategoryRowMapper.schema() + " from m_provision_category pc where pc.id = ?";
+        try {
+            return this.jdbcTemplate.queryForObject(sql, this.provisionCategoryRowMapper, categoryId); // NOSONAR
+        } catch (EmptyResultDataAccessException e) {
+            throw new ProvisioningCategoryNotFoundException(categoryId);
+        }
     }
 
     private static final class ProvisioningCategoryRowMapper implements RowMapper<ProvisioningCategoryData> {
@@ -55,11 +72,15 @@ public class ProvisioningCategoryReadPlatformServiceImpl implements Provisioning
             final Long id = JdbcSupport.getLong(rs, "id");
             final String categoryName = rs.getString("category_name");
             final String description = rs.getString("description");
-            return new ProvisioningCategoryData(id, categoryName, description);
+            final String categoryCode = rs.getString("category_code");
+            final Integer displayOrder = JdbcSupport.getInteger(rs, "display_order");
+            final Boolean active = rs.getBoolean("is_active");
+            return new ProvisioningCategoryData(id, categoryName, description, categoryCode, displayOrder, active);
         }
 
         public String schema() {
-            return " pc.id as id, pc.category_name as category_name, pc.description as description";
+            return " pc.id as id, pc.category_name as category_name, pc.description as description, pc.category_code as category_code, "
+                    + "pc.display_order as display_order, pc.is_active as is_active";
         }
     }
 }

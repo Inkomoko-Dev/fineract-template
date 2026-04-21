@@ -20,18 +20,21 @@ package org.apache.fineract.accounting.provisioning.domain;
 
 import java.math.BigDecimal;
 import java.util.HashSet;
-import java.util.Objects;
 import java.util.Set;
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
 import javax.persistence.JoinColumn;
-import javax.persistence.JoinTable;
 import javax.persistence.ManyToOne;
 import javax.persistence.OneToMany;
 import javax.persistence.Table;
+import javax.persistence.CascadeType;
 import org.apache.fineract.accounting.glaccount.domain.GLAccount;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.organisation.provisioning.domain.ProvisioningCriteriaDefinition;
+import org.apache.fineract.organisation.provisioning.domain.ProvisioningCriteriaVersion;
 import org.apache.fineract.organisation.provisioning.domain.ProvisioningCategory;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -47,6 +50,14 @@ public class LoanProductProvisioningEntry extends AbstractPersistableCustom {
     @Column(name = "criteria_id", nullable = false)
     private Long criteriaId;
 
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "criteria_version_id", referencedColumnName = "id", nullable = false)
+    private ProvisioningCriteriaVersion criteriaVersion;
+
+    @ManyToOne
+    @JoinColumn(name = "criteria_definition_id")
+    private ProvisioningCriteriaDefinition criteriaDefinition;
+
     @ManyToOne
     @JoinColumn(name = "office_id", nullable = false)
     private Office office;
@@ -59,8 +70,12 @@ public class LoanProductProvisioningEntry extends AbstractPersistableCustom {
     private LoanProduct loanProduct;
 
     @ManyToOne
-    @JoinColumn(name = "category_id", nullable = false)
+    @JoinColumn(name = "category_id")
     private ProvisioningCategory provisioningCategory;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "classification_type", nullable = false)
+    private ProvisioningClassificationType classificationType;
 
     @Column(name = "overdue_in_days", nullable = false)
     private Long overdueInDays;
@@ -69,36 +84,36 @@ public class LoanProductProvisioningEntry extends AbstractPersistableCustom {
     private BigDecimal reservedAmount;
 
     @ManyToOne
-    @JoinColumn(name = "liability_account", nullable = false)
+    @JoinColumn(name = "liability_account")
     private GLAccount liabilityAccount;
 
     @ManyToOne
-    @JoinColumn(name = "expense_account", nullable = false)
+    @JoinColumn(name = "expense_account")
     private GLAccount expenseAccount;
 
-    @OneToMany
-    @JoinTable(
-            name = "m_loanproduct_provisioning_entry_loans",  // The name of the join table
-            joinColumns = @JoinColumn(name = "loanproduct_provision_entry_id", referencedColumnName = "id"),
-            inverseJoinColumns = @JoinColumn(name = "loan_id", referencedColumnName = "id")  // Foreign key to Human
-    )
-    private Set<Loan> loan;
+    @OneToMany(mappedBy = "entry", orphanRemoval = true, cascade = CascadeType.ALL)
+    private Set<LoanProductProvisioningEntryLoan> loanSnapshots;
 
     protected LoanProductProvisioningEntry() {}
 
     public LoanProductProvisioningEntry(final LoanProduct loanProduct, final Office office, final String currencyCode,
-            final ProvisioningCategory provisioningCategory, final Long overdueInDays, final BigDecimal reservedAmount,
-            final GLAccount liabilityAccount, final GLAccount expenseAccount, Long criteriaId) {
+            final ProvisioningCategory provisioningCategory, final ProvisioningCriteriaVersion criteriaVersion,
+            final ProvisioningCriteriaDefinition criteriaDefinition, final ProvisioningClassificationType classificationType,
+            final Long overdueInDays, final BigDecimal reservedAmount, final GLAccount liabilityAccount, final GLAccount expenseAccount,
+            final Long criteriaId) {
         this.loanProduct = loanProduct;
         this.office = office;
         this.currencyCode = currencyCode;
         this.provisioningCategory = provisioningCategory;
+        this.criteriaVersion = criteriaVersion;
+        this.criteriaDefinition = criteriaDefinition;
+        this.classificationType = classificationType;
         this.overdueInDays = overdueInDays;
         this.reservedAmount = reservedAmount;
         this.liabilityAccount = liabilityAccount;
         this.expenseAccount = expenseAccount;
         this.criteriaId = criteriaId;
-        this.loan = new HashSet<>();
+        this.loanSnapshots = new HashSet<>();
 
     }
 
@@ -114,8 +129,8 @@ public class LoanProductProvisioningEntry extends AbstractPersistableCustom {
         this.reservedAmount = this.reservedAmount.add(value);
     }
 
-    public void addLoan(Loan loan){
-        this.loan.add(loan);
+    public void addLoan(Loan loan, String accountNo, BigDecimal outstandingBalance, BigDecimal provisioningAmount) {
+        this.loanSnapshots.add(LoanProductProvisioningEntryLoan.of(this, loan, accountNo, outstandingBalance, provisioningAmount));
     }
 
     public Office getOffice() {
@@ -134,39 +149,35 @@ public class LoanProductProvisioningEntry extends AbstractPersistableCustom {
         return this.expenseAccount;
     }
 
-    // TODO Note that this domain class does equals() & hashCode() on getId()
-    // for @JoinColumn attributes, which not all other classes do...
-
-    @Override
-    public boolean equals(Object obj) {
-        if (!(obj instanceof LoanProductProvisioningEntry)) {
-            return false;
-        }
-        LoanProductProvisioningEntry other = (LoanProductProvisioningEntry) obj;
-        return Objects.equals(other.entry.getId(), this.entry.getId()) && Objects.equals(other.criteriaId, this.criteriaId)
-                && Objects.equals(other.office.getId(), this.office.getId()) && Objects.equals(other.currencyCode, this.currencyCode)
-                && Objects.equals(other.loanProduct.getId(), this.loanProduct.getId())
-                && Objects.equals(other.provisioningCategory.getId(), this.provisioningCategory.getId())
-                && Objects.equals(other.overdueInDays, this.overdueInDays) && Objects.equals(other.reservedAmount, this.reservedAmount)
-                && Objects.equals(other.liabilityAccount.getId(), this.liabilityAccount.getId())
-                && Objects.equals(other.expenseAccount.getId(), this.expenseAccount.getId());
+    public Long getCriteriaId() {
+        return this.criteriaId;
     }
 
-    @Override
-    public int hashCode() {
-        // NOT return Objects.hash(entry, criteriaId, office, currencyCode,
-        // loanProduct, provisioningCategory, overdueInDays, reservedAmount,
-        // liabilityAccount, expenseAccount);
-        // to remain consistent with the implementation in equals(), also use
-        // getId() here.
-        return Objects.hash(entry.getId(), criteriaId, office.getId(), currencyCode, loanProduct.getId(), provisioningCategory.getId(),
-                overdueInDays, reservedAmount, liabilityAccount.getId(), expenseAccount.getId());
+    public ProvisioningCategory getProvisioningCategory() {
+        return this.provisioningCategory;
     }
 
-    public int partialHashCode() {
-        // this is used to group together all the entries that have similar parameters (excluding the amount reserved)
-        // rather than a check for if the objects are the same based on their values, this tells if they are similar
-        return Objects.hash(entry.getId(), criteriaId, office.getId(), currencyCode, loanProduct.getId(), provisioningCategory.getId(),
-                overdueInDays, liabilityAccount.getId(), expenseAccount.getId());
+    public ProvisioningClassificationType getClassificationType() {
+        return this.classificationType;
+    }
+
+    public LoanProduct getLoanProduct() {
+        return this.loanProduct;
+    }
+
+    public Long getOverdueInDays() {
+        return this.overdueInDays;
+    }
+
+    public ProvisioningCriteriaVersion getCriteriaVersion() {
+        return this.criteriaVersion;
+    }
+
+    public ProvisioningCriteriaDefinition getCriteriaDefinition() {
+        return this.criteriaDefinition;
+    }
+
+    public Set<LoanProductProvisioningEntryLoan> getLoanSnapshots() {
+        return this.loanSnapshots;
     }
 }

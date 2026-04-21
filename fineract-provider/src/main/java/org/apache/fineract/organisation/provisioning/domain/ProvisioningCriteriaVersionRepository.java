@@ -16,16 +16,21 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.organisation.provisioning.service;
+package org.apache.fineract.organisation.provisioning.domain;
 
-import java.util.Collection;
-import org.apache.fineract.organisation.provisioning.data.ProvisioningCategoryData;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-public interface ProvisioningCategoryReadPlatformService {
+public interface ProvisioningCriteriaVersionRepository
+        extends JpaRepository<ProvisioningCriteriaVersion, Long>, JpaSpecificationExecutor<ProvisioningCriteriaVersion> {
 
-    Collection<ProvisioningCategoryData> retrieveAllProvisionCategories();
+    List<ProvisioningCriteriaVersion> findByCriteriaIdOrderByVersionNoAsc(Long criteriaId);
 
-    Collection<ProvisioningCategoryData> retrieveActiveProvisionCategories();
+    Optional<ProvisioningCriteriaVersion> findFirstByCriteriaIdOrderByVersionNoDesc(Long criteriaId);
 
-    ProvisioningCategoryData retrieveProvisionCategory(Long categoryId);
+    List<ProvisioningCriteriaVersion> findByCriteriaIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(Long criteriaId,
+            LocalDate effectiveFrom);
 }
