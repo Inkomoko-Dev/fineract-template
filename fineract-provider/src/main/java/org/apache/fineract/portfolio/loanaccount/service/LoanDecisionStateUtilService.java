@@ -890,13 +890,20 @@ public class LoanDecisionStateUtilService {
                     "Loan Account current status is invalid. Expected" + loan.status().getCode() + " but found " + loan.status().getCode());
         }
         if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelOne()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.is.invalid",
-                    "Loan Account Decision state is invalid. Expected" + LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue() + " but found "
-                            + loan.getLoanDecisionState());
+            // Use dynamicIcReviewLevelHelper to get proper display name for dynamic levels (6+)
+            String currentStateName = dynamicIcReviewLevelHelper.getLevelDisplayName(loan.getLoanDecisionState());
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.is.invalid.for.ic.level.two",
+                    "Loan cannot be processed at IC Review Level Two because it is currently at stage '"
+                            + currentStateName + "' (state " + loan.getLoanDecisionState()
+                            + "). Expected stage: IC_REVIEW_LEVEL_ONE (state 1400). "
+                            + "Please ensure IC Review Level One is completed before proceeding with Level Two, "
+                            + "or contact system administrator if the loan state needs correction.");
         }
         if (!loan.getLoanDecisionState().equals(loanDecision.getLoanDecisionState())) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.does.not.reconcile",
-                    "Loan Account Decision state Does not reconcile . Operation is terminated");
+                    "Loan Account Decision state is out of sync between loan and decision tables. "
+                            + "Loan state: " + loan.getLoanDecisionState() + ", Decision state: " + loanDecision.getLoanDecisionState()
+                            + ". Please contact system administrator to resolve this inconsistency.");
         }
     }
 
@@ -1224,6 +1231,57 @@ public class LoanDecisionStateUtilService {
         }
     }
 
+    /**
+     * Dynamic version of generateTheNextIcReviewStageFive that accepts the actual decision state value
+     * instead of LoanDecisionState enum. This is needed for dynamic IC review levels (6+) where
+     * the enum's getValue() would incorrectly return 1800 instead of the actual value like 1801.
+     */
+    private void generateTheNextIcReviewStageFiveDynamic(BigDecimal dueDiligenceRecommendedAmount, BigDecimal nextStageMatrixMaxAmount,
+            Integer numberOfRepayment, Integer nextStageMatrixMinTerm, Integer nextStageMatrixMaxTerm, LoanDecision loanDecision,
+            Integer nextStageDecisionStateValue, BigDecimal currentStageMaximumLoanAmount) {
+
+        if ((dueDiligenceRecommendedAmount.compareTo(currentStageMaximumLoanAmount) > 0
+                && (dueDiligenceRecommendedAmount.compareTo(nextStageMatrixMaxAmount) <= 0))
+                && (numberOfRepayment > nextStageMatrixMinTerm && numberOfRepayment <= nextStageMatrixMaxTerm)) {
+            loanDecision.setNextLoanIcReviewDecisionState(nextStageDecisionStateValue);
+        } else {
+            loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        }
+    }
+
+    /**
+     * Dynamic version of generateTheNextIcReviewStage that accepts the actual decision state value
+     * instead of LoanDecisionState enum. This is needed for dynamic IC review levels (6+) where
+     * the enum's getValue() would incorrectly return 1800 instead of the actual value like 1801.
+     */
+    private void generateTheNextIcReviewStageDynamic(BigDecimal dueDiligenceRecommendedAmount, BigDecimal nextStageMatrixMaxAmount,
+            Integer numberOfRepayment, Integer nextStageMatrixMinTerm, Integer nextStageMatrixMaxTerm, LoanDecision loanDecision,
+            Integer nextStageDecisionStateValue, BigDecimal currentStageMaximumLoanAmount) {
+
+        if ((dueDiligenceRecommendedAmount.compareTo(currentStageMaximumLoanAmount.add(BigDecimal.ONE)) >= 0
+                && (dueDiligenceRecommendedAmount.compareTo(nextStageMatrixMaxAmount) <= 0
+                        || dueDiligenceRecommendedAmount.compareTo(nextStageMatrixMaxAmount) > 0))
+                && (numberOfRepayment > nextStageMatrixMinTerm && numberOfRepayment <= nextStageMatrixMaxTerm)) {
+            loanDecision.setNextLoanIcReviewDecisionState(nextStageDecisionStateValue);
+        } else {
+            loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        }
+    }
+
+    /**
+     * Overloaded method that accepts the level number directly.
+     * This should be used for dynamic IC review levels (6+) to avoid the lossy conversion
+     * through LoanDecisionState.fromInt() which maps 1801-1899 back to IC_REVIEW_LEVEL_FIVE (1800).
+     */
+    public void determineTheNextDecisionStage(Loan loan, LoanDecision loanDecision, LoanApprovalMatrix approvalMatrix,
+            Boolean isLoanFirstCycle, Boolean isLoanUnsecure, Integer currentLevelNumber, BigDecimal dueDiligenceRecommendedAmount) {
+
+        if (currentLevelNumber != null) {
+            determineTheNextDecisionStageDynamic(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
+                    currentLevelNumber, dueDiligenceRecommendedAmount);
+        }
+    }
+
     public void determineTheNextDecisionStage(Loan loan, LoanDecision loanDecision, LoanApprovalMatrix approvalMatrix,
             Boolean isLoanFirstCycle, Boolean isLoanUnsecure, LoanDecisionState currentStage, BigDecimal dueDiligenceRecommendedAmount) {
 
@@ -1337,18 +1395,20 @@ public class LoanDecisionStateUtilService {
         boolean isLastLevel = maxLevel != null && nextLevel.getLevelNumber().equals(maxLevel);
 
         // Determine next stage based on loan amount and terms
-        LoanDecisionState expectedNextIcReviewStage = LoanDecisionState.fromInt(nextLevel.getDecisionStateValue());
+        // IMPORTANT: Use the actual decision state value from the database (e.g., 1801 for Level 6)
+        // rather than LoanDecisionState enum which maps dynamic levels (1801-1899) back to IC_REVIEW_LEVEL_FIVE (1800)
+        Integer nextDecisionStateValue = nextLevel.getDecisionStateValue();
 
         if (isLastLevel) {
             // Last level uses different logic (similar to level 5)
-            generateTheNextIcReviewStageFive(dueDiligenceRecommendedAmount, nextStageMaxAmount,
+            generateTheNextIcReviewStageFiveDynamic(dueDiligenceRecommendedAmount, nextStageMaxAmount,
                     loan.getNumberOfRepayments(), nextStageMinTerm, nextStageMaxTerm, loanDecision,
-                    expectedNextIcReviewStage, currentStageMaxAmount);
+                    nextDecisionStateValue, currentStageMaxAmount);
         } else {
             // Middle levels use standard logic
-            generateTheNextIcReviewStage(dueDiligenceRecommendedAmount, nextStageMaxAmount,
+            generateTheNextIcReviewStageDynamic(dueDiligenceRecommendedAmount, nextStageMaxAmount,
                     loan.getNumberOfRepayments(), nextStageMinTerm, nextStageMaxTerm, loanDecision,
-                    expectedNextIcReviewStage, currentStageMaxAmount);
+                    nextDecisionStateValue, currentStageMaxAmount);
         }
 
         log.debug("Loan {} at level {} - determined next stage: {}", loan.getId(), currentLevelNumber,

@@ -19,6 +19,8 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.util.List;
+
+import com.google.common.base.Splitter;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.portfolio.loanaccount.data.IcReviewLevelConfigData;
 import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfig;
@@ -212,6 +214,97 @@ public class DynamicIcReviewLevelHelper {
         }
         // No more IC review levels, move to PREPARE_AND_SIGN_CONTRACT
         return LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue();
+    }
+
+    /**
+     * Get the display name for a decision state value.
+     * First tries database lookup, then falls back to enum name.
+     * This properly handles dynamic levels (6+) which map to 1801-1899.
+     *
+     * @param decisionStateValue the state value (e.g., 1400, 1801, 1900)
+     * @return the display name (e.g., "IC Level One", "IC Level Six", "Prepare and Sign Contract")
+     */
+    public String getLevelDisplayName(Integer decisionStateValue) {
+        if (decisionStateValue == null) {
+            return "Unknown";
+        }
+
+        // Handle non-IC review states
+        if (decisionStateValue.equals(LoanDecisionState.REVIEW_APPLICATION.getValue())) {
+            return "Review Application";
+        }
+        if (decisionStateValue.equals(LoanDecisionState.DUE_DILIGENCE.getValue())) {
+            return "Due Diligence";
+        }
+        if (decisionStateValue.equals(LoanDecisionState.COLLATERAL_REVIEW.getValue())) {
+            return "Collateral Review";
+        }
+        if (decisionStateValue.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+            return "Prepare and Sign Contract";
+        }
+
+        // Try database lookup for IC review levels (handles both hardcoded 1-5 and dynamic 6+)
+        IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByDecisionStateValue(decisionStateValue);
+        if (levelConfig != null && levelConfig.getLevelName() != null) {
+            return levelConfig.getLevelName();
+        }
+
+        // Fallback to enum name for hardcoded levels 1-5 if DB lookup fails
+        LoanDecisionState state = LoanDecisionState.fromInt(decisionStateValue);
+        if (state != null && state != LoanDecisionState.INVALID) {
+            // Convert enum name to readable format: IC_REVIEW_LEVEL_ONE -> IC Review Level One
+            String name = state.name();
+            return formatEnumNameToDisplayName(name);
+        }
+
+        return "Unknown Level (State: " + decisionStateValue + ")";
+    }
+
+    /**
+     * Convert enum name to a readable display format.
+     * Example: IC_REVIEW_LEVEL_ONE -> IC Review Level One
+     */
+    private String formatEnumNameToDisplayName(String enumName) {
+        if (enumName == null) {
+            return "Unknown";
+        }
+        Iterable<String> parts = Splitter.on('_').split(enumName.toLowerCase());
+        StringBuilder result = new StringBuilder();
+        for (String part : parts) {
+            if (!part.isEmpty()) {
+                result.append(Character.toUpperCase(part.charAt(0)))
+                      .append(part.substring(1))
+                      .append(" ");
+            }
+        }
+        return result.toString().trim();
+    }
+
+    /**
+     * Get the level code for a decision state value.
+     * Returns the level_code from database or constructs it from enum.
+     *
+     * @param decisionStateValue the state value
+     * @return the level code (e.g., "IC_REVIEW_LEVEL_ONE", "IC_REVIEW_LEVEL_SIX")
+     */
+    public String getLevelCode(Integer decisionStateValue) {
+        if (decisionStateValue == null) {
+            return null;
+        }
+
+        // Try database lookup first
+        IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByDecisionStateValue(decisionStateValue);
+        if (levelConfig != null && levelConfig.getLevelCode() != null) {
+            return levelConfig.getLevelCode();
+        }
+
+        // Fallback to enum code for hardcoded levels
+        LoanDecisionState state = LoanDecisionState.fromInt(decisionStateValue);
+        if (state != null && state != LoanDecisionState.INVALID) {
+            return state.getCode();
+        }
+
+        return null;
     }
 
     /**

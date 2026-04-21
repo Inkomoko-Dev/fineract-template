@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-527-seed-bank-list.xml" author="nickson@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="ref_banks"/>
+        </preConditions>
+
+        <sql> <![CDATA[
+            -- Rwanda
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('20', 'AB Bank', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('15', 'Access Bank', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('22', 'Antlantique Microfinance Plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('76', 'Bank of Africa Group', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('40', 'Bank of Kigali', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('50', 'Banque Rwandaise Development', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('44', 'BPR Atlas', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('30', 'CogeBank', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('25', 'Commercial Bank of Africa', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('27', 'COPEDU Plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('24', 'Duterimbere IMF Plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('11', 'Ecobank Rwanda', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('85', 'Equity Bank Limited', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('29', 'Financial Safety Co Plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('26', 'Goshen Finance Plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('70', 'GT Bank Rwanda', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('10', 'I&M Bank', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('31', 'Inkunga Finance Plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('60', 'KCB Rwanda', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('21', 'Letshego Rwanda Plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('33', 'MUGANGA SACCO', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('00', 'National Bank of Rwanda', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('32', 'RIM Ltd', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('23', 'Umutanguha Finance Company Plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('90', 'UMWALIMU Sacco', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('80', 'Unguka Bank', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('45', 'Urwego Bank plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('28', 'Vision Fund Co Plc', 'Rwanda');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('75', 'Zigama CSS', 'Rwanda');
+
+            -- Kenya
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('03', 'Absa Bank Kenya Plc', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('26', 'Access Bank Kenya PLC', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('35', 'African Banking Corporation Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('19', 'Bank of Africa Kenya Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('06', 'Bank of Baroda(Kenya Ltd)', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('05', 'Bank of India', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('80', 'Caritas Microfinance Bank Ltd', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('09', 'Central Bank Of Kenya', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('16', 'CITI BANK N A', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('11', 'Co-operative Bank of Kenya Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('23', 'Consolidated Bank of Kenya Ltd', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('25', 'Credit Bank PLC', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('59', 'Development Bank of Kenya Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('63', 'Diamond Trust Bank Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('75', 'DIB Bank Kenya Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('43', 'ECO Bank Kenya LTD', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('68', 'Equity Bank Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('70', 'Family Bank Ltd', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('79', 'Faulu Microfinance Bank Ltd', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('53', 'Guaranty Trust Bank ( Kenya) Ltd', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('55', 'Guardian Bank Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('72', 'Gulf African Bank Ltd', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('17', 'Habib Bank AG Zurich', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('61', 'Housing Finance Bank', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('57', 'I&M BANK (KENYA) LTD', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('01', 'Kenya Commercial Bank Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('62', 'Kenya Post Office Savings Bank', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('78', 'Kenya Women Microfinance Bank', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('51', 'Kingdom Bank Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('14', 'M-Oriental Bank Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('65', 'Mayfair CIB Bank', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('18', 'Middle East Bank Kenya Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('12', 'National Bank Of Kenya', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('07', 'NCBA Bank Kenya Plc', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('50', 'Paramount Bank Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('74', 'Premier Bank Kenya Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('10', 'Prime Bank Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('66', 'Sidian Bank Limited', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('49', 'Spire Bank', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('31', 'Stanbic Bank Plc', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('02', 'Standard Chartered Bank Kenya Ltd', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('60', 'State Bank of Mauritius Kenya', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('76', 'UBA Kenya Bank Ltd', 'Kenya');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('54', 'Victoria Commercial Bank', 'Kenya');
+
+            -- South Sudan
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('16', 'AFRICAN NATIONAL BANK LIMITED', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('15', 'AFRILAND FIRST BANK SOUTH SUDAN', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('05', 'AGRICULTURAL BANK OF SUDAN', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('27', 'ALPHA COMMERCIAL BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('02', 'BANK OF SOUTH SUDAN', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('04', 'BUFFALO COMMERCIAL BANK PLC', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('14', 'CFC STANBIC BANK LTD', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('09', 'CHARTER ONE BANK SOUTH SUDAN', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('06', 'COMMERCIAL BANK OF ETHOPIA', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('26', 'COOPERATIVE BANK SOUTH SUDAN LTD', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('29', 'EBONY NATIONAL BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('18', 'ECOBANK SOUTH SUDAN LIMITED', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('17', 'EDEN COMMERCIAL BANK LTD', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('11', 'INTERNATIONAL COMMERCIAL BANK LTD', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('03', 'IVORY BANK PLC', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('01', 'Kenya Commercial Bank Limited', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('30', 'KUSH BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('13', 'LIBERTY COMMERCIAL BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('08', 'MOUNTAIN TRADE AND DEVELOPMENT BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('23', 'NATIONAL COMMERCIAL BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('22', 'NATIONAL CREDIT BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('07', 'NILECOMMERCIALBANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('28', 'OPPORTUNITY BANK PLC', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('25', 'ORBIT COMMERCIAL BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('19', 'PEOPLES BANK PLC', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('20', 'PHOENIX COMMERCIAL BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('10', 'QATAR NATIONAL BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('21', 'REGENT AFRICAN BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('24', 'ROYAL EXPRESS BANK', 'South Sudan');
+            INSERT IGNORE INTO ref_banks (bank_code, bank_name, country) VALUES ('12', 'SOUTH SUDAN COMMERCIAL BANK', 'South Sudan');
+       ]]> </sql>
+
+    </changeSet>
+
+</databaseChangeLog>

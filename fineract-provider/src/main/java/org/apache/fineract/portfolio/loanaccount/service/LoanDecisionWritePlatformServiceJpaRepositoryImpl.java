@@ -78,6 +78,8 @@ import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepository;
+import org.apache.fineract.useradministration.domain.Permission;
+import org.apache.fineract.useradministration.domain.PermissionRepository;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
@@ -111,6 +113,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
     private final LoanApprovalMatrixLevelRepository loanApprovalMatrixLevelRepository;
+    private final PermissionRepository permissionRepository;
 
     @Override
     public CommandProcessingResult createLoanApprovalMatrix(JsonCommand command) {
@@ -218,6 +221,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         // Get all active IC review levels from database
         List<IcReviewLevelConfig> activeLevels = icReviewLevelConfigRepository.findAllActiveOrderByDisplayOrder();
 
+        // Ensure all existing IC levels have permissions (for levels created before this fix)
+        ensurePermissionsForExistingLevels(activeLevels);
+
         // Track which levels we've processed from the database
         java.util.Set<Integer> processedLevels = new java.util.HashSet<>();
 
@@ -244,6 +250,50 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     }
 
     /**
+     * Ensures that all existing IC Review Levels have their corresponding permissions.
+     * This is useful for:
+     * - IC levels created before the automatic permission creation fix
+     * - Manual database operations
+     * - Data migration scenarios
+     *
+     * @param icLevels List of existing IC review level configurations
+     */
+    private void ensurePermissionsForExistingLevels(List<IcReviewLevelConfig> icLevels) {
+        for (IcReviewLevelConfig level : icLevels) {
+            // Extract level name from level code (e.g., "IC_REVIEW_LEVEL_SIX" -> "SIX")
+            String levelCode = level.getLevelCode();
+            if (levelCode != null && levelCode.startsWith("IC_REVIEW_LEVEL_")) {
+                String levelNameWord = levelCode.substring("IC_REVIEW_LEVEL_".length());
+
+                // Check if permissions exist, create them if missing
+                String entityName = "LOANICREVIEWDECISIONLEVEL" + levelNameWord;
+
+                String acceptCode = "ACCEPT_" + entityName;
+                String rejectCode = "REJECT_" + entityName;
+                String readCode = "READ_" + entityName;
+
+                boolean anyMissing = false;
+
+                if (permissionRepository.findOneByCode(acceptCode) == null) {
+                    anyMissing = true;
+                }
+                if (permissionRepository.findOneByCode(rejectCode) == null) {
+                    anyMissing = true;
+                }
+                if (permissionRepository.findOneByCode(readCode) == null) {
+                    anyMissing = true;
+                }
+
+                if (anyMissing) {
+                    log.info("Creating missing permissions for existing IC Review Level {} ({})",
+                            level.getLevelNumber(), levelNameWord);
+                    createPermissionsForIcLevel(levelNameWord);
+                }
+            }
+        }
+    }
+
+    /**
      * Check if command contains any parameters for the given level prefix
      */
     private boolean hasLevelParametersInCommand(JsonCommand command, String levelPrefix) {
@@ -264,6 +314,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     /**
      * Auto-create an IC Review Level Configuration for a dynamic level.
      * This allows accepting level parameters without requiring pre-configuration in the database.
+     * Also creates the corresponding permissions (ACCEPT, REJECT, READ) for the new level.
      */
     private IcReviewLevelConfig createDynamicLevelConfig(int levelNumber) {
         // Check if level already exists (another thread might have created it)
@@ -282,17 +333,93 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             decisionStateValue = 1800 + (levelNumber - 5); // 1801, 1802, 1803, etc.
         }
 
-        // Create new level config
+        // Get the level name in words (SIX, SEVEN, etc.)
+        String levelNameWord = convertNumberToWord(levelNumber);
+
+        // Create new level config with proper level code
         IcReviewLevelConfig newConfig = new IcReviewLevelConfig(
                 levelNumber,
                 "IC Review Level " + levelNumber,
-                "IC_REVIEW_LEVEL_" + levelNumber,
+                "IC_REVIEW_LEVEL_" + levelNameWord,
                 decisionStateValue,
                 true,
                 levelNumber // displayOrder same as level number
         );
 
-        return icReviewLevelConfigRepository.saveAndFlush(newConfig);
+        IcReviewLevelConfig savedConfig = icReviewLevelConfigRepository.saveAndFlush(newConfig);
+
+        // Create permissions for the new dynamic IC level
+        createPermissionsForIcLevel(levelNameWord);
+
+        log.info("Created dynamic IC Review Level {} with permissions", levelNumber);
+
+        return savedConfig;
+    }
+
+    /**
+     * Creates ACCEPT, REJECT, and READ permissions for a dynamic IC Review Level.
+     * Uses INSERT IGNORE logic - only creates if permission doesn't already exist.
+     *
+     * @param levelNameWord The level name in words (e.g., "SIX", "SEVEN")
+     */
+    private void createPermissionsForIcLevel(String levelNameWord) {
+        String entityName = "LOANICREVIEWDECISIONLEVEL" + levelNameWord;
+
+        // Create ACCEPT permission if it doesn't exist
+        String acceptCode = "ACCEPT_" + entityName;
+        if (permissionRepository.findOneByCode(acceptCode) == null) {
+            Permission acceptPermission = new Permission("portfolio", entityName, "ACCEPT");
+            permissionRepository.save(acceptPermission);
+            log.debug("Created permission: {}", acceptCode);
+        }
+
+        // Create REJECT permission if it doesn't exist
+        String rejectCode = "REJECT_" + entityName;
+        if (permissionRepository.findOneByCode(rejectCode) == null) {
+            Permission rejectPermission = new Permission("portfolio", entityName, "REJECT");
+            permissionRepository.save(rejectPermission);
+            log.debug("Created permission: {}", rejectCode);
+        }
+
+        // Create READ permission if it doesn't exist
+        String readCode = "READ_" + entityName;
+        if (permissionRepository.findOneByCode(readCode) == null) {
+            Permission readPermission = new Permission("portfolio", entityName, "READ");
+            permissionRepository.save(readPermission);
+            log.debug("Created permission: {}", readCode);
+        }
+    }
+
+    /**
+     * Converts a number (1-99) to its word representation in uppercase.
+     * Examples: 1 -> "ONE", 6 -> "SIX", 11 -> "ELEVEN", 21 -> "TWENTYONE"
+     *
+     * @param number The number to convert (1-99)
+     * @return The word representation in uppercase
+     */
+    private String convertNumberToWord(int number) {
+        if (number < 1 || number > 99) {
+            return String.valueOf(number);
+        }
+
+        String[] ones = {
+            "", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE",
+            "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN",
+            "SEVENTEEN", "EIGHTEEN", "NINETEEN"
+        };
+
+        String[] tens = {
+            "", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"
+        };
+
+        if (number < 20) {
+            return ones[number];
+        }
+
+        int tensPart = number / 10;
+        int onesPart = number % 10;
+
+        return tens[tensPart] + ones[onesPart];
     }
 
     /**
@@ -1824,13 +1951,17 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final BigDecimal dueDiligenceRecommendedAmount = loanDecision.getDueDiligenceRecommendedAmount();
 
         // Validate against approval matrix for this level
+        // Note: For dynamic levels (6+), fromInt() returns IC_REVIEW_LEVEL_FIVE but validation still works
+        // because validateLoanAccountToComplyToApprovalMatrixStage uses getIcReviewLevelNumber() internally
         LoanDecisionState currentLevelState = LoanDecisionState.fromInt(levelConfig.getDecisionStateValue());
         loanDecisionStateUtilService.validateLoanAccountToComplyToApprovalMatrixStage(loan, approvalMatrix, isLoanFirstCycle,
                 isLoanUnsecure, currentLevelState, dueDiligenceRecommendedAmount);
 
         // Determine the next decision stage
+        // IMPORTANT: Use the overloaded method with levelNumber directly to avoid lossy conversion
+        // through LoanDecisionState.fromInt() which maps 1801-1899 back to IC_REVIEW_LEVEL_FIVE (1800)
         loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
-                currentLevelState, dueDiligenceRecommendedAmount);
+                levelNumber, dueDiligenceRecommendedAmount);
 
         final Integer nextDecisionStage = loanDecision.getNextLoanIcReviewDecisionState();
         if (nextDecisionStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {

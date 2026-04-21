@@ -39,6 +39,8 @@ import org.apache.fineract.portfolio.client.domain.ClientOtherInfo;
 import org.apache.fineract.portfolio.client.domain.ClientOtherInfoRepository;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
+import org.apache.fineract.portfolio.client.domain.RefBank;
+import org.apache.fineract.portfolio.client.domain.RefBankRepository;
 import org.apache.fineract.portfolio.client.exception.ClientOtherInfoAlreadyPresentException;
 import org.apache.fineract.portfolio.client.exception.ClientOtherInfoNationalIdentificationNumberAlreadyPresentException;
 import org.apache.fineract.portfolio.client.exception.ClientOtherInfoNotFoundException;
@@ -58,6 +60,7 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final ClientOtherInfoRepository clientOtherInfoRepository;
     private final ClientOtherInfoCommandFromApiJsonDeserializer fromApiJsonDeserializer;
+    private final RefBankRepository refBankRepository;
 
     private final ConfigurationReadPlatformService configurationReadPlatformService;
     private static final Logger LOG = LoggerFactory.getLogger(ClientOtherInfoWritePlatformServiceImpl.class);
@@ -89,6 +92,15 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
                 strata = this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection(ClientApiConstants.STRATA, strataId);
             }
 
+            final Long bankId = command.longValueOfParameterNamed(ClientApiConstants.BANK_ID);
+            RefBank bank = null;
+            if (bankId != null) {
+                bank = this.refBankRepository.findById(bankId)
+                        .orElseThrow(() -> new GeneralPlatformDomainRuleException(
+                                "error.msg.bank.not.found",
+                                "Bank with identifier " + bankId + " does not exist.", bankId));
+            }
+
             if (LegalForm.fromInt(client.getLegalForm().intValue()).isPerson()) {
                 final String nationalIdentificationNumber = command
                         .stringValueOfParameterNamedAllowingNull(ClientApiConstants.NATIONAL_IDENTIFICATION_NUMBER);
@@ -106,9 +118,9 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
                     nationality = this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection("COUNTRY", nationalityId);
                 }
 
-                otherInfo = ClientOtherInfo.createNew(command, client, strata, nationality);
+                otherInfo = ClientOtherInfo.createNew(command, client, strata, nationality, bank);
             } else if (LegalForm.fromInt(client.getLegalForm().intValue()).isEntity()) {
-                otherInfo = ClientOtherInfo.createNewForEntity(command, client, strata);
+                otherInfo = ClientOtherInfo.createNewForEntity(command, client, strata, bank);
             }
 
             ClientOtherInfo info = clientOtherInfoRepository.saveAndFlush(otherInfo);
@@ -166,6 +178,7 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
                 clientOtherInfo.setStrata(strataCodeValue);
             }
 
+
             if (LegalForm.fromInt(clientOtherInfo.getClient().getLegalForm().intValue()).isPerson()) {
                 if (changes.containsKey(ClientApiConstants.nationalityIdParamName)) {
                     final Long nationalityId = command.longValueOfParameterNamed(ClientApiConstants.nationalityIdParamName);
@@ -178,6 +191,19 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
                     clientOtherInfo.setNationality(nationalityCodeValue);
                 }
             }
+
+            if (changes.containsKey(ClientApiConstants.BANK_ID)) {
+                final Long newBankId = command.longValueOfParameterNamed(ClientApiConstants.BANK_ID);
+                RefBank bank = null;
+                if (newBankId != null) {
+                    bank = this.refBankRepository.findById(newBankId)
+                            .orElseThrow(() -> new GeneralPlatformDomainRuleException(
+                                    "error.msg.bank.not.found",
+                                    "Bank with identifier " + newBankId + " does not exist.", newBankId));
+                }
+                clientOtherInfo.setBank(bank);
+            }
+
             if (!changes.isEmpty()) {
                 this.clientOtherInfoRepository.saveAndFlush(clientOtherInfo);
                 LOG.info("Update successfully");
