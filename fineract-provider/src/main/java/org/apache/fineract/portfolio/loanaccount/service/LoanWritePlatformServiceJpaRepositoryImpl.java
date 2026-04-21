@@ -1245,7 +1245,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final LoanTransaction originalRecoveryTransaction = originalTransactionId == null ? null
                     : validateRecoveryCorrectionReference(loan, originalTransactionId);
             final LocalDate correctionDate = correctedRecoveryRepost
-                    ? validateCorrectionDate(loan, originalRecoveryTransaction.getTransactionDate(),
+                    ? resolveCorrectionDate(loan, originalRecoveryTransaction.getTransactionDate(),
                             command.localDateValueOfParameterNamed("correctionDate"))
                     : null;
 
@@ -1575,7 +1575,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final LocalDate reversalDate = command.localDateValueOfParameterNamed("transactionDate");
         validateRecoveryPaymentReversalDate(transactionToReverse, reversalDate);
-        final LocalDate correctionDate = validateCorrectionDate(loan, transactionToReverse.getTransactionDate(),
+        final LocalDate correctionDate = resolveCorrectionDate(loan, transactionToReverse.getTransactionDate(),
                 command.parameterExists("correctionDate") ? command.localDateValueOfParameterNamed("correctionDate") : null);
 
         final List<Long> existingTransactionIds = new ArrayList<>();
@@ -2857,17 +2857,20 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return originalTransaction;
     }
 
-    private LocalDate validateCorrectionDate(final Loan loan, final LocalDate transactionDate, final LocalDate correctionDate) {
+    private LocalDate resolveCorrectionDate(final Loan loan, final LocalDate transactionDate, final LocalDate correctionDate) {
         final GLClosure latestGLClosure = this.glClosureRepository.getLatestGLClosureByBranch(loan.getOfficeId());
         if (latestGLClosure != null && !transactionDate.isAfter(latestGLClosure.getClosingDate())) {
             if (!this.configurationDomainService.isCorrectionsInClosedPeriodsAllowed()) {
                 throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.closed.period.corrections.not.allowed",
                         "Corrections in closed accounting periods are not allowed.");
             }
+            final LocalDate automaticCorrectionDate = latestGLClosure.getClosingDate().plusDays(1);
             if (correctionDate == null) {
-                throwTransactionValidationError("error.msg.loan.transaction.correction.date.required",
-                        "A correction date is required because the transaction falls in a closed accounting period.",
-                        "correctionDate", transactionDate, latestGLClosure.getClosingDate());
+                if (automaticCorrectionDate.isAfter(DateUtils.getBusinessLocalDate())) {
+                    throwTransactionValidationError("error.msg.loan.transaction.correction.date.cannot.be.future",
+                            "The correction date cannot be in the future.", "correctionDate", automaticCorrectionDate);
+                }
+                return automaticCorrectionDate;
             }
             if (!correctionDate.isAfter(latestGLClosure.getClosingDate())) {
                 throwTransactionValidationError("error.msg.loan.transaction.correction.date.must.be.in.open.period",
