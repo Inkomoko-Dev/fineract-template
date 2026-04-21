@@ -26,7 +26,7 @@
 
     <!-- CGLT-539: Create new 'Loan payments due new' report with date-based filtering -->
 
-    <changeSet id="CGLT-539-insert-loan-payments-due-new-report" author="nickson@inkomoko.com">
+    <changeSet id="CGLT-539-1-insert-loan-payments-due-new-report" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due new'
@@ -46,7 +46,7 @@
     </changeSet>
 
     <!-- Map asAtDate to 'Loan payments due new' -->
-    <changeSet id="CGLT-539-map-asAtDate-to-loan-payments-due-new" author="nickson@inkomoko.com">
+    <changeSet id="CGLT-539-2-map-asAtDate-to-loan-payments-due-new" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM stretchy_report_parameter srp
@@ -65,7 +65,7 @@
     </changeSet>
 
     <!-- Map gracePeriod to 'Loan payments due new' -->
-    <changeSet id="CGLT-539-map-gracePeriod-to-loan-payments-due-new" author="nickson@inkomoko.com">
+    <changeSet id="CGLT-539-3-map-gracePeriod-to-loan-payments-due-new" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM stretchy_report_parameter srp
@@ -84,7 +84,7 @@
     </changeSet>
 
     <!-- Map loanProductId (id=25) to 'Loan payments due new' -->
-    <changeSet id="CGLT-539-map-loanProductId-to-loan-payments-due-new" author="nickson@inkomoko.com">
+    <changeSet id="CGLT-539-4-map-loanProductId-to-loan-payments-due-new" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM stretchy_report_parameter srp
@@ -102,7 +102,7 @@
     </changeSet>
 
     <!-- Map currencyId (id=10) to 'Loan payments due new' -->
-    <changeSet id="CGLT-539-map-currencyId-to-loan-payments-due-new" author="nickson@inkomoko.com">
+    <changeSet id="CGLT-539-5-map-currencyId-to-loan-payments-due-new" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM stretchy_report_parameter srp
