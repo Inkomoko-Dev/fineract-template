@@ -19,6 +19,7 @@
 package org.apache.fineract.integrationtests;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import com.google.gson.Gson;
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.builder.ResponseSpecBuilder;
 import io.restassured.http.ContentType;
@@ -29,9 +30,11 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import org.apache.fineract.client.models.GlobalConfigurationPropertyData;
 import org.apache.fineract.integrationtests.common.ClientHelper;
 import org.apache.fineract.integrationtests.common.CommonConstants;
 import org.apache.fineract.integrationtests.common.CollateralManagementHelper;
+import org.apache.fineract.integrationtests.common.GlobalConfigurationHelper;
 import org.apache.fineract.integrationtests.common.Utils;
 import org.apache.fineract.integrationtests.common.loans.LoanApplicationTestBuilder;
 import org.apache.fineract.integrationtests.common.loans.LoanProductTestBuilder;
@@ -323,6 +326,66 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         assertEquals(DUPLICATE_CORRECTED_RECOVERY_ERROR, errors.get(0).get(CommonConstants.RESPONSE_ERROR_MESSAGE_CODE));
     }
 
+    @Test
+    public void closedPeriodRecoveryCorrectionsAreAutoDerivedWithoutManualCorrectionDateInput() {
+        final Integer loanID = createDisburseAndWriteOffLoan("01 January 2011");
+        final Integer originalRecoveryId = (Integer) this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT,
+                "02 January 2011", 100.0f, loanID, "resourceId");
+
+        final GlobalConfigurationPropertyData correctionConfig = GlobalConfigurationHelper.getGlobalConfigurationByName(this.requestSpec,
+                this.responseSpec, "corrections-in-closed-period");
+        final boolean originalCorrectionsEnabled = Boolean.TRUE.equals(correctionConfig.getEnabled());
+        Integer glClosureId = null;
+
+        try {
+            if (!originalCorrectionsEnabled) {
+                GlobalConfigurationHelper.updateEnabledFlagForGlobalConfiguration(this.requestSpec, this.responseSpec,
+                        correctionConfig.getId(), true);
+            }
+
+            glClosureId = createGlClosure(1, "31 January 2011");
+
+            final HashMap originalRecoveryTransaction = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
+                    "/fineract-provider/api/v1/loans/" + loanID + "/transactions/" + originalRecoveryId + "?template=true&"
+                            + Utils.TENANT_IDENTIFIER,
+                    "");
+            Assertions.assertEquals(Boolean.TRUE, originalRecoveryTransaction.get("correctionAllowed"));
+            Assertions.assertEquals(Boolean.FALSE, originalRecoveryTransaction.get("correctionDateRequired"));
+            Assertions.assertEquals(List.of(2011, 1, 31), originalRecoveryTransaction.get("latestClosedAccountingDate"));
+            Assertions.assertEquals(List.of(2011, 2, 1), originalRecoveryTransaction.get("earliestCorrectionDate"));
+
+            final Integer reversalTransactionId = (Integer) this.loanTransactionHelper.reverseRecoveryPayment(loanID, originalRecoveryId,
+                    "04 January 2011", null, "resourceId");
+
+            final HashMap correctedRecoveryTemplate = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
+                    "/fineract-provider/api/v1/loans/" + loanID + "/transactions/template?command=" + RECOVERY_PAYMENT
+                            + "&originalTransactionId=" + originalRecoveryId + "&" + Utils.TENANT_IDENTIFIER,
+                    "");
+            Assertions.assertEquals(Boolean.TRUE, correctedRecoveryTemplate.get("correctionAllowed"));
+            Assertions.assertEquals(Boolean.FALSE, correctedRecoveryTemplate.get("correctionDateRequired"));
+            Assertions.assertEquals(List.of(2011, 1, 31), correctedRecoveryTemplate.get("latestClosedAccountingDate"));
+            Assertions.assertEquals(List.of(2011, 2, 1), correctedRecoveryTemplate.get("earliestCorrectionDate"));
+
+            final Integer correctedRecoveryId = (Integer) this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT,
+                    "02 January 2011", 120.0f, loanID, originalRecoveryId, null, "resourceId");
+
+            final ArrayList<HashMap> loanTransactions = this.loanTransactionHelper.getLoanTransactions(this.requestSpec, this.responseSpec,
+                    loanID);
+            final HashMap reversalTransaction = findTransaction(loanTransactions, reversalTransactionId);
+            final HashMap correctedRecoveryTransaction = findTransaction(loanTransactions, correctedRecoveryId);
+            Assertions.assertEquals(List.of(2011, 2, 1), reversalTransaction.get("correctionDate"));
+            Assertions.assertEquals(List.of(2011, 2, 1), correctedRecoveryTransaction.get("correctionDate"));
+        } finally {
+            if (glClosureId != null) {
+                deleteGlClosure(glClosureId);
+            }
+            if (!originalCorrectionsEnabled) {
+                GlobalConfigurationHelper.updateEnabledFlagForGlobalConfiguration(this.requestSpec, this.responseSpec,
+                        correctionConfig.getId(), false);
+            }
+        }
+    }
+
     private Integer createDisburseAndWriteOffLoan(final String writeOffDate) {
         final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec, DATE_OF_JOINING);
         ClientHelper.verifyClientCreatedOnServer(this.requestSpec, this.responseSpec, clientID);
@@ -350,6 +413,22 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         }
         Assertions.fail("Transaction not found: " + transactionId);
         return null;
+    }
+
+    private Integer createGlClosure(final Integer officeId, final String closingDate) {
+        final HashMap<String, Object> request = new HashMap<>();
+        request.put("officeId", officeId);
+        request.put("closingDate", closingDate);
+        request.put("comments", "Test GL closure for recovery correction handling");
+        request.put("locale", "en");
+        request.put("dateFormat", "dd MMMM yyyy");
+        return Utils.performServerPost(this.requestSpec, this.responseSpec,
+                "/fineract-provider/api/v1/glclosures?" + Utils.TENANT_IDENTIFIER, new Gson().toJson(request), "resourceId");
+    }
+
+    private void deleteGlClosure(final Integer glClosureId) {
+        Utils.performServerDelete(this.requestSpec, this.responseSpec,
+                "/fineract-provider/api/v1/glclosures/" + glClosureId + "?" + Utils.TENANT_IDENTIFIER, "resourceId");
     }
 
     private Integer createLoanProduct() {

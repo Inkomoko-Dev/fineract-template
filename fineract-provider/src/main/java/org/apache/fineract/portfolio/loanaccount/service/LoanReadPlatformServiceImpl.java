@@ -2342,7 +2342,6 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             return;
         }
 
-        loanTransactionData.setCorrectionDateRequired(Boolean.TRUE);
         loanTransactionData.setEarliestCorrectionDate(latestGLClosure.getClosingDate().plusDays(1));
         loanTransactionData.setLatestCorrectionDate(DateUtils.getBusinessLocalDate());
     }

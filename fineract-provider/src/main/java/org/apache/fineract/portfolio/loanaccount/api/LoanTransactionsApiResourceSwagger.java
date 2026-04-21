@@ -81,7 +81,7 @@ final class LoanTransactionsApiResourceSwagger {
         public Long originalTransactionId;
         @Schema(example = "true")
         public Boolean correctionAllowed;
-        @Schema(example = "true")
+        @Schema(example = "false", description = "For recovery-payment reversals and reposts, the system now derives any required correction date automatically.")
         public Boolean correctionDateRequired;
         @Schema(example = "[2009, 8, 1]")
         public LocalDate latestClosedAccountingDate;
@@ -164,7 +164,7 @@ final class LoanTransactionsApiResourceSwagger {
         public LocalDate correctionDate;
         @Schema(example = "true")
         public Boolean correctionAllowed;
-        @Schema(example = "true")
+        @Schema(example = "false", description = "For recovery-payment reversals and reposts, the system now derives any required correction date automatically.")
         public Boolean correctionDateRequired;
         @Schema(example = "[2012, 5, 31]")
         public LocalDate latestClosedAccountingDate;
@@ -200,7 +200,7 @@ final class LoanTransactionsApiResourceSwagger {
         public Integer paymentTypeId;
         @Schema(example = "42", description = "Optional for reposted recovery payments. Links the corrected transaction back to the original reversed recovery transaction.")
         public Long originalTransactionId;
-        @Schema(example = "30 June 2022", description = "Required when the original reversed recovery transaction falls in a closed accounting period.")
+        @Schema(example = "30 June 2022", description = "Optional override for API clients. If omitted and a reposted recovery payment needs a correction date, the system derives the next open accounting date automatically.")
         public String correctionDate;
     }
 
@@ -232,7 +232,7 @@ final class LoanTransactionsApiResourceSwagger {
         public Double transactionAmount;
         @Schema(example = "An optional note about why your adjusting or changing the transaction.")
         public String note;
-        @Schema(example = "30 June 2022", description = "Required for reversing recovery payments when the original recovery transaction date falls in a closed accounting period.")
+        @Schema(example = "30 June 2022", description = "Optional override for API clients. If omitted and a reversed recovery payment needs a correction date, the system derives the next open accounting date automatically.")
         public String correctionDate;
     }
 
