@@ -2235,32 +2235,59 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
      * Dynamic IC Review Rejection - supports unlimited levels
      * This method handles rejection for any IC review level (1, 2, 3, 4, 5, 6, 7, ...)
      * When rejecting from level N, the loan goes back to level N-1 (or to parent status if level 1)
+     *
+     * IMPORTANT: The routing is based on the NEXT (pending) level, not the current (completed) state.
+     * - State 1200 (DUE_DILIGENCE) = Due diligence completed, Level 1 is PENDING
+     * - State 1400 (IC_REVIEW_LEVEL_ONE) = Level 1 completed, Level 2 is PENDING
+     * - State 1500 (IC_REVIEW_LEVEL_TWO) = Level 2 completed, Level 3 is PENDING
+     *
+     * The rejection handler for Level N validates that the loan is at state N-1 (previous level completed).
      */
     @NotNull
     private Map<String, Object> rejectLoanAccountForIcReviewDynamic(JsonCommand command, AppUser currentUser, Loan loan,
                                                                      LoanDecisionState currentState, Map<String, Object> changes) {
-        // Get current level number
-        Integer currentLevelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(currentState.getValue());
+        // Get the loan decision to determine the NEXT (pending) level
+        LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
 
-        if (currentLevelNumber == null) {
-            // Not an IC review level, reject completely
+        if (loanDecision == null) {
+            // No loan decision found, reject completely
             return rejectLoanAccountParentStatus(command, currentUser, loan);
         }
 
+        // Use the NEXT level (pending level) for routing, not the current state (completed level)
+        // The nextLoanIcReviewDecisionState tells us which level is currently pending for review
+        Integer nextStateValue = loanDecision.getNextLoanIcReviewDecisionState();
+        Integer pendingLevelNumber = null;
+
+        if (nextStateValue != null) {
+            pendingLevelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(nextStateValue);
+        }
+
+        // Fallback: if no next state or not an IC level, use current state + 1
+        if (pendingLevelNumber == null) {
+            Integer currentLevelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(currentState.getValue());
+            if (currentLevelNumber != null) {
+                pendingLevelNumber = currentLevelNumber + 1;
+            } else {
+                // Not an IC review level, reject completely
+                return rejectLoanAccountParentStatus(command, currentUser, loan);
+            }
+        }
+
         // For levels 1-5, use existing methods for backward compatibility
-        if (currentLevelNumber >= 1 && currentLevelNumber <= 5) {
-            return switch (currentLevelNumber) {
+        if (pendingLevelNumber >= 1 && pendingLevelNumber <= 5) {
+            return switch (pendingLevelNumber) {
                 case 1 -> rejectLoanAccountForIcReviewLevelOne(command, currentUser, loan, changes);
                 case 2 -> rejectLoanAccountForIcReviewLevelTwo(command, currentUser, loan, changes);
                 case 3 -> rejectLoanAccountForIcReviewLevelThree(command, currentUser, loan, changes);
                 case 4 -> rejectLoanAccountForIcReviewLevelFour(command, currentUser, loan, changes);
                 case 5 -> rejectLoanAccountForIcReviewLevelFive(command, currentUser, loan, changes);
-                default -> throw new IllegalStateException("Unexpected level: " + currentLevelNumber);
+                default -> throw new IllegalStateException("Unexpected level: " + pendingLevelNumber);
             };
         }
 
         // For levels 6+, implement dynamic reject logic
-        return rejectLoanAccountForDynamicIcReviewLevel(command, currentUser, loan, currentLevelNumber, changes);
+        return rejectLoanAccountForDynamicIcReviewLevel(command, currentUser, loan, pendingLevelNumber, changes);
     }
 
     /**
@@ -2575,11 +2602,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     @Override
     public CommandProcessingResult generateCashFlow(Long loanId, JsonCommand command) {
         final Loan loan = retrieveLoanBy(loanId);
+        final AppUser currentUser = getAppUserIfPresent();
 
+        // Validate that loan is in Due Diligence stage - cashflows can only be generated/regenerated in this stage
         if (loan.getLoanDecisionState() == null || !loan.status().isSubmittedAndPendingApproval()
-                || !loan.getLoanDecisionState().equals(LoanDecisionState.REVIEW_APPLICATION.getValue())) {
+                || !loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue())) {
+            LOG.warn("Cashflow generation/regeneration blocked for loan {} - Loan is not in Due Diligence stage. Current state: {}, User: {}",
+                    loanId, loan.getLoanDecisionState(), currentUser != null ? currentUser.getUsername() : "unknown");
             throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.cashflow.cannot.be.generated",
-                    "Loan is not in Due Diligence Stage so CashFlow cannot be generated");
+                    "Cashflows can only be generated or regenerated while the loan is in Due Diligence stage.");
         }
         List<LoanCashFlowData> loanCashFlowDataList = this.loanReadPlatformService.retrieveCashFlow(loanId);
         if (CollectionUtils.isEmpty(loanCashFlowDataList)) {
@@ -2596,12 +2627,11 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         }
         List<LoanCashFlowProjectionData> cashFlowProjectionList = this.loanReadPlatformService.retrieveCashFlowProjection(loanId);
 
+        // Determine if this is a generation or regeneration for logging purposes
+        final boolean isRegeneration = !CollectionUtils.isEmpty(cashFlowProjectionList);
         final Integer cashFlowType = command.integerValueOfParameterNamed("cashFlowType");
-        if (cashFlowType == null && !CollectionUtils.isEmpty(cashFlowProjectionList)) {
-            throw new GeneralPlatformDomainRuleException(
-                    "error.msg.loan.cashflow.projection.data.is.already.available.so.cashflow.cannot.be.regenerated",
-                    "Loan CashFlow Projection data is already Generated so CashFlow cannot be regenerated");
-        }
+
+        // Allow regeneration while in Due Diligence stage - removed the previous restriction that blocked regeneration
 
         if (cashFlowType != null) {
             this.fromApiJsonDeserializer.validateCashFlowProjectionUpdate(command.json());
@@ -2701,6 +2731,13 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             // incomeProjectionRate = projectionRate;
             // expenseProjectionRate = projectionRate;
         }
+        // Create audit note for cashflow generation/regeneration
+        final String actionType = isRegeneration ? "REGENERATION" : "GENERATION";
+        final String noteText = String.format("Cashflow %s completed successfully. User: %s",
+                actionType, currentUser != null ? currentUser.getUsername() : "unknown");
+        final Note note = Note.loanNote(loan, noteText);
+        this.noteRepository.save(note);
+
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
                 .withEntityId(loan.getId()) //
@@ -2713,11 +2750,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     @Override
     public CommandProcessingResult generateFinancialRatios(Long loanId, JsonCommand command) {
         final Loan loan = retrieveLoanBy(loanId);
+        final AppUser currentUser = getAppUserIfPresent();
 
+        // Validate that loan is in Due Diligence stage - financial ratios can only be generated in this stage
         if (loan.getLoanDecisionState() == null || !loan.status().isSubmittedAndPendingApproval()
-                || !loan.getLoanDecisionState().equals(LoanDecisionState.REVIEW_APPLICATION.getValue())) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.cashflow.cannot.be.generated",
-                    "Loan is not in Due Diligence Stage so CashFlow cannot be generated");
+                || !loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue())) {
+            LOG.warn("Financial ratio generation blocked for loan {} - Loan is not in Due Diligence stage. Current state: {}, User: {}",
+                    loanId, loan.getLoanDecisionState(), currentUser != null ? currentUser.getUsername() : "unknown");
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.financial.ratios.cannot.be.generated",
+                    "Financial ratios can only be generated while the loan is in Due Diligence stage.");
         }
         LoanFinancialRatioData financialRatioData = this.loanReadPlatformService.retrieveLoanFinancialRatioData(loanId);
 

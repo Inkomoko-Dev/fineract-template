@@ -16,11 +16,24 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.campaigns.sms.constants;
+package org.apache.fineract.infrastructure.core.exception;
 
-public interface SmsCampaignConstants {
+public class CrbLocalValidationException extends CrbException {
 
-    String RESOURCE_NAME = "SMSCAMPAIGN";
+    private final String validationMessage;
 
-    String SMS = "sms";
+    public CrbLocalValidationException(String message, String callbackId) {
+        super(message, callbackId);
+        this.validationMessage = message;
+    }
+
+    @Override
+    public String getMessage() {
+        return validationMessage;
+    }
+
+    @Override
+    public String getUserMessage() {
+        return validationMessage;
+    }
 }

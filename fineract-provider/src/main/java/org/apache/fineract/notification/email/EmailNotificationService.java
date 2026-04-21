@@ -31,6 +31,7 @@ import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifier
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevel;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevelRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.service.DynamicIcReviewLevelHelper;
 import org.apache.fineract.portfolio.note.domain.Note;
@@ -51,6 +52,7 @@ public class EmailNotificationService {
     private final BusinessEventNotifierService businessEventNotifierService;
     private final AppUserRepository appUserRepository;
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
+    private final LoanDecisionLevelRepository loanDecisionLevelRepository;
 
     @Value("${mifos.system.base-url}")
     private String baseUrl;
@@ -123,19 +125,24 @@ public class EmailNotificationService {
 
     /**
      * Get approver from dynamic LoanDecisionLevel entity (for all levels including 6+)
+     * Uses repository query instead of lazy-loaded collection to avoid NPE issues
      */
     private AppUser getDynamicApprover(LoanDecision decision, Integer levelNumber) {
-        return decision.getDecisionLevels().stream()
-                .filter(l -> l.getLevelNumber().equals(levelNumber))
-                .map(LoanDecisionLevel::getDecisionBy)
-                .findFirst()
-                .orElse(null);
+        if (decision == null || decision.getId() == null || levelNumber == null) {
+            return null;
+        }
+        // Query database directly instead of relying on lazy-loaded collection
+        // This prevents NPE issues with uninitialized proxy objects
+        LoanDecisionLevel level = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(decision.getId(), levelNumber);
+
+        return level != null ? level.getDecisionBy() : null;
     }
 
     @NotNull
     private EmailDetail getLoanDecisionApproverEmail(Loan loan, Integer nextStage, AppUser nextApprover, Note note) {
         String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
-        String subject = "Loan Approval Required: Stage " + LoanDecisionState.fromInt(nextStage).toString();
+        String subject = "Loan Approval Required: Stage " + dynamicIcReviewLevelHelper.getLevelDisplayName(nextStage);
         String body = String.format(
                 """
                         Dear %s,<br><br>
@@ -157,7 +164,7 @@ public class EmailNotificationService {
     @NotNull
     private EmailDetail getLoanOfficerEmail(Loan loan, Integer nextStage, AppUser nextApprover, Note note) {
         String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
-        String subject = "Loan Action Required: Stage " + LoanDecisionState.fromInt(nextStage).toString();
+        String subject = "Loan Action Required: Stage " + dynamicIcReviewLevelHelper.getLevelDisplayName(nextStage);
         String body = String.format(
                 """
                         Dear %s,<br><br>
@@ -190,7 +197,7 @@ public class EmailNotificationService {
 
     private EmailDetail getLoanDecisionRejectEmail(Loan loan, Integer state, AppUser user, Note note) {
         String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
-        String subject = "Loan Action Returned: Stage " + LoanDecisionState.fromInt(state).toString();
+        String subject = "Loan Action Returned: Stage " + dynamicIcReviewLevelHelper.getLevelDisplayName(state);
         String body = String.format(
                 """
                         Dear %s,<br><br>
@@ -203,7 +210,7 @@ public class EmailNotificationService {
                         Kind Regards.
                 """,
                 user.getDisplayName(),
-                LoanDecisionState.fromInt(state).toString(),
+                dynamicIcReviewLevelHelper.getLevelDisplayName(state),
                 loan.getAccountNumber(),
                 loan.getClient().getDisplayName(),
                 note.getNote(),

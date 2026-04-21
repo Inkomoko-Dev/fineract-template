@@ -29,7 +29,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
-import org.apache.fineract.portfolio.loanaccount.data.TransUnionRwandaConsumerCreditData;
+import org.apache.fineract.portfolio.loanaccount.data.TransUnionRwandaCorporateCreditData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -43,13 +43,13 @@ import org.springframework.jdbc.core.RowMapper;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-class TransUnionCrbPostConsumerCreditReadPlatformServiceImplTest {
+class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
 
     private static final long LAST_LOAN_ID = 100L;
     private static final int PAGE_SIZE = 25;
 
     @InjectMocks
-    private TransUnionCrbPostConsumerCreditReadPlatformServiceImpl readPlatformService;
+    private TransUnionCrbPostCorporateCreditReadPlatformServiceImpl readPlatformService;
 
     @Mock
     private JdbcTemplate jdbcTemplate;
@@ -58,54 +58,52 @@ class TransUnionCrbPostConsumerCreditReadPlatformServiceImplTest {
     private DatabaseTypeResolver databaseTypeResolver;
 
     @Test
-    void retrieveAllConsumerCreditsPageUsesLastNameForSurnameInMySqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicAndSelectedActiveAddressCountryInMySqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(true);
 
-        readPlatformService.retrieveAllConsumerCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
+        readPlatformService.retrieveAllCorporateCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
 
         String sql = captureGeneratedSql();
-        assertContainsPattern(sql, "mc\\.lastname\\s+AS surName");
-        assertContainsPattern(sql, "mc\\.firstname\\s+AS foreName1");
-        assertDoesNotContainPattern(sql, "mc\\.firstname\\s+AS surName");
         assertUsesSelectedActiveAddressCountry(sql);
-        assertTrue(sql.contains("DATEDIFF(NOW(), mlaa.overdue_since_date_derived)"));
+        assertContainsPattern(sql, "COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\)\\s+AS daysInArrears");
+        assertContainsPattern(sql,
+                "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
+        assertContainsPattern(sql, "WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) < 30 THEN 1");
+        assertDoesNotContainPattern(sql, "WHEN DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\) <= 90\\s+THEN 'C'");
     }
 
     @Test
-    void retrieveAllConsumerCreditsPageUsesLastNameForSurnameInPostgreSqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicAndSelectedActiveAddressCountryInPostgreSqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(false);
 
-        readPlatformService.retrieveAllConsumerCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
+        readPlatformService.retrieveAllCorporateCreditsPage(LAST_LOAN_ID, PAGE_SIZE);
 
         String sql = captureGeneratedSql();
-        assertContainsPattern(sql, "mc\\.lastname\\s+AS surName");
-        assertContainsPattern(sql, "mc\\.firstname\\s+AS foreName1");
-        assertDoesNotContainPattern(sql, "mc\\.firstname\\s+AS surName");
         assertUsesSelectedActiveAddressCountry(sql);
-        assertTrue(sql.contains("EXTRACT(DAY FROM"));
+        assertTrue(sql.contains(
+                "COALESCE(CAST(EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) AS INTEGER), 0)"),
+                "Expected SQL to use a null-safe PostgreSQL arrears expression");
+        assertContainsPattern(sql,
+                "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(CAST\\(EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\) AS INTEGER\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
+        assertContainsPattern(sql,
+                "WHEN COALESCE\\(CAST\\(EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\) AS INTEGER\\), 0\\) < 30 THEN 1");
+        assertDoesNotContainPattern(sql,
+                "WHEN EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\)\\s+<= 90\\s+THEN 'C'");
     }
 
     private void mockQueryResult() {
-        List<TransUnionRwandaConsumerCreditData> results = Collections.emptyList();
-        given(jdbcTemplate.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<TransUnionRwandaConsumerCreditData>>any(),
+        List<TransUnionRwandaCorporateCreditData> results = Collections.emptyList();
+        given(jdbcTemplate.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<TransUnionRwandaCorporateCreditData>>any(),
                 eq(LAST_LOAN_ID), eq(PAGE_SIZE))).willReturn(results);
     }
 
     private String captureGeneratedSql() {
         ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(jdbcTemplate).query(sqlCaptor.capture(), org.mockito.ArgumentMatchers.<RowMapper<TransUnionRwandaConsumerCreditData>>any(),
+        verify(jdbcTemplate).query(sqlCaptor.capture(), org.mockito.ArgumentMatchers.<RowMapper<TransUnionRwandaCorporateCreditData>>any(),
                 eq(LAST_LOAN_ID), eq(PAGE_SIZE));
         return sqlCaptor.getValue();
-    }
-
-    private void assertContainsPattern(String sql, String regex) {
-        assertTrue(Pattern.compile(regex).matcher(sql).find(), "Expected SQL to contain pattern: " + regex);
-    }
-
-    private void assertDoesNotContainPattern(String sql, String regex) {
-        assertFalse(Pattern.compile(regex).matcher(sql).find(), "Expected SQL not to contain pattern: " + regex);
     }
 
     private void assertUsesSelectedActiveAddressCountry(String sql) {
@@ -115,5 +113,13 @@ class TransUnionCrbPostConsumerCreditReadPlatformServiceImplTest {
         assertTrue(sql.contains("LEFT JOIN RankedAddresses ranked_address ON mc.id = ranked_address.client_id"));
         assertTrue(sql.contains("LEFT JOIN m_code_value country_cv ON ra.country_id = country_cv.id"));
         assertFalse(sql.contains("m_client_recruitment_survey"));
+    }
+
+    private void assertContainsPattern(String sql, String regex) {
+        assertTrue(Pattern.compile(regex).matcher(sql).find(), "Expected SQL to contain pattern: " + regex);
+    }
+
+    private void assertDoesNotContainPattern(String sql, String regex) {
+        assertFalse(Pattern.compile(regex).matcher(sql).find(), "Expected SQL not to contain pattern: " + regex);
     }
 }

@@ -16,11 +16,21 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.campaigns.sms.constants;
+package org.apache.fineract.infrastructure.core.exception;
 
-public interface SmsCampaignConstants {
+public class CrbPreSubmissionValidationException extends CrbValidationException {
 
-    String RESOURCE_NAME = "SMSCAMPAIGN";
+    public CrbPreSubmissionValidationException(String loanAccount, String fieldName, String fieldValue, String validationMessage) {
+        super(loanAccount, fieldName, fieldValue, validationMessage, null);
+    }
 
-    String SMS = "sms";
+    @Override
+    public String getUserMessage() {
+        return getGlobalisationMessageCode();
+    }
+
+    @Override
+    public String getMessage() {
+        return getGlobalisationMessageCode();
+    }
 }
