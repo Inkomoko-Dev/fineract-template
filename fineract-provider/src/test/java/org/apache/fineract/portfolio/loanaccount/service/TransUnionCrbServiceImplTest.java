@@ -64,14 +64,14 @@ class TransUnionCrbServiceImplTest {
     private PlatformSecurityContext context;
 
     @Test
-    void validateConsumerAddressForCrbRejectsMissingActiveAddress() {
+    void validateConsumerAddressForCrbRejectsMissingAddress() {
         TransUnionRwandaConsumerCreditData creditData = new TransUnionRwandaConsumerCreditData();
         creditData.setAccountNumber("LN-001");
 
         CrbLocalValidationException exception = assertThrows(CrbLocalValidationException.class,
                 () -> service.validateConsumerAddressForCrb(creditData));
 
-        assertTrue(exception.getMessage().contains("no active address"));
+        assertTrue(exception.getMessage().contains("no address available"));
     }
 
     @Test
