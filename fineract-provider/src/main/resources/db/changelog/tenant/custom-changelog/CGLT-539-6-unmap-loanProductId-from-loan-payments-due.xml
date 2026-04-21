@@ -26,7 +26,7 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
 
 
-    <changeSet id="CGLT-539-unmap-loanProductId-from-loan-payments-due" author="nickson@inkomoko.com">
+    <changeSet id="CGLT-539-6-unmap-loanProductId-from-loan-payments-due" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
                 SELECT COUNT(*) FROM stretchy_report_parameter srp
