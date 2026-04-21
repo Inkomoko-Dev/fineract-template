@@ -2056,14 +2056,32 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
 
-        if (!loan.getLoanDecisionState().equals(levelConfig.getDecisionStateValue())) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
-                    String.format("Loan Decision state is invalid for reject operation. Expected IC_REVIEW_LEVEL_%s.",
-                            levelConfig.getLevelName()));
+        // For reject operation, the loan should be at the PREVIOUS completed state.
+        // Example: rejecting Level 6 expects current state Level 5 (1800), not Level 6 (1801).
+        Integer expectedCurrentState = dynamicIcReviewLevelHelper.getPreviousIcReviewDecisionState(levelConfig.getDecisionStateValue());
+        if (expectedCurrentState == null) {
+            expectedCurrentState = LoanDecisionState.DUE_DILIGENCE.getValue();
         }
 
-        // Determine previous stage
-        Integer previousState = dynamicIcReviewLevelHelper.getPreviousIcReviewDecisionState(levelConfig.getDecisionStateValue());
+        Integer currentLoanState = loan.getLoanDecisionState();
+        Integer levelState = levelConfig.getDecisionStateValue();
+        boolean isAtPreviousCompletedLevel = currentLoanState.equals(expectedCurrentState);
+        boolean isAtCurrentCompletedLevel = currentLoanState.equals(levelState);
+
+        // Support both cases:
+        // 1) Reject pending level N (loan is at N-1 completed state)
+        // 2) Return after approving level N (loan is at N completed state)
+        if (!isAtPreviousCompletedLevel && !isAtCurrentCompletedLevel) {
+            String expectedStateDisplayName = dynamicIcReviewLevelHelper.getLevelDisplayName(expectedCurrentState);
+            String currentLevelDisplayName = dynamicIcReviewLevelHelper.getLevelDisplayName(levelState);
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    String.format(
+                            "Loan Decision state is invalid for reject operation. Expected either %s (state %d) or %s (state %d) but found %d.",
+                            expectedStateDisplayName, expectedCurrentState, currentLevelDisplayName, levelState, currentLoanState));
+        }
+
+        // Determine target stage after rejection/return
+        Integer previousState = expectedCurrentState;
         if (previousState == null) {
             // If no previous IC review level, revert to DUE_DILIGENCE
             previousState = LoanDecisionState.DUE_DILIGENCE.getValue();
