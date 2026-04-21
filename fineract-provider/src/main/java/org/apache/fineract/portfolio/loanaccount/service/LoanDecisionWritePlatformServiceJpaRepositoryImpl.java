@@ -1906,6 +1906,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     @Override
     public CommandProcessingResult acceptIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber) {
         final AppUser currentUser = getAppUserIfPresent();
+        validateDynamicIcReviewPermission(levelNumber, false);
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
 
@@ -2044,6 +2045,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     @Override
     public CommandProcessingResult rejectIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber) {
         final AppUser currentUser = getAppUserIfPresent();
+        validateDynamicIcReviewPermission(levelNumber, true);
 
         // Get the IC review level configuration
         IcReviewLevelConfig levelConfig = icReviewLevelConfigRepository.findByLevelNumberAndActive(levelNumber);
@@ -2139,6 +2141,25 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 .withLoanId(loanId)
                 .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
+    }
+
+    /**
+     * Enforce level-specific permissions for dynamic IC review operations.
+     * This keeps security behavior aligned with the hardcoded level endpoints.
+     */
+    private void validateDynamicIcReviewPermission(Integer levelNumber, boolean isRejectOperation) {
+        String permissionCode = isRejectOperation
+                ? dynamicIcReviewLevelHelper.getRejectPermissionForLevel(levelNumber)
+                : dynamicIcReviewLevelHelper.getAcceptPermissionForLevel(levelNumber);
+
+        if (StringUtils.isBlank(permissionCode)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.ic.review.permission.not.found",
+                    String.format("Permission for IC Review Level %d could not be determined", levelNumber));
+        }
+
+        String operation = isRejectOperation ? "REJECT" : "ACCEPT";
+        this.context.authenticatedUser().validateHasPermissionTo(permissionCode);
+        log.debug("Validated {} permission {} for IC Review Level {}", operation, permissionCode, levelNumber);
     }
 
     /**
