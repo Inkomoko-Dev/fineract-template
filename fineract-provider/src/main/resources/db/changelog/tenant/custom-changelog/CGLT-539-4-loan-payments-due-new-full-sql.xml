@@ -39,92 +39,117 @@
         </update>
     </changeSet>
 
-    <!-- Map officeId (id=5) to 'Loan payments due new' -->
+    <!-- Map officeId to 'Loan payments due new' -->
     <changeSet id="CGLT-539-map-officeId-to-loan-payments-due-new" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
-            <sqlCheck expectedResult="0">
-                SELECT COUNT(*) FROM stretchy_report_parameter srp
-                JOIN stretchy_report sr ON sr.id = srp.report_id
-                WHERE sr.report_name = 'Loan payments due new'
-                AND srp.parameter_id = 5
-            </sqlCheck>
+            <and>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due new'
+                </sqlCheck>
+                <sqlCheck expectedResult="0">
+                    SELECT COUNT(*) FROM stretchy_report_parameter srp
+                    JOIN stretchy_report sr ON sr.id = srp.report_id
+                    JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
+                    WHERE sr.report_name = 'Loan payments due new'
+                    AND sp.parameter_name = 'OfficeIdSelectOne'
+                </sqlCheck>
+            </and>
         </preConditions>
-
         <insert tableName="stretchy_report_parameter">
             <column name="report_id"             valueComputed="(SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due new')"/>
-            <column name="parameter_id"          valueNumeric="5"/>
+            <column name="parameter_id"          valueComputed="(SELECT id FROM stretchy_parameter WHERE parameter_name = 'OfficeIdSelectOne')"/>
             <column name="report_parameter_name" value="officeId"/>
         </insert>
     </changeSet>
 
-    <!-- Map loanOfficerId (id=6) to 'Loan payments due new' -->
+    <!-- Map loanOfficerId to 'Loan payments due new' -->
     <changeSet id="CGLT-539-map-loanOfficerId-to-loan-payments-due-new" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
-            <sqlCheck expectedResult="0">
-                SELECT COUNT(*) FROM stretchy_report_parameter srp
-                JOIN stretchy_report sr ON sr.id = srp.report_id
-                WHERE sr.report_name = 'Loan payments due new'
-                AND srp.parameter_id = 6
-            </sqlCheck>
+            <and>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due new'
+                </sqlCheck>
+                <sqlCheck expectedResult="0">
+                    SELECT COUNT(*) FROM stretchy_report_parameter srp
+                    JOIN stretchy_report sr ON sr.id = srp.report_id
+                    JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
+                    WHERE sr.report_name = 'Loan payments due new'
+                    AND sp.parameter_name = 'loanOfficerIdSelectAll'
+                </sqlCheck>
+            </and>
         </preConditions>
-
         <insert tableName="stretchy_report_parameter">
             <column name="report_id"             valueComputed="(SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due new')"/>
-            <column name="parameter_id"          valueNumeric="6"/>
+            <column name="parameter_id"          valueComputed="(SELECT id FROM stretchy_parameter WHERE parameter_name = 'loanOfficerIdSelectAll')"/>
             <column name="report_parameter_name" value="loanOfficerId"/>
         </insert>
     </changeSet>
 
-    <!-- Map isIslamic (id=1032) to 'Loan payments due new' -->
+    <!-- Map isIslamic to 'Loan payments due new' -->
     <changeSet id="CGLT-539-map-isIslamic-to-loan-payments-due-new" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
-            <sqlCheck expectedResult="0">
-                SELECT COUNT(*) FROM stretchy_report_parameter srp
-                JOIN stretchy_report sr ON sr.id = srp.report_id
-                WHERE sr.report_name = 'Loan payments due new'
-                AND srp.parameter_id = 1032
-            </sqlCheck>
+            <and>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due new'
+                </sqlCheck>
+                <sqlCheck expectedResult="0">
+                    SELECT COUNT(*) FROM stretchy_report_parameter srp
+                    JOIN stretchy_report sr ON sr.id = srp.report_id
+                    JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
+                    WHERE sr.report_name = 'Loan payments due new'
+                    AND sp.parameter_name = 'isIslamic'
+                </sqlCheck>
+            </and>
         </preConditions>
-
         <insert tableName="stretchy_report_parameter">
             <column name="report_id"             valueComputed="(SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due new')"/>
-            <column name="parameter_id"          valueNumeric="1032"/>
+            <column name="parameter_id"          valueComputed="(SELECT id FROM stretchy_parameter WHERE parameter_name = 'isIslamic')"/>
             <column name="report_parameter_name" value="isIslamic"/>
         </insert>
     </changeSet>
 
-    <!-- Map fromX (id=1013) to 'Loan payments due new' -->
+    <!-- Map fromX to 'Loan payments due new' -->
     <changeSet id="CGLT-539-map-fromX-to-loan-payments-due-new" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
-            <sqlCheck expectedResult="0">
-                SELECT COUNT(*) FROM stretchy_report_parameter srp
-                JOIN stretchy_report sr ON sr.id = srp.report_id
-                WHERE sr.report_name = 'Loan payments due new'
-                AND srp.parameter_id = 1013
-            </sqlCheck>
+            <and>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due new'
+                </sqlCheck>
+                <sqlCheck expectedResult="0">
+                    SELECT COUNT(*) FROM stretchy_report_parameter srp
+                    JOIN stretchy_report sr ON sr.id = srp.report_id
+                    JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
+                    WHERE sr.report_name = 'Loan payments due new'
+                    AND sp.parameter_name = 'fromXSelect'
+                </sqlCheck>
+            </and>
         </preConditions>
-
         <insert tableName="stretchy_report_parameter">
             <column name="report_id"             valueComputed="(SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due new')"/>
-            <column name="parameter_id"          valueNumeric="1013"/>
+            <column name="parameter_id"          valueComputed="(SELECT id FROM stretchy_parameter WHERE parameter_name = 'fromXSelect')"/>
             <column name="report_parameter_name" value="fromX"/>
         </insert>
     </changeSet>
 
-    <!-- Map toY (id=1014) to 'Loan payments due new' -->
+    <!-- Map toY to 'Loan payments due new' -->
     <changeSet id="CGLT-539-map-toY-to-loan-payments-due-new" author="nickson@inkomoko.com">
         <preConditions onFail="MARK_RAN">
-            <sqlCheck expectedResult="0">
-                SELECT COUNT(*) FROM stretchy_report_parameter srp
-                JOIN stretchy_report sr ON sr.id = srp.report_id
-                WHERE sr.report_name = 'Loan payments due new'
-                AND srp.parameter_id = 1014
-            </sqlCheck>
+            <and>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due new'
+                </sqlCheck>
+                <sqlCheck expectedResult="0">
+                    SELECT COUNT(*) FROM stretchy_report_parameter srp
+                    JOIN stretchy_report sr ON sr.id = srp.report_id
+                    JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
+                    WHERE sr.report_name = 'Loan payments due new'
+                    AND sp.parameter_name = 'toYSelect'
+                </sqlCheck>
+            </and>
         </preConditions>
-
         <insert tableName="stretchy_report_parameter">
             <column name="report_id"             valueComputed="(SELECT id FROM stretchy_report WHERE report_name = 'Loan payments due new')"/>
-            <column name="parameter_id"          valueNumeric="1014"/>
+            <column name="parameter_id"          valueComputed="(SELECT id FROM stretchy_parameter WHERE parameter_name = 'toYSelect')"/>
             <column name="report_parameter_name" value="toY"/>
         </insert>
     </changeSet>
