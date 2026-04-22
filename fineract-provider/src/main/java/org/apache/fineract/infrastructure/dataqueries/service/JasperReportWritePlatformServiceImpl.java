@@ -200,7 +200,7 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
             case "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ->
                     ".xlsx";
             case "text/csv" -> ".csv";
-            default -> ".pdf";
+            default -> ".pdf"; // default to PDF since dropdown to select file type is removed
         };
     }
 
