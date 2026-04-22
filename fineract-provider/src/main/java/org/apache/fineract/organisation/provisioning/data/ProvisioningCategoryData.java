@@ -28,11 +28,22 @@ public class ProvisioningCategoryData implements Comparable<ProvisioningCategory
     private final Long id;
     private final String categoryName;
     private final String categoryDescription;
+    private final String categoryCode;
+    private final Integer displayOrder;
+    private final Boolean active;
 
     public ProvisioningCategoryData(final Long id, final String categoryName, final String categoryDescription) {
+        this(id, categoryName, categoryDescription, null, null, null);
+    }
+
+    public ProvisioningCategoryData(final Long id, final String categoryName, final String categoryDescription, final String categoryCode,
+            final Integer displayOrder, final Boolean active) {
         this.id = id;
         this.categoryName = categoryName;
         this.categoryDescription = categoryDescription;
+        this.categoryCode = categoryCode;
+        this.displayOrder = displayOrder;
+        this.active = active;
     }
 
     public Long getId() {
@@ -45,6 +56,18 @@ public class ProvisioningCategoryData implements Comparable<ProvisioningCategory
 
     public String getCategoryDescription() {
         return this.categoryDescription;
+    }
+
+    public String getCategoryCode() {
+        return this.categoryCode;
+    }
+
+    public Integer getDisplayOrder() {
+        return this.displayOrder;
+    }
+
+    public Boolean getActive() {
+        return this.active;
     }
 
     @Override
@@ -65,6 +88,9 @@ public class ProvisioningCategoryData implements Comparable<ProvisioningCategory
     public int compareTo(ProvisioningCategoryData obj) {
         if (obj == null) {
             return -1;
+        }
+        if (this.displayOrder != null && obj.displayOrder != null && !obj.displayOrder.equals(this.displayOrder)) {
+            return obj.displayOrder.compareTo(this.displayOrder);
         }
         return obj.id.compareTo(this.id);
     }

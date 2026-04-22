@@ -25,7 +25,9 @@ public final class ProvisioningCriteriaDefinitionData implements Comparable<Prov
 
     private final Long id;
     private final Long categoryId;
+    private final String categoryCode;
     private final String categoryName;
+    private final Integer displayOrder;
     private final Long minAge;
     private final Long maxAge;
     private final BigDecimal provisioningPercentage;
@@ -39,14 +41,23 @@ public final class ProvisioningCriteriaDefinitionData implements Comparable<Prov
     public ProvisioningCriteriaDefinitionData(Long id, Long categoryId, String categoryName, Long minAge, Long maxAge,
             BigDecimal provisioningPercentage, Long liabilityAccount, final String liabilityCode, String liabilityName, Long expenseAccount,
             final String expenseCode, final String expenseName) {
+        this(id, categoryId, null, categoryName, null, minAge, maxAge, provisioningPercentage, liabilityAccount, liabilityCode,
+                liabilityName, expenseAccount, expenseCode, expenseName);
+    }
+
+    public ProvisioningCriteriaDefinitionData(Long id, Long categoryId, String categoryCode, String categoryName, Integer displayOrder,
+            Long minAge, Long maxAge, BigDecimal provisioningPercentage, Long liabilityAccount, final String liabilityCode,
+            String liabilityName, Long expenseAccount, final String expenseCode, final String expenseName) {
         this.id = id;
         this.categoryId = categoryId;
+        this.categoryCode = categoryCode;
         this.minAge = minAge;
         this.maxAge = maxAge;
         this.provisioningPercentage = provisioningPercentage;
         this.liabilityAccount = liabilityAccount;
         this.expenseAccount = expenseAccount;
         this.categoryName = categoryName;
+        this.displayOrder = displayOrder;
         this.liabilityCode = liabilityCode;
         this.expenseCode = expenseCode;
         this.liabilityName = liabilityName;
@@ -54,7 +65,14 @@ public final class ProvisioningCriteriaDefinitionData implements Comparable<Prov
     }
 
     public static ProvisioningCriteriaDefinitionData template(Long categoryId, String categoryName) {
-        return new ProvisioningCriteriaDefinitionData(null, categoryId, categoryName, null, null, null, null, null, null, null, null, null);
+        return new ProvisioningCriteriaDefinitionData(null, categoryId, null, categoryName, null, null, null, null, null, null, null,
+                null, null, null);
+    }
+
+    public static ProvisioningCriteriaDefinitionData template(Long categoryId, String categoryCode, String categoryName,
+            Integer displayOrder) {
+        return new ProvisioningCriteriaDefinitionData(null, categoryId, categoryCode, categoryName, displayOrder, null, null, null, null,
+                null, null, null, null, null);
     }
 
     public Long getId() {
@@ -67,6 +85,14 @@ public final class ProvisioningCriteriaDefinitionData implements Comparable<Prov
 
     public String getCategoryName() {
         return this.categoryName;
+    }
+
+    public String getCategoryCode() {
+        return this.categoryCode;
+    }
+
+    public Integer getDisplayOrder() {
+        return this.displayOrder;
     }
 
     public Long getMinAge() {
@@ -101,6 +127,12 @@ public final class ProvisioningCriteriaDefinitionData implements Comparable<Prov
     public int compareTo(ProvisioningCriteriaDefinitionData obj) {
         if (obj == null) {
             return -1;
+        }
+        if (this.displayOrder != null && obj.displayOrder != null && !obj.displayOrder.equals(this.displayOrder)) {
+            return obj.displayOrder.compareTo(this.displayOrder);
+        }
+        if (this.id == null || obj.id == null) {
+            return 0;
         }
         return obj.id.compareTo(this.id);
     }

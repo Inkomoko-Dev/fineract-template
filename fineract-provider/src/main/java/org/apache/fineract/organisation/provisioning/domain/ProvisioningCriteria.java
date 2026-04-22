@@ -31,11 +31,9 @@ import javax.persistence.FetchType;
 import javax.persistence.OneToMany;
 import javax.persistence.Table;
 import javax.persistence.UniqueConstraint;
-import org.apache.fineract.accounting.glaccount.domain.GLAccount;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
 import org.apache.fineract.organisation.provisioning.constants.ProvisioningCriteriaConstants;
-import org.apache.fineract.organisation.provisioning.data.ProvisioningCriteriaDefinitionData;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.useradministration.domain.AppUser;
 
@@ -48,7 +46,7 @@ public class ProvisioningCriteria extends AbstractAuditableCustom {
     private String criteriaName;
 
     @OneToMany(cascade = CascadeType.ALL, mappedBy = "criteria", orphanRemoval = true, fetch = FetchType.EAGER)
-    Set<ProvisioningCriteriaDefinition> provisioningCriteriaDefinition = new HashSet<>();
+    Set<ProvisioningCriteriaVersion> provisioningCriteriaVersions = new HashSet<>();
 
     @OneToMany(cascade = CascadeType.ALL, mappedBy = "criteria", orphanRemoval = true, fetch = FetchType.EAGER)
     Set<LoanProductProvisionCriteria> loanProductMapping = new HashSet<>();
@@ -74,9 +72,9 @@ public class ProvisioningCriteria extends AbstractAuditableCustom {
         setLastModifiedDate(lastModifiedDate);
     }
 
-    public void setProvisioningCriteriaDefinitions(Set<ProvisioningCriteriaDefinition> provisioningCriteriaDefinition) {
-        this.provisioningCriteriaDefinition.clear();
-        this.provisioningCriteriaDefinition.addAll(provisioningCriteriaDefinition);
+    public void setProvisioningCriteriaVersions(Set<ProvisioningCriteriaVersion> provisioningCriteriaVersions) {
+        this.provisioningCriteriaVersions.clear();
+        this.provisioningCriteriaVersions.addAll(provisioningCriteriaVersions);
     }
 
     public void setLoanProductProvisioningCriteria(Set<LoanProductProvisionCriteria> loanProductMapping) {
@@ -92,34 +90,35 @@ public class ProvisioningCriteria extends AbstractAuditableCustom {
             this.criteriaName = valueAsInput;
         }
 
-        Set<LoanProductProvisionCriteria> temp = new HashSet<>();
-        Set<LoanProduct> productsTemp = new HashSet<>();
+        if (command.parameterExists(ProvisioningCriteriaConstants.JSON_LOANPRODUCTS_PARAM)) {
+            Set<LoanProductProvisionCriteria> temp = new HashSet<>();
+            Set<LoanProduct> productsTemp = new HashSet<>();
 
-        for (LoanProductProvisionCriteria mapping : loanProductMapping) {
-            if (!loanProducts.contains(mapping.getLoanProduct())) {
-                temp.add(mapping);
-            } else {
-                productsTemp.add(mapping.getLoanProduct());
+            for (LoanProductProvisionCriteria mapping : loanProductMapping) {
+                if (!loanProducts.contains(mapping.getLoanProduct())) {
+                    temp.add(mapping);
+                } else {
+                    productsTemp.add(mapping.getLoanProduct());
+                }
             }
-        }
-        loanProductMapping.removeAll(temp);
+            loanProductMapping.removeAll(temp);
 
-        for (LoanProduct loanProduct : loanProducts) {
-            if (!productsTemp.contains(loanProduct)) {
-                this.loanProductMapping.add(new LoanProductProvisionCriteria(this, loanProduct));
+            for (LoanProduct loanProduct : loanProducts) {
+                if (!productsTemp.contains(loanProduct)) {
+                    this.loanProductMapping.add(new LoanProductProvisionCriteria(this, loanProduct));
+                }
             }
+            actualChanges.put(ProvisioningCriteriaConstants.JSON_LOANPRODUCTS_PARAM, loanProductMapping);
         }
-
-        actualChanges.put(ProvisioningCriteriaConstants.JSON_LOANPRODUCTS_PARAM, loanProductMapping);
         return actualChanges;
     }
 
-    public void update(ProvisioningCriteriaDefinitionData data, GLAccount liability, GLAccount expense) {
-        for (ProvisioningCriteriaDefinition def : provisioningCriteriaDefinition) {
-            if (data.getId().equals(def.getId())) {
-                def.update(data.getMinAge(), data.getMaxAge(), data.getProvisioningPercentage(), liability, expense);
-                break;
-            }
-        }
+    public Set<ProvisioningCriteriaVersion> getProvisioningCriteriaVersions() {
+        return this.provisioningCriteriaVersions;
+    }
+
+    public ProvisioningCriteriaVersion getLatestVersion() {
+        return this.provisioningCriteriaVersions.stream().max((left, right) -> Integer.compare(left.getVersionNo(), right.getVersionNo()))
+                .orElse(null);
     }
 }

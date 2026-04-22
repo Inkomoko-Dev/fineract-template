@@ -24,25 +24,19 @@ import com.google.gson.JsonObject;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -67,7 +61,6 @@ import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
-import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.exception.PlatformServiceUnavailableException;
@@ -146,9 +139,7 @@ import org.apache.fineract.portfolio.calendar.domain.CalendarRepository;
 import org.apache.fineract.portfolio.calendar.domain.CalendarType;
 import org.apache.fineract.portfolio.calendar.exception.CalendarParameterUpdateNotSupportedException;
 import org.apache.fineract.portfolio.charge.domain.Charge;
-import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
-import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
 import org.apache.fineract.portfolio.charge.exception.ChargeCannotBeUpdatedException;
 import org.apache.fineract.portfolio.charge.exception.LoanChargeCannotBeAddedException;
@@ -172,7 +163,6 @@ import org.apache.fineract.portfolio.collectionsheet.command.CollectionSheetBulk
 import org.apache.fineract.portfolio.collectionsheet.command.SingleDisbursalCommand;
 import org.apache.fineract.portfolio.collectionsheet.command.SingleRepaymentCommand;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
-import org.apache.fineract.portfolio.common.domain.DaysInMonthType;
 import org.apache.fineract.portfolio.group.domain.Group;
 import org.apache.fineract.portfolio.group.exception.GroupNotActiveException;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
@@ -191,13 +181,10 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanDailyLateFee;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanDailyLateFeeRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanInterestRecalcualtionAdditionalDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanOverdueInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminder;
@@ -261,8 +248,6 @@ import org.springframework.core.env.Environment;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -281,7 +266,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanAssembler loanAssembler;
     private final ChargeRepositoryWrapper chargeRepository;
     private final LoanChargeRepository loanChargeRepository;
-    private final LoanDailyLateFeeRepository loanDailyLateFeeRepository;
     private final ApplicationCurrencyRepositoryWrapper applicationCurrencyRepository;
     private final JournalEntryWritePlatformService journalEntryWritePlatformService;
     private final CalendarInstanceRepository calendarInstanceRepository;
@@ -305,6 +289,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final BusinessEventNotifierService businessEventNotifierService;
     private final GuarantorDomainService guarantorDomainService;
     private final LoanUtilService loanUtilService;
+    private final LoanDailyLateFeeService loanDailyLateFeeService;
     private final LoanSummaryWrapper loanSummaryWrapper;
     private final EntityDatatableChecksWritePlatformService entityDatatableChecksWritePlatformService;
     private final LoanRepaymentScheduleTransactionProcessorFactory transactionProcessingStrategy;
@@ -320,7 +305,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanApplicationCommandFromApiJsonHelper fromApiJsonDeserializer;
     private final JournalEntryRepository journalEntryRepository;
     private final GLAccountRepository glAccountRepository;
-    private final JdbcTemplate jdbcTemplate;
     private final ProductToGLAccountMappingRepository productToGLAccountMappingRepository;
 
     @Autowired
@@ -332,100 +316,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
         final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
         return new DefaultLoanLifecycleStateMachine(allowedLoanStatuses);
-    }
-
-    private static final class PrincipalReductionEvent {
-
-        private final Long installmentId;
-        private final LocalDate transactionDate;
-        private final BigDecimal principalPortion;
-
-        private PrincipalReductionEvent(final Long installmentId, final LocalDate transactionDate, final BigDecimal principalPortion) {
-            this.installmentId = installmentId;
-            this.transactionDate = transactionDate;
-            this.principalPortion = principalPortion;
-        }
-    }
-
-    private static final class PrincipalReductionEventMapper implements RowMapper<PrincipalReductionEvent> {
-
-        @Override
-        public PrincipalReductionEvent mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
-            return new PrincipalReductionEvent(rs.getLong("installmentId"), JdbcSupport.getLocalDate(rs, "transactionDate"),
-                    JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "principalPortion"));
-        }
-    }
-
-    private static final class DailyLateFeeInstallmentState {
-
-        private final Long installmentId;
-        private final LocalDate eligibleFromDate;
-        private final BigDecimal principalDue;
-        private final Map<LocalDate, BigDecimal> principalReductionsByDate = new TreeMap<>();
-        private BigDecimal outstandingPrincipal;
-
-        private DailyLateFeeInstallmentState(final Long installmentId, final LocalDate eligibleFromDate, final BigDecimal principalDue) {
-            this.installmentId = installmentId;
-            this.eligibleFromDate = eligibleFromDate;
-            this.principalDue = principalDue;
-            this.outstandingPrincipal = principalDue;
-        }
-
-        private void addReduction(final LocalDate transactionDate, final BigDecimal principalPortion) {
-            this.principalReductionsByDate.merge(transactionDate, principalPortion, BigDecimal::add);
-        }
-
-        private void initializeOutstanding(final LocalDate generationStartDate) {
-            BigDecimal reducedPrincipal = BigDecimal.ZERO;
-            for (Map.Entry<LocalDate, BigDecimal> entry : this.principalReductionsByDate.entrySet()) {
-                if (!entry.getKey().isBefore(generationStartDate)) {
-                    break;
-                }
-                reducedPrincipal = reducedPrincipal.add(entry.getValue());
-            }
-            this.outstandingPrincipal = this.principalDue.subtract(reducedPrincipal).max(BigDecimal.ZERO);
-        }
-
-        private void applyReductionsForDate(final LocalDate currentDate) {
-            final BigDecimal reduction = this.principalReductionsByDate.get(currentDate);
-            if (reduction != null) {
-                this.outstandingPrincipal = this.outstandingPrincipal.subtract(reduction).max(BigDecimal.ZERO);
-            }
-        }
-
-        private boolean isPenaltyEligibleOn(final LocalDate penaltyDate) {
-            return !penaltyDate.isBefore(this.eligibleFromDate) && this.outstandingPrincipal.compareTo(BigDecimal.ZERO) > 0;
-        }
-    }
-
-    private static final class DailyLateFeeProcessingState {
-
-        private boolean changed;
-        private boolean runInterestRecalculation;
-        private LocalDate recalculateFrom;
-        private LocalDate lastChargeDate;
-
-        private void markChanged() {
-            this.changed = true;
-        }
-
-        private void includeRecalculateFrom(final LocalDate date) {
-            if (date == null) {
-                return;
-            }
-            if (this.recalculateFrom == null || this.recalculateFrom.isAfter(date)) {
-                this.recalculateFrom = date;
-            }
-        }
-
-        private void includeLastChargeDate(final LocalDate date) {
-            if (date == null) {
-                return;
-            }
-            if (this.lastChargeDate == null || this.lastChargeDate.isBefore(date)) {
-                this.lastChargeDate = date;
-            }
-        }
     }
 
     @Transactional
@@ -1274,7 +1164,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final HolidayDetailDTO holidayDetailDto = null;
             boolean isAccountTransfer = false;
             final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
-            LoanTransaction loanTransaction = this.loanAccountDomainService.makeRepayment(repaymentTransactionType, loan,
+            LoanTransaction loanTransaction = makeRepaymentWithDailyLateFees(repaymentTransactionType, loan,
                     commandProcessingResultBuilder, transactionDate, transactionAmount, paymentDetail, noteText, txnExternalId,
                     isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, false,
                     originalRecoveryTransaction == null ? null : originalRecoveryTransaction.getId(), correctionDate,
@@ -1375,7 +1265,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     this.paymentDetailWritePlatformService.persistPaymentDetail(paymentDetail);
                 }
                 final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
-                LoanTransaction loanTransaction = this.loanAccountDomainService.makeRepayment(LoanTransactionType.REPAYMENT, loan,
+                LoanTransaction loanTransaction = makeRepaymentWithDailyLateFees(LoanTransactionType.REPAYMENT, loan,
                         commandProcessingResultBuilder, bulkRepaymentCommand.getTransactionDate(),
                         singleLoanRepaymentCommand.getTransactionAmount(), paymentDetail, bulkRepaymentCommand.getNote(), null,
                         isRecoveryRepayment, isAccountTransfer, holidayDetailDTO, isHolidayValidationDone);
@@ -1384,6 +1274,34 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
         changes.put("loanTransactions", transactionIds);
         return changes;
+    }
+
+    private LoanTransaction makeRepaymentWithDailyLateFees(final LoanTransactionType repaymentTransactionType, final Loan loan,
+            final CommandProcessingResultBuilder commandProcessingResultBuilder, final LocalDate transactionDate,
+            final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final String txnExternalId,
+            final boolean isRecoveryRepayment, final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto,
+            final Boolean isHolidayValidationDone) {
+        return makeRepaymentWithDailyLateFees(repaymentTransactionType, loan, commandProcessingResultBuilder, transactionDate,
+                transactionAmount, paymentDetail, noteText, txnExternalId, isRecoveryRepayment, isAccountTransfer, holidayDetailDto,
+                isHolidayValidationDone, false, null, null, false);
+    }
+
+    private LoanTransaction makeRepaymentWithDailyLateFees(final LoanTransactionType repaymentTransactionType, final Loan loan,
+            final CommandProcessingResultBuilder commandProcessingResultBuilder, final LocalDate transactionDate,
+            final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final String txnExternalId,
+            final boolean isRecoveryRepayment, final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto,
+            final Boolean isHolidayValidationDone, final boolean isLoanToLoanTransfer, final Long originalTransactionId,
+            final LocalDate correctionDate, final boolean bypassLastTransactionDateValidation) {
+        this.loanDailyLateFeeService.syncDailyLateFeesForLoan(loan.getId(), transactionDate);
+        LoanTransaction loanTransaction = this.loanAccountDomainService.makeRepayment(repaymentTransactionType, loan,
+                commandProcessingResultBuilder, transactionDate, transactionAmount, paymentDetail, noteText, txnExternalId,
+                isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, isLoanToLoanTransfer,
+                originalTransactionId, correctionDate, bypassLastTransactionDateValidation);
+        if (transactionDate.isBefore(DateUtils.getBusinessLocalDate())) {
+            this.loanDailyLateFeeService.rebuildAndSyncDailyLateFeesForLoan(loan.getId(), transactionDate.plusDays(1),
+                    DateUtils.getBusinessLocalDate());
+        }
+        return loanTransaction;
     }
 
     @Transactional
@@ -3205,360 +3123,23 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
     }
 
-    private Charge findDailyLateFeeChargeDefinition(final Loan loan) {
-        final List<Charge> overduePenaltyCharges = loan.getLoanProduct().getLoanProductCharges().stream().filter(Charge::isActive)
-                .filter(Charge::isLoanCharge).filter(Charge::isPenalty)
-                .filter(charge -> ChargeTimeType.fromInt(charge.getChargeTimeType()).isOverdueInstallment())
-                .collect(Collectors.toList());
-
-        if (overduePenaltyCharges.isEmpty()) {
-            return null;
-        }
-        if (overduePenaltyCharges.size() > 1) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.daily.late.fee.multiple.overdue.charges",
-                    "Only one active overdue penalty charge definition is supported for daily late fees.", loan.getId());
-        }
-
-        final Charge chargeDefinition = overduePenaltyCharges.get(0);
-        final ChargeCalculationType calculationType = ChargeCalculationType.fromInt(chargeDefinition.getChargeCalculation());
-        if (!calculationType.isPercentageOfAmount()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.daily.late.fee.invalid.charge.calculation",
-                    "Daily late fees require an overdue penalty charge configured as a percentage of principal.", chargeDefinition.getId(),
-                    calculationType.getCode());
-        }
-        return chargeDefinition;
-    }
-
-    private BigDecimal defaultToZero(final BigDecimal value) {
-        return value == null ? BigDecimal.ZERO : value;
-    }
-
-    private BigDecimal calculateDailyLateFeeCap(final Loan loan) {
-        BigDecimal disbursedPrincipal = loan.getDisbursedAmount();
-        if (disbursedPrincipal == null || disbursedPrincipal.compareTo(BigDecimal.ZERO) <= 0) {
-            disbursedPrincipal = loan.getPrincpal().getAmount();
-        }
-        return defaultToZero(disbursedPrincipal).setScale(6, MoneyHelper.getRoundingMode());
-    }
-
-    private BigDecimal calculateDailyLateFeeRate(final BigDecimal monthlyRate, final Loan loan, final LocalDate penaltyDate) {
-        final DaysInMonthType daysInMonthType = loan.getLoanProductRelatedDetail().fetchDaysInMonthType();
-        final int divisor = daysInMonthType.isDaysInMonth_30() ? 30 : penaltyDate.lengthOfMonth();
-        return monthlyRate.divide(BigDecimal.valueOf(100L), MoneyHelper.getMathContext())
-                .divide(BigDecimal.valueOf(divisor), 12, MoneyHelper.getRoundingMode());
-    }
-
-    private LocalDate determineFirstDailyLateFeeDate(final Loan loan, final long gracePeriod) {
-        return loan.getRepaymentScheduleInstallments().stream().filter(installment -> !installment.isRecalculatedInterestComponent())
-                .filter(installment -> installment.getPrincipal(loan.getCurrency()).isGreaterThanZero())
-                .map(installment -> installment.getDueDate().plusDays(gracePeriod + 1)).min(LocalDate::compareTo).orElse(null);
-    }
-
-    private LocalDate determineGenerationStartDate(final Long loanId, final LocalDate firstPenaltyDate, final LocalDate rebuildFromDate) {
-        if (rebuildFromDate != null) {
-            return rebuildFromDate;
-        }
-        final List<LoanDailyLateFee> activeDailyLateFees = this.loanDailyLateFeeRepository.findByLoanIdAndActiveTrueOrderByPenaltyDateAsc(loanId);
-        if (activeDailyLateFees.isEmpty()) {
-            return firstPenaltyDate;
-        }
-        return activeDailyLateFees.get(activeDailyLateFees.size() - 1).getPenaltyDate().plusDays(1);
-    }
-
-    private List<DailyLateFeeInstallmentState> buildDailyLateFeeInstallmentStates(final Loan loan, final long gracePeriod,
-            final LocalDate generationStartDate) {
-        final Map<Long, DailyLateFeeInstallmentState> states = new LinkedHashMap<>();
-        for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
-            if (installment.isRecalculatedInterestComponent()) {
-                continue;
-            }
-            final BigDecimal principalDue = installment.getPrincipal(loan.getCurrency()).getAmount();
-            if (principalDue == null || principalDue.compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
-            states.put(installment.getId(), new DailyLateFeeInstallmentState(installment.getId(),
-                    installment.getDueDate().plusDays(gracePeriod + 1), principalDue));
-        }
-
-        if (states.isEmpty()) {
-            return new ArrayList<>();
-        }
-
-        final String sql = "select m.loan_repayment_schedule_id as installmentId, lt.transaction_date as transactionDate, "
-                + "sum(coalesce(m.principal_portion_derived, 0)) as principalPortion "
-                + "from m_loan_transaction_repayment_schedule_mapping m "
-                + "join m_loan_transaction lt on lt.id = m.loan_transaction_id "
-                + "where lt.loan_id = ? and lt.is_reversed = false and m.principal_portion_derived is not null "
-                + "group by m.loan_repayment_schedule_id, lt.transaction_date order by lt.transaction_date asc";
-        final List<PrincipalReductionEvent> reductionEvents = this.jdbcTemplate.query(sql, new PrincipalReductionEventMapper(), loan.getId());
-        for (PrincipalReductionEvent reductionEvent : reductionEvents) {
-            final DailyLateFeeInstallmentState state = states.get(reductionEvent.installmentId);
-            if (state != null) {
-                state.addReduction(reductionEvent.transactionDate, reductionEvent.principalPortion);
-            }
-        }
-
-        final List<DailyLateFeeInstallmentState> orderedStates = new ArrayList<>(states.values());
-        for (DailyLateFeeInstallmentState state : orderedStates) {
-            state.initializeOutstanding(generationStartDate);
-        }
-        orderedStates.sort(Comparator.comparing(state -> state.eligibleFromDate));
-        return orderedStates;
-    }
-
-    private BigDecimal calculateCumulativeOverduePrincipal(final List<DailyLateFeeInstallmentState> installmentStates,
-            final LocalDate penaltyDate) {
-        BigDecimal cumulativeOverduePrincipal = BigDecimal.ZERO;
-        for (DailyLateFeeInstallmentState installmentState : installmentStates) {
-            if (installmentState.isPenaltyEligibleOn(penaltyDate)) {
-                cumulativeOverduePrincipal = cumulativeOverduePrincipal.add(installmentState.outstandingPrincipal);
-            }
-        }
-        return cumulativeOverduePrincipal;
-    }
-
-    private void applyPrincipalReductionsForDate(final List<DailyLateFeeInstallmentState> installmentStates, final LocalDate penaltyDate) {
-        for (DailyLateFeeInstallmentState installmentState : installmentStates) {
-            installmentState.applyReductionsForDate(penaltyDate);
-        }
-    }
-
-    private void upsertDailyLateFeeMetadata(final Loan loan, final Charge chargeDefinition, final LoanCharge loanCharge,
-            final LocalDate penaltyDate, final BigDecimal overduePrincipalAmount, final BigDecimal monthlyRate,
-            final BigDecimal dailyRate, final BigDecimal penaltyAmount) {
-        final Optional<LoanDailyLateFee> existingDailyLateFee = this.loanDailyLateFeeRepository.findByLoanIdAndChargeIdAndPenaltyDate(
-                loan.getId(), chargeDefinition.getId(), penaltyDate);
-        if (existingDailyLateFee.isPresent()) {
-            final LoanDailyLateFee lateFee = existingDailyLateFee.get();
-            lateFee.reactivate(loanCharge, overduePrincipalAmount, monthlyRate, dailyRate, penaltyAmount);
-            this.loanDailyLateFeeRepository.save(lateFee);
-        } else {
-            this.loanDailyLateFeeRepository
-                    .save(new LoanDailyLateFee(loan, chargeDefinition, loanCharge, penaltyDate, overduePrincipalAmount, monthlyRate,
-                            dailyRate, penaltyAmount));
-        }
-    }
-
-    private void deactivateDailyLateFeesFrom(final Loan loan, final LocalDate rebuildFromDate,
-            final DailyLateFeeProcessingState processingState) {
-        final List<LoanDailyLateFee> lateFeesToDeactivate = this.loanDailyLateFeeRepository
-                .findByLoanIdAndPenaltyDateGreaterThanEqualOrderByPenaltyDateAsc(loan.getId(), rebuildFromDate);
-        if (lateFeesToDeactivate.isEmpty()) {
-            return;
-        }
-
-        boolean metadataChanged = false;
-        for (LoanDailyLateFee lateFee : lateFeesToDeactivate) {
-            if (!lateFee.isActive()) {
-                continue;
-            }
-            lateFee.deactivate();
-            metadataChanged = true;
-            processingState.markChanged();
-            processingState.runInterestRecalculation = true;
-            processingState.includeRecalculateFrom(lateFee.getPenaltyDate());
-
-            final LoanCharge loanCharge = lateFee.getLoanCharge();
-            if (loanCharge != null && loanCharge.isActive()) {
-                loanCharge.setActive(false);
-            }
-        }
-
-        if (metadataChanged) {
-            this.loanDailyLateFeeRepository.saveAll(lateFeesToDeactivate);
-        }
-    }
-
-    private LoanCharge createDailyLateFeeCharge(final Loan loan, final Charge chargeDefinition, final LocalDate penaltyDate,
-            final BigDecimal dailyPenaltyAmount) {
-        return new LoanCharge(loan, chargeDefinition, BigDecimal.ZERO, dailyPenaltyAmount, ChargeTimeType.OVERDUE_INSTALLMENT,
-                ChargeCalculationType.FLAT, penaltyDate, null, null, BigDecimal.ZERO);
-    }
-
-    private void finalizeDailyLateFeeChanges(final Loan loan, final List<Long> existingTransactionIds,
-            final List<Long> existingReversedTransactionIds, final DailyLateFeeProcessingState processingState) {
-        if (!processingState.changed) {
-            return;
-        }
-
-        boolean reprocessRequired = true;
-        LocalDate recalculateFrom = processingState.recalculateFrom == null ? DateUtils.getBusinessLocalDate()
-                : processingState.recalculateFrom;
-        final LocalDate recalculatedTill = loan.fetchInterestRecalculateFromDate();
-        if (recalculateFrom.isAfter(recalculatedTill)) {
-            recalculateFrom = recalculatedTill;
-        }
-
-        if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
-            if (processingState.runInterestRecalculation && loan.isFeeCompoundingEnabledForInterestRecalculation()) {
-                runScheduleRecalculation(loan, recalculateFrom);
-                reprocessRequired = false;
-            }
-            updateOriginalSchedule(loan);
-        }
-
-        if (reprocessRequired) {
-            addInstallmentIfPenaltyAppliedAfterLastDueDate(loan, processingState.lastChargeDate);
-            final ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
-            if (changedTransactionDetail != null) {
-                for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
-                    this.loanTransactionRepository.save(mapEntry.getValue());
-                    loan.addLoanTransaction(mapEntry.getValue());
-                    this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
-                }
-            }
-            saveLoanWithDataIntegrityViolationChecks(loan);
-        }
-
-        postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
-
-        if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled() && processingState.runInterestRecalculation
-                && loan.isFeeCompoundingEnabledForInterestRecalculation()) {
-            this.loanAccountDomainService.recalculateAccruals(loan);
-        }
-    }
-
-    private void processDailyLateFeesForLoan(final Long loanId, final LocalDate effectiveDate, final LocalDate rebuildFromDate,
-            final boolean publishBusinessEvent) {
-        if (effectiveDate == null) {
-            return;
-        }
-
-        final Loan loan = this.loanAssembler.assembleFrom(loanId);
-        checkClientOrGroupActive(loan);
-
-        if (publishBusinessEvent) {
-            businessEventNotifierService.notifyPreBusinessEvent(new LoanApplyOverdueChargeBusinessEvent(loan));
-        }
-
-        final List<Long> existingTransactionIds = new ArrayList<>(loan.findExistingTransactionIds());
-        final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
-        final DailyLateFeeProcessingState processingState = new DailyLateFeeProcessingState();
-
-        if (rebuildFromDate != null) {
-            deactivateDailyLateFeesFrom(loan, rebuildFromDate, processingState);
-        }
-
-        final Charge chargeDefinition = findDailyLateFeeChargeDefinition(loan);
-        if (chargeDefinition == null || !loan.status().isActive()) {
-            finalizeDailyLateFeeChanges(loan, existingTransactionIds, existingReversedTransactionIds, processingState);
-            if (publishBusinessEvent) {
-                businessEventNotifierService.notifyPostBusinessEvent(new LoanApplyOverdueChargeBusinessEvent(loan));
-            }
-            return;
-        }
-
-        final long gracePeriod = this.configurationDomainService.retrievePenaltyWaitPeriod();
-        final LocalDate firstPenaltyDate = determineFirstDailyLateFeeDate(loan, gracePeriod);
-        if (firstPenaltyDate == null || effectiveDate.isBefore(firstPenaltyDate)) {
-            finalizeDailyLateFeeChanges(loan, existingTransactionIds, existingReversedTransactionIds, processingState);
-            if (publishBusinessEvent) {
-                businessEventNotifierService.notifyPostBusinessEvent(new LoanApplyOverdueChargeBusinessEvent(loan));
-            }
-            return;
-        }
-
-        LocalDate generationStartDate = determineGenerationStartDate(loanId, firstPenaltyDate, rebuildFromDate);
-        if (generationStartDate.isBefore(firstPenaltyDate)) {
-            generationStartDate = firstPenaltyDate;
-        }
-        if (generationStartDate.isAfter(effectiveDate)) {
-            finalizeDailyLateFeeChanges(loan, existingTransactionIds, existingReversedTransactionIds, processingState);
-            if (publishBusinessEvent) {
-                businessEventNotifierService.notifyPostBusinessEvent(new LoanApplyOverdueChargeBusinessEvent(loan));
-            }
-            return;
-        }
-
-        final BigDecimal capAmount = calculateDailyLateFeeCap(loan);
-        BigDecimal cumulativePenaltyAmount = rebuildFromDate == null
-                ? defaultToZero(this.loanDailyLateFeeRepository.sumActivePenaltyAmount(loanId))
-                : defaultToZero(this.loanDailyLateFeeRepository.sumActivePenaltyAmountBeforeDate(loanId, generationStartDate));
-
-        if (cumulativePenaltyAmount.compareTo(capAmount) >= 0) {
-            finalizeDailyLateFeeChanges(loan, existingTransactionIds, existingReversedTransactionIds, processingState);
-            if (publishBusinessEvent) {
-                businessEventNotifierService.notifyPostBusinessEvent(new LoanApplyOverdueChargeBusinessEvent(loan));
-            }
-            return;
-        }
-
-        final BigDecimal monthlyRate = chargeDefinition.getAmount();
-        final List<DailyLateFeeInstallmentState> installmentStates = buildDailyLateFeeInstallmentStates(loan, gracePeriod,
-                generationStartDate);
-        LocalDate penaltyDate = generationStartDate;
-        while (!penaltyDate.isAfter(effectiveDate) && cumulativePenaltyAmount.compareTo(capAmount) < 0) {
-            final BigDecimal overduePrincipalAmount = calculateCumulativeOverduePrincipal(installmentStates, penaltyDate);
-            if (overduePrincipalAmount.compareTo(BigDecimal.ZERO) > 0) {
-                final BigDecimal dailyRate = calculateDailyLateFeeRate(monthlyRate, loan, penaltyDate);
-                BigDecimal penaltyAmount = overduePrincipalAmount.multiply(dailyRate, MoneyHelper.getMathContext())
-                        .setScale(6, MoneyHelper.getRoundingMode());
-                final BigDecimal remainingCap = capAmount.subtract(cumulativePenaltyAmount);
-                if (penaltyAmount.compareTo(remainingCap) > 0) {
-                    penaltyAmount = remainingCap.setScale(6, MoneyHelper.getRoundingMode());
-                }
-                if (penaltyAmount.compareTo(BigDecimal.ZERO) > 0) {
-                    final LoanCharge dailyLateFeeCharge = createDailyLateFeeCharge(loan, chargeDefinition, penaltyDate, penaltyAmount);
-                    final boolean appliedOnBackDate = addCharge(loan, chargeDefinition, dailyLateFeeCharge);
-                    upsertDailyLateFeeMetadata(loan, chargeDefinition, dailyLateFeeCharge, penaltyDate, overduePrincipalAmount,
-                            monthlyRate, dailyRate, penaltyAmount);
-                    processingState.markChanged();
-                    processingState.runInterestRecalculation = processingState.runInterestRecalculation || appliedOnBackDate;
-                    processingState.includeRecalculateFrom(penaltyDate);
-                    processingState.includeLastChargeDate(penaltyDate);
-                    cumulativePenaltyAmount = cumulativePenaltyAmount.add(penaltyAmount);
-                }
-            }
-            applyPrincipalReductionsForDate(installmentStates, penaltyDate);
-            penaltyDate = penaltyDate.plusDays(1);
-        }
-
-        finalizeDailyLateFeeChanges(loan, existingTransactionIds, existingReversedTransactionIds, processingState);
-        if (publishBusinessEvent) {
-            businessEventNotifierService.notifyPostBusinessEvent(new LoanApplyOverdueChargeBusinessEvent(loan));
-        }
-    }
-
     @Override
     @Transactional
     public void applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDatas) {
-        processDailyLateFeesForLoan(loanId, DateUtils.getBusinessLocalDate(), null, true);
+        this.loanDailyLateFeeService.applyOverdueChargesForLoan(loanId, overdueLoanScheduleDatas);
     }
 
     @Override
     @Transactional
     public void syncDailyLateFeesForLoan(final Long loanId, final LocalDate effectiveDate) {
-        processDailyLateFeesForLoan(loanId, effectiveDate, null, false);
+        this.loanDailyLateFeeService.syncDailyLateFeesForLoan(loanId, effectiveDate);
     }
 
     @Override
     @Transactional
     public void rebuildAndSyncDailyLateFeesForLoan(final Long loanId, final LocalDate rebuildFromDate,
             final LocalDate effectiveDate) {
-        processDailyLateFeesForLoan(loanId, effectiveDate, rebuildFromDate, false);
-    }
-
-    private void addInstallmentIfPenaltyAppliedAfterLastDueDate(Loan loan, LocalDate lastChargeDate) {
-        if (lastChargeDate != null) {
-            List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
-            LoanRepaymentScheduleInstallment lastInstallment = loan.fetchRepaymentScheduleInstallment(installments.size());
-            if (lastChargeDate.isAfter(lastInstallment.getDueDate())) {
-                if (lastInstallment.isRecalculatedInterestComponent()) {
-                    installments.remove(lastInstallment);
-                    lastInstallment = loan.fetchRepaymentScheduleInstallment(installments.size());
-                }
-                boolean recalculatedInterestComponent = true;
-                BigDecimal principal = BigDecimal.ZERO;
-                BigDecimal interest = BigDecimal.ZERO;
-                BigDecimal feeCharges = BigDecimal.ZERO;
-                BigDecimal penaltyCharges = BigDecimal.ONE;
-                final Set<LoanInterestRecalcualtionAdditionalDetails> compoundingDetails = null;
-                LoanRepaymentScheduleInstallment newEntry = new LoanRepaymentScheduleInstallment(loan, installments.size() + 1,
-                        lastInstallment.getDueDate(), lastChargeDate, principal, interest, feeCharges, penaltyCharges,
-                        recalculatedInterestComponent, compoundingDetails);
-                loan.addLoanRepaymentScheduleInstallment(newEntry);
-            }
-        }
+        this.loanDailyLateFeeService.rebuildAndSyncDailyLateFeesForLoan(loanId, rebuildFromDate, effectiveDate);
     }
 
     public LoanOverdueDTO applyChargeToOverdueLoanInstallment(final Long loanId, final Long loanChargeId, final Integer periodNumber,
@@ -4559,37 +4140,59 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final GLAccount oldGlAccount = originalCreditEntry.getGlAccount();
 
             if (!oldGlAccount.getId().equals(newGlAccount.getId())) {
-                // GL account is changing — full reclassification
-                // Reverse original credit and repost full amount to new GL
+                // Full reclassification of original amount
                 final BigDecimal reclassAmount = originalCreditEntry.getAmount();
-
-                log.info("Reclassifying GL from={} to={}, amount={}",
-                        oldGlAccount.getGlCode(), newGlAccount.getGlCode(), reclassAmount);
-
-                // Mark original credit entry as reversed
                 originalCreditEntry.setReversed(true);
                 journalEntryRepository.save(originalCreditEntry);
 
-                // DR old GL account (reverse the original credit)
-                final JournalEntry reversalDebit = buildManualJournalEntry(
+                journalEntryRepository.save(buildManualJournalEntry(
                         loan, oldGlAccount, JournalEntryType.DEBIT, reclassAmount,
                         "Reversal - reclassify insurance GL from: " + oldGlAccount.getGlCode(),
-                        chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
 
-                // CR new GL account (post to correct account)
-                final JournalEntry reclassCredit = buildManualJournalEntry(
+                journalEntryRepository.save(buildManualJournalEntry(
                         loan, newGlAccount, JournalEntryType.CREDIT, reclassAmount,
                         "Reclassify insurance GL to: " + newGlAccount.getGlCode(),
-                        chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
 
-                journalEntryRepository.save(reversalDebit);
-                journalEntryRepository.save(reclassCredit);
+                // Also post the delta to the new GL
+                final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                        .findCoreProductToFinAccountMapping(
+                                loan.productId(),
+                                PortfolioProductType.LOAN.getValue(),
+                                AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                        );
+
+                if (loanPortfolioMapping != null) {
+                    if (!isCredit) {
+                        // Increase — DR Loan Portfolio, CR new GL
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge increase - increase loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, newGlAccount, JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge increase - recognize additional income on new GL",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+                    } else {
+                        // Reduction — DR new GL, CR Loan Portfolio
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, newGlAccount, JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge reduction - reverse income by delta on new GL",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge reduction - reduce loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+                    }
+                }
 
                 changes.put("previousGlAccountId", oldGlAccount.getId());
                 changes.put("previousGlAccountCode", oldGlAccount.getGlCode());
                 changes.put("newGlAccountId", newGlAccountId);
                 changes.put("newGlAccountCode", newGlAccount.getGlCode());
-
             } else {
                 // Same GL — post only the delta in correct direction
                 log.info("Insurance adjustment - same GL={}, posting delta={}, isCredit={}",

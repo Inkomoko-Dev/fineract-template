@@ -42,7 +42,8 @@ public class ProvisioningCategoryDefinitionJsonDeserializer {
     /**
      * The parameters supported for this command.
      */
-    private final Set<String> supportedParameters = new HashSet<>(Arrays.asList("categoryname", "categorydescription"));
+    private final Set<String> supportedParameters = new HashSet<>(
+            Arrays.asList("categoryname", "categorydescription", "categorycode", "displayorder", "active"));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -64,6 +65,10 @@ public class ProvisioningCategoryDefinitionJsonDeserializer {
 
         final String name = this.fromApiJsonHelper.extractStringNamed("categoryname", element);
         baseDataValidator.reset().parameter("categoryname").value(name).notBlank().notExceedingLengthOf(100);
+        final String categoryCode = this.fromApiJsonHelper.extractStringNamed("categorycode", element);
+        baseDataValidator.reset().parameter("categorycode").value(categoryCode).notBlank().notExceedingLengthOf(100);
+        final Integer displayOrder = this.fromApiJsonHelper.extractIntegerSansLocaleNamed("displayorder", element);
+        baseDataValidator.reset().parameter("displayorder").value(displayOrder).notNull().integerZeroOrGreater();
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
@@ -83,6 +88,16 @@ public class ProvisioningCategoryDefinitionJsonDeserializer {
         if (this.fromApiJsonHelper.parameterExists("categoryname", element)) {
             final String categoryName = this.fromApiJsonHelper.extractStringNamed("categoryname", element);
             baseDataValidator.reset().parameter("categoryname").value(categoryName).notBlank().notExceedingLengthOf(100);
+        }
+
+        if (this.fromApiJsonHelper.parameterExists("categorycode", element)) {
+            final String categoryCode = this.fromApiJsonHelper.extractStringNamed("categorycode", element);
+            baseDataValidator.reset().parameter("categorycode").value(categoryCode).notBlank().notExceedingLengthOf(100);
+        }
+
+        if (this.fromApiJsonHelper.parameterExists("displayorder", element)) {
+            final Integer displayOrder = this.fromApiJsonHelper.extractIntegerSansLocaleNamed("displayorder", element);
+            baseDataValidator.reset().parameter("displayorder").value(displayOrder).notNull().integerZeroOrGreater();
         }
 
         if (!dataValidationErrors.isEmpty()) {

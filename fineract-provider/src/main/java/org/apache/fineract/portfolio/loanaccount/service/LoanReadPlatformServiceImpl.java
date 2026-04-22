@@ -1661,7 +1661,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             return " tr.id as id, " + " CASE "
                     + "     WHEN mlt.id IS not null and tr.transaction_type_enum = 1 and mlt.topup_amount <> tr.amount " + "       then 25 "
                     + "    ELSE tr.transaction_type_enum " + " END as transactionType," + " tr.transaction_date as "
-                    + sqlGenerator.escape("date") + ", CASE WHEN tr.transaction_type_enum = 29 AND tr.fee_charges_portion_derived > 0 THEN -tr.amount ELSE tr.amount END as total, "
+                    + sqlGenerator.escape("date") + ", tr.amount as total, "
                     + " tr.principal_portion_derived as principal, tr.loan_id as accountId, l.external_id as loanExternalId, tr.interest_portion_derived as interest, "
                     + " tr.fee_charges_portion_derived as fees, tr.penalty_charges_portion_derived as penalties, "
                     + " tr.overpayment_portion_derived as overpayment, tr.outstanding_loan_balance_derived as outstandingLoanBalance, "
