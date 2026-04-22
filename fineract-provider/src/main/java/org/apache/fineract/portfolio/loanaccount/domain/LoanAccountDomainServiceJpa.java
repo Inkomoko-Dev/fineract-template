@@ -87,7 +87,6 @@ import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAccrualPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAssembler;
-import org.apache.fineract.portfolio.loanaccount.service.LoanWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
@@ -98,7 +97,6 @@ import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDat
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -125,8 +123,6 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final StandingInstructionRepository standingInstructionRepository;
     private final PostDatedChecksRepository postDatedChecksRepository;
     private final LoanCollateralManagementRepository loanCollateralManagementRepository;
-    @Lazy
-    private final LoanWritePlatformService loanWritePlatformService;
 
     private final LoanRedrawAccountRepository loanRedrawAccountRepository;
 
@@ -216,8 +212,6 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         AppUser currentUser = getAppUserIfPresent();
         checkClientOrGroupActive(loan);
 
-        this.loanWritePlatformService.syncDailyLateFeesForLoan(loan.getId(), transactionDate);
-
         LoanBusinessEvent repaymentEvent = getLoanRepaymentTypeBusinessEvent(repaymentTransactionType, isRecoveryRepayment, loan);
         businessEventNotifierService.notifyPreBusinessEvent(repaymentEvent);
 
@@ -281,11 +275,6 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         if (StringUtils.isNotBlank(noteText)) {
             final Note note = Note.loanTransactionNote(loan, newRepaymentTransaction, noteText);
             this.noteRepository.save(note);
-        }
-
-        if (transactionDate.isBefore(DateUtils.getBusinessLocalDate())) {
-            this.loanWritePlatformService.rebuildAndSyncDailyLateFeesForLoan(loan.getId(), transactionDate.plusDays(1),
-                    DateUtils.getBusinessLocalDate());
         }
 
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds, isAccountTransfer, isLoanToLoanTransfer);
