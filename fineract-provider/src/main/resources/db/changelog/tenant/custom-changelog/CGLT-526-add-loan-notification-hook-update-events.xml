@@ -40,15 +40,6 @@
             AND hook_id = (SELECT id FROM m_hook WHERE name = 'Loan Email Notifications')
         </where>
     </update>
-    <!-- update permission add code REJECTDISBURSEMENT_LOAN  -->
-    <insert tableName="m_permission">
-        <column name="grouping" value="transaction_loan"/>
-        <column name="code" value="REJECTDISBURSEMENT_LOAN"/>
-        <column name="entity_name" value="LOAN"/>
-        <column name="action_name" value="REJECTDISBURSEMENT"/>
-        <column name="can_maker_checker" valueNumeric="0"/>
-    </insert>
-
 
     </changeSet>
 </databaseChangeLog>
