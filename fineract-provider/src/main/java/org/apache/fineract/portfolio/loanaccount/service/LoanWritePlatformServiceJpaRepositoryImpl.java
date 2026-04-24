@@ -36,12 +36,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.accounting.common.AccountingConstants;
 import org.apache.fineract.accounting.glaccount.domain.GLAccount;
 import org.apache.fineract.accounting.glaccount.domain.GLAccountRepository;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
@@ -51,6 +51,8 @@ import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlat
 import org.apache.fineract.accounting.closure.domain.GLClosure;
 import org.apache.fineract.accounting.closure.domain.GLClosureRepository;
 import org.apache.fineract.accounting.producttoaccountmapping.domain.PortfolioProductType;
+import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMapping;
+import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMappingRepository;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -303,6 +305,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanApplicationCommandFromApiJsonHelper fromApiJsonDeserializer;
     private final JournalEntryRepository journalEntryRepository;
     private final GLAccountRepository glAccountRepository;
+    private final ProductToGLAccountMappingRepository productToGLAccountMappingRepository;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -3879,7 +3882,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             ));
         }
 
-
         if (!errors.isEmpty()) throw new PlatformApiDataValidationException(errors);
 
 
@@ -3951,8 +3953,42 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final boolean isCredit = delta.compareTo(BigDecimal.ZERO) < 0;
         final boolean isZeroing = newAmount.compareTo(BigDecimal.ZERO) == 0;
 
+        // If zeroing — block if previous adjustments exist on this charge
+        // Zeroing after adjustments risks DR and CR on same GL — must be done manually
+        if (isZeroing) {
+            final boolean hasPreviousAdjustments = loan.getLoanTransactions().stream()
+                    .filter(lt -> !lt.isReversed())
+                    .filter(lt -> LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(lt.getTypeOf()))
+                    .anyMatch(lt -> lt.getLoanChargesPaid().stream()
+                            .anyMatch(paid -> paid.getLoanCharge().getId().equals(loanChargeId)));
+
+            if (hasPreviousAdjustments) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.zeroing.not.allowed",
+                        "Cannot zero an insurance charge that has already been adjusted. Please contact finance to manually reverse the GL entries.",
+                        loanChargeId
+                );
+            }
+        }
+
         // If zeroing — skip reclassification even if glAccountId was passed
-        final Long effectiveGlAccountId = isZeroing ? null : newGlAccountId;
+        log.info("Insurance adjustment START - isZeroing={}, newGlAccountId={}, delta={}", isZeroing, newGlAccountId, delta);
+
+        Long effectiveGlAccountId;
+        if (isZeroing) {
+            log.info("Insurance adjustment - isZeroing, skipping GL");
+            effectiveGlAccountId = null;
+        } else if (newGlAccountId != null) {
+            log.info("Insurance adjustment - using passed glAccountId={}", newGlAccountId);
+            effectiveGlAccountId = newGlAccountId;
+        } else {
+            log.info("Insurance adjustment - no glAccountId passed, looking up last used GL");
+            final JournalEntry activeCreditEntry = findActiveCreditEntry(
+                    loan, originalTransaction, null);
+            effectiveGlAccountId = activeCreditEntry != null
+                    ? activeCreditEntry.getGlAccount().getId() : null;
+            log.info("Insurance adjustment - resolved effectiveGlAccountId={}", effectiveGlAccountId);
+        }
 
 
         // Build changes map
@@ -3974,7 +4010,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
 
 
-        // Post INSURANCE_CHARGE_ADJUSTMENT transaction for the delta
+        // Post INSURANCE_CHARGE_ADJUSTMENT transaction for the full delta
+        // Always post the full absDelta — the charge adjustment itself corrects fee accounting
+        // DEPOSIT_REDRAW is only posted when the delta exceeds the total loan outstanding
+        final BigDecimal totalOutstanding = loan.getSummary().getTotalOutstanding().max(BigDecimal.ZERO);
+
         final Money deltaMoney = Money.of(loan.getCurrency(), absDelta);
         final LoanTransaction chargeAdjustmentTransaction = LoanTransaction.insuranceChargeAdjustment(
                 loan,
@@ -3989,17 +4029,92 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final LoanChargePaidBy adjustmentChargePaidBy = new LoanChargePaidBy(
                 chargeAdjustmentTransaction,
                 loanCharge,
-                isCredit ? absDelta.negate() : absDelta,
+                absDelta,
                 null);
         chargeAdjustmentTransaction.getLoanChargesPaid().add(adjustmentChargePaidBy);
 
         this.loanTransactionRepository.saveAndFlush(chargeAdjustmentTransaction);
         loan.getLoanTransactions().add(chargeAdjustmentTransaction);
 
+        // Post DEPOSIT_REDRAW only when delta exceeds total outstanding
+        // This prevents the loan balance from going negative in overpayment scenarios
+        Long depositRedrawTransactionId = null;
+        if (isCredit && absDelta.compareTo(totalOutstanding) > 0) {
+            final BigDecimal excessAmount = absDelta.subtract(totalOutstanding);
+            final Money excessMoney = Money.of(loan.getCurrency(), excessAmount);
+            final LoanTransaction depositRedrawTransaction = LoanTransaction.applyRedrawRepayment(
+                    loan.getOffice(),
+                    excessMoney,
+                    null,
+                    originalTransaction.getTransactionDate(),
+                    null,
+                    loan);
 
-        // GL Reclassification (only if newGlAccountId passed)
-        // Reverses the wrong income GL entry and reposts to correct GL
+            depositRedrawTransaction.updateLoan(loan);
+            this.loanTransactionRepository.saveAndFlush(depositRedrawTransaction);
+            loan.getLoanTransactions().add(depositRedrawTransaction);
+            depositRedrawTransactionId = depositRedrawTransaction.getId();
+
+            log.info("Insurance adjustment - DEPOSIT_REDRAW saved with id={}, amount={}, totalOutstanding={}",
+                    depositRedrawTransactionId, excessAmount, totalOutstanding);
+
+            // Post GL entries for DEPOSIT_REDRAW manually
+            // DR Loan Portfolio (reduce loan asset)
+            // CR Overpayment GL (record the client credit)
+            final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                    .findCoreProductToFinAccountMapping(
+                            loan.productId(),
+                            PortfolioProductType.LOAN.getValue(),
+                            AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                    );
+
+            final ProductToGLAccountMapping overpaymentMapping = productToGLAccountMappingRepository
+                    .findCoreProductToFinAccountMapping(
+                            loan.productId(),
+                            PortfolioProductType.LOAN.getValue(),
+                            AccountingConstants.CashAccountsForLoan.OVERPAYMENT.getValue()
+                    );
+
+            if (loanPortfolioMapping != null && overpaymentMapping != null) {
+                // DR Loan Portfolio
+                final JournalEntry portfolioDebit = buildManualJournalEntry(
+                        loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.DEBIT,
+                        excessAmount,
+                        "Insurance overpayment - reduce loan portfolio",
+                        depositRedrawTransaction,
+                        originalTransaction.getTransactionDate());
+                journalEntryRepository.save(portfolioDebit);
+
+                // CR Overpayment GL
+                final JournalEntry overpaymentCredit = buildManualJournalEntry(
+                        loan, overpaymentMapping.getGlAccount(), JournalEntryType.CREDIT,
+                        excessAmount,
+                        "Insurance overpayment - credit overpayment GL",
+                        depositRedrawTransaction,
+                        originalTransaction.getTransactionDate());
+                journalEntryRepository.save(overpaymentCredit);
+
+                log.info("Insurance adjustment - DEPOSIT_REDRAW GL posted DR={} CR={} amount={}",
+                        loanPortfolioMapping.getGlAccount().getGlCode(),
+                        overpaymentMapping.getGlAccount().getGlCode(),
+                        excessAmount);
+            } else {
+                log.warn("Insurance adjustment - DEPOSIT_REDRAW GL mappings not found, skipping GL entries");
+            }
+
+            changes.put("depositRedrawTransactionId", depositRedrawTransactionId);
+            changes.put("depositRedrawAmount", excessAmount);
+
+            log.info("Insurance adjustment - excess={} posted as DEPOSIT_REDRAW id={}", excessAmount, depositRedrawTransactionId);
+        }
+
+
+        // GL entries for the delta adjustment
+        // Two cases:
+        // 1. GL account is changing — full reclassification (reverse original + repost to new GL)
+        // 2. Same GL — post only the delta in correct direction
         if (effectiveGlAccountId != null) {
+            log.info("Insurance adjustment - effectiveGlAccountId={}, isZeroing={}", effectiveGlAccountId, isZeroing);
             final GLAccount newGlAccount = glAccountRepository.findById(effectiveGlAccountId)
                     .orElseThrow(() -> new GeneralPlatformDomainRuleException(
                             "error.msg.loan.insurance.adjustment.gl.account.not.found",
@@ -4008,80 +4123,236 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     ));
 
             // Find the original CREDIT (income) entry — type_enum = 1
-            final List<JournalEntry> originalEntries = journalEntryRepository
-                    .findActiveByLoanTransactionId(originalTransaction.getId());
-
-
+            // Walks original transaction first, then previous adjustment transactions
             final Long originalTransactionId = originalTransaction.getId();
 
-            final JournalEntry originalCreditEntry = originalEntries.stream()
-                    .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
-                    .findFirst()
-                    .orElseThrow(() -> new GeneralPlatformDomainRuleException(
-                            "error.msg.loan.insurance.adjustment.no.credit.entry",
-                            "No active credit journal entry found for original transaction: " + originalTransactionId,
-                            originalTransactionId
-                    ));
+            final JournalEntry originalCreditEntry = findActiveCreditEntry(
+                    loan, originalTransaction, chargeAdjustmentTransaction);
+
+            if (originalCreditEntry == null) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.no.credit.entry",
+                        "No active credit journal entry found for original or adjustment transactions for charge: " + originalTransactionId,
+                        originalTransactionId
+                );
+            }
 
             final GLAccount oldGlAccount = originalCreditEntry.getGlAccount();
-            final BigDecimal reclassAmount = originalCreditEntry.getAmount();
 
-            log.info("Reclassifying GL from={} to={}, amount={}",
-                    oldGlAccount.getGlCode(), newGlAccount.getGlCode(), reclassAmount);
+            if (!oldGlAccount.getId().equals(newGlAccount.getId())) {
+                // Full reclassification of original amount
+                final BigDecimal reclassAmount = originalCreditEntry.getAmount();
+                originalCreditEntry.setReversed(true);
+                journalEntryRepository.save(originalCreditEntry);
 
-            // Mark original credit entry as reversed
-            originalCreditEntry.setReversed(true);
-            journalEntryRepository.save(originalCreditEntry);
+                journalEntryRepository.save(buildManualJournalEntry(
+                        loan, oldGlAccount, JournalEntryType.DEBIT, reclassAmount,
+                        "Reversal - reclassify insurance GL from: " + oldGlAccount.getGlCode(),
+                        chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
 
-            // DR old GL account (reverse the original credit)
-            final JournalEntry reversalDebit = buildManualJournalEntry(
-                    loan, oldGlAccount, JournalEntryType.DEBIT, reclassAmount,
-                    "Reversal - reclassify insurance GL from: " + oldGlAccount.getGlCode(),
-                    chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                journalEntryRepository.save(buildManualJournalEntry(
+                        loan, newGlAccount, JournalEntryType.CREDIT, reclassAmount,
+                        "Reclassify insurance GL to: " + newGlAccount.getGlCode(),
+                        chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
 
-            // CR new GL account (post to correct account)
-            final JournalEntry reclassCredit = buildManualJournalEntry(
-                    loan, newGlAccount, JournalEntryType.CREDIT, reclassAmount,
-                    "Reclassify insurance GL to: " + newGlAccount.getGlCode(),
-                    chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                // Also post the delta to the new GL
+                final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                        .findCoreProductToFinAccountMapping(
+                                loan.productId(),
+                                PortfolioProductType.LOAN.getValue(),
+                                AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                        );
 
-            journalEntryRepository.save(reversalDebit);
-            journalEntryRepository.save(reclassCredit);
+                if (loanPortfolioMapping != null) {
+                    if (!isCredit) {
+                        // Increase — DR Loan Portfolio, CR new GL
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge increase - increase loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
 
-            changes.put("previousGlAccountId", oldGlAccount.getId());
-            changes.put("previousGlAccountCode", oldGlAccount.getGlCode());
-            changes.put("newGlAccountId", newGlAccountId);
-            changes.put("newGlAccountCode", newGlAccount.getGlCode());
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, newGlAccount, JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge increase - recognize additional income on new GL",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+                    } else {
+                        // Reduction — DR new GL, CR Loan Portfolio
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, newGlAccount, JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge reduction - reverse income by delta on new GL",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge reduction - reduce loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+                    }
+                }
+
+                changes.put("previousGlAccountId", oldGlAccount.getId());
+                changes.put("previousGlAccountCode", oldGlAccount.getGlCode());
+                changes.put("newGlAccountId", newGlAccountId);
+                changes.put("newGlAccountCode", newGlAccount.getGlCode());
+            } else {
+                // Same GL — post only the delta in correct direction
+                log.info("Insurance adjustment - same GL={}, posting delta={}, isCredit={}",
+                        oldGlAccount.getGlCode(), absDelta, isCredit);
+
+                final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                        .findCoreProductToFinAccountMapping(
+                                loan.productId(),
+                                PortfolioProductType.LOAN.getValue(),
+                                AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                        );
+
+                if (loanPortfolioMapping != null) {
+                    if (isCredit) {
+                        // Charge reduced — client was overcharged
+                        // DR Income GL (reverse income recognition by delta)
+                        final JournalEntry incomeDebit = buildManualJournalEntry(
+                                loan, oldGlAccount, JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge reduction - reverse income by delta",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        journalEntryRepository.save(incomeDebit);
+
+                        // CR Loan Portfolio (reduce loan asset by delta)
+                        final JournalEntry portfolioCredit = buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge reduction - reduce loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        journalEntryRepository.save(portfolioCredit);
+
+                    } else {
+                        // Charge increased — client was undercharged
+                        // DR Loan Portfolio (increase loan asset by delta)
+                        final JournalEntry portfolioDebit = buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge increase - increase loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        journalEntryRepository.save(portfolioDebit);
+
+                        // CR Income GL (recognize additional income)
+                        final JournalEntry incomeCredit = buildManualJournalEntry(
+                                loan, oldGlAccount, JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge increase - recognize additional income",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        journalEntryRepository.save(incomeCredit);
+                    }
+                } else {
+                    log.warn("Insurance adjustment - loan portfolio GL mapping not found, skipping delta GL entries");
+                }
+            }
         }
 
 
-         // Update LoanCharge state
+        // Update LoanCharge state
         if (isZeroing) {
             // Full reversal — zero out all charge fields
             loanCharge.updateAmount(BigDecimal.ZERO);
             loanCharge.resetOutstandingAmount(BigDecimal.ZERO);
+
+            // No previous adjustments guaranteed above — original credit is still active
+            // Reverse the original credit entry:
+            // DR Insurance Income GL (reverse the original credit)
+            // CR Loan Portfolio GL (reduce the loan asset — mirror of original disbursement entry)
+            final List<JournalEntry> originalEntries = journalEntryRepository
+                    .findActiveByLoanTransactionId(originalTransaction.getId());
+
+            final LocalDate originalTransactionDate = originalTransaction.getTransactionDate();
+
+            // Fetch loan portfolio GL account from product mapping
+            final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                    .findCoreProductToFinAccountMapping(
+                            loan.productId(),
+                            PortfolioProductType.LOAN.getValue(),
+                            AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                    );
+
+            if (loanPortfolioMapping == null) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.loan.portfolio.gl.not.found",
+                        "Loan portfolio GL account mapping not found for loan product: " + loan.productId(),
+                        loan.productId()
+                );
+            }
+
+            final GLAccount loanPortfolioGlAccount = loanPortfolioMapping.getGlAccount();
+
+            originalEntries.stream()
+                    .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
+                    .findFirst()
+                    .ifPresent(creditEntry -> {
+                        creditEntry.setReversed(true);
+                        journalEntryRepository.save(creditEntry);
+
+                        // DR Insurance Income GL (reverse the original credit)
+                        final JournalEntry reversalDebit = buildManualJournalEntry(
+                                loan, creditEntry.getGlAccount(), JournalEntryType.DEBIT,
+                                creditEntry.getAmount(),
+                                "Zeroing insurance charge - reversal of income GL",
+                                chargeAdjustmentTransaction,
+                                originalTransactionDate);
+                        journalEntryRepository.save(reversalDebit);
+
+                        // CR Loan Portfolio GL (reduce loan asset — mirrors original disbursement reversal)
+                        final JournalEntry portfolioCredit = buildManualJournalEntry(
+                                loan, loanPortfolioGlAccount, JournalEntryType.CREDIT,
+                                creditEntry.getAmount(),
+                                "Zeroing insurance charge - reduce loan portfolio",
+                                chargeAdjustmentTransaction,
+                                originalTransactionDate);
+                        journalEntryRepository.save(portfolioCredit);
+                    });
         } else {
-            // Partial adjustment — recalculate outstanding
+            // Partial adjustment — recalculate outstanding, clamp to zero to prevent negative
             loanCharge.updateAmount(newAmount);
             final BigDecimal amountPaid = loanCharge.getAmountPaid(loan.getCurrency()).getAmount();
-            loanCharge.resetOutstandingAmount(newAmount.subtract(amountPaid));
+            loanCharge.resetOutstandingAmount(newAmount.subtract(amountPaid).max(BigDecimal.ZERO));
         }
 
         this.loanChargeRepository.saveAndFlush(loanCharge);
         loan.refreshFeeChargesDueAtDisbursement();
 
 
-         // Persist mandatory note against adjustment transaction
+        // Persist mandatory note against adjustment transaction
         final Note note = Note.loanTransactionNote(loan, chargeAdjustmentTransaction, notes);
         this.noteRepository.save(note);
 
 
-         // Recalculate loan summary derived fields
+        // Recalculate loan summary derived fields
         loan.updateLoanSummaryDerivedFields();
         saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
+        // Force fee charges outstanding to zero if negative
+        if (loan.getSummary().getTotalFeeChargesOutstanding().compareTo(BigDecimal.ZERO) < 0) {
+            final BigDecimal negativeAmount = loan.getSummary().getTotalFeeChargesOutstanding().abs();
+            loan.getSummary().updateFeeChargeOutstanding(BigDecimal.ZERO);
+            final BigDecimal correctedTotal = loan.getSummary().getTotalOutstanding()
+                    .add(negativeAmount)
+                    .max(BigDecimal.ZERO);
+            loan.getSummary().updateTotalOutstanding(correctedTotal);
+            saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+            log.info("Insurance adjustment - fee outstanding forced to zero, total outstanding corrected to={}",
+                    correctedTotal);
+        }
 
-         // Post GL journal entries for the delta adjustment
+        // If DEPOSIT_REDRAW was posted, it covers any remaining outstanding balance
+        // DEPOSIT_REDRAW type does not reduce interest_repaid in summary recalc, so force to zero
+        if (depositRedrawTransactionId != null
+                && loan.getSummary().getTotalOutstanding().compareTo(BigDecimal.ZERO) > 0) {
+            log.info("Insurance adjustment - DEPOSIT_REDRAW covers remaining outstanding={}, forcing to zero",
+                    loan.getSummary().getTotalOutstanding());
+            loan.getSummary().updateTotalOutstanding(BigDecimal.ZERO);
+            saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+        }
+
+        // Exclude only the DEPOSIT_REDRAW created in this operation from GL posting
+        // GL entries already posted manually above — must not double-post
+        if (depositRedrawTransactionId != null) {
+            existingTransactionIds.add(depositRedrawTransactionId);
+        }
+
+        // Post GL journal entries for the delta adjustment
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
 
         changes.put("originalTransactionId", originalTransaction.getId());
@@ -4161,7 +4432,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 null,                                      // paymentDetail
                 glAccount,                                 // glAccount
                 loan.getCurrency().getCode(),              // currencyCode
-                UUID.randomUUID().toString(),              // transactionId (unique ref)
+                "L" + loanTransaction.getId(),              // transactionId
                 false,                                     // manualEntry
                 entryDate,                                 // transactionDate
                 entryType,                                 // journalEntryType
@@ -4175,6 +4446,41 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 null,                                      // clientTransaction
                 null                                       // shareTransactionId
         );
+    }
+
+    private JournalEntry findActiveCreditEntry(
+            final Loan loan,
+            final LoanTransaction originalTransaction,
+            final LoanTransaction currentAdjustmentTransaction) {
+
+        // First check original disbursement transaction
+        List<JournalEntry> entries = journalEntryRepository
+                .findAllByLoanTransactionId(originalTransaction.getId());
+
+        JournalEntry creditEntry = entries.stream()
+                .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
+                .filter(e -> !e.isReversed())
+                .findFirst()
+                .orElse(null);
+
+        // Fallback — walk previous adjustment transactions
+        if (creditEntry == null) {
+            for (final LoanTransaction lt : loan.getLoanTransactions()) {
+                if (lt.isReversed()) continue;
+                if (!LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(lt.getTypeOf())) continue;
+                if (currentAdjustmentTransaction != null && lt.getId().equals(currentAdjustmentTransaction.getId())) continue;
+                final List<JournalEntry> adjEntries = journalEntryRepository
+                        .findAllByLoanTransactionId(lt.getId());
+                creditEntry = adjEntries.stream()
+                        .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
+                        .filter(e -> !e.isReversed())
+                        .findFirst()
+                        .orElse(null);
+                if (creditEntry != null) break;
+            }
+        }
+
+        return creditEntry;
     }
 
 }

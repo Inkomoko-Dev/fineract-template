@@ -895,7 +895,6 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
             final Money amount,
             final LocalDate transactionDate,
             final boolean isCredit) {
-
         final LoanTransaction loanTransaction = new LoanTransaction();
         loanTransaction.loan = loan;
         loanTransaction.office = office;
@@ -905,14 +904,8 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         loanTransaction.penaltyChargesPortion = BigDecimal.ZERO;
         loanTransaction.dateOf = transactionDate;
         loanTransaction.submittedOnDate = DateUtils.getBusinessLocalDate();
-
-        final BigDecimal signedAmount = isCredit
-                ? amount.getAmount().negate()
-                : amount.getAmount();
-
-        loanTransaction.amount = signedAmount;
-        loanTransaction.feeChargesPortion = signedAmount;
-
+        loanTransaction.amount = amount.getAmount();
+        loanTransaction.feeChargesPortion = amount.getAmount();
         return loanTransaction;
     }
 
