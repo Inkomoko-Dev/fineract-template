@@ -189,4 +189,10 @@ public class LoanTransactionEnumData {
         return this.creditBalanceRefund;
     }
 
+    public boolean isInsuranceChargeAdjustment() {
+        return LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getValue().equals(this.id);
+    }
+    public boolean isDepositRedraw() {
+        return LoanTransactionType.DEPOSIT_REDRAW.getValue().equals(this.id);
+    }
 }
