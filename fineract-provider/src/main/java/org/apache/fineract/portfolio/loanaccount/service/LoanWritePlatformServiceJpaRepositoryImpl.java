@@ -1507,18 +1507,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         transactionToReverse.reverse();
         transactionToReverse.manuallyAdjustedOrReversed();
 
-        final LoanTransaction reversalTransaction = LoanTransaction.reversal(transactionToReverse, reversalDate, correctionDate);
+        LoanTransaction reversalTransaction = LoanTransaction.reversal(transactionToReverse, reversalDate, correctionDate);
+        reversalTransaction.updateLoan(loan);
+        reversalTransaction = this.loanTransactionRepository.saveAndFlush(reversalTransaction);
         loan.addLoanTransaction(reversalTransaction);
-        final ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
+        loan.updateLoanSummaryDerivedFields();
 
         saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
-        if (changedTransactionDetail != null) {
-            for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
-                this.loanTransactionRepository.save(mapEntry.getValue());
-                loan.addLoanTransaction(mapEntry.getValue());
-                this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
-            }
-        }
 
         final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));

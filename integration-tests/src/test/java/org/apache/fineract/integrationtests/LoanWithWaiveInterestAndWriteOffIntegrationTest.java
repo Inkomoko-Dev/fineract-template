@@ -289,6 +289,8 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         Assertions.assertEquals(Long.valueOf(originalRecoveryId),
                 Long.valueOf(String.valueOf(correctedRecoveryTransaction.get("originalTransactionId"))));
         Assertions.assertEquals(Boolean.TRUE, originalRecoveryTransaction.get("manuallyReversed"));
+        Assertions.assertEquals(1, countTransactionsLinkedToOriginal(loanTransactions, originalRecoveryId, true));
+        Assertions.assertEquals(1, countTransactionsLinkedToOriginal(loanTransactions, originalRecoveryId, false));
     }
 
     @Test
@@ -298,6 +300,8 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         final Integer originalRecoveryId = (Integer) this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT,
                 "02 January 2011", 100.0f, loanID, "resourceId");
         this.loanTransactionHelper.reverseRecoveryPayment(loanID, originalRecoveryId, "04 January 2011", null, "resourceId");
+        ArrayList<HashMap> loanTransactions = this.loanTransactionHelper.getLoanTransactions(this.requestSpec, this.responseSpec, loanID);
+        Assertions.assertEquals(1, countTransactionsLinkedToOriginal(loanTransactions, originalRecoveryId, true));
 
         final HashMap correctedRecoveryTemplate = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
                 "/fineract-provider/api/v1/loans/" + loanID + "/transactions/template?command=" + RECOVERY_PAYMENT
@@ -310,6 +314,8 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
 
         final Integer correctedRecoveryId = (Integer) this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT,
                 "02 January 2011", 120.0f, loanID, originalRecoveryId, null, "resourceId");
+        loanTransactions = this.loanTransactionHelper.getLoanTransactions(this.requestSpec, this.responseSpec, loanID);
+        Assertions.assertEquals(1, countTransactionsLinkedToOriginal(loanTransactions, originalRecoveryId, false));
         final HashMap correctedRecoveryTransaction = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
                 "/fineract-provider/api/v1/loans/" + loanID + "/transactions/" + correctedRecoveryId + "?template=true&"
                         + Utils.TENANT_IDENTIFIER,
@@ -375,6 +381,8 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
             final HashMap correctedRecoveryTransaction = findTransaction(loanTransactions, correctedRecoveryId);
             Assertions.assertEquals(List.of(2011, 2, 1), reversalTransaction.get("correctionDate"));
             Assertions.assertEquals(List.of(2011, 2, 1), correctedRecoveryTransaction.get("correctionDate"));
+            Assertions.assertEquals(1, countTransactionsLinkedToOriginal(loanTransactions, originalRecoveryId, true));
+            Assertions.assertEquals(1, countTransactionsLinkedToOriginal(loanTransactions, originalRecoveryId, false));
         } finally {
             if (glClosureId != null) {
                 deleteGlClosure(glClosureId);
@@ -413,6 +421,22 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         }
         Assertions.fail("Transaction not found: " + transactionId);
         return null;
+    }
+
+    private int countTransactionsLinkedToOriginal(final ArrayList<HashMap> loanTransactions, final Integer originalTransactionId,
+            final boolean reversalTransaction) {
+        int matchingTransactions = 0;
+        for (final HashMap loanTransaction : loanTransactions) {
+            final Object linkedOriginalTransactionId = loanTransaction.get("originalTransactionId");
+            if (linkedOriginalTransactionId == null) {
+                continue;
+            }
+            if (Long.valueOf(originalTransactionId).equals(Long.valueOf(String.valueOf(linkedOriginalTransactionId)))
+                    && Boolean.valueOf(reversalTransaction).equals(loanTransaction.get("reversalTransaction"))) {
+                matchingTransactions++;
+            }
+        }
+        return matchingTransactions;
     }
 
     private Integer createGlClosure(final Integer officeId, final String closingDate) {
