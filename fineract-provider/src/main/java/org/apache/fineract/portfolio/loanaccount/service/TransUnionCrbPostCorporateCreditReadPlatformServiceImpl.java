@@ -65,15 +65,20 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
         public String schema() {
             final StringBuilder sql = new StringBuilder();
             final String daysInArrearsExpression = daysInArrearsExpression();
+            final String addressTypePriorityExpression = "CASE "
+                    + "WHEN UPPER(address_type_cv.code_value) IN ('CURRENT ADDRESS', 'PRIMARY', 'PRIMARY ADDRESS') THEN 0 "
+                    + "WHEN UPPER(address_type_cv.code_value) IN ('HOME', 'RESIDENTIAL', 'RESIDENTIAL ADDRESS') THEN 1 "
+                    + "WHEN UPPER(address_type_cv.code_value) = 'BUSINESS' THEN 2 "
+                    + "ELSE 3 END";
 
             sql.append(" WITH RankedAddresses AS ( " + "    SELECT ca.client_id, " + "           ca.address_id, "
                     + "           address_type_cv.code_value AS addressType, "
                     + "           ROW_NUMBER() OVER (PARTITION BY ca.client_id "
-                    + "                              ORDER BY CASE WHEN address_type_cv.code_value = 'CURRENT ADDRESS' THEN 0 ELSE 1 END, "
+                    + "                              ORDER BY CASE WHEN ca.is_active = true THEN 0 ELSE 1 END, "
+                    + "                                       " + addressTypePriorityExpression + ", "
                     + "                                       ca.address_id DESC) AS row_num "
                     + "    FROM m_client_address ca "
-                    + "         LEFT JOIN m_code_value address_type_cv ON ca.address_type_id = address_type_cv.id "
-                    + "    WHERE ca.is_active = true " + " ) "
+                    + "         LEFT JOIN m_code_value address_type_cv ON ca.address_type_id = address_type_cv.id " + " ) "
                     + " SELECT l.id                                                                              AS loanId, "
                     + "       l.account_no                                                                      AS accountNumber, "
                     + "       l.loan_status_id                                                                  AS loanStatus, "

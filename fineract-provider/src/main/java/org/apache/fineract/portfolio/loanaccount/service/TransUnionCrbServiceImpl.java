@@ -357,12 +357,12 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
     private void validateSelectedAddressForCrb(String accountNumber, Long selectedAddressId, String selectedAddressType, String country) {
         if (selectedAddressId == null) {
             throw new CrbLocalValidationException(buildLocalValidationMessage(accountNumber,
-                    "the client has no active address. Country must come from the active client address, preferring CURRENT ADDRESS."),
+                    "the client has no address available for CRB posting. Country must come from the preferred client address, prioritizing active and current or primary address types."),
                     null);
         }
 
         if (country == null || country.isBlank()) {
-            final String addressType = (selectedAddressType == null || selectedAddressType.isBlank()) ? "selected active address"
+            final String addressType = (selectedAddressType == null || selectedAddressType.isBlank()) ? "selected address"
                     : selectedAddressType;
             throw new CrbLocalValidationException(buildLocalValidationMessage(accountNumber,
                     "the selected " + addressType + " has no country. Country must come from the address country field."), null);
