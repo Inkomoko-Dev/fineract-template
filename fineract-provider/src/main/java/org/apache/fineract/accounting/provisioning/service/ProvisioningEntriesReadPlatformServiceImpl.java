@@ -63,7 +63,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
         LoanProductProvisioningEntryMapper mapper = new LoanProductProvisioningEntryMapper(sqlGenerator);
         final String sql = mapper.schema();
         return this.jdbcTemplate.query(sql, mapper, formattedDate, formattedDate, formattedDate, formattedDate, formattedDate,
-                formattedDate, formattedDate, formattedDate);
+                formattedDate, formattedDate);
     }
 
     private static final class LoanProductProvisioningEntryMapper implements RowMapper<LoanProvisioningCandidateData> {
