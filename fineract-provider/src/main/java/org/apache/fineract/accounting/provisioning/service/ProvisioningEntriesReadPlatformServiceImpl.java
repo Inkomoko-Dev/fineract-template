@@ -59,7 +59,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
         LoanProductProvisioningEntryMapper mapper = new LoanProductProvisioningEntryMapper(sqlGenerator);
         final String sql = mapper.schema();
         return this.jdbcTemplate.query(sql, mapper, formattedDate, formattedDate, formattedDate, formattedDate, formattedDate,
-                formattedDate, formattedDate, formattedDate);
+                formattedDate, formattedDate);
     }
 
     private static final class LoanProductProvisioningEntryMapper implements RowMapper<LoanProvisioningCandidateData> {
@@ -85,7 +85,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
 
                     // Total Exposure = Principal Outstanding + Accrued Interest
                     "((IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) " +
-                    "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) AS outstandingbalance, " +
+                    "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) AS outstandingbalance " +
 
                     "FROM m_loan_repayment_schedule sch " +
                     "LEFT JOIN m_loan loan ON sch.loan_id = loan.id " +
