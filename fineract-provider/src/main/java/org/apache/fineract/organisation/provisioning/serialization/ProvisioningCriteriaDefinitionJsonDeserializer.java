@@ -54,9 +54,6 @@ public class ProvisioningCriteriaDefinitionJsonDeserializer implements Provision
             JSON_DATE_FORMAT_PARAM, JSON_CRITERIANAME_PARAM, JSON_EFFECTIVE_FROM_PARAM, JSON_LOANPRODUCTS_PARAM,
             JSON_PROVISIONING_DEFINITIONS_PARAM));
 
-    private static final Set<String> loanProductSupportedParams = new HashSet<>(
-            Arrays.asList(JSON_LOAN_PRODUCT_ID_PARAM, JSON_LOAN_PRODUCTNAME_PARAM, JSON_LOAN_PRODUCT_BORROWERCYCLE_PARAM));
-
     private static final Set<String> provisioningcriteriaSupportedParams = new HashSet<>(
             Arrays.asList("id", JSON_CATEOGRYID_PARAM, JSON_CATEOGRYNAME_PARAM, JSON_MINIMUM_AGE_PARAM, JSON_MAXIMUM_AGE_PARAM,
                     JSON_MINIMUM_AGE_PARAM, JSON_PROVISIONING_PERCENTAGE_PARAM, JSON_EXPENSE_ACCOUNT_PARAM,
@@ -92,10 +89,8 @@ public class ProvisioningCriteriaDefinitionJsonDeserializer implements Provision
                     element);
             baseDataValidator.reset().parameter(ProvisioningCriteriaConstants.JSON_LOANPRODUCTS_PARAM).value(jsonloanProducts)
                     .jsonArrayNotEmpty();
-            // check for unsupported params
             int i = 0;
             for (JsonElement obj : jsonloanProducts) {
-                this.fromApiJsonHelper.checkForUnsupportedParameters(obj.getAsJsonObject(), loanProductSupportedParams);
                 Long productId = this.fromApiJsonHelper.extractLongNamed("id", obj.getAsJsonObject());
                 baseDataValidator.reset().parameter(ProvisioningCriteriaConstants.JSON_LOANPRODUCTS_PARAM)
                         .parameterAtIndexArray(ProvisioningCriteriaConstants.JSON_LOAN_PRODUCT_ID_PARAM, i + 1).value(productId).notNull()
