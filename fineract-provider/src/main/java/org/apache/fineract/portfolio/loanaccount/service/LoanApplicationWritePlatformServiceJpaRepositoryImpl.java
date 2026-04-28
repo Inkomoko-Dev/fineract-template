@@ -251,6 +251,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final FundReadPlatformService fundReadPlatformService;
     private final PaymentTypeRepositoryWrapper paymentTypeRepository;
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
+    private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
+    private final LoanDecisionLevelRepository loanDecisionLevelRepository;
 
     private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
         final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
@@ -2309,37 +2311,66 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                     "Loan decision not found for loan: " + loan.getId());
         }
 
-        // Get previous level state
-        Integer previousState = dynamicIcReviewLevelHelper.getPreviousIcReviewDecisionState(
-                loanDecision.getLoanDecisionState());
+        // Update dynamic level record with rejection - query database directly to avoid lazy-loading issues
+        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(loanDecision.getId(), currentLevel);
 
-        if (previousState == null) {
-            // No previous IC review level, reject completely to parent status
-            LOG.info("No previous IC review level found for level {}, rejecting to parent status", currentLevel);
-            return rejectLoanAccountParentStatus(command, currentUser, loan);
+        if (decisionLevel == null) {
+            decisionLevel = new LoanDecisionLevel();
+            decisionLevel.setLoanDecision(loanDecision);
+            decisionLevel.setLevelNumber(currentLevel);
+            // Try to get the IC review level config
+            IcReviewLevelConfig levelConfig = this.icReviewLevelConfigRepository.findByLevelNumberAndActive(currentLevel);
+            if (levelConfig != null) {
+                decisionLevel.setIcReviewLevel(levelConfig);
+            }
         }
 
-        // Update loan and decision state to previous level
-        loan.setLoanDecisionState(previousState);
-        loanDecision.setLoanDecisionState(previousState);
+        decisionLevel.setIsRejected(Boolean.TRUE);
+        decisionLevel.setIsSigned(Boolean.FALSE);
+        decisionLevel.setDecisionBy(currentUser);
+        decisionLevel.setDecisionOn(LocalDate.now(ZoneId.systemDefault()));
+        decisionLevel.setNote(command.stringValueOfParameterNamed("note"));
+        loanDecisionLevelRepository.save(decisionLevel);
 
-        // Set next state back to current level (so it can be re-reviewed)
-        Integer nextState = dynamicIcReviewLevelHelper.getNextIcReviewDecisionState(previousState);
-        if (nextState != null) {
-            loanDecision.setNextLoanIcReviewDecisionState(nextState);
+        // If the next stage is outside the IC Review (PREPARE_AND_SIGN_CONTRACT), then reject the loan account completely
+        // This handles the case where the loan was at its final IC stage and got rejected
+
+        // Determine the next stage for the level being rejected to see if it's the final stage
+        LoanApprovalMatrix approvalMatrix = this.loanApprovalMatrixRepository.findLoanApprovalMatrixByCurrency(loan.getCurrencyCode());
+
+        if (approvalMatrix == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.approval.matrix.with.this.currency.does.not.exist.",
+                    String.format("Loan Approval Matrix with Currency [ %s ] doesn't exist. Approval matrix is expected to continue ",
+                            loan.getCurrencyCode()));
         }
 
-        // Update dynamic level record with rejection
-        loanDecision.getDecisionLevels().stream()
-                .filter(l -> l.getLevelNumber().equals(currentLevel))
-                .findFirst()
-                .ifPresent(level -> {
-                    level.setIsRejected(Boolean.TRUE);
-                    level.setIsSigned(Boolean.FALSE);
-                    level.setDecisionBy(currentUser);
-                    level.setDecisionOn(LocalDate.now(ZoneId.systemDefault()));
-                    level.setNote(command.stringValueOfParameterNamed("note"));
-                });
+        List<Loan> loanIndividualCounter = loanDecisionStateUtilService.getLoanCounter(loan);
+        Boolean isLoanFirstCycle = loanDecisionStateUtilService.isLoanFirstCycle(loanIndividualCounter);
+        Boolean isLoanUnsecure = loanDecisionStateUtilService.isLoanUnSecure(loan);
+        final BigDecimal dueDiligenceRecommendedAmount = loanDecision.getDueDiligenceRecommendedAmount();
+
+        // We update the nextLoanIcReviewDecisionState based on the approval matrix
+        loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
+                currentLevel, dueDiligenceRecommendedAmount);
+
+        // Update loan and decision state to current level (matches level 1-5 behavior where rejection moves forward)
+        // For levels 6+, the decision state value is usually 1800 + (level - 5)
+        Integer currentStateValue = null;
+        if (currentLevel <= 5) {
+            currentStateValue = LoanDecisionState.fromInt(1300 + (currentLevel * 100)).getValue();
+        } else {
+            currentStateValue = 1800 + (currentLevel - 5);
+        }
+
+        // Try to get the actual state value from config if available
+        IcReviewLevelConfig levelConfig = this.icReviewLevelConfigRepository.findByLevelNumberAndActive(currentLevel);
+        if (levelConfig != null) {
+            currentStateValue = levelConfig.getDecisionStateValue();
+        }
+
+        loan.setLoanDecisionState(currentStateValue);
+        loanDecision.setLoanDecisionState(currentStateValue);
 
         // Save changes
         this.loanDecisionRepository.saveAndFlush(loanDecision);
@@ -2347,18 +2378,25 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
         // Add note
         final String noteText = command.stringValueOfParameterNamed("note");
+        Note note = null;
         if (StringUtils.isNotBlank(noteText)) {
-            final Note note = Note.loanNote(loan, "IC Review Level " + currentLevel + " Rejected: " + noteText);
+            note = Note.loanNote(loan, "IC Review Level " + currentLevel + " Rejected: " + noteText);
             this.noteRepository.save(note);
         }
 
-        changes.put("loanDecisionState", previousState);
-        changes.put("nextLoanIcReviewDecisionState", nextState);
+        changes.put("loanDecisionState", currentStateValue);
+        changes.put("nextLoanIcReviewDecisionState", loanDecision.getNextLoanIcReviewDecisionState());
         changes.put("rejectedLevel", currentLevel);
 
-        LOG.info("Loan {} rejected from IC Review Level {} back to level {}",
-                loan.getId(), currentLevel, currentLevel - 1);
+        LOG.info("Loan {} rejected from IC Review Level {}, next state is {}",
+                loan.getId(), currentLevel, loanDecision.getNextLoanIcReviewDecisionState());
 
+        if (LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue().equals(loanDecision.getNextLoanIcReviewDecisionState())) {
+            LOG.info("Loan {} rejected in its final IC Review Level {}, rejecting to parent status", loan.getId(), currentLevel);
+            changes = rejectLoanAccountParentStatus(command, currentUser, loan);
+        } else {
+            this.businessEventNotifierService.notifyPostBusinessEvent(new LoanDecisionAcceptedEvent(loan, loanDecision, note));
+        }
         return changes;
     }
 
