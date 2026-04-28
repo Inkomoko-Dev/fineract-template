@@ -253,6 +253,11 @@ public class LoanDailyLateFeeService {
 
     private BigDecimal calculateDailyLateFeeRate(final BigDecimal monthlyRate, final Loan loan, final LocalDate penaltyDate) {
         final DaysInMonthType daysInMonthType = loan.getLoanProductRelatedDetail().fetchDaysInMonthType();
+        return calculateDailyLateFeeRate(monthlyRate, daysInMonthType, penaltyDate);
+    }
+
+    static BigDecimal calculateDailyLateFeeRate(final BigDecimal monthlyRate, final DaysInMonthType daysInMonthType,
+            final LocalDate penaltyDate) {
         final int divisor = daysInMonthType.isDaysInMonth_30() ? 30 : penaltyDate.lengthOfMonth();
         return monthlyRate.divide(BigDecimal.valueOf(100L), MoneyHelper.getMathContext())
                 .divide(BigDecimal.valueOf(divisor), 12, MoneyHelper.getRoundingMode());
