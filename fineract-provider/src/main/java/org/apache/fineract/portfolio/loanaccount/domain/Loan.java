@@ -2747,6 +2747,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     public Money adjustDisburseAmount(final JsonCommand command, final LocalDate actualDisbursementDate) {
         Money disburseAmount = this.loanRepaymentScheduleDetail.getPrincipal().zero();
         BigDecimal principalDisbursed = command.bigDecimalValueOfParameterNamed(LoanApiConstants.principalDisbursedParameterName);
+        if (shouldTreatSubmittedAmountAsNetDisbursal(command, principalDisbursed)) {
+            principalDisbursed = this.loanRepaymentScheduleDetail.getPrincipal().getAmount();
+        }
         if (this.actualDisbursementDate == null) {
             this.actualDisbursementDate = actualDisbursementDate;
         }
@@ -2798,6 +2801,26 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
         return disburseAmount;
+    }
+
+    private boolean shouldTreatSubmittedAmountAsNetDisbursal(final JsonCommand command, final BigDecimal principalDisbursed) {
+        if (principalDisbursed == null || this.loanProduct().isMultiDisburseLoan()) {
+            return false;
+        }
+
+        final BigDecimal submittedNetDisbursalAmount = command
+                .bigDecimalValueOfParameterNamed(LoanApiConstants.disbursementNetDisbursalAmountParameterName);
+        if (submittedNetDisbursalAmount == null || principalDisbursed.compareTo(submittedNetDisbursalAmount) != 0) {
+            return false;
+        }
+
+        final BigDecimal chargesDueAtDisbursement = deriveSumTotalOfChargesDueAtDisbursement();
+        if (chargesDueAtDisbursement.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+
+        final BigDecimal grossDisbursalAmount = principalDisbursed.add(chargesDueAtDisbursement);
+        return grossDisbursalAmount.compareTo(this.loanRepaymentScheduleDetail.getPrincipal().getAmount()) == 0;
     }
 
     private void compareDisbursedToApprovedOrProposedPrincipal(BigDecimal disbursedAmount, BigDecimal totalDisbursed) {
