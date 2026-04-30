@@ -2068,8 +2068,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             existingDisbursementList.remove(disbursementID);
             if (loanDisbursementDetail.actualDisbursementDate() == null) {
                 LocalDate actualDisbursementDate = null;
+                // Use approved principal to ensure LoanDisbursementDetails.principal stores gross principal
+                // not the net amount from the request
                 LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
-                        principal, this.netDisbursalAmount);
+                        this.approvedPrincipal, this.netDisbursalAmount);
                 disbursementDetails.updateLoan(this);
                 if (!loanDisbursementDetail.equals(disbursementDetails)) {
                     loanDisbursementDetail.copy(disbursementDetails);
@@ -2079,8 +2081,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         } else {
             LocalDate actualDisbursementDate = null;
+            // Use approved principal to ensure LoanDisbursementDetails.principal stores gross principal
+            // not the net amount from the request
             LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
-                    principal, this.netDisbursalAmount);
+                    this.approvedPrincipal, this.netDisbursalAmount);
             disbursementDetails.updateLoan(this);
             this.disbursementDetails.add(disbursementDetails);
             for (LoanTrancheCharge trancheCharge : trancheCharges) {
@@ -2776,7 +2780,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             } else {
                 for (LoanDisbursementDetails disbursementDetails : details) {
                     disbursementDetails.updateActualDisbursementDate(actualDisbursementDate);
-                    disbursementDetails.updatePrincipal(principalDisbursed);
+                    // Use approved principal to ensure LoanDisbursementDetails.principal always stores gross principal
+                    // not the net amount after insurance deductions. Net amount is tracked in netDisbursalAmount field.
+                    disbursementDetails.updatePrincipal(this.approvedPrincipal);
                 }
             }
             if (this.loanProduct().isMultiDisburseLoan()) {
