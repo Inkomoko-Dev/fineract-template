@@ -390,8 +390,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             // create artificial 'tranche/expected disbursal' as current disburse code expects it for multi-disbursal
             // products
             final LocalDate artificialExpectedDate = loan.getExpectedDisbursedOnLocalDate();
+            // Use approved principal to ensure LoanDisbursementDetails.principal stores gross principal
+            // not the net amount after insurance deductions
             LoanDisbursementDetails disbursementDetail = new LoanDisbursementDetails(artificialExpectedDate, null,
-                    loan.getDisbursedAmount(), null);
+                    loan.getApprovedPrincipal(), loan.getNetDisbursalAmount());
             disbursementDetail.updateLoan(loan);
             loan.getDisbursementDetails().add(disbursementDetail);
         }
