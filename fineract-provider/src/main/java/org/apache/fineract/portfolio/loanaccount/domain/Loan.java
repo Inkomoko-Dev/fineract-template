@@ -2070,10 +2070,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             existingDisbursementList.remove(disbursementID);
             if (loanDisbursementDetail.actualDisbursementDate() == null) {
                 LocalDate actualDisbursementDate = null;
-                // Use approved principal to ensure LoanDisbursementDetails.principal stores gross principal
-                // not the net amount from the request
                 LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
-                        this.approvedPrincipal, this.netDisbursalAmount);
+                        principal, this.netDisbursalAmount);
                 disbursementDetails.updateLoan(this);
                 if (!loanDisbursementDetail.equals(disbursementDetails)) {
                     loanDisbursementDetail.copy(disbursementDetails);
@@ -2083,10 +2081,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         } else {
             LocalDate actualDisbursementDate = null;
-            // Use approved principal to ensure LoanDisbursementDetails.principal stores gross principal
-            // not the net amount from the request
             LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
-                    this.approvedPrincipal, this.netDisbursalAmount);
+                    principal, this.netDisbursalAmount);
             disbursementDetails.updateLoan(this);
             this.disbursementDetails.add(disbursementDetails);
             for (LoanTrancheCharge trancheCharge : trancheCharges) {
@@ -2782,9 +2778,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             } else {
                 for (LoanDisbursementDetails disbursementDetails : details) {
                     disbursementDetails.updateActualDisbursementDate(actualDisbursementDate);
-                    // Use approved principal to ensure LoanDisbursementDetails.principal always stores gross principal
-                    // not the net amount after insurance deductions. Net amount is tracked in netDisbursalAmount field.
-                    disbursementDetails.updatePrincipal(this.approvedPrincipal);
+                    disbursementDetails.updatePrincipal(principalDisbursed);
                 }
             }
             if (this.loanProduct().isMultiDisburseLoan()) {
@@ -2800,7 +2794,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 this.loanRepaymentScheduleDetail.setPrincipal(setPrincipalAmount);
                 compareDisbursedToApprovedOrProposedPrincipal(disburseAmount.getAmount(), totalAmount);
             } else {
-                this.loanRepaymentScheduleDetail.setPrincipal(this.loanRepaymentScheduleDetail.getPrincipal().minus(diff).getAmount());
+                // For single disbursement loans, always use approved principal to ensure repayment schedule
+                // is based on full approved amount, not the net disbursed amount after insurance deductions
+                this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
             }
             if (!this.loanProduct().isMultiDisburseLoan() && diff.compareTo(BigDecimal.ZERO) < 0) {
                 final String errorMsg = "Loan can't be disbursed,disburse amount is exceeding approved amount ";
@@ -4049,7 +4045,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor) {
         ChangedTransactionDetail changedTransactionDetail = null;
         if (isDisbursementAllowed() && atleastOnceDisbursed()) {
-            this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount());
+            // For multi-disbursement loans, use sum of disbursed amounts
+            // For single disbursement loans, use approved principal
+            if (this.loanProduct().isMultiDisburseLoan()) {
+                this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount());
+            } else {
+                this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
+            }
             removeDisbursementDetail();
             regenerateRepaymentSchedule(scheduleGeneratorDTO);
             if (this.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
@@ -5480,7 +5482,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
 
-        this.loanRepaymentScheduleDetail.setPrincipal(setPrincipalAmount);
+        // For multi-disbursement loans, sum the actual disbursed amounts
+        // For single disbursement loans, use approved principal
+        if (this.loanProduct().isMultiDisburseLoan()) {
+            this.loanRepaymentScheduleDetail.setPrincipal(setPrincipalAmount);
+        } else {
+            this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
+        }
         if (this.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
             regenerateRepaymentScheduleWithInterestRecalculation(scheduleGeneratorDTO);
         } else {
@@ -6635,7 +6643,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
         for (final LoanDisbursementDetails details : this.disbursementDetails) {
             if (actualDisbursementDate.equals(details.actualDisbursementDate())) {
-                this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount().subtract(details.principal()));
+                // For multi-disbursement loans, subtract the disbursed amount
+                // For single disbursement loans, use approved principal
+                if (this.loanProduct().isMultiDisburseLoan()) {
+                    this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount().subtract(details.principal()));
+                } else {
+                    this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
+                }
                 details.updateActualDisbursementDate(null);
             }
         }
