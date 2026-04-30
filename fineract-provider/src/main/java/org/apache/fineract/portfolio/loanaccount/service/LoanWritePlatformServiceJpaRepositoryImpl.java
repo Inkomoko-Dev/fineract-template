@@ -376,10 +376,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             // create artificial 'tranche/expected disbursal' as current disburse code expects it for multi-disbursal
             // products
             final LocalDate artificialExpectedDate = loan.getExpectedDisbursedOnLocalDate();
-            // Use approved principal to ensure LoanDisbursementDetails.principal stores gross principal
-            // not the net amount after insurance deductions
             LoanDisbursementDetails disbursementDetail = new LoanDisbursementDetails(artificialExpectedDate, null,
-                    loan.getApprovedPrincipal(), loan.getNetDisbursalAmount());
+                    loan.getDisbursedAmount(), null);
             disbursementDetail.updateLoan(loan);
             loan.getDisbursementDetails().add(disbursementDetail);
         }
@@ -3264,16 +3262,20 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             changedTransactionDetail = loan.updateDisbursementDateAndAmountForTranche(loanDisbursementDetails, command, changes,
                     scheduleGeneratorDTO);
         } else {
-            // BigDecimal setAmount = loan.getApprovedPrincipal();
-            Collection<LoanDisbursementDetails> loanDisburseDetails = loan.getDisbursementDetails();
-            BigDecimal setAmount = BigDecimal.ZERO;
-            for (LoanDisbursementDetails details : loanDisburseDetails) {
-                if (details.actualDisbursementDate() != null) {
-                    setAmount = setAmount.add(details.principal());
+            // For multi-disbursement loans, sum the actual disbursed amounts
+            // For single disbursement loans, use approved principal
+            if (loan.loanProduct().isMultiDisburseLoan()) {
+                Collection<LoanDisbursementDetails> loanDisburseDetails = loan.getDisbursementDetails();
+                BigDecimal setAmount = BigDecimal.ZERO;
+                for (LoanDisbursementDetails details : loanDisburseDetails) {
+                    if (details.actualDisbursementDate() != null) {
+                        setAmount = setAmount.add(details.principal());
+                    }
                 }
+                loan.repaymentScheduleDetail().setPrincipal(setAmount);
+            } else {
+                loan.repaymentScheduleDetail().setPrincipal(loan.getApprovedPrincipal());
             }
-
-            loan.repaymentScheduleDetail().setPrincipal(setAmount);
 
             if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
                 loan.regenerateRepaymentScheduleWithInterestRecalculation(scheduleGeneratorDTO);
