@@ -2065,13 +2065,20 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     private void createOrUpdateDisbursementDetails(Long disbursementID, final Map<String, Object> actualChanges,
             LocalDate expectedDisbursementDate, BigDecimal principal, List<Long> existingDisbursementList) {
 
+        // For single disbursement loans, use approved principal instead of submitted principal
+        // (which might be net amount after insurance deductions)
+        BigDecimal disbursementPrincipal = principal;
+        if (!this.loanProduct().isMultiDisburseLoan()) {
+            disbursementPrincipal = this.approvedPrincipal;
+        }
+
         if (disbursementID != null) {
             LoanDisbursementDetails loanDisbursementDetail = fetchLoanDisbursementsById(disbursementID);
             existingDisbursementList.remove(disbursementID);
             if (loanDisbursementDetail.actualDisbursementDate() == null) {
                 LocalDate actualDisbursementDate = null;
                 LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
-                        principal, this.netDisbursalAmount);
+                        disbursementPrincipal, this.netDisbursalAmount);
                 disbursementDetails.updateLoan(this);
                 if (!loanDisbursementDetail.equals(disbursementDetails)) {
                     loanDisbursementDetail.copy(disbursementDetails);
@@ -2082,12 +2089,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         } else {
             LocalDate actualDisbursementDate = null;
             LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
-                    principal, this.netDisbursalAmount);
+                    disbursementPrincipal, this.netDisbursalAmount);
             disbursementDetails.updateLoan(this);
             this.disbursementDetails.add(disbursementDetails);
             for (LoanTrancheCharge trancheCharge : trancheCharges) {
                 Charge chargeDefinition = trancheCharge.getCharge();
-                final LoanCharge loanCharge = LoanCharge.createNewWithoutLoan(chargeDefinition, principal, null, null, null,
+                final LoanCharge loanCharge = LoanCharge.createNewWithoutLoan(chargeDefinition, disbursementPrincipal, null, null, null,
                         expectedDisbursementDate, null, null);
                 loanCharge.update(this);
                 LoanTrancheDisbursementCharge loanTrancheDisbursementCharge = new LoanTrancheDisbursementCharge(loanCharge,
@@ -2095,7 +2102,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 loanCharge.updateLoanTrancheDisbursementCharge(loanTrancheDisbursementCharge);
                 addLoanCharge(loanCharge);
             }
-            actualChanges.put(LoanApiConstants.disbursementDataParameterName, expectedDisbursementDate + "-" + principal);
+            actualChanges.put(LoanApiConstants.disbursementDataParameterName, expectedDisbursementDate + "-" + disbursementPrincipal);
             actualChanges.put("recalculateLoanSchedule", true);
         }
     }
@@ -2758,6 +2765,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         BigDecimal diff = BigDecimal.ZERO;
         Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
         if (principalDisbursed == null) {
+            // For single disbursement loans, ensure repayment schedule principal is approved principal
+            if (!this.loanProduct().isMultiDisburseLoan()) {
+                this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
+            }
             disburseAmount = this.loanRepaymentScheduleDetail.getPrincipal();
             if (!details.isEmpty()) {
                 disburseAmount = disburseAmount.zero();
@@ -2770,7 +2781,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             if (this.loanProduct.isMultiDisburseLoan()) {
                 disburseAmount = Money.of(getCurrency(), principalDisbursed);
             } else {
-                disburseAmount = disburseAmount.plus(principalDisbursed);
+                // For single disbursement loans, always use approved principal to ensure journal entries
+                // sent to Odoo use the gross principal amount instead of net amount after insurance deductions
+                disburseAmount = Money.of(getCurrency(), this.approvedPrincipal);
             }
 
             if (details.isEmpty()) {
