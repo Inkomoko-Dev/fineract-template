@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Objects;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -54,6 +55,11 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
             if (value == 2) return SUPPLIER;
             throw new IllegalArgumentException("Invalid paymentTo value: " + value);
         }
+    }
+
+    @Getter
+    public enum DisbursementType {
+        CLIENT, VENDOR
     }
 
     @Column(name = "payment_to", nullable = false)
@@ -123,6 +129,21 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
 
     @Column(name = "beneficiary_name", length = 150)
     private String beneficiaryName;
+
+    @Column(name = "disbursement_type", length = 20)
+    private String disbursementType;
+
+    @Column(name = "fx_rate", scale = 6, precision = 19)
+    private BigDecimal fxRate;
+
+    @Column(name = "usd_amount", scale = 6, precision = 19)
+    private BigDecimal usdAmount;
+
+    @Column(name = "fx_source", length = 100)
+    private String fxSource;
+
+    @Column(name = "fx_timestamp")
+    private LocalDateTime fxTimestamp;
 
     protected LoanDisbursementDetails() {
 

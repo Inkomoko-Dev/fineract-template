@@ -189,6 +189,11 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         } else if (disbursementDetail.getPaymentToType().equals(LoanDisbursementDetails.PaymentToType.SUPPLIER)){
             disbursementRequestData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
         }
+        disbursementRequestData.setDisbursementType(disbursementDetail.getDisbursementType());
+        disbursementRequestData.setFxRate(disbursementDetail.getFxRate());
+        disbursementRequestData.setUsdAmount(disbursementDetail.getUsdAmount());
+        disbursementRequestData.setFxSource(disbursementDetail.getFxSource());
+        disbursementRequestData.setFxTimestamp(disbursementDetail.getFxTimestamp());
 
         disbursementRequestData.setNarration(narration);
         disbursementRequestData.setNotifier(loanOfficer);
