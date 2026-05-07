@@ -820,8 +820,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         loanTransactionData.setClientAccountNumber(clientAccountNumber);
         loanTransactionData.setClientBankName(clientBankName);
         loanTransactionData.setClientPhoneNumber(clientPhoneNumber);
-        loanTransactionData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
-        loanTransactionData.setPaymentTo(disbursementDetail.getPaymentTo());
+        if (disbursementDetail != null) {
+            loanTransactionData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
+            loanTransactionData.setPaymentTo(disbursementDetail.getPaymentTo());
+            loanTransactionData.setDisbursementType(disbursementDetail.getDisbursementType());
+            loanTransactionData.setFxRate(disbursementDetail.getFxRate());
+            loanTransactionData.setUsdAmount(disbursementDetail.getUsdAmount());
+            loanTransactionData.setFxSource(disbursementDetail.getFxSource());
+            loanTransactionData.setFxTimestamp(disbursementDetail.getFxTimestamp());
+        }
 
         return loanTransactionData;
 
