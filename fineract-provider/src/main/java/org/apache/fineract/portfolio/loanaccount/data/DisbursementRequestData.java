@@ -23,6 +23,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Getter
 @Setter
@@ -47,6 +48,11 @@ public class DisbursementRequestData {
     private String narration;
     private String notifier;
     private String glCode;
+    private String disbursementType;
+    private BigDecimal fxRate;
+    private BigDecimal usdAmount;
+    private String fxSource;
+    private LocalDateTime fxTimestamp;
 
     public DisbursementRequestData(String requestId, String loanAccount, BigDecimal amount, String currencyCode, String paymentMethod, Long paymentMethodId,
                                    String clientPhoneNumber, String clientAccountNumber, String clientBankName, String origin, Long paymentTypeId) {

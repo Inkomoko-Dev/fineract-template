@@ -26,6 +26,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.math.RoundingMode;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -2033,12 +2034,25 @@ public class ReadWriteNonCoreDataServiceImpl implements ReadWriteNonCoreDataServ
 
         try {
             final String sqlString = "SELECT " + sqlGenerator.escape("Rate") + " FROM " + sqlGenerator.escape(datatableName) + " WHERE "
-                    + sqlGenerator.escape("updated_at") + " = (SELECT MAX( " + sqlGenerator.escape("updated_at") + ") FROM "
-                    + sqlGenerator.escape(datatableName) + ") and " + sqlGenerator.escape("office_id") + " = " + appTableId;
+                    + sqlGenerator.escape("office_id") + " = " + appTableId + " ORDER BY " + sqlGenerator.escape("updated_at")
+                    + " DESC LIMIT 1";
             final BigDecimal count = this.jdbcTemplate.queryForObject(sqlString, BigDecimal.class); // NOSONAR
             return count;
         } catch (EmptyResultDataAccessException e) {
             LOG.info("no data in fx rate");
+            return null;
+        }
+    }
+
+    @Override
+    public LocalDateTime getFxLatestTimestamp(final String datatableName, final Long appTableId) {
+        try {
+            final String sqlString = "SELECT " + sqlGenerator.escape("updated_at") + " FROM " + sqlGenerator.escape(datatableName) + " WHERE "
+                    + sqlGenerator.escape("office_id") + " = " + appTableId + " ORDER BY " + sqlGenerator.escape("updated_at")
+                    + " DESC LIMIT 1";
+            return this.jdbcTemplate.queryForObject(sqlString, LocalDateTime.class); // NOSONAR
+        } catch (EmptyResultDataAccessException e) {
+            LOG.info("no fx timestamp data in fx rate");
             return null;
         }
     }
