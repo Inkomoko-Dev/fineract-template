@@ -22,19 +22,23 @@ import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.JoinColumn;
-import javax.persistence.JoinTable;
-import javax.persistence.ManyToOne;
-import javax.persistence.OneToMany;
-import javax.persistence.Table;
+
 import org.apache.fineract.accounting.glaccount.domain.GLAccount;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.provisioning.domain.ProvisioningCategory;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+
+import javax.persistence.Entity;
+import javax.persistence.JoinColumn;
+import javax.persistence.ManyToOne;
+import javax.persistence.OneToMany;
+import javax.persistence.JoinTable;
+import javax.persistence.Column;
+import javax.persistence.Table;
+import javax.persistence.Enumerated;
+import javax.persistence.EnumType;
 
 @Entity
 @Table(name = "m_loanproduct_provisioning_entry")
@@ -76,6 +80,17 @@ public class LoanProductProvisioningEntry extends AbstractPersistableCustom {
     @JoinColumn(name = "expense_account", nullable = false)
     private GLAccount expenseAccount;
 
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "classification_type", nullable = false)
+    private ProvisioningClassificationType classificationType;
+
+    @Column(name = "criteria_version_id")
+    private Long criteriaVersion;
+
+    @Column(name = "criteria_definition_id")
+    private Long criteriaDefinitionId;
+
     @OneToMany
     @JoinTable(
             name = "m_loanproduct_provisioning_entry_loans",  // The name of the join table
@@ -88,7 +103,9 @@ public class LoanProductProvisioningEntry extends AbstractPersistableCustom {
 
     public LoanProductProvisioningEntry(final LoanProduct loanProduct, final Office office, final String currencyCode,
             final ProvisioningCategory provisioningCategory, final Long overdueInDays, final BigDecimal reservedAmount,
-            final GLAccount liabilityAccount, final GLAccount expenseAccount, Long criteriaId) {
+            final GLAccount liabilityAccount, final GLAccount expenseAccount, Long criteriaId,
+                                        final ProvisioningClassificationType classificationType,
+                                        final Long criteriaVersion, final Long criteriaDefinitionId) {
         this.loanProduct = loanProduct;
         this.office = office;
         this.currencyCode = currencyCode;
@@ -99,6 +116,9 @@ public class LoanProductProvisioningEntry extends AbstractPersistableCustom {
         this.expenseAccount = expenseAccount;
         this.criteriaId = criteriaId;
         this.loan = new HashSet<>();
+        this.classificationType = classificationType;
+        this.criteriaVersion = criteriaVersion;
+        this.criteriaDefinitionId = criteriaDefinitionId;
 
     }
 

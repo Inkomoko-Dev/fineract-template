@@ -45,13 +45,14 @@ public class LoanProductProvisioningEntryData {
     private final String expenseAccountCode;
     private final String expenseAccountName;
     private final Long criteriaId;
+    private final Long criteriaDefinitionId;
     private final Long loanId;
 
     private final List<LoanData> loans;
 
     public LoanProductProvisioningEntryData(final Long historyId, final Long officeId, final String currencyCode, final Long productId,
             final Long categoryId, final Long overdueInDays, final BigDecimal percentage, final BigDecimal balance, Long liablityAccount,
-            Long expenseAccount, final Long criteriaId, final Long loanId) {
+            Long expenseAccount, final Long criteriaId, final Long criteriaDefinitionId, final Long loanId) {
         this.historyId = historyId;
         this.officeId = officeId;
         this.currencyCode = currencyCode;
@@ -73,13 +74,14 @@ public class LoanProductProvisioningEntryData {
         this.criteriaId = criteriaId;
         this.loanId = loanId;
         this.loans = null;
+        this.criteriaDefinitionId = criteriaDefinitionId;
 
     }
 
     public LoanProductProvisioningEntryData(final Long historyId, final Long officeId, final String officeName, final String currencyCode,
             final Long productId, final String productName, final Long categoryId, final String categoryName, final Long overdueInDays,
             final BigDecimal amountreserved, Long liablityAccount, String liabilityAccountglCode, String liabilityAccountName,
-            Long expenseAccount, String expenseAccountglCode, String expenseAccountName, final Long criteriaId, final List<LoanData> loans) {
+            Long expenseAccount, String expenseAccountglCode, String expenseAccountName, final Long criteriaId, final Long criteriaDefinitionId, final List<LoanData> loans) {
         this.historyId = historyId;
         this.officeId = officeId;
         this.currencyCode = currencyCode;
@@ -99,6 +101,7 @@ public class LoanProductProvisioningEntryData {
         this.expenseAccountCode = expenseAccountglCode;
         this.expenseAccountName = expenseAccountName;
         this.criteriaId = criteriaId;
+        this.criteriaDefinitionId = criteriaDefinitionId;
         this.loanId = null;
         this.loans = loans;
     }
