@@ -34,6 +34,7 @@ import org.apache.fineract.accounting.producttoaccountmapping.domain.PortfolioPr
 import org.apache.fineract.accounting.provisioning.data.LoanProductProvisioningEntryData;
 import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryData;
 import org.apache.fineract.accounting.provisioning.domain.LoanProductProvisioningEntry;
+import org.apache.fineract.accounting.provisioning.domain.ProvisioningClassificationType;
 import org.apache.fineract.accounting.provisioning.domain.ProvisioningEntry;
 import org.apache.fineract.accounting.provisioning.domain.ProvisioningEntryRepository;
 import org.apache.fineract.accounting.provisioning.exception.NoProvisioningCriteriaDefinitionFound;
@@ -230,9 +231,11 @@ public class ProvisioningEntriesWritePlatformServiceJpaRepositoryImpl implements
             Money money = Money.of(currency, data.getBalance());
             Money amountToReserve = money.percentageOf(data.getPercentage(), MoneyHelper.getRoundingMode());
             Long criteraId = data.getCriteriaId();
+            Long criteriaDefinitionId = data.getCriteriaDefinitionId();
+
             LoanProductProvisioningEntry entry = new LoanProductProvisioningEntry(loanProduct, office, data.getCurrencyCode(),
                     provisioningCategory, data.getOverdueInDays(), amountToReserve.getAmount(), liabilityAccount, expenseAccount,
-                    criteraId);
+                    criteraId, ProvisioningClassificationType.PROVISION_BUCKET,1L,criteriaDefinitionId);
             Loan loan = this.loanRepository.getReferenceById(data.getLoanId());
             entry.setProvisioningEntry(parent);
             if (!provisioningEntries.containsKey(entry.partialHashCode())) {

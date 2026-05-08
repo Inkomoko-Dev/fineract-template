@@ -45,6 +45,9 @@ public class ProvisioningCriteriaDefinition extends AbstractPersistableCustom {
     @Column(name = "max_age", nullable = false)
     private Long maximumAge;
 
+    @Column(name = "criteria_version_id", nullable = false)
+    private Long criteriaVersionId;
+
     @Column(name = "provision_percentage", nullable = false)
     private BigDecimal provisioningPercentage;
 
