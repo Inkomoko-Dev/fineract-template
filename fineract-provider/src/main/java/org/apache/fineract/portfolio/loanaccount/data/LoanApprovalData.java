@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.data;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
@@ -34,6 +35,9 @@ public class LoanApprovalData {
     private final LocalDate approvalDate;
     private final BigDecimal approvalAmount;
     private final BigDecimal netDisbursalAmount;
+    private final BigDecimal fxRate;
+    private final LocalDateTime fxTimestamp;
+    private final String fxSource;
 
     // import fields
     private LocalDate approvedOnDate;
@@ -61,13 +65,20 @@ public class LoanApprovalData {
         this.approvalAmount = null;
         this.approvalDate = null;
         this.netDisbursalAmount = null;
+        this.fxRate = null;
+        this.fxTimestamp = null;
+        this.fxSource = null;
     }
 
-    public LoanApprovalData(final BigDecimal approvalAmount, final LocalDate approvalDate, final BigDecimal netDisbursalAmount, final Collection<PaymentTypeData> paymentOptions) {
+    public LoanApprovalData(final BigDecimal approvalAmount, final LocalDate approvalDate, final BigDecimal netDisbursalAmount,
+            final Collection<PaymentTypeData> paymentOptions, final BigDecimal fxRate, final LocalDateTime fxTimestamp, final String fxSource) {
         this.approvalDate = approvalDate;
         this.approvalAmount = approvalAmount;
         this.netDisbursalAmount = netDisbursalAmount;
         this.paymentTypeOptions = paymentOptions;
+        this.fxRate = fxRate;
+        this.fxTimestamp = fxTimestamp;
+        this.fxSource = fxSource;
     }
 
     public LoanApprovalData(BigDecimal approvalAmount, LocalDate approvalDate, BigDecimal netDisbursalAmount,
@@ -79,6 +90,10 @@ public class LoanApprovalData {
         this.approverOptions = approverOptions;
         this.currency = currency;
         this.loanDecisionData = loanDecisionData;
+        this.paymentTypeOptions = null;
+        this.fxRate = null;
+        this.fxTimestamp = null;
+        this.fxSource = null;
     }
 
     public LocalDate getApprovalDate() {
@@ -91,6 +106,22 @@ public class LoanApprovalData {
 
     public BigDecimal getNetDisbursalAmount() {
         return this.netDisbursalAmount;
+    }
+
+    public BigDecimal getFxRate() {
+        return this.fxRate;
+    }
+
+    public LocalDateTime getFxTimestamp() {
+        return this.fxTimestamp;
+    }
+
+    public String getFxSource() {
+        return this.fxSource;
+    }
+
+    public Collection<PaymentTypeData> getPaymentTypeOptions() {
+        return this.paymentTypeOptions;
     }
 
     public void setApproverOptionsOptions(Collection<AppUserData> approvers) {
