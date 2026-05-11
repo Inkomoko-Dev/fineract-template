@@ -239,7 +239,8 @@ public class LoansApiResource {
             LoanApiConstants.EMI_AMOUNT_VARIATIONS_PARAMNAME, LoanApiConstants.COLLECTION_PARAMNAME, LoanApiConstants.DEPARTMENT_PARAM,
             "departmentOptions", "loanDecisionState", "loanDueDiligenceData", LoanApiConstants.linkedVendorAccountAssociateParamName));
 
-    private final Set<String> loanApprovalDataParameters = new HashSet<>(Arrays.asList("approvalDate", "approvalAmount"));
+    private final Set<String> loanApprovalDataParameters = new HashSet<>(
+            Arrays.asList("approvalDate", "approvalAmount", "netDisbursalAmount", "paymentTypeOptions", "currency", "fxRate", "fxTimestamp", "fxSource"));
     final Set<String> glimAccountsDataParameters = new HashSet<>(Arrays.asList("glimId", "groupId", "clientId", "parentLoanAccountNo",
             "parentPrincipalAmount", "childLoanAccountNo", "childPrincipalAmount", "clientName"));
 

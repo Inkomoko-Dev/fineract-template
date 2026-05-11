@@ -162,6 +162,7 @@ import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatform
 import org.apache.fineract.portfolio.paymentdetail.data.PaymentDetailData;
 import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
 import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatformService;
+import org.apache.fineract.infrastructure.dataqueries.service.ReadWriteNonCoreDataService;
 import org.apache.fineract.portfolio.savings.exception.SavingsAccountSearchParameterNotProvidedException;
 import org.apache.fineract.portfolio.savings.request.FilterSelection;
 import org.apache.fineract.portfolio.search.service.SearchReadPlatformService;
@@ -201,6 +202,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final LoanMapper loanMapper;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
+    private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
     private final LoanRepaymentScheduleTransactionProcessorFactory loanRepaymentScheduleTransactionProcessorFactory;
     private final FloatingRatesReadPlatformService floatingRatesReadPlatformService;
     private final LoanUtilService loanUtilService;
@@ -230,6 +232,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                        final CodeValueReadPlatformService codeValueReadPlatformService, final JdbcTemplate jdbcTemplate,
                                        final NamedParameterJdbcTemplate namedParameterJdbcTemplate, final CalendarReadPlatformService calendarReadPlatformService,
                                        final StaffReadPlatformService staffReadPlatformService, final PaymentTypeReadPlatformService paymentTypeReadPlatformService,
+                                       final ReadWriteNonCoreDataService readWriteNonCoreDataService,
                                        final LoanRepaymentScheduleTransactionProcessorFactory loanRepaymentScheduleTransactionProcessorFactory,
                                        final FloatingRatesReadPlatformService floatingRatesReadPlatformService, final LoanUtilService loanUtilService,
                                        final ConfigurationDomainService configurationDomainService,
@@ -259,6 +262,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.jdbcTemplate = jdbcTemplate;
         this.namedParameterJdbcTemplate = namedParameterJdbcTemplate;
         this.paymentTypeReadPlatformService = paymentTypeReadPlatformService;
+        this.readWriteNonCoreDataService = readWriteNonCoreDataService;
         this.loanRepaymentScheduleTransactionProcessorFactory = loanRepaymentScheduleTransactionProcessorFactory;
         this.floatingRatesReadPlatformService = floatingRatesReadPlatformService;
         this.loanUtilService = loanUtilService;
@@ -728,7 +732,16 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
         BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
 
-        return new LoanApprovalData(approvedAmount, DateUtils.getBusinessLocalDate(), netDisbursementAmount, paymentOptions);
+        BigDecimal fxRate = null;
+        LocalDateTime fxTimestamp = null;
+        String fxSource = null;
+        if ("SSP".equalsIgnoreCase(loan.getCurrencyCode())) {
+            fxRate = this.readWriteNonCoreDataService.getFxLatestRate("Fx_rate", loan.getOfficeId());
+            fxTimestamp = this.readWriteNonCoreDataService.getFxLatestTimestamp("Fx_rate", loan.getOfficeId());
+            fxSource = "CBS_DAILY_RATE";
+        }
+
+        return new LoanApprovalData(approvedAmount, DateUtils.getBusinessLocalDate(), netDisbursementAmount, paymentOptions, fxRate, fxTimestamp, fxSource);
     }
 
     @Override
