@@ -1172,7 +1172,16 @@ public class AccountingProcessorHelper {
                             accountMappingTypeId, chargeId);
             if (chargeSpecificIncomeAccountMapping != null) {
                 accountMapping = chargeSpecificIncomeAccountMapping;
+            } else if (chargeId != null) {
+                final GLAccount chargeAccount = chargeRepositoryWrapper.findOneWithNotFoundDetection(chargeId).getAccount();
+                if (chargeAccount != null) {
+                    return chargeAccount;
+                }
             }
+        }
+        if (accountMapping == null) {
+            throw new ProductToGLAccountMappingNotFoundException(PortfolioProductType.LOAN, loanProductId,
+                    AccrualAccountsForLoan.fromInt(accountMappingTypeId).toString());
         }
         return accountMapping.getGlAccount();
     }
