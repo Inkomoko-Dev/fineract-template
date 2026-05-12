@@ -28,7 +28,6 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.Collection;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
@@ -65,7 +64,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class DisbursementRequestServiceImpl implements DisbursementRequestService {
 
-    private static final Logger LOG = LoggerFactory.getLogger(TransUnionCrbServiceImpl.class);
+    private static final Logger LOG = LoggerFactory.getLogger(DisbursementRequestServiceImpl.class);
 
     private final ClientOtherInfoRepository clientOtherInfoRepository;
 
@@ -142,8 +141,16 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
         Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
         final PaymentTypeData paymentTypes = this.paymentTypeReadPlatformService.retrieveOne(paymentTypeId);
-        String uniqueId = UUID.randomUUID() + "-" + System.currentTimeMillis();
-        final String requestId = "cbs_" + loan.getId() + "_" + uniqueId;
+        LoanDisbursementDetails disbursementDetail = null;
+        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
+            disbursementDetail = loan.getDisbursementDetails().iterator().next();
+        }
+
+        // Deterministic idempotency key: same disbursement event => same requestId on retries
+        final String disbursementDetailIdPart = (disbursementDetail != null && disbursementDetail.getId() != null)
+                ? disbursementDetail.getId().toString()
+                : "0";
+        final String requestId = "cbs_disb_" + loan.getId() + "_" + disbursementDetailIdPart;
         final String loanOfficer = loan.getLoanOfficer().emailAddress();
         final String clientName = loan.getClient().getDisplayName();
         final String narration = "Loan Disbursement for Loan Account No: " + loan.getAccountNumber() + "  Client " + clientName;
@@ -174,15 +181,14 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
             glCode = Iterables.get(Splitter.on('-').split(fundSource.getGlCode()), 0);
         }
 
-        LoanDisbursementDetails disbursementDetail = null;
-        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
-            disbursementDetail = loan.getDisbursementDetails().iterator().next();
+        if (disbursementDetail == null) {
+            throw new LoanDisbursementRequestException("Missing disbursement details for this loan",
+                    "integration.disbursementRequest.missingDisbursementDetails");
         }
-
-        assert disbursementDetail != null;
         DisbursementRequestData disbursementRequestData = new DisbursementRequestData(requestId, loan.getAccountNumber(),
                 totalPrincipalToBeDisbursed, loan.getPrincpal().getCurrencyCode(), paymentTypes.getName(), paymentTypes.getId(), disbursementDetail.getClientPhoneNumber(),
                 disbursementDetail.getClientAccountNumber(), disbursementDetail.getClientBankName(), "CBS", paymentTypeId);
+        disbursementRequestData.setLoanId(loan.getId());
 
         if (disbursementDetail.getPaymentToType().equals(LoanDisbursementDetails.PaymentToType.CLIENT)) {
             disbursementRequestData.setBeneficiaryName(clientName);

@@ -33,6 +33,7 @@ public class DisbursementRequestData {
     private final String origin;
     private final String requestId;
     private final String externalId;
+    private Long loanId;
     private final BigDecimal amount;
     private final String currencyCode; //
     private String countryCode;
