@@ -1164,7 +1164,6 @@ public class AccountingProcessorHelper {
          * cash and accrual based accounts
          *****/
 
-        // Vishwas TODO: remove this condition as it should always be true
         if (accountMappingTypeId == CashAccountsForLoan.INCOME_FROM_FEES.getValue()
                 || accountMappingTypeId == CashAccountsForLoan.INCOME_FROM_PENALTIES.getValue()) {
             final ProductToGLAccountMapping chargeSpecificIncomeAccountMapping = this.accountMappingRepository
