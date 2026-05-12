@@ -267,6 +267,14 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         LoanStatusChecker
                 .verifyLoanAccountIsClosed(LoanStatusChecker.getStatusOfLoan(this.requestSpec, this.responseSpec, loanID));
 
+        final HashMap recoveryTemplateAfterReversal = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
+                "/fineract-provider/api/v1/loans/" + loanID + "/transactions/template?command=" + RECOVERY_PAYMENT + "&"
+                        + Utils.TENANT_IDENTIFIER,
+                "");
+        final Float expectedRecoveryTemplateAmount = Float.valueOf(String.valueOf(loanSummary.get("totalWrittenOff"))) - 150.0f;
+        Assertions.assertEquals(expectedRecoveryTemplateAmount, Float.valueOf(String.valueOf(recoveryTemplateAfterReversal.get("amount"))),
+                "Recovery template amount should only subtract active recovery payments after reversal ");
+
         final Integer correctedRecoveryId = (Integer) this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT,
                 "02 January 2011", 120.0f, loanID, originalRecoveryId, null, "resourceId");
 
