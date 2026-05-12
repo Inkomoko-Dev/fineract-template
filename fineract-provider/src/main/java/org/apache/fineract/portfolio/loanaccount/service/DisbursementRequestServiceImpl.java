@@ -64,7 +64,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class DisbursementRequestServiceImpl implements DisbursementRequestService {
 
-    private static final Logger LOG = LoggerFactory.getLogger(TransUnionCrbServiceImpl.class);
+    private static final Logger LOG = LoggerFactory.getLogger(DisbursementRequestServiceImpl.class);
 
     private final ClientOtherInfoRepository clientOtherInfoRepository;
 
