@@ -53,13 +53,6 @@
         </insert>
     </changeSet>
 
-<!--    <changeSet id="INKOMOKO-prov-cat-extra-seq-postgresql" author="felixm@inkomoko.com" >-->
-<!--        <comment>Align provision category sequence after explicit ids</comment>-->
-<!--        <sql>-->
-<!--            SELECT SETVAL('m_provision_category_id_seq', COALESCE((SELECT MAX(id) FROM m_provision_category), 0) + 1, false)-->
-<!--        </sql>-->
-<!--    </changeSet>-->
-
     <changeSet id="INKOMOKO-provisioning-relax-aging-config" author="felixm@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">SELECT COUNT(*) FROM c_configuration WHERE name = 'provisioning-relax-contiguous-aging-bands'</sqlCheck>
