@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.accounting.glaccount.domain.GLAccount;
 import org.apache.fineract.accounting.glaccount.domain.GLAccountRepository;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
@@ -36,6 +37,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.organisation.provisioning.constants.ProvisioningCriteriaConstants;
+import org.apache.fineract.organisation.provisioning.constants.ProvisioningGlobalConfigurationConstants;
 import org.apache.fineract.organisation.provisioning.domain.LoanProductProvisionCriteria;
 import org.apache.fineract.organisation.provisioning.domain.ProvisioningCategory;
 import org.apache.fineract.organisation.provisioning.domain.ProvisioningCategoryRepository;
@@ -46,6 +48,9 @@ import org.apache.fineract.organisation.provisioning.exception.ProvisioningCrite
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -56,16 +61,19 @@ public class ProvisioningCriteriaAssembler {
     private final LoanProductRepository loanProductRepository;
     private final GLAccountRepository glAccountRepository;
     private final PlatformSecurityContext platformSecurityContext;
+    private final JdbcTemplate jdbcTemplate;
 
     @Autowired
     public ProvisioningCriteriaAssembler(final FromJsonHelper fromApiJsonHelper,
             final ProvisioningCategoryRepository provisioningCategoryRepository, final LoanProductRepository loanProductRepository,
-            final GLAccountRepository glAccountRepository, final PlatformSecurityContext platformSecurityContext) {
+            final GLAccountRepository glAccountRepository, final PlatformSecurityContext platformSecurityContext,
+            final JdbcTemplate jdbcTemplate) {
         this.fromApiJsonHelper = fromApiJsonHelper;
         this.provisioningCategoryRepository = provisioningCategoryRepository;
         this.loanProductRepository = loanProductRepository;
         this.glAccountRepository = glAccountRepository;
         this.platformSecurityContext = platformSecurityContext;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     public List<LoanProduct> parseLoanProducts(final JsonElement jsonElement) {
@@ -90,6 +98,20 @@ public class ProvisioningCriteriaAssembler {
         }
 
         definitions.sort(Comparator.comparing(ProvisioningCriteriaDefinition::getMinimumAge));
+
+        validateNoOverlaps(definitions);
+        for (int i = 0; i < definitions.size(); i++) {
+            ProvisioningCriteriaDefinition definition = definitions.get(i);
+            if (definition.getMaximumAge() == null && i < definitions.size() - 1) {
+                throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.open.ended.bucket.not.last",
+                        "Only the last provisioning bucket may be open ended");
+            }
+        }
+
+        if (relaxContiguousProvisioningBands()) {
+            return;
+        }
+
         if (definitions.get(0).getMinimumAge() != 0L) {
             throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.range.must.start.at.zero",
                     "Provisioning bucket ranges must start at 0 days");
@@ -102,18 +124,30 @@ public class ProvisioningCriteriaAssembler {
                 throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.gapped.ranges",
                         "Provisioning bucket ranges must be continuous without gaps");
             }
-            if (definition.getMaximumAge() == null && i < definitions.size() - 1) {
-                throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.open.ended.bucket.not.last",
-                        "Only the last provisioning bucket may be open ended");
-            }
-            for (int j = i + 1; j < definitions.size(); j++) {
-                if (definition.isOverlapping(definitions.get(j))) {
-                    throw new ProvisioningCriteriaOverlappingDefinitionException();
-                }
-            }
             if (definition.getMaximumAge() != null) {
                 expectedMinimumAge = definition.getMaximumAge() + 1;
             }
+        }
+    }
+
+    private void validateNoOverlaps(List<ProvisioningCriteriaDefinition> definitions) {
+        for (int i = 0; i < definitions.size(); i++) {
+            for (int j = i + 1; j < definitions.size(); j++) {
+                if (definitions.get(i).isOverlapping(definitions.get(j))) {
+                    throw new ProvisioningCriteriaOverlappingDefinitionException();
+                }
+            }
+        }
+    }
+
+    private boolean relaxContiguousProvisioningBands() {
+        try {
+            final String sql = "SELECT COALESCE(enabled, false) FROM c_configuration WHERE name = ?";
+            RowMapper<Boolean> toBool = (rs, rn) -> rs.getBoolean(1);
+            return Boolean.TRUE.equals(
+                    jdbcTemplate.queryForObject(sql, toBool, ProvisioningGlobalConfigurationConstants.RELAX_CONTIGUOUS_AGING_BANDS));
+        } catch (EmptyResultDataAccessException e) {
+            return false;
         }
     }
 
@@ -153,6 +187,13 @@ public class ProvisioningCriteriaAssembler {
         }
         validateRange(definitions);
         version.setDefinitions(new HashSet<>(definitions));
+        if (this.fromApiJsonHelper.parameterExists(ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM, jsonElement)) {
+            final String reason = this.fromApiJsonHelper
+                    .extractStringNamed(ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM, jsonElement);
+            if (StringUtils.isNotBlank(reason)) {
+                version.setPolicyChangeReason(reason.trim());
+            }
+        }
         return version;
     }
 
