@@ -1685,7 +1685,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 final Integer paymentTo = command.integerValueOfParameterNamed("paymentTo");
                 final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
                 final String disbursementTypeRaw = command.stringValueOfParameterNamed(LoanApiConstants.disbursementTypeParameterName);
-                final String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
+                String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
+
+                if (disbursementType == null && paymentTo != null) {
+                    if (paymentTo == 2) {
+                        disbursementType = LoanDisbursementDetails.DisbursementType.VENDOR.name();
+                    } else if (paymentTo == 1) {
+                        disbursementType = LoanDisbursementDetails.DisbursementType.CLIENT.name();
+                    }
+                }
                 BigDecimal fxRate = null;
                 BigDecimal usdAmount = null;
                 String fxSource = null;
@@ -1712,13 +1720,27 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
                 if (isSouthSudanSsp && LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)) {
                     normalizedPaymentTo = LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue();
-                    fxRate = this.readWriteNonCoreDataService.getFxLatestRate("Fx_rate", loan.getOfficeId());
-                    fxTimestamp = this.readWriteNonCoreDataService.getFxLatestTimestamp("Fx_rate", loan.getOfficeId());
+                    
+                    BigDecimal fetchedFxRate = this.readWriteNonCoreDataService.getFxLatestRate("Fx_rate", loan.getOfficeId());
+                    LocalDateTime fetchedFxTimestamp = this.readWriteNonCoreDataService.getFxLatestTimestamp("Fx_rate", loan.getOfficeId());
+                    
+                    // FX Rate Handling: Prefer backend fetched rate, but allow manual override from API
+                    final BigDecimal manualFxRate = command.bigDecimalValueOfParameterNamed(LoanApiConstants.fxRateParameterName);
+                    if (manualFxRate != null) {
+                        fxRate = manualFxRate;
+                        fxTimestamp = DateUtils.getLocalDateTimeOfTenant(); // Use current time for manual override
+                        fxSource = "MANUAL_ENTRY";
+                    } else {
+                        fxRate = fetchedFxRate;
+                        fxTimestamp = fetchedFxTimestamp;
+                        fxSource = "CBS_DAILY_RATE";
+                    }
+
                     if (fxRate != null && fxRate.compareTo(BigDecimal.ZERO) > 0) {
                         usdAmount = loan.getPrincpal().getAmount().divide(fxRate, 6, RoundingMode.HALF_UP);
                     } else {
                         validationErrors.add(ApiParameterError.parameterError("validation.msg.loanapproval.fxRate.required",
-                                "FX rate is required for South Sudan vendor disbursement.",
+                                "FX rate is required for South Sudan vendor disbursement. Please ensure a rate is recorded or provided manually.",
                                 LoanApiConstants.fxRateParameterName, fxRate));
                     }
                     if (fxTimestamp == null) {
@@ -1726,7 +1748,6 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                                 "FX timestamp is required for South Sudan vendor disbursement.",
                                 LoanApiConstants.fxTimestampParameterName, fxTimestamp));
                     }
-                    fxSource = "CBS_DAILY_RATE";
                 } else {
                     normalizedPaymentTo = paymentTo;
                     if (isSouthSudanSsp && LoanDisbursementDetails.DisbursementType.CLIENT.name().equals(disbursementType)) {
@@ -1737,6 +1758,11 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 if (!validationErrors.isEmpty()) {
                     throw new PlatformApiDataValidationException("validation.msg.loanapproval.disbursement.details.invalid",
                             "Validation errors exist for South Sudan disbursement fields.", validationErrors);
+                }
+
+                // Enforce payment details validation (e.g., vendor details)
+                if (paymentType != null) {
+                    validatePaymentDetails(command, paymentType);
                 }
 
                 BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
