@@ -48,4 +48,7 @@ public interface ProvisioningCriteriaConstants {
     String ACTIVE_VERSION_ID_PARAM = "activeVersionId";
     String VERSION_NO_PARAM = "versionNo";
     String EFFECTIVE_FROM_PARAM = "effectiveFrom";
+
+    /** Optional audit note stored on the command (max length enforced in deserializer). */
+    String JSON_POLICY_CHANGE_REASON_PARAM = "policyChangeReason";
 }

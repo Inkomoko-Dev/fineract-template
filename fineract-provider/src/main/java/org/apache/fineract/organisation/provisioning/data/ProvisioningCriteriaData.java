@@ -22,9 +22,12 @@ import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+
+import lombok.Getter;
 import org.apache.fineract.accounting.glaccount.data.GLAccountData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 
+@Getter
 @SuppressWarnings("unused")
 public final class ProvisioningCriteriaData implements Comparable<ProvisioningCriteriaData>, Serializable {
 
@@ -39,11 +42,12 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
     private final Long activeVersionId;
     private final Integer versionNo;
     private final LocalDate effectiveFrom;
+    private final String policyChangeReason;
 
     private ProvisioningCriteriaData(final Long criteriaId, final String criteriaName, final Collection<LoanProductData> loanProducts,
             Collection<ProvisioningCriteriaDefinitionData> definitions, Collection<ProvisioningCategoryData> categories,
             Collection<GLAccountData> glAccounts, final String createdBy, final Long activeVersionId, final Integer versionNo,
-            final LocalDate effectiveFrom) {
+            final LocalDate effectiveFrom, final String policyChangeReason) {
         this.criteriaId = criteriaId;
         this.criteriaName = criteriaName;
         this.loanProducts = loanProducts;
@@ -54,6 +58,7 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
         this.activeVersionId = activeVersionId;
         this.versionNo = versionNo;
         this.effectiveFrom = effectiveFrom;
+        this.policyChangeReason = policyChangeReason;
     }
 
     private ProvisioningCriteriaData(ProvisioningCriteriaData data, final Collection<LoanProductData> loanProducts,
@@ -70,16 +75,17 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
         this.activeVersionId = data.activeVersionId;
         this.versionNo = data.versionNo;
         this.effectiveFrom = data.effectiveFrom;
+        this.policyChangeReason = data.policyChangeReason;
     }
 
     public static ProvisioningCriteriaData toLookup(final Long criteriaId, final String criteriaName,
             final Collection<LoanProductData> loanProducts, final List<ProvisioningCriteriaDefinitionData> definitions,
-            final Long activeVersionId, final Integer versionNo, final LocalDate effectiveFrom) {
+            final Long activeVersionId, final Integer versionNo, final LocalDate effectiveFrom, final String policyChangeReason) {
         Collection<GLAccountData> glAccounts = null;
         Collection<ProvisioningCategoryData> categories = null;
         String createdBy = null;
         return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, categories, glAccounts, createdBy,
-                activeVersionId, versionNo, effectiveFrom);
+                activeVersionId, versionNo, effectiveFrom, policyChangeReason);
     }
 
     public static ProvisioningCriteriaData toLookup(final Long criteriaId, final String criteriaName, String createdBy) {
@@ -91,7 +97,7 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
         Integer versionNo = null;
         LocalDate effectiveFrom = null;
         return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, categories, glAccounts, createdBy,
-                activeVersionId, versionNo, effectiveFrom);
+                activeVersionId, versionNo, effectiveFrom, null);
     }
 
     public static ProvisioningCriteriaData toTemplate(final Collection<ProvisioningCategoryData> categories,
@@ -104,57 +110,13 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
         Integer versionNo = null;
         LocalDate effectiveFrom = null;
         return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, categories, glAccounts, createdBy,
-                activeVersionId, versionNo, effectiveFrom);
+                activeVersionId, versionNo, effectiveFrom, null);
     }
 
     public static ProvisioningCriteriaData toTemplate(final ProvisioningCriteriaData data,
             final Collection<ProvisioningCategoryData> categories, final Collection<LoanProductData> loanProducts,
             final Collection<GLAccountData> glAccounts) {
         return new ProvisioningCriteriaData(data, loanProducts, categories, glAccounts);
-    }
-
-    public Long getCriteriaId() {
-        return this.criteriaId;
-    }
-
-    public String getCriteriaName() {
-        return this.criteriaName;
-    }
-
-    public String getCreatedBy() {
-        return this.createdBy;
-    }
-
-    public Collection<LoanProductData> getLoanProducts() {
-        return this.loanProducts;
-    }
-
-    public Collection<LoanProductData> getSelectedLoanProducts() {
-        return this.selectedLoanProducts;
-    }
-
-    public Collection<ProvisioningCriteriaDefinitionData> getDefinitions() {
-        return this.definitions;
-    }
-
-    public Collection<ProvisioningCategoryData> getCategories() {
-        return this.categories;
-    }
-
-    public Collection<GLAccountData> getGlAccounts() {
-        return this.glAccounts;
-    }
-
-    public Long getActiveVersionId() {
-        return this.activeVersionId;
-    }
-
-    public Integer getVersionNo() {
-        return this.versionNo;
-    }
-
-    public LocalDate getEffectiveFrom() {
-        return this.effectiveFrom;
     }
 
     @Override
