@@ -2360,7 +2360,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     public LoanTransactionData retrieveRecoveryPaymentTemplate(Long loanId, Long originalTransactionId) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.RECOVERY_REPAYMENT);
-        final List<LoanTransaction> transaction = loanTransactionRepository.findWriteOffLoanTransaction(loanId);
+        final List<LoanTransaction> transaction = loanTransactionRepository.findTransactionsByLoanAndType(loanId,
+                LoanTransactionType.RECOVERY_REPAYMENT);
         final LocalDate writeOffOnDate = loan.getWrittenOffDate();
 
         BigDecimal totalWrittenOff = loan.getTotalWrittenOff();
