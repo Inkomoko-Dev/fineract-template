@@ -38,4 +38,7 @@ public interface LoanApprovalMatrixLevelRepository extends JpaRepository<LoanApp
 
     @Query("DELETE FROM LoanApprovalMatrixLevel aml WHERE aml.approvalMatrix.id = :matrixId")
     void deleteByApprovalMatrixId(@Param("matrixId") Long matrixId);
+
+    @Query("SELECT aml FROM LoanApprovalMatrixLevel aml WHERE aml.icReviewLevel.id = :icReviewLevelId")
+    List<LoanApprovalMatrixLevel> findByIcReviewLevelId(@Param("icReviewLevelId") Long icReviewLevelId);
 }
