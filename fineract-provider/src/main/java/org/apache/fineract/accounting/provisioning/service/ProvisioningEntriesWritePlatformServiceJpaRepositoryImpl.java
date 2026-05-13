@@ -64,6 +64,7 @@ import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.office.domain.OfficeRepositoryWrapper;
 import org.apache.fineract.organisation.provisioning.data.ProvisioningCriteriaData;
+import org.apache.fineract.organisation.provisioning.constants.ProvisioningGlobalConfigurationConstants;
 import org.apache.fineract.organisation.provisioning.domain.ProvisioningCriteriaDefinition;
 import org.apache.fineract.organisation.provisioning.domain.ProvisioningCriteriaVersion;
 import org.apache.fineract.organisation.provisioning.domain.ProvisioningCriteriaVersionRepository;
@@ -102,6 +103,7 @@ public class ProvisioningEntriesWritePlatformServiceJpaRepositoryImpl implements
     private final ApplicationEventPublisher eventPublisher;
     private final LoanRepository loanRepository;
     private final ProvisioningCriteriaVersionRepository provisioningCriteriaVersionRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     @Override
     public CommandProcessingResult createProvisioningJournalEntries(Long provisioningEntryId, JsonCommand command) {
@@ -332,14 +334,44 @@ public class ProvisioningEntriesWritePlatformServiceJpaRepositoryImpl implements
     }
 
     private ProvisioningCriteriaDefinition findMatchingDefinition(ProvisioningCriteriaVersion criteriaVersion, Long overdueInDays) {
-        return criteriaVersion.getDefinitionsInDisplayOrder().stream().filter(definition -> definition.matches(overdueInDays)).findFirst()
-                .orElseThrow(() -> new PlatformDataIntegrityException("error.msg.provisioningcriteria.no.match.for.overdue.range",
-                        "No provisioning bucket matches " + overdueInDays + " days in arrears for criteria version "
-                                + criteriaVersion.getId()));
+        for (ProvisioningCriteriaDefinition definition : criteriaVersion.getDefinitionsInDisplayOrder()) {
+            if (definition.matches(overdueInDays)) {
+                return definition;
+            }
+        }
+        Long catchAllCategoryId = resolveCatchAllCategoryId();
+        if (catchAllCategoryId != null) {
+            for (ProvisioningCriteriaDefinition definition : criteriaVersion.getDefinitionsInDisplayOrder()) {
+                if (definition.getProvisioningCategory().getId().equals(catchAllCategoryId)) {
+                    log.warn("Provisioning catch-all bucket (category {}) used for {} days overdue (criteria version {})",
+                            catchAllCategoryId, overdueInDays, criteriaVersion.getId());
+                    return definition;
+                }
+            }
+            throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.catchall.category.not.in.version",
+                    "Catch-all provisioning category id " + catchAllCategoryId + " is enabled but no bucket uses it in criteria version "
+                            + criteriaVersion.getId());
+        }
+        throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.no.match.for.overdue.range",
+                "No provisioning bucket matches " + overdueInDays + " days in arrears for criteria version " + criteriaVersion.getId());
     }
 
+    private Long resolveCatchAllCategoryId() {
+        try {
+            final String sql = "SELECT value FROM c_configuration WHERE name = ? AND enabled = true AND value IS NOT NULL AND value > 0";
+            return jdbcTemplate.queryForObject(sql, Long.class, ProvisioningGlobalConfigurationConstants.CATCH_ALL_CATEGORY_ID);
+        } catch (EmptyResultDataAccessException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Core Fineract uses a single written-off status ({@link LoanStatus#CLOSED_WRITTEN_OFF}); extend here if the deployment adds
+     * custom loan_status_id values that should still be excluded from provisioning buckets.
+     */
     private boolean isWrittenOff(LoanProvisioningCandidateData data) {
-        return Integer.valueOf(601).equals(data.getLoanStatusId());
+        Integer statusId = data.getLoanStatusId();
+        return statusId != null && statusId.equals(LoanStatus.CLOSED_WRITTEN_OFF.getValue());
     }
 
     private BigDecimal safeAmount(BigDecimal amount) {

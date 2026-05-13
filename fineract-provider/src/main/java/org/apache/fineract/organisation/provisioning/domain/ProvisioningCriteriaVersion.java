@@ -52,6 +52,9 @@ public class ProvisioningCriteriaVersion extends AbstractAuditableCustom {
     @Column(name = "retired_on")
     private LocalDate retiredOn;
 
+    @Column(name = "policy_change_reason", length = 500)
+    private String policyChangeReason;
+
     @OneToMany(cascade = CascadeType.ALL, mappedBy = "criteriaVersion", orphanRemoval = true, fetch = FetchType.EAGER)
     private Set<ProvisioningCriteriaDefinition> definitions = new HashSet<>();
 
@@ -96,6 +99,14 @@ public class ProvisioningCriteriaVersion extends AbstractAuditableCustom {
 
     public Set<ProvisioningCriteriaDefinition> getDefinitions() {
         return this.definitions;
+    }
+
+    public String getPolicyChangeReason() {
+        return this.policyChangeReason;
+    }
+
+    public void setPolicyChangeReason(String policyChangeReason) {
+        this.policyChangeReason = policyChangeReason;
     }
 
     public List<ProvisioningCriteriaDefinition> getDefinitionsInDisplayOrder() {

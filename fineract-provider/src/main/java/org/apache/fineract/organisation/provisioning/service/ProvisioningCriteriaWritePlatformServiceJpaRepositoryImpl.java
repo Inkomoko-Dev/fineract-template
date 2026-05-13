@@ -112,6 +112,10 @@ public class ProvisioningCriteriaWritePlatformServiceJpaRepositoryImpl implement
             final Map<String, Object> changes = provisioningCriteria.update(command, products);
             boolean definitionsPresent = command.parsedJson().getAsJsonObject()
                     .has(ProvisioningCriteriaConstants.JSON_PROVISIONING_DEFINITIONS_PARAM);
+            if (definitionsPresent && !command.parameterExists(ProvisioningCriteriaConstants.JSON_EFFECTIVE_FROM_PARAM)) {
+                throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.effective.from.required.when.definitions.change",
+                        "effectiveFrom is required when provisioning bucket definitions are updated");
+            }
             if (definitionsPresent) {
                 createNextCriteriaVersion(provisioningCriteria, command);
             }

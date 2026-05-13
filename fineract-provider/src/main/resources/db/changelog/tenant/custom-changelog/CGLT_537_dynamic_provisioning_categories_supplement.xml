@@ -53,6 +53,13 @@
         </insert>
     </changeSet>
 
+<!--    <changeSet id="INKOMOKO-prov-cat-extra-seq-postgresql" author="felixm@inkomoko.com" >-->
+<!--        <comment>Align provision category sequence after explicit ids</comment>-->
+<!--        <sql>-->
+<!--            SELECT SETVAL('m_provision_category_id_seq', COALESCE((SELECT MAX(id) FROM m_provision_category), 0) + 1, false)-->
+<!--        </sql>-->
+<!--    </changeSet>-->
+
     <changeSet id="INKOMOKO-provisioning-relax-aging-config" author="felixm@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">SELECT COUNT(*) FROM c_configuration WHERE name = 'provisioning-relax-contiguous-aging-bands'</sqlCheck>
@@ -82,23 +89,6 @@
                 JOIN m_permission ep ON ep.id = erp.permission_id AND ep.code = 'UPDATE_PROVISIONCATEGORY'
                 WHERE erp.role_id = rp.role_id
             )
-        </sql>
-    </changeSet>
-
-    <changeSet id="CGLT-537-backfill-provisioning-version-created-date" author="codex">
-        <comment>Backfill null created_date on version rows from lastmodified_date or parent criteria</comment>
-        <sql dbms="mysql,mariadb">
-            UPDATE m_provisioning_criteria_version pcv
-              JOIN m_provisioning_criteria pc ON pc.id = pcv.criteria_id
-               SET pcv.created_date = COALESCE(pcv.created_date, pcv.lastmodified_date, pc.created_date)
-             WHERE pcv.created_date IS NULL;
-        </sql>
-        <sql dbms="postgresql">
-            UPDATE m_provisioning_criteria_version pcv
-               SET created_date = COALESCE(pcv.created_date, pcv.lastmodified_date, pc.created_date)
-              FROM m_provisioning_criteria pc
-             WHERE pc.id = pcv.criteria_id
-               AND pcv.created_date IS NULL;
         </sql>
     </changeSet>
 
