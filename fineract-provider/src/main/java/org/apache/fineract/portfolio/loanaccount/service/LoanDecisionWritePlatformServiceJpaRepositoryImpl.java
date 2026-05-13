@@ -221,6 +221,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         // Get all active IC review levels from database
         List<IcReviewLevelConfig> activeLevels = icReviewLevelConfigRepository.findAllActiveOrderByDisplayOrder();
 
+        // Check if numberOfLevels is provided in the command
+        Integer numberOfLevels = command.integerValueOfParameterNamed(LoanApprovalMatrixConstants.numberOfLevelsParameterName);
+
         // Ensure all existing IC levels have permissions (for levels created before this fix)
         ensurePermissionsForExistingLevels(activeLevels);
 
@@ -230,13 +233,66 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         // Process existing active levels from database
         for (IcReviewLevelConfig levelConfig : activeLevels) {
             Integer levelNumber = levelConfig.getLevelNumber();
+
+            // If numberOfLevels is provided and this level exceeds it, handle deletion logic
+            if (numberOfLevels != null && levelNumber > numberOfLevels) {
+                log.info("Evaluating removal of IC Review Level {} because it exceeds numberOfLevels ({})", levelNumber, numberOfLevels);
+
+                // Check if any loans have records at this level (Global check)
+                List<LoanDecisionLevel> decisionLevels = loanDecisionLevelRepository.findByIcReviewLevelId(levelConfig.getId());
+                if (!decisionLevels.isEmpty()) {
+                    throw new GeneralPlatformDomainRuleException("error.msg.ic.review.level.has.loans",
+                            String.format("IC Review Level %d cannot be deleted because it has existing loan decision records.", levelNumber));
+                }
+
+                // Find all matrix levels using this IC level across all currencies
+                List<LoanApprovalMatrixLevel> allMatrixLevels = loanApprovalMatrixLevelRepository.findByIcReviewLevelId(levelConfig.getId());
+                
+                // Check if any other matrix is using this IC level
+                boolean isUsedByOtherCurrencies = allMatrixLevels.stream()
+                        .anyMatch(aml -> !aml.getApprovalMatrix().getId().equals(approvalMatrix.getId()));
+
+                // Find the specific matrix level for the CURRENT matrix
+                LoanApprovalMatrixLevel currentMatrixLevel = loanApprovalMatrixLevelRepository
+                        .findByApprovalMatrixIdAndIcReviewLevelId(approvalMatrix.getId(), levelConfig.getId());
+
+                if (currentMatrixLevel != null) {
+                    // Remove from the current matrix's collection
+                    approvalMatrix.getApprovalMatrixLevels().removeIf(aml -> aml.getId().equals(currentMatrixLevel.getId()));
+                    
+                    // Delete the matrix level entry for this currency
+                    loanApprovalMatrixLevelRepository.delete(currentMatrixLevel);
+                    log.debug("Deleted matrix level entry for IC level {} for current currency", levelNumber);
+                    
+                    changes.put("level" + getLevelName(levelNumber) + "RemovedFromMatrix", true);
+                }
+
+                // If this was the ONLY currency using this IC level, we can delete the global config and permissions
+                if (!isUsedByOtherCurrencies) {
+                    log.info("IC Review Level {} is not used by any other currency. Deleting global configuration.", levelNumber);
+                    
+                    // Delete the IC level config itself
+                    icReviewLevelConfigRepository.delete(levelConfig);
+
+                    // Delete associated permissions
+                    deletePermissionsForIcLevel(levelConfig.getLevelCode());
+                    
+                    changes.put("level" + getLevelName(levelNumber) + "GlobalConfigDeleted", true);
+                } else {
+                    log.info("IC Review Level {} is still used by other currencies. Keeping global configuration.", levelNumber);
+                }
+
+                continue; // Skip processing this level for updates as it's being removed from this matrix
+            }
+
             processedLevels.add(levelNumber);
             processLevelUpdate(command, approvalMatrix, levelConfig, levelNumber, changes);
         }
 
         // Also check for dynamic levels (6 through MAX_DYNAMIC_LEVEL) that might not be in the database
         // This allows accepting level parameters without requiring pre-configuration
-        for (int levelNumber = 6; levelNumber <= LoanApprovalMatrixConstants.MAX_DYNAMIC_LEVEL; levelNumber++) {
+        int maxLevelToProcess = numberOfLevels != null ? numberOfLevels : LoanApprovalMatrixConstants.MAX_DYNAMIC_LEVEL;
+        for (int levelNumber = 6; levelNumber <= maxLevelToProcess; levelNumber++) {
             if (!processedLevels.contains(levelNumber)) {
                 String levelPrefix = "level" + getLevelName(levelNumber);
                 // Check if any parameter for this level exists in the command
@@ -387,6 +443,40 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             Permission readPermission = new Permission("portfolio", entityName, "READ");
             permissionRepository.save(readPermission);
             log.debug("Created permission: {}", readCode);
+        }
+    }
+
+    /**
+     * Deletes ACCEPT, REJECT, and READ permissions for a dynamic IC Review Level.
+     *
+     * @param levelCode The level code (e.g., "IC_REVIEW_LEVEL_SIX")
+     */
+    private void deletePermissionsForIcLevel(String levelCode) {
+        if (levelCode != null && levelCode.startsWith("IC_REVIEW_LEVEL_")) {
+            String levelNameWord = levelCode.substring("IC_REVIEW_LEVEL_".length());
+            String entityName = "LOANICREVIEWDECISIONLEVEL" + levelNameWord;
+
+            String acceptCode = "ACCEPT_" + entityName;
+            String rejectCode = "REJECT_" + entityName;
+            String readCode = "READ_" + entityName;
+
+            Permission acceptPermission = permissionRepository.findOneByCode(acceptCode);
+            if (acceptPermission != null) {
+                permissionRepository.delete(acceptPermission);
+                log.debug("Deleted permission: {}", acceptCode);
+            }
+
+            Permission rejectPermission = permissionRepository.findOneByCode(rejectCode);
+            if (rejectPermission != null) {
+                permissionRepository.delete(rejectPermission);
+                log.debug("Deleted permission: {}", rejectCode);
+            }
+
+            Permission readPermission = permissionRepository.findOneByCode(readCode);
+            if (readPermission != null) {
+                permissionRepository.delete(readPermission);
+                log.debug("Deleted permission: {}", readCode);
+            }
         }
     }
 
