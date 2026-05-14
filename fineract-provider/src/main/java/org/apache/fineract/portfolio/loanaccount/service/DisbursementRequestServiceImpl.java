@@ -199,7 +199,9 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         disbursementRequestData.setFxRate(disbursementDetail.getFxRate());
         disbursementRequestData.setUsdAmount(disbursementDetail.getUsdAmount());
         disbursementRequestData.setFxSource(disbursementDetail.getFxSource());
-        disbursementRequestData.setFxTimestamp(disbursementDetail.getFxTimestamp());
+        if (disbursementDetail.getFxTimestamp() != null) {
+            disbursementRequestData.setFxTimestamp(disbursementDetail.getFxTimestamp().toString());
+        }
 
         disbursementRequestData.setNarration(narration);
         disbursementRequestData.setNotifier(loanOfficer);
