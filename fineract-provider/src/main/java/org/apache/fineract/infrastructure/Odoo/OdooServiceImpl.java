@@ -80,6 +80,11 @@ import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnData
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigration;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.apache.xmlrpc.XmlRpcException;
@@ -126,6 +131,8 @@ public class OdooServiceImpl implements OdooService {
 
     private final JournalEntryRepository journalEntryRepository;
     private final LoanReadPlatformService loanReadPlatformService;
+    private final LoanTransactionRepository loanTransactionRepository;
+    private final LoanRepositoryWrapper loanRepositoryWrapper;
     private ExecutorService genericExecutorService;
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
     private FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository;
@@ -134,6 +141,7 @@ public class OdooServiceImpl implements OdooService {
     @Autowired
     public OdooServiceImpl(ClientRepositoryWrapper clientRepository, ConfigurationDomainService configurationDomainService,
             JournalEntryRepository journalEntryRepository, LoanReadPlatformService loanReadPlatformService,
+            LoanTransactionRepository loanTransactionRepository, LoanRepositoryWrapper loanRepositoryWrapper,
             FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository,
             FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository,
             FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository) {
@@ -141,6 +149,8 @@ public class OdooServiceImpl implements OdooService {
         this.configurationDomainService = configurationDomainService;
         this.journalEntryRepository = journalEntryRepository;
         this.loanReadPlatformService = loanReadPlatformService;
+        this.loanTransactionRepository = loanTransactionRepository;
+        this.loanRepositoryWrapper = loanRepositoryWrapper;
         this.failedClientCreationOnDataMigrationRepository = failedClientCreationOnDataMigrationRepository;
         this.failedLoanCreationOnDataMigrationRepository = failedLoanCreationOnDataMigrationRepository;
         this.failedLoanRepaymentOnDataMigrationRepository = failedLoanRepaymentOnDataMigrationRepository;
@@ -419,6 +429,33 @@ public class OdooServiceImpl implements OdooService {
 
             if (fundSource != null) {
                 journalData.setFundSource(fundSource);
+            }
+
+            LoanTransaction loanTransaction = this.loanTransactionRepository.findById(loanTransactionId).orElse(null);
+            if (loanTransaction != null) {
+                Loan loan = loanTransaction.getLoan();
+                journalData.setLoanId(loan.getAccountNumber());
+                journalData.setCurrencyCode(loan.getCurrencyCode());
+                journalData.setExternalId(loanTransaction.getExternalId());
+
+                if (loanTransaction.isDisbursement()) { // Disbursement
+                    for (LoanDisbursementDetails disbursementDetail : loan.getDisbursementDetails()) {
+                        if (disbursementDetail.getActualDisbursementDate() != null
+                                && disbursementDetail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())
+                                && disbursementDetail.getPrincipal().compareTo(loanTransaction.getAmount(loan.getCurrency()).getAmount()) == 0) {
+
+                            journalData.setDisbursementType(disbursementDetail.getDisbursementType());
+                            journalData.setFxRate(disbursementDetail.getFxRate());
+                            journalData.setUsdAmount(disbursementDetail.getUsdAmount());
+                            journalData.setFxSource(disbursementDetail.getFxSource());
+                            journalData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
+                            if (disbursementDetail.getFxTimestamp() != null) {
+                                journalData.setFxTimestamp(disbursementDetail.getFxTimestamp().toString());
+                            }
+                            break;
+                        }
+                    }
+                }
             }
 
             journalEntryToOdooData.setResource(journalData);
