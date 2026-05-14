@@ -29,12 +29,14 @@ import javax.persistence.Entity;
 import javax.persistence.FetchType;
 import javax.persistence.OneToMany;
 import javax.persistence.Table;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApprovalMatrixConstants;
 
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "m_loan_approval_matrix")
 public class LoanApprovalMatrix extends AbstractAuditableCustom {
