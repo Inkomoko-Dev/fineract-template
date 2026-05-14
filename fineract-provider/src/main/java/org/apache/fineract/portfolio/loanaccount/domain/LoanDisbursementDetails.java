@@ -59,7 +59,23 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
 
     @Getter
     public enum DisbursementType {
-        CLIENT, VENDOR
+        CLIENT(1),
+        VENDOR(2);
+        private final int value;
+        DisbursementType(int value) {
+            this.value = value;
+        }
+        public static DisbursementType fromPaymentTo(Integer paymentTo) {
+            if (paymentTo == null) {
+                return null;
+            }
+            for (DisbursementType type : values()) {
+                if (type.value == paymentTo) {
+                    return type;
+                }
+            }
+            return null;
+        }
     }
 
     @Column(name = "payment_to", nullable = false)
