@@ -1688,10 +1688,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
 
                 if (disbursementType == null && paymentTo != null) {
-                    if (paymentTo == 2) {
-                        disbursementType = LoanDisbursementDetails.DisbursementType.VENDOR.name();
-                    } else if (paymentTo == 1) {
-                        disbursementType = LoanDisbursementDetails.DisbursementType.CLIENT.name();
+                    LoanDisbursementDetails.DisbursementType derivedType = LoanDisbursementDetails.DisbursementType.fromPaymentTo(paymentTo);
+                    if (derivedType != null) {
+                        disbursementType = derivedType.name();
                     }
                 }
                 BigDecimal fxRate = null;
