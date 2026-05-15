@@ -26,6 +26,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.util.Collection;
 import lombok.RequiredArgsConstructor;
@@ -210,7 +211,15 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         disbursementRequestData.setTransactionType("DISBURSEMENT");
 
         MediaType JSON = MediaType.get("application/json; charset=utf-8");
-        String requestJson = gson.toJson(disbursementRequestData);
+        logDisbursementRequestPayload(loan, requestId, disbursementDetail, disbursementRequestData);
+        String requestJson;
+        try {
+            requestJson = gson.toJson(disbursementRequestData);
+        } catch (RuntimeException e) {
+            LOG.error("Failed to serialize Inkomoko disbursement payload for loanId={}, requestId={}, payloadClass={}", loan.getId(),
+                    requestId, disbursementRequestData.getClass().getName(), e);
+            throw e;
+        }
 
         RequestBody body = RequestBody.create(requestJson, JSON);
         Request request = new Request.Builder().url(getConfigProperty("fineract.integrations.inkomoko.rest.initiate.disbursement"))
@@ -235,6 +244,31 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         } catch (IOException e) {
             throw new LoanDisbursementRequestException("Unexpected response received  from  inkomoko ", "loan", e);
         }
+    }
+
+    private void logDisbursementRequestPayload(Loan loan, String requestId, LoanDisbursementDetails disbursementDetail,
+            DisbursementRequestData disbursementRequestData) {
+        Object sourceFxTimestamp = disbursementDetail.getFxTimestamp();
+        LOG.info("Preparing Inkomoko disbursement payload loanId={}, requestId={}, disbursementDetailId={}, sourceFxTimestampType={}, "
+                + "sourceFxTimestampValue={}, payloadFxTimestampType={}, payloadFxTimestampValue={}", loan.getId(), requestId,
+                disbursementDetail.getId(), typeName(sourceFxTimestamp), sourceFxTimestamp, typeName(disbursementRequestData.getFxTimestamp()),
+                disbursementRequestData.getFxTimestamp());
+
+        for (Field field : DisbursementRequestData.class.getDeclaredFields()) {
+            try {
+                field.setAccessible(true);
+                Object value = field.get(disbursementRequestData);
+                LOG.info("Inkomoko disbursement payload field loanId={}, requestId={}, field={}, declaredType={}, valueType={}, value={}",
+                        loan.getId(), requestId, field.getName(), field.getType().getName(), typeName(value), value);
+            } catch (IllegalAccessException e) {
+                LOG.warn("Unable to inspect Inkomoko disbursement payload field loanId={}, requestId={}, field={}", loan.getId(), requestId,
+                        field.getName(), e);
+            }
+        }
+    }
+
+    private String typeName(Object value) {
+        return value == null ? "null" : value.getClass().getName();
     }
 
     public static BigDecimal getDisbursementChargeAmount(Loan loan) {
