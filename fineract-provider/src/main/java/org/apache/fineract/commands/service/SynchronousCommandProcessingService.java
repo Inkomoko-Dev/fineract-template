@@ -219,7 +219,7 @@ public class SynchronousCommandProcessingService implements CommandProcessingSer
             final RuntimeException e = (RuntimeException) t;
             ex = ErrorHandler.handler(e);
         } else {
-            ex = new ErrorInfo(500, 9999, "{\"Exception\": " + t.toString() + "}");
+            ex = new ErrorInfo(500, 9999, "{\"Exception\": \"" + t.toString().replace("\"", "\\\"") + "\"}");
         }
 
         publishEvent(wrapper.entityName(), wrapper.actionName(), command, ex);

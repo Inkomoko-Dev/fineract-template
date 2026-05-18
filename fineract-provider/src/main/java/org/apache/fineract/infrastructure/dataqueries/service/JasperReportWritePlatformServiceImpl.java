@@ -154,16 +154,18 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
         parameters.put("APPROVED_BY", this.context.authenticatedUser().getFirstname() + " " + this.context.authenticatedUser().getLastname());
         parameters.put("REQUESTED_BY",report.getRequestedBy());
 
+        String mediaType = resolveMediaType(report.getFileFormat());
+
         byte[] reportBytes = this.jasperReadWriteReportService.generateReport(
                 "disbursement_report",
                 parameters,
-                report.getFileFormat()
+                mediaType
         );
 
         // Upload to MinIO
-        String extension = getFileExtension(report.getFileFormat());
+        String extension = getFileExtension(mediaType);
         String objectName = "disbursement/" + report.getId() + "-" + report.getReportName() + extension;
-        this.minIOStorageService.upload(objectName, reportBytes, report.getFileFormat());
+        this.minIOStorageService.upload(objectName, reportBytes, mediaType);
 
         // Mark as approved + store file path
         report.approve(this.context.authenticatedUser().getUsername());
@@ -176,13 +178,29 @@ public class JasperReportWritePlatformServiceImpl implements JasperReportWritePl
                 .build();
     }
 
+    private String resolveMediaType(String format) {
+        if (format == null || format.isEmpty()) {
+            return "application/pdf";
+        }
+        String upperFormat = format.toUpperCase();
+        return switch (upperFormat) {
+            case "PDF", "APPLICATION/PDF" -> "application/pdf";
+            case "XLS", "XLSX", "EXCEL", "APPLICATION/VND.MS-EXCEL" -> "application/vnd.ms-excel";
+            case "CSV", "TEXT/CSV" -> "text/csv";
+            default -> "application/pdf";
+        };
+    }
+
     private String getFileExtension(String mediaType) {
+        if (mediaType == null) {
+            return ".pdf";
+        }
         return switch (mediaType) {
             case "application/pdf" -> ".pdf";
             case "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ->
                     ".xlsx";
             case "text/csv" -> ".csv";
-            default -> ".pdf"; // default to PDF since dropdown to select file type is removed
+            default -> ".pdf";
         };
     }
 

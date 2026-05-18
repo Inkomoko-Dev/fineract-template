@@ -114,7 +114,7 @@ public class ErrorHandler extends RuntimeException {
             return new ErrorInfo(403, 3003, errorBody);
 
         } else if (exception instanceof TransactionException) {
-            return new ErrorInfo(400, 4001, "{\"Exception\": " + exception.getMessage() + "}");
+            return new ErrorInfo(400, 4001, "{\"Exception\": \"" + (exception.getMessage() != null ? exception.getMessage().replace("\"", "\\\"") : "null") + "\"}");
 
         } else if (exception instanceof PlatformInternalServerException) {
 
@@ -123,9 +123,9 @@ public class ErrorHandler extends RuntimeException {
 
             return new ErrorInfo(500, 5001, errorBody);
         } else if (exception instanceof NonTransientDataAccessException) {
-            return new ErrorInfo(400, 4001, "{\"Exception\": " + exception.getMessage() + "}");
+            return new ErrorInfo(400, 4001, "{\"Exception\": \"" + (exception.getMessage() != null ? exception.getMessage().replace("\"", "\\\"") : "null") + "\"}");
         }
 
-        return new ErrorInfo(500, 9999, "{\"Exception\": " + exception.toString() + "}");
+        return new ErrorInfo(500, 9999, "{\"Exception\": \"" + exception.toString().replace("\"", "\\\"") + "\"}");
     }
 }
