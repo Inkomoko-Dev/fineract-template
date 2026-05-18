@@ -152,6 +152,9 @@ public class JasperReportService {
     }
 
     private byte[] exportReport(JasperPrint jasperPrint, String mediaType) throws JRException {
+        if (mediaType == null) {
+            return JasperExportManager.exportReportToPdf(jasperPrint);
+        }
         switch (mediaType) {
             case "text/csv":
                 JRCsvExporter csvExporter = new JRCsvExporter();
