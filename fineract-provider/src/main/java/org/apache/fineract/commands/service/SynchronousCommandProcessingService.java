@@ -219,9 +219,7 @@ public class SynchronousCommandProcessingService implements CommandProcessingSer
             final RuntimeException e = (RuntimeException) t;
             ex = ErrorHandler.handler(e);
         } else {
-            // Use Gson to properly escape the exception message to avoid MalformedJsonException
-            String escapedMessage = new Gson().toJson(t.toString());
-            ex = new ErrorInfo(500, 9999, "{\"Exception\": " + escapedMessage + "}");
+            ex = new ErrorInfo(500, 9999, "{\"Exception\": \"" + t.toString().replace("\"", "\\\"") + "\"}");
         }
 
         publishEvent(wrapper.entityName(), wrapper.actionName(), command, ex);
