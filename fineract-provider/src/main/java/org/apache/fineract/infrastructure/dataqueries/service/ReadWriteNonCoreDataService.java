@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.dataqueries.service;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
@@ -74,6 +75,8 @@ public interface ReadWriteNonCoreDataService {
     Long countDatatableEntries(String datatableName, Long appTableId, String foreignKeyColumn);
 
     BigDecimal getFxLatestRate(final String datatableName, final Long appTableId);
+
+    LocalDateTime getFxLatestTimestamp(final String datatableName, final Long appTableId);
 
     public DatatableData checkDatatableExists(final String datatable);
 

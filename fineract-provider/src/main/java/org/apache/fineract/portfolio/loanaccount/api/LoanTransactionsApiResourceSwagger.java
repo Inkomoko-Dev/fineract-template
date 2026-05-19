@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.api;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * Created by Chirag Gupta on 12/30/17.
@@ -74,6 +75,20 @@ final class LoanTransactionsApiResourceSwagger {
         public GetLoansTransactionType transactionType;
         @Schema(example = "[2009, 8, 1]")
         public LocalDate date;
+        @Schema(example = "[2009, 8, 1]", description = "For recoverypayment, the loan write-off date. Clients should not allow transaction dates earlier than this value.")
+        public LocalDate writeOffOnDate;
+        @Schema(example = "42", description = "Present when retrieving the corrected recovery repost template for a reversed original recovery payment.")
+        public Long originalTransactionId;
+        @Schema(example = "true")
+        public Boolean correctionAllowed;
+        @Schema(example = "false", description = "For recovery-payment reversals and reposts, the system now derives any required correction date automatically.")
+        public Boolean correctionDateRequired;
+        @Schema(example = "[2009, 8, 1]")
+        public LocalDate latestClosedAccountingDate;
+        @Schema(example = "[2009, 8, 2]")
+        public LocalDate earliestCorrectionDate;
+        @Schema(example = "[2009, 8, 31]")
+        public LocalDate latestCorrectionDate;
         public GetLoansTotal total;
     }
 
@@ -135,8 +150,28 @@ final class LoanTransactionsApiResourceSwagger {
         public LocalDate date;
         @Schema(example = "[2012, 5, 14]")
         public LocalDate submittedOnDate;
+        @Schema(example = "2026-03-31T09:15:00")
+        public LocalDateTime createdDate;
+        @Schema(example = "mifos")
+        public String createdByUsername;
         @Schema(example = "false")
         public Boolean manuallyReversed;
+        @Schema(example = "42")
+        public Long originalTransactionId;
+        @Schema(example = "false")
+        public Boolean reversalTransaction;
+        @Schema(example = "[2012, 6, 1]")
+        public LocalDate correctionDate;
+        @Schema(example = "true")
+        public Boolean correctionAllowed;
+        @Schema(example = "false", description = "For recovery-payment reversals and reposts, the system now derives any required correction date automatically.")
+        public Boolean correctionDateRequired;
+        @Schema(example = "[2012, 5, 31]")
+        public LocalDate latestClosedAccountingDate;
+        @Schema(example = "[2012, 6, 1]")
+        public LocalDate earliestCorrectionDate;
+        @Schema(example = "[2012, 6, 30]")
+        public LocalDate latestCorrectionDate;
         public GetLoansCurrency currency;
         @Schema(example = "559.88")
         public Double amount;
@@ -153,7 +188,7 @@ final class LoanTransactionsApiResourceSwagger {
         public String locale;
         @Schema(example = "dd MMMM yyyy")
         public String dateFormat;
-        @Schema(example = "28 June 2022")
+        @Schema(example = "28 June 2022", description = "For recoverypayment, the transaction date must be on or after the loan write-off date.")
         public String transactionDate;
         @Schema(example = "50000.00")
         public Double transactionAmount;
@@ -163,6 +198,10 @@ final class LoanTransactionsApiResourceSwagger {
         public String externalId;
         @Schema(example = "3")
         public Integer paymentTypeId;
+        @Schema(example = "42", description = "Optional for reposted recovery payments. Links the corrected transaction back to the original reversed recovery transaction.")
+        public Long originalTransactionId;
+        @Schema(example = "30 June 2022", description = "Optional override for API clients. If omitted and a reposted recovery payment needs a correction date, the system derives the next open accounting date automatically.")
+        public String correctionDate;
     }
 
     @Schema(description = "PostLoansLoanIdTransactionsResponse")
@@ -193,6 +232,8 @@ final class LoanTransactionsApiResourceSwagger {
         public Double transactionAmount;
         @Schema(example = "An optional note about why your adjusting or changing the transaction.")
         public String note;
+        @Schema(example = "30 June 2022", description = "Optional override for API clients. If omitted and a reversed recovery payment needs a correction date, the system derives the next open accounting date automatically.")
+        public String correctionDate;
     }
 
     @Schema(description = "PostLoansLoanIdTransactionsTransactionIdResponse")

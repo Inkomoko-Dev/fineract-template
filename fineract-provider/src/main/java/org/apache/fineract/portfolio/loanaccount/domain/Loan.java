@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import com.google.common.base.Splitter;
+import com.google.errorprone.annotations.Keep;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -45,6 +46,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Embedded;
@@ -2063,13 +2065,20 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     private void createOrUpdateDisbursementDetails(Long disbursementID, final Map<String, Object> actualChanges,
             LocalDate expectedDisbursementDate, BigDecimal principal, List<Long> existingDisbursementList) {
 
+        // For single disbursement loans, use approved principal instead of submitted principal
+        // (which might be net amount after insurance deductions)
+        BigDecimal disbursementPrincipal = principal;
+        if (!this.loanProduct().isMultiDisburseLoan()) {
+            disbursementPrincipal = this.approvedPrincipal;
+        }
+
         if (disbursementID != null) {
             LoanDisbursementDetails loanDisbursementDetail = fetchLoanDisbursementsById(disbursementID);
             existingDisbursementList.remove(disbursementID);
             if (loanDisbursementDetail.actualDisbursementDate() == null) {
                 LocalDate actualDisbursementDate = null;
                 LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
-                        principal, this.netDisbursalAmount);
+                        disbursementPrincipal, this.netDisbursalAmount);
                 disbursementDetails.updateLoan(this);
                 if (!loanDisbursementDetail.equals(disbursementDetails)) {
                     loanDisbursementDetail.copy(disbursementDetails);
@@ -2080,12 +2089,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         } else {
             LocalDate actualDisbursementDate = null;
             LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
-                    principal, this.netDisbursalAmount);
+                    disbursementPrincipal, this.netDisbursalAmount);
             disbursementDetails.updateLoan(this);
             this.disbursementDetails.add(disbursementDetails);
             for (LoanTrancheCharge trancheCharge : trancheCharges) {
                 Charge chargeDefinition = trancheCharge.getCharge();
-                final LoanCharge loanCharge = LoanCharge.createNewWithoutLoan(chargeDefinition, principal, null, null, null,
+                final LoanCharge loanCharge = LoanCharge.createNewWithoutLoan(chargeDefinition, disbursementPrincipal, null, null, null,
                         expectedDisbursementDate, null, null);
                 loanCharge.update(this);
                 LoanTrancheDisbursementCharge loanTrancheDisbursementCharge = new LoanTrancheDisbursementCharge(loanCharge,
@@ -2093,7 +2102,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 loanCharge.updateLoanTrancheDisbursementCharge(loanTrancheDisbursementCharge);
                 addLoanCharge(loanCharge);
             }
-            actualChanges.put(LoanApiConstants.disbursementDataParameterName, expectedDisbursementDate + "-" + principal);
+            actualChanges.put(LoanApiConstants.disbursementDataParameterName, expectedDisbursementDate + "-" + disbursementPrincipal);
             actualChanges.put("recalculateLoanSchedule", true);
         }
     }
@@ -2747,12 +2756,19 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     public Money adjustDisburseAmount(final JsonCommand command, final LocalDate actualDisbursementDate) {
         Money disburseAmount = this.loanRepaymentScheduleDetail.getPrincipal().zero();
         BigDecimal principalDisbursed = command.bigDecimalValueOfParameterNamed(LoanApiConstants.principalDisbursedParameterName);
+        if (shouldTreatSubmittedAmountAsNetDisbursal(command, principalDisbursed)) {
+            principalDisbursed = this.loanRepaymentScheduleDetail.getPrincipal().getAmount();
+        }
         if (this.actualDisbursementDate == null) {
             this.actualDisbursementDate = actualDisbursementDate;
         }
         BigDecimal diff = BigDecimal.ZERO;
         Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
         if (principalDisbursed == null) {
+            // For single disbursement loans, ensure repayment schedule principal is approved principal
+            if (!this.loanProduct().isMultiDisburseLoan()) {
+                this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
+            }
             disburseAmount = this.loanRepaymentScheduleDetail.getPrincipal();
             if (!details.isEmpty()) {
                 disburseAmount = disburseAmount.zero();
@@ -2765,7 +2781,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             if (this.loanProduct.isMultiDisburseLoan()) {
                 disburseAmount = Money.of(getCurrency(), principalDisbursed);
             } else {
-                disburseAmount = disburseAmount.plus(principalDisbursed);
+                // For single disbursement loans, always use approved principal to ensure journal entries
+                // sent to Odoo use the gross principal amount instead of net amount after insurance deductions
+                disburseAmount = Money.of(getCurrency(), this.approvedPrincipal);
             }
 
             if (details.isEmpty()) {
@@ -2789,7 +2807,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 this.loanRepaymentScheduleDetail.setPrincipal(setPrincipalAmount);
                 compareDisbursedToApprovedOrProposedPrincipal(disburseAmount.getAmount(), totalAmount);
             } else {
-                this.loanRepaymentScheduleDetail.setPrincipal(this.loanRepaymentScheduleDetail.getPrincipal().minus(diff).getAmount());
+                // For single disbursement loans, always use approved principal to ensure repayment schedule
+                // is based on full approved amount, not the net disbursed amount after insurance deductions
+                this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
             }
             if (!this.loanProduct().isMultiDisburseLoan() && diff.compareTo(BigDecimal.ZERO) < 0) {
                 final String errorMsg = "Loan can't be disbursed,disburse amount is exceeding approved amount ";
@@ -2798,6 +2818,26 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
         return disburseAmount;
+    }
+
+    private boolean shouldTreatSubmittedAmountAsNetDisbursal(final JsonCommand command, final BigDecimal principalDisbursed) {
+        if (principalDisbursed == null || this.loanProduct().isMultiDisburseLoan()) {
+            return false;
+        }
+
+        final BigDecimal submittedNetDisbursalAmount = command
+                .bigDecimalValueOfParameterNamed(LoanApiConstants.disbursementNetDisbursalAmountParameterName);
+        if (submittedNetDisbursalAmount == null || principalDisbursed.compareTo(submittedNetDisbursalAmount) != 0) {
+            return false;
+        }
+
+        final BigDecimal chargesDueAtDisbursement = deriveSumTotalOfChargesDueAtDisbursement();
+        if (chargesDueAtDisbursement.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+
+        final BigDecimal grossDisbursalAmount = principalDisbursed.add(chargesDueAtDisbursement);
+        return grossDisbursalAmount.compareTo(this.loanRepaymentScheduleDetail.getPrincipal().getAmount()) == 0;
     }
 
     private void compareDisbursedToApprovedOrProposedPrincipal(BigDecimal disbursedAmount, BigDecimal totalDisbursed) {
@@ -3234,7 +3274,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     public ChangedTransactionDetail makeRepayment(final LoanTransaction repaymentTransaction,
             final LoanLifecycleStateMachine loanLifecycleStateMachine, final List<Long> existingTransactionIds,
             final List<Long> existingReversedTransactionIds, boolean isRecoveryRepayment, final ScheduleGeneratorDTO scheduleGeneratorDTO,
-            Boolean isHolidayValidationDone) {
+            Boolean isHolidayValidationDone, final boolean bypassLastTransactionDateValidation) {
         HolidayDetailDTO holidayDetailDTO = null;
         LoanEvent event = null;
         if (isRecoveryRepayment) {
@@ -3246,8 +3286,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             holidayDetailDTO = scheduleGeneratorDTO.getHolidayDetailDTO();
         }
         validateRepaymentTypeAccountStatus(repaymentTransaction, event);
+        if (isRecoveryRepayment) {
+            validateRecoveryRepaymentDateIsOnOrAfterWriteOffDate(repaymentTransaction.getTransactionDate());
+        }
         validateActivityNotBeforeClientOrGroupTransferDate(event, repaymentTransaction.getTransactionDate());
-        validateActivityNotBeforeLastTransactionDate(event, repaymentTransaction.getTransactionDate());
+        if (!bypassLastTransactionDateValidation) {
+            validateActivityNotBeforeLastTransactionDate(event, repaymentTransaction.getTransactionDate());
+        }
         if (!isHolidayValidationDone) {
             validateRepaymentDateIsOnHoliday(repaymentTransaction.getTransactionDate(), holidayDetailDTO.isAllowTransactionsOnHoliday(),
                     holidayDetailDTO.getHolidays());
@@ -3261,6 +3306,29 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 loanLifecycleStateMachine, null, scheduleGeneratorDTO);
 
         return changedTransactionDetail;
+    }
+
+    private void validateRecoveryRepaymentDateIsOnOrAfterWriteOffDate(final LocalDate recoveryPaymentDate) {
+        LocalDate writeOffDate = getWrittenOffDate();
+        if (writeOffDate == null) {
+            final LoanTransaction writeOffTransaction = findWriteOffTransaction();
+            if (writeOffTransaction != null) {
+                writeOffDate = writeOffTransaction.getTransactionDate();
+            }
+        }
+
+        if (writeOffDate != null && recoveryPaymentDate.isBefore(writeOffDate)) {
+            final String formattedWriteOffDate = writeOffDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+            final String errorMessage = "Payment date cannot be earlier than the loan write-off date (" + formattedWriteOffDate
+                    + "). Please select a payment date on or after the write-off date.";
+            final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+            final ApiParameterError error = ApiParameterError.parameterError(
+                    "error.msg.loan.recovery.payment.date.cannot.be.before.writeoff.date", errorMessage, "transactionDate",
+                    recoveryPaymentDate, writeOffDate);
+            dataValidationErrors.add(error);
+            throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                    dataValidationErrors);
+        }
     }
 
     private void validateRepaymentTypeAccountStatus(LoanTransaction repaymentTransaction, LoanEvent event) {
@@ -3990,7 +4058,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor) {
         ChangedTransactionDetail changedTransactionDetail = null;
         if (isDisbursementAllowed() && atleastOnceDisbursed()) {
-            this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount());
+            // For multi-disbursement loans, use sum of disbursed amounts
+            // For single disbursement loans, use approved principal
+            if (this.loanProduct().isMultiDisburseLoan()) {
+                this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount());
+            } else {
+                this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
+            }
             removeDisbursementDetail();
             regenerateRepaymentSchedule(scheduleGeneratorDTO);
             if (this.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
@@ -4616,9 +4690,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         accountingBridgeData.put("isAccountTransfer", isAccountTransfer);
 
         final List<Map<String, Object>> newLoanTransactions = new ArrayList<>();
+        final Set<Long> reversedOriginalTransactionIds = this.loanTransactions.stream().filter(LoanTransaction::isReversalTransaction)
+                .map(LoanTransaction::getOriginalTransactionId).filter(Objects::nonNull).collect(Collectors.toSet());
         for (final LoanTransaction transaction : this.loanTransactions) {
             if (transaction.isReversed() && existingTransactionIds.contains(transaction.getId())
-                    && !existingReversedTransactionIds.contains(transaction.getId())) {
+                    && !existingReversedTransactionIds.contains(transaction.getId())
+                    && !reversedOriginalTransactionIds.contains(transaction.getId())) {
                 newLoanTransactions.add(transaction.toMapData(currencyData));
             } else if (!existingTransactionIds.contains(transaction.getId())) {
                 newLoanTransactions.add(transaction.toMapData(currencyData));
@@ -5047,6 +5124,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                         action = "repayment.or.waiver";
                         postfix = "cannot.be.made.before.client.transfer.date";
                     break;
+                    case LOAN_RECOVERY_PAYMENT:
+                        errorMessage = "The date on which a recovery payment is made cannot be earlier than client's transfer date to this office";
+                        action = "recovery.payment";
+                        postfix = "cannot.be.made.before.client.transfer.date";
+                    break;
                     case LOAN_REJECTED:
                         errorMessage = "The date on which a loan is rejected cannot be earlier than client's transfer date to this office";
                         action = "reject";
@@ -5103,6 +5185,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 case LOAN_REPAYMENT_OR_WAIVER:
                     errorMessage = "The date on which a repayment or waiver is made cannot be earlier than last transaction date";
                     action = "repayment.or.waiver";
+                    postfix = "cannot.be.made.before.last.transaction.date";
+                break;
+                case LOAN_RECOVERY_PAYMENT:
+                    errorMessage = "The date on which a recovery payment is made cannot be earlier than last transaction date";
+                    action = "recovery.payment";
                     postfix = "cannot.be.made.before.last.transaction.date";
                 break;
                 case WRITE_OFF_OUTSTANDING:
@@ -5408,7 +5495,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
 
-        this.loanRepaymentScheduleDetail.setPrincipal(setPrincipalAmount);
+        // For multi-disbursement loans, sum the actual disbursed amounts
+        // For single disbursement loans, use approved principal
+        if (this.loanProduct().isMultiDisburseLoan()) {
+            this.loanRepaymentScheduleDetail.setPrincipal(setPrincipalAmount);
+        } else {
+            this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
+        }
         if (this.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
             regenerateRepaymentScheduleWithInterestRecalculation(scheduleGeneratorDTO);
         } else {
@@ -5816,7 +5909,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             installment = loanScheduleGenerator.calculatePrepaymentAmount(getCurrency(), onDate, loanApplicationTerms, mc, this,
                     scheduleGeneratorDTO.getHolidayDetailDTO(), loanRepaymentScheduleTransactionProcessor);
         } else {
-            installment = this.getTotalOutstandingOnLoan();
+            // For loans without interest recalculation, calculate pro-rata accrued interest
+            // up to the prepayment date instead of charging all scheduled interest
+            installment = this.getTotalOutstandingOnLoanAsOfDate(onDate);
         }
         return installment;
     }
@@ -5898,6 +5993,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return annualNominalInterestRate;
     }
 
+    @Keep
     private LoanRepaymentScheduleInstallment getTotalOutstandingOnLoan() {
         Money feeCharges = Money.zero(loanCurrency());
         Money penaltyCharges = Money.zero(loanCurrency());
@@ -5914,6 +6010,65 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         LocalDate businessDate = DateUtils.getBusinessLocalDate();
         return new LoanRepaymentScheduleInstallment(null, 0, businessDate, businessDate, totalPrincipal.getAmount(),
                 totalInterest.getAmount(), feeCharges.getAmount(), penaltyCharges.getAmount(), false, compoundingDetails);
+    }
+
+    /**
+     * Calculates the total outstanding amount on a loan as of a specific date,
+     * using pro-rata accrued interest calculation for prepayment/early settlement scenarios.
+     *
+     * This method ensures that:
+     * - Only interest that has actually accrued up to the specified date is included
+     * - Future/unearned interest from installments after the specified date is NOT charged
+     * - For partial periods (prepayment mid-period), interest is calculated on a pro-rata daily basis
+     *
+     * @param asOfDate the date up to which interest should be accrued (typically the prepayment date)
+     * @return a LoanRepaymentScheduleInstallment containing the calculated outstanding amounts
+     */
+    private LoanRepaymentScheduleInstallment getTotalOutstandingOnLoanAsOfDate(final LocalDate asOfDate) {
+        Money feeCharges = Money.zero(loanCurrency());
+        Money penaltyCharges = Money.zero(loanCurrency());
+        Money totalPrincipal = Money.zero(loanCurrency());
+        Money totalAccruedInterest = Money.zero(loanCurrency());
+        final Set<LoanInterestRecalcualtionAdditionalDetails> compoundingDetails = null;
+
+        // Use provided date or fall back to business date
+        final LocalDate effectiveDate = asOfDate != null ? asOfDate : DateUtils.getBusinessLocalDate();
+
+        List<LoanRepaymentScheduleInstallment> repaymentSchedule = getRepaymentScheduleInstallments();
+
+        for (final LoanRepaymentScheduleInstallment scheduledRepayment : repaymentSchedule) {
+            // Always include outstanding principal from all installments
+            totalPrincipal = totalPrincipal.plus(scheduledRepayment.getPrincipalOutstanding(loanCurrency()));
+
+            // Include fees and penalties that are due (already charged)
+            feeCharges = feeCharges.plus(scheduledRepayment.getFeeChargesOutstanding(loanCurrency()));
+            penaltyCharges = penaltyCharges.plus(scheduledRepayment.getPenaltyChargesOutstanding(loanCurrency()));
+
+            // Calculate interest based on the installment's relationship to the effective date
+            if (scheduledRepayment.isObligationsMet()) {
+                // Installment already paid - no interest to add
+                continue;
+            }
+
+            if (scheduledRepayment.isFutureInstallment(effectiveDate)) {
+                // Future installment - do NOT include any interest (not yet accrued)
+                // Principal is already included above
+                continue;
+            }
+
+            if (scheduledRepayment.getDueDate() != null && !effectiveDate.isBefore(scheduledRepayment.getDueDate())) {
+                // Past due installment - include full outstanding interest
+                totalAccruedInterest = totalAccruedInterest.plus(scheduledRepayment.getInterestOutstanding(loanCurrency()));
+            } else {
+                // Current period installment (prepayment date falls within this period)
+                // Calculate pro-rata accrued interest up to the effective date
+                Money accruedInterestForPeriod = scheduledRepayment.calculateAccruedInterestToDate(loanCurrency(), effectiveDate);
+                totalAccruedInterest = totalAccruedInterest.plus(accruedInterestForPeriod);
+            }
+        }
+
+        return new LoanRepaymentScheduleInstallment(null, 0, effectiveDate, effectiveDate, totalPrincipal.getAmount(),
+                totalAccruedInterest.getAmount(), feeCharges.getAmount(), penaltyCharges.getAmount(), false, compoundingDetails);
     }
 
     public LocalDate getAccruedTill() {
@@ -6501,7 +6656,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
         for (final LoanDisbursementDetails details : this.disbursementDetails) {
             if (actualDisbursementDate.equals(details.actualDisbursementDate())) {
-                this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount().subtract(details.principal()));
+                // For multi-disbursement loans, subtract the disbursed amount
+                // For single disbursement loans, use approved principal
+                if (this.loanProduct().isMultiDisburseLoan()) {
+                    this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount().subtract(details.principal()));
+                } else {
+                    this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
+                }
                 details.updateActualDisbursementDate(null);
             }
         }
@@ -7291,6 +7452,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     public Integer getLoanStatus() {
         return loanStatus;
+    }
+
+
+    public void refreshFeeChargesDueAtDisbursement() {
+        final BigDecimal feesDueAtDisbursement = deriveSumTotalOfChargesDueAtDisbursement();
+        updateSummaryWithTotalFeeChargesDueAtDisbursement(feesDueAtDisbursement);
+        this.netDisbursalAmount = this.approvedPrincipal.subtract(feesDueAtDisbursement);
     }
 
 }

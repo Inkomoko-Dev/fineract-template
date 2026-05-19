@@ -27,6 +27,7 @@ import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import com.google.gson.JsonElement;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -50,6 +51,7 @@ import javax.ws.rs.core.UriInfo;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.codes.service.CodeValueReadPlatformService;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
 import org.apache.fineract.infrastructure.core.serialization.ToApiJsonSerializer;
@@ -88,12 +90,14 @@ public class DocumentManagementApiResource {
     private final ToApiJsonSerializer<DocumentData> toApiJsonSerializer;
     private final FileUploadValidator fileUploadValidator;
     private final CodeValueReadPlatformService codeValueReadPlatformService;
+    private final FromJsonHelper fromJsonHelper;
 
     @Autowired
     public DocumentManagementApiResource(final PlatformSecurityContext context,
             final DocumentReadPlatformService documentReadPlatformService, final DocumentWritePlatformService documentWritePlatformService,
             final ApiRequestParameterHelper apiRequestParameterHelper, final ToApiJsonSerializer<DocumentData> toApiJsonSerializer,
-            final FileUploadValidator fileUploadValidator, CodeValueReadPlatformService codeValueReadPlatformService) {
+            final FileUploadValidator fileUploadValidator, CodeValueReadPlatformService codeValueReadPlatformService,
+            final FromJsonHelper fromJsonHelper) {
         this.context = context;
         this.documentReadPlatformService = documentReadPlatformService;
         this.documentWritePlatformService = documentWritePlatformService;
@@ -101,6 +105,7 @@ public class DocumentManagementApiResource {
         this.toApiJsonSerializer = toApiJsonSerializer;
         this.fileUploadValidator = fileUploadValidator;
         this.codeValueReadPlatformService = codeValueReadPlatformService;
+        this.fromJsonHelper = fromJsonHelper;
     }
 
     @GET
@@ -194,6 +199,47 @@ public class DocumentManagementApiResource {
          * TODO: does not return list of changes, should be done for consistency with rest of API
          **/
         final CommandProcessingResult identifier = this.documentWritePlatformService.updateDocument(documentCommand, inputStream);
+
+        return this.toApiJsonSerializer.serialize(identifier);
+    }
+
+    @PUT
+    @Path("{documentId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Update Document Metadata", description = "Updates only the document metadata (name and description) without requiring file re-upload.\n\n"
+            + "Example Requests:\n\n" + "clients/1/documents/1\n\n" + "loans/1/documents/1\n\n"
+            + "savings/1/documents/1\n\n"
+            + "Request Body:\n" + "{\n" + "  \"name\": \"New Document Name\",\n" + "  \"description\": \"New description\"\n" + "}")
+    @RequestBody(required = true, content = @Content(schema = @Schema(implementation = DocumentManagementApiResourceSwagger.UpdateDocumentMetadataRequest.class)))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = DocumentManagementApiResourceSwagger.PutEntityTypeEntityIdDocumentsResponse.class))) })
+    public String updateDocumentMetadata(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
+            @PathParam("documentId") @Parameter(description = "documentId") final Long documentId,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+
+        final Set<String> modifiedParams = new HashSet<>();
+
+        final JsonElement element = this.fromJsonHelper.parse(apiRequestBodyAsJson);
+
+        String name = null;
+        String description = null;
+
+        if (this.fromJsonHelper.parameterExists("name", element)) {
+            name = this.fromJsonHelper.extractStringNamed("name", element);
+            modifiedParams.add("name");
+        }
+
+        if (this.fromJsonHelper.parameterExists("description", element)) {
+            description = this.fromJsonHelper.extractStringNamed("description", element);
+            modifiedParams.add("description");
+        }
+
+        final DocumentCommand documentCommand = new DocumentCommand(modifiedParams, documentId, entityType, entityId, name, null, null,
+                null, description, null, null);
+
+        final CommandProcessingResult identifier = this.documentWritePlatformService.updateDocument(documentCommand, null);
 
         return this.toApiJsonSerializer.serialize(identifier);
     }

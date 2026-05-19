@@ -30,7 +30,10 @@ import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanD
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevel;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevelRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
+import org.apache.fineract.portfolio.loanaccount.service.DynamicIcReviewLevelHelper;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepository;
@@ -48,6 +51,8 @@ public class EmailNotificationService {
     private final GmailBackedPlatformEmailService emailService;
     private final BusinessEventNotifierService businessEventNotifierService;
     private final AppUserRepository appUserRepository;
+    private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
+    private final LoanDecisionLevelRepository loanDecisionLevelRepository;
 
     @Value("${mifos.system.base-url}")
     private String baseUrl;
@@ -78,21 +83,66 @@ public class EmailNotificationService {
 
 
     private AppUser getNextApprover(LoanDecision decision, Integer stage) {
-        return switch (LoanDecisionState.fromInt(stage)) {
-            case IC_REVIEW_LEVEL_ONE -> decision.getIcReviewDecisionLevelOneBy();
-            case IC_REVIEW_LEVEL_TWO -> decision.getIcReviewDecisionLevelTwoBy();
-            case IC_REVIEW_LEVEL_THREE -> decision.getIcReviewDecisionLevelThreeBy();
-            case IC_REVIEW_LEVEL_FOUR -> decision.getIcReviewDecisionLevelFourBy();
-            case IC_REVIEW_LEVEL_FIVE -> decision.getIcReviewDecisionLevelFiveBy();
-            case PREPARE_AND_SIGN_CONTRACT -> this.appUserRepository.findAppUserByStaffId(decision.getLoan().getLoanOfficer().getId());
+        LoanDecisionState state = LoanDecisionState.fromInt(stage);
+
+        // Handle PREPARE_AND_SIGN_CONTRACT state
+        if (state == LoanDecisionState.PREPARE_AND_SIGN_CONTRACT) {
+            return this.appUserRepository.findAppUserByStaffId(decision.getLoan().getLoanOfficer().getId());
+        }
+
+        // Handle IC review levels (both legacy 1-5 and dynamic 6+)
+        if (dynamicIcReviewLevelHelper.isIcReviewLevel(stage)) {
+            Integer levelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(stage);
+
+            if (levelNumber != null) {
+                // Try legacy fields first (levels 1-5) for backward compatibility
+                AppUser legacyApprover = getLegacyApprover(decision, levelNumber);
+                if (legacyApprover != null) {
+                    return legacyApprover;
+                }
+
+                // Fall back to dynamic level (for levels 6+ or if legacy field is null)
+                return getDynamicApprover(decision, levelNumber);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Get approver from legacy fields (levels 1-5 only)
+     */
+    private AppUser getLegacyApprover(LoanDecision decision, Integer levelNumber) {
+        return switch (levelNumber) {
+            case 1 -> decision.getIcReviewDecisionLevelOneBy();
+            case 2 -> decision.getIcReviewDecisionLevelTwoBy();
+            case 3 -> decision.getIcReviewDecisionLevelThreeBy();
+            case 4 -> decision.getIcReviewDecisionLevelFourBy();
+            case 5 -> decision.getIcReviewDecisionLevelFiveBy();
             default -> null;
         };
+    }
+
+    /**
+     * Get approver from dynamic LoanDecisionLevel entity (for all levels including 6+)
+     * Uses repository query instead of lazy-loaded collection to avoid NPE issues
+     */
+    private AppUser getDynamicApprover(LoanDecision decision, Integer levelNumber) {
+        if (decision == null || decision.getId() == null || levelNumber == null) {
+            return null;
+        }
+        // Query database directly instead of relying on lazy-loaded collection
+        // This prevents NPE issues with uninitialized proxy objects
+        LoanDecisionLevel level = loanDecisionLevelRepository
+                .findByLoanDecisionIdAndLevelNumber(decision.getId(), levelNumber);
+
+        return level != null ? level.getDecisionBy() : null;
     }
 
     @NotNull
     private EmailDetail getLoanDecisionApproverEmail(Loan loan, Integer nextStage, AppUser nextApprover, Note note) {
         String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
-        String subject = "Loan Approval Required: Stage " + LoanDecisionState.fromInt(nextStage).toString();
+        String subject = "Loan Approval Required: Stage " + dynamicIcReviewLevelHelper.getLevelDisplayName(nextStage);
         String body = String.format(
                 """
                         Dear %s,<br><br>
@@ -114,7 +164,7 @@ public class EmailNotificationService {
     @NotNull
     private EmailDetail getLoanOfficerEmail(Loan loan, Integer nextStage, AppUser nextApprover, Note note) {
         String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
-        String subject = "Loan Action Required: Stage " + LoanDecisionState.fromInt(nextStage).toString();
+        String subject = "Loan Action Required: Stage " + dynamicIcReviewLevelHelper.getLevelDisplayName(nextStage);
         String body = String.format(
                 """
                         Dear %s,<br><br>
@@ -147,7 +197,7 @@ public class EmailNotificationService {
 
     private EmailDetail getLoanDecisionRejectEmail(Loan loan, Integer state, AppUser user, Note note) {
         String loanUrl = this.baseUrl + "/viewloanaccount/" + loan.getId();
-        String subject = "Loan Action Returned: Stage " + LoanDecisionState.fromInt(state).toString();
+        String subject = "Loan Action Returned: Stage " + dynamicIcReviewLevelHelper.getLevelDisplayName(state);
         String body = String.format(
                 """
                         Dear %s,<br><br>
@@ -160,7 +210,7 @@ public class EmailNotificationService {
                         Kind Regards.
                 """,
                 user.getDisplayName(),
-                LoanDecisionState.fromInt(state).toString(),
+                dynamicIcReviewLevelHelper.getLevelDisplayName(state),
                 loan.getAccountNumber(),
                 loan.getClient().getDisplayName(),
                 note.getNote(),

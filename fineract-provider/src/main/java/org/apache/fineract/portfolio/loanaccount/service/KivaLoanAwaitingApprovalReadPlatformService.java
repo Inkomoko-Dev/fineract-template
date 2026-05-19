@@ -24,4 +24,6 @@ import org.apache.fineract.portfolio.loanaccount.data.KivaLoanAwaitingApprovalDa
 public interface KivaLoanAwaitingApprovalReadPlatformService {
 
     Collection<KivaLoanAwaitingApprovalData> retrieveAllKivaLoanAwaitingApproval();
+
+    Collection<KivaLoanAwaitingApprovalData> retrieveNotReportedLoans();
 }

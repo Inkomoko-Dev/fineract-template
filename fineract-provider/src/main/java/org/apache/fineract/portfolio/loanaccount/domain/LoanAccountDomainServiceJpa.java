@@ -133,7 +133,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final PaymentDetail paymentDetail, final String noteText, final String txnExternalId, final boolean isRecoveryRepayment,
             boolean isAccountTransfer, HolidayDetailDTO holidayDetailDto, Boolean isHolidayValidationDone) {
         return makeRepayment(repaymentTransactionType, loan, builderResult, transactionDate, transactionAmount, paymentDetail, noteText,
-                txnExternalId, isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, false);
+                txnExternalId, isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, false, null, null,
+                false);
     }
 
     @Transactional
@@ -195,6 +196,19 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final PaymentDetail paymentDetail, final String noteText, final String txnExternalId, final boolean isRecoveryRepayment,
             boolean isAccountTransfer, HolidayDetailDTO holidayDetailDto, Boolean isHolidayValidationDone,
             final boolean isLoanToLoanTransfer) {
+        return makeRepayment(repaymentTransactionType, loan, builderResult, transactionDate, transactionAmount, paymentDetail, noteText,
+                txnExternalId, isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, isLoanToLoanTransfer,
+                null, null, false);
+    }
+
+    @Transactional
+    @Override
+    public LoanTransaction makeRepayment(final LoanTransactionType repaymentTransactionType, final Loan loan,
+            final CommandProcessingResultBuilder builderResult, final LocalDate transactionDate, final BigDecimal transactionAmount,
+            final PaymentDetail paymentDetail, final String noteText, final String txnExternalId, final boolean isRecoveryRepayment,
+            boolean isAccountTransfer, HolidayDetailDTO holidayDetailDto, Boolean isHolidayValidationDone,
+            final boolean isLoanToLoanTransfer, final Long originalTransactionId, final LocalDate correctionDate,
+            final boolean bypassLastTransactionDateValidation) {
         AppUser currentUser = getAppUserIfPresent();
         checkClientOrGroupActive(loan);
 
@@ -222,6 +236,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             newRepaymentTransaction = LoanTransaction.repaymentType(repaymentTransactionType, loan.getOffice(), repaymentAmount,
                     paymentDetail, transactionDate, txnExternalId);
         }
+        newRepaymentTransaction.setOriginalTransactionId(originalTransactionId);
+        newRepaymentTransaction.setCorrectionDate(correctionDate);
+        if (originalTransactionId != null) {
+            newRepaymentTransaction.manuallyAdjustedOrReversed();
+        }
 
         LocalDate recalculateFrom = null;
         if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
@@ -232,7 +251,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
         final ChangedTransactionDetail changedTransactionDetail = loan.makeRepayment(newRepaymentTransaction,
                 defaultLoanLifecycleStateMachine(), existingTransactionIds, existingReversedTransactionIds, isRecoveryRepayment,
-                scheduleGeneratorDTO, isHolidayValidationDone);
+                scheduleGeneratorDTO, isHolidayValidationDone, bypassLastTransactionDateValidation);
 
         saveLoanTransactionWithDataIntegrityViolationChecks(newRepaymentTransaction);
 

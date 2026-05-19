@@ -61,7 +61,6 @@ import org.apache.fineract.infrastructure.Odoo.OdooService;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
-import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.office.domain.OfficeRepositoryWrapper;
@@ -130,6 +129,7 @@ public class AccountingProcessorHelper {
             final BigDecimal overPayments = (BigDecimal) map.get("overPaymentPortion");
             final boolean reversed = (Boolean) map.get("reversed");
             final Long paymentTypeId = (Long) map.get("paymentTypeId");
+            final LocalDate correctionDate = (LocalDate) map.get("correctionDate");
 
             final List<ChargePaymentDTO> feePaymentDetails = new ArrayList<>();
             final List<ChargePaymentDTO> penaltyPaymentDetails = new ArrayList<>();
@@ -158,6 +158,7 @@ public class AccountingProcessorHelper {
             final LoanTransactionDTO transaction = new LoanTransactionDTO(transactionOfficeId, paymentTypeId, transactionId,
                     transactionDate, transactionType, amount, principal, interest, fees, penalties, overPayments, reversed,
                     penaltyPaymentDetails, feePaymentDetails, isAccountTransfer);
+            transaction.setCorrectionDate(correctionDate);
             Boolean isLoanToLoanTransfer = (Boolean) accountingBridgeData.get("isLoanToLoanTransfer");
             if (isLoanToLoanTransfer != null && isLoanToLoanTransfer) {
                 transaction.setLoanToLoanTransfer(true);
@@ -879,12 +880,13 @@ public class AccountingProcessorHelper {
             loanTransaction = this.loanTransactionRepository.findById(id).orElseThrow();
             modifiedTransactionId = LOAN_TRANSACTION_IDENTIFIER + transactionId;
         }
+        final LocalDate journalEntryDate = isCorrection && correctionDate != null ? correctionDate : transactionDate;
         final JournalEntry journalEntry = JournalEntry.createNew(office, paymentDetail, account, currencyCode, modifiedTransactionId,
-                manualEntry, transactionDate, JournalEntryType.CREDIT, amount, null, PortfolioProductType.LOAN.getValue(), loanId, null,
+                manualEntry, journalEntryDate, JournalEntryType.CREDIT, amount, null, PortfolioProductType.LOAN.getValue(), loanId, null,
                 loanTransaction, savingsAccountTransaction, clientTransaction, shareTransactionId);
         if (isCorrection) {
             journalEntry.setCorrection(true);
-            journalEntry.setCorrectionDate(DateUtils.getStartOfCurrentMonth());
+            journalEntry.setCorrectionDate(correctionDate);
         }
         JournalEntry JE = this.glJournalEntryRepository.saveAndFlush(journalEntry);
     }
@@ -933,12 +935,13 @@ public class AccountingProcessorHelper {
             loanTransaction = this.loanTransactionRepository.findById(id).orElseThrow();
             modifiedTransactionId = LOAN_TRANSACTION_IDENTIFIER + transactionId;
         }
+        final LocalDate journalEntryDate = isCorrection && correctionDate != null ? correctionDate : transactionDate;
         final JournalEntry journalEntry = JournalEntry.createNew(office, paymentDetail, account, currencyCode, modifiedTransactionId,
-                manualEntry, transactionDate, JournalEntryType.DEBIT, amount, null, PortfolioProductType.LOAN.getValue(), loanId, null,
+                manualEntry, journalEntryDate, JournalEntryType.DEBIT, amount, null, PortfolioProductType.LOAN.getValue(), loanId, null,
                 loanTransaction, savingsAccountTransaction, clientTransaction, shareTransactionId);
         if (isCorrection) {
             journalEntry.setCorrection(true);
-            journalEntry.setCorrectionDate(DateUtils.getStartOfCurrentMonth());
+            journalEntry.setCorrectionDate(correctionDate);
         }
         JournalEntry JE = this.glJournalEntryRepository.saveAndFlush(journalEntry);
     }

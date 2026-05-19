@@ -53,7 +53,9 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
 
             if (correctionRequired) {
                 loanTransactionDTO.setCorrection(true);
-                loanTransactionDTO.setCorrectionDate(DateUtils.getStartOfCurrentMonth()); // first day of current month
+                if (loanTransactionDTO.getCorrectionDate() == null) {
+                    loanTransactionDTO.setCorrectionDate(DateUtils.getStartOfCurrentMonth());
+                }
             }
             /** Handle Disbursements **/
             if (loanTransactionDTO.getTransactionType().isDisbursement()) {
@@ -100,6 +102,10 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             /** Logic for Refunds of Active Loans **/
             else if (loanTransactionDTO.getTransactionType().isRefundForActiveLoans()) {
                 createJournalEntriesForRefundForActiveLoan(loanDTO, loanTransactionDTO, office);
+            }
+
+            else if (loanTransactionDTO.getTransactionType().isInsuranceChargeAdjustment()) {
+                // journal entries are posted directly in LoanWritePlatformServiceJpaRepositoryImpl
             }
         }
     }

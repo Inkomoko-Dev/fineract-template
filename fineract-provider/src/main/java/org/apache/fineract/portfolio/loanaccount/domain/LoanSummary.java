@@ -344,4 +344,8 @@ public final class LoanSummary {
     public BigDecimal getTotalExpectedRepayment() {
         return this.totalExpectedRepayment;
     }
+
+    public void updateTotalOutstanding(final BigDecimal totalOutstanding) {
+        this.totalOutstanding = totalOutstanding;
+    }
 }

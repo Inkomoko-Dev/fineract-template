@@ -267,4 +267,9 @@ public class Staff extends AbstractPersistableCustom {
     public Image getImage() {
         return this.image;
     }
+
+    public String fullName() {
+        return this.firstname + " " + this.lastname;
+    }
+
 }

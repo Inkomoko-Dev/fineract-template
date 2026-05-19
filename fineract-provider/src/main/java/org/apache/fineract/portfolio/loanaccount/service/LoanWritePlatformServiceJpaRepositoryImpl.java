@@ -37,12 +37,22 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.accounting.common.AccountingConstants;
+import org.apache.fineract.accounting.glaccount.domain.GLAccount;
+import org.apache.fineract.accounting.glaccount.domain.GLAccountRepository;
+import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
+import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
+import org.apache.fineract.accounting.journalentry.domain.JournalEntryType;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlatformService;
+import org.apache.fineract.accounting.closure.domain.GLClosure;
+import org.apache.fineract.accounting.closure.domain.GLClosureRepository;
+import org.apache.fineract.accounting.producttoaccountmapping.domain.PortfolioProductType;
+import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMapping;
+import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMappingRepository;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -175,7 +185,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanInterestRecalcualtionAdditionalDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanOverdueInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminder;
@@ -263,6 +272,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final PaymentDetailWritePlatformService paymentDetailWritePlatformService;
     private final HolidayRepositoryWrapper holidayRepository;
     private final ConfigurationDomainService configurationDomainService;
+    private final GLClosureRepository glClosureRepository;
     private final WorkingDaysRepositoryWrapper workingDaysRepository;
     private final AccountTransfersWritePlatformService accountTransfersWritePlatformService;
     private final AccountTransfersReadPlatformService accountTransfersReadPlatformService;
@@ -279,6 +289,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final BusinessEventNotifierService businessEventNotifierService;
     private final GuarantorDomainService guarantorDomainService;
     private final LoanUtilService loanUtilService;
+    private final LoanDailyLateFeeService loanDailyLateFeeService;
     private final LoanSummaryWrapper loanSummaryWrapper;
     private final EntityDatatableChecksWritePlatformService entityDatatableChecksWritePlatformService;
     private final LoanRepaymentScheduleTransactionProcessorFactory transactionProcessingStrategy;
@@ -292,6 +303,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
     private final DisbursementRequestService disbursementRequestService;
     private final LoanApplicationCommandFromApiJsonHelper fromApiJsonDeserializer;
+    private final JournalEntryRepository journalEntryRepository;
+    private final GLAccountRepository glAccountRepository;
+    private final ProductToGLAccountMappingRepository productToGLAccountMappingRepository;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -655,15 +669,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     }
 
     private void addOverdueChargeToLoanAccountInArrears(Long loanId) {
-        final Long penaltyWaitPeriodValue = configurationDomainService.retrievePenaltyWaitPeriod();
-        final Boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();
-        final Collection<OverdueLoanScheduleData> overdueLoanScheduledInstallments = loanReadPlatformService
-                .retrieveLoanAccountWithOverdueInstallments(penaltyWaitPeriodValue, backdatePenalties, loanId);
-
-        if (!CollectionUtils.isEmpty(overdueLoanScheduledInstallments)) {
-            applyOverdueChargesForLoan(loanId, overdueLoanScheduledInstallments);
-        }
-
+        syncDailyLateFeesForLoan(loanId, DateUtils.getBusinessLocalDate());
     }
 
     private void updatePostDatedChecks(Set<PostDatedChecks> postDatedChecks) {
@@ -969,6 +975,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 updateGlimActualPrincipal(parentLoan);
             }
             saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+            rebuildAndSyncDailyLateFeesForLoan(loanId, loan.getExpectedDisbursedOnLocalDate(), DateUtils.getBusinessLocalDate());
             this.accountTransfersWritePlatformService.reverseAllTransactions(loanId, PortfolioAccountType.LOAN, loan);
             String noteText = null;
             if (command.hasParameter("note")) {
@@ -1118,6 +1125,22 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final LocalDate transactionDate = command.localDateValueOfParameterNamed("transactionDate");
             final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
             final String txnExternalId = command.stringValueOfParameterNamedAllowingNull("externalId");
+            final Long originalTransactionId = isRecoveryRepayment ? command.longValueOfParameterNamed("originalTransactionId") : null;
+            final boolean correctedRecoveryRepost = isRecoveryRepayment && originalTransactionId != null;
+            if (!isRecoveryRepayment && (originalTransactionId != null || command.parameterExists("correctionDate"))) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.correction.not.supported",
+                        "Correction metadata is only supported for recovery payments on written-off loans.");
+            }
+            if (isRecoveryRepayment && !correctedRecoveryRepost && command.parameterExists("correctionDate")) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.reference.required",
+                        "A correction date is only supported when reposting a reversed recovery payment.");
+            }
+            final LoanTransaction originalRecoveryTransaction = originalTransactionId == null ? null
+                    : validateRecoveryCorrectionReference(loan, originalTransactionId);
+            final LocalDate correctionDate = correctedRecoveryRepost
+                    ? resolveCorrectionDate(loan, originalRecoveryTransaction.getTransactionDate(),
+                            command.localDateValueOfParameterNamed("correctionDate"))
+                    : null;
 
             final Map<String, Object> changes = new LinkedHashMap<>();
             changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
@@ -1125,6 +1148,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             changes.put("locale", command.locale());
             changes.put("dateFormat", command.dateFormat());
             changes.put("paymentTypeId", command.stringValueOfParameterNamed("paymentTypeId"));
+            if (originalTransactionId != null) {
+                changes.put("originalTransactionId", originalTransactionId);
+            }
+            if (correctionDate != null) {
+                changes.put("correctionDate", correctionDate.toString());
+            }
 
             final String noteText = command.stringValueOfParameterNamed("note");
             if (StringUtils.isNotBlank(noteText)) {
@@ -1135,9 +1164,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final HolidayDetailDTO holidayDetailDto = null;
             boolean isAccountTransfer = false;
             final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
-            LoanTransaction loanTransaction = this.loanAccountDomainService.makeRepayment(repaymentTransactionType, loan,
+            LoanTransaction loanTransaction = makeRepaymentWithDailyLateFees(repaymentTransactionType, loan,
                     commandProcessingResultBuilder, transactionDate, transactionAmount, paymentDetail, noteText, txnExternalId,
-                    isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
+                    isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, false,
+                    originalRecoveryTransaction == null ? null : originalRecoveryTransaction.getId(), correctionDate,
+                    originalRecoveryTransaction != null);
 
             // Update loan transaction on repayment.
             if (AccountType.fromInt(loan.getLoanType()).isIndividualAccount()) {
@@ -1234,7 +1265,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     this.paymentDetailWritePlatformService.persistPaymentDetail(paymentDetail);
                 }
                 final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
-                LoanTransaction loanTransaction = this.loanAccountDomainService.makeRepayment(LoanTransactionType.REPAYMENT, loan,
+                LoanTransaction loanTransaction = makeRepaymentWithDailyLateFees(LoanTransactionType.REPAYMENT, loan,
                         commandProcessingResultBuilder, bulkRepaymentCommand.getTransactionDate(),
                         singleLoanRepaymentCommand.getTransactionAmount(), paymentDetail, bulkRepaymentCommand.getNote(), null,
                         isRecoveryRepayment, isAccountTransfer, holidayDetailDTO, isHolidayValidationDone);
@@ -1243,6 +1274,34 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
         changes.put("loanTransactions", transactionIds);
         return changes;
+    }
+
+    private LoanTransaction makeRepaymentWithDailyLateFees(final LoanTransactionType repaymentTransactionType, final Loan loan,
+            final CommandProcessingResultBuilder commandProcessingResultBuilder, final LocalDate transactionDate,
+            final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final String txnExternalId,
+            final boolean isRecoveryRepayment, final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto,
+            final Boolean isHolidayValidationDone) {
+        return makeRepaymentWithDailyLateFees(repaymentTransactionType, loan, commandProcessingResultBuilder, transactionDate,
+                transactionAmount, paymentDetail, noteText, txnExternalId, isRecoveryRepayment, isAccountTransfer, holidayDetailDto,
+                isHolidayValidationDone, false, null, null, false);
+    }
+
+    private LoanTransaction makeRepaymentWithDailyLateFees(final LoanTransactionType repaymentTransactionType, final Loan loan,
+            final CommandProcessingResultBuilder commandProcessingResultBuilder, final LocalDate transactionDate,
+            final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final String txnExternalId,
+            final boolean isRecoveryRepayment, final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto,
+            final Boolean isHolidayValidationDone, final boolean isLoanToLoanTransfer, final Long originalTransactionId,
+            final LocalDate correctionDate, final boolean bypassLastTransactionDateValidation) {
+        this.loanDailyLateFeeService.syncDailyLateFeesForLoan(loan.getId(), transactionDate);
+        LoanTransaction loanTransaction = this.loanAccountDomainService.makeRepayment(repaymentTransactionType, loan,
+                commandProcessingResultBuilder, transactionDate, transactionAmount, paymentDetail, noteText, txnExternalId,
+                isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, isLoanToLoanTransfer,
+                originalTransactionId, correctionDate, bypassLastTransactionDateValidation);
+        if (transactionDate.isBefore(DateUtils.getBusinessLocalDate())) {
+            this.loanDailyLateFeeService.rebuildAndSyncDailyLateFeesForLoan(loan.getId(), transactionDate.plusDays(1),
+                    DateUtils.getBusinessLocalDate());
+        }
+        return loanTransaction;
     }
 
     @Transactional
@@ -1395,6 +1454,90 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         businessEventNotifierService.notifyPostBusinessEvent(new LoanAdjustTransactionBusinessEvent(eventData));
 
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(transactionId)
+                .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
+                .with(changes).build();
+    }
+
+    @Transactional
+    @Override
+    public CommandProcessingResult reverseLoanRecoveryPayment(final Long loanId, final Long transactionId, final JsonCommand command) {
+
+        AppUser currentUser = getAppUserIfPresent();
+        this.loanEventApiJsonValidator.validateRecoveryPaymentReversal(command.json());
+
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        checkClientOrGroupActive(loan);
+        final LoanTransaction transactionToReverse = this.loanTransactionRepository.findById(transactionId)
+                .orElseThrow(() -> new LoanTransactionNotFoundException(transactionId));
+        businessEventNotifierService.notifyPreBusinessEvent(
+                new LoanAdjustTransactionBusinessEvent(new LoanAdjustTransactionBusinessEvent.Data(transactionToReverse)));
+
+        if (transactionToReverse.isNotBelongingToLoanOf(loan)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.loan.mismatch",
+                    "The selected transaction does not belong to the specified loan.");
+        }
+        if (this.accountTransfersReadPlatformService.isAccountTransfer(transactionId, PortfolioAccountType.LOAN)) {
+            throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
+                    "Loan transaction:" + transactionId + " update not allowed as it involves in account transfer", transactionId);
+        }
+        if (!loan.isClosedWrittenOff()) {
+            throw new PlatformServiceUnavailableException("error.msg.loan.recovery.payment.reverse.not.allowed",
+                    "Recovery payments can only be reversed while the loan remains written off.", transactionId);
+        }
+        if (!transactionToReverse.isRecoveryRepaymentType()) {
+            throw new InvalidLoanTransactionTypeException("transaction",
+                    "reverse.recovery.payment.is.only.allowed.for.recovery.transactions",
+                    "Only recovery payment transactions can be reversed with this command.");
+        }
+        if (transactionToReverse.isReversed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.already.reversed",
+                    "The selected recovery payment has already been reversed.");
+        }
+
+        final LocalDate reversalDate = command.localDateValueOfParameterNamed("transactionDate");
+        validateRecoveryPaymentReversalDate(transactionToReverse, reversalDate);
+        final LocalDate correctionDate = resolveCorrectionDate(loan, transactionToReverse.getTransactionDate(),
+                command.parameterExists("correctionDate") ? command.localDateValueOfParameterNamed("correctionDate") : null);
+
+        final List<Long> existingTransactionIds = new ArrayList<>();
+        final List<Long> existingReversedTransactionIds = new ArrayList<>();
+        existingTransactionIds.addAll(loan.findExistingTransactionIds());
+        existingReversedTransactionIds.addAll(loan.findExistingReversedTransactionIds());
+
+        transactionToReverse.reverse();
+        transactionToReverse.manuallyAdjustedOrReversed();
+
+        LoanTransaction reversalTransaction = LoanTransaction.reversal(transactionToReverse, reversalDate, correctionDate);
+        reversalTransaction.updateLoan(loan);
+        reversalTransaction = this.loanTransactionRepository.saveAndFlush(reversalTransaction);
+        loan.addLoanTransaction(reversalTransaction);
+        loan.updateLoanSummaryDerivedFields();
+
+        saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
+        changes.put("locale", command.locale());
+        changes.put("dateFormat", command.dateFormat());
+        if (correctionDate != null) {
+            changes.put("correctionDate", correctionDate.toString());
+        }
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            changes.put("note", noteText);
+            final Note note = Note.loanTransactionNote(loan, reversalTransaction, noteText);
+            this.noteRepository.save(note);
+        }
+
+        postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+        this.loanAccountDomainService.recalculateAccruals(loan);
+
+        final LoanAdjustTransactionBusinessEvent.Data eventData = new LoanAdjustTransactionBusinessEvent.Data(transactionToReverse);
+        eventData.setNewTransactionDetail(reversalTransaction);
+        businessEventNotifierService.notifyPostBusinessEvent(new LoanAdjustTransactionBusinessEvent(eventData));
+
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(reversalTransaction.getId())
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
                 .with(changes).build();
     }
@@ -1647,6 +1790,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loan.closeAsMarkedForReschedule(command, defaultLoanLifecycleStateMachine(), changes);
 
         saveLoanWithDataIntegrityViolationChecks(loan);
+        rebuildAndSyncDailyLateFeesForLoan(loanId, command.localDateValueOfParameterNamed("transactionDate"),
+                DateUtils.getBusinessLocalDate());
 
         final String noteText = command.stringValueOfParameterNamed("note");
         if (StringUtils.isNotBlank(noteText)) {
@@ -2605,6 +2750,83 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .build();
     }
 
+    private LoanTransaction validateRecoveryCorrectionReference(final Loan loan, final Long originalTransactionId) {
+        final LoanTransaction originalTransaction = this.loanTransactionRepository.findById(originalTransactionId)
+                .orElseThrow(() -> new LoanTransactionNotFoundException(originalTransactionId));
+        if (originalTransaction.isNotBelongingToLoanOf(loan)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.loan.mismatch",
+                    "The referenced original recovery payment does not belong to this loan.");
+        }
+        if (!originalTransaction.isRecoveryRepaymentType()) {
+            throw new InvalidLoanTransactionTypeException("originalTransactionId",
+                    "recovery.payment.correction.requires.recovery.transaction",
+                    "Only recovery payment transactions can be reposted as corrections.");
+        }
+        if (originalTransaction.isNotReversed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.requires.reversal",
+                    "The original recovery payment must be reversed before a corrected recovery can be reposted.");
+        }
+        if (this.loanTransactionRepository.existsActiveCorrectedRecoveryTransaction(originalTransactionId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recovery.payment.correction.already.exists",
+                    "An active corrected recovery payment already exists for the referenced original recovery payment.");
+        }
+        return originalTransaction;
+    }
+
+    private LocalDate resolveCorrectionDate(final Loan loan, final LocalDate transactionDate, final LocalDate correctionDate) {
+        final GLClosure latestGLClosure = this.glClosureRepository.getLatestGLClosureByBranch(loan.getOfficeId());
+        if (latestGLClosure != null && !transactionDate.isAfter(latestGLClosure.getClosingDate())) {
+            if (!this.configurationDomainService.isCorrectionsInClosedPeriodsAllowed()) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.closed.period.corrections.not.allowed",
+                        "Corrections in closed accounting periods are not allowed.");
+            }
+            final LocalDate automaticCorrectionDate = latestGLClosure.getClosingDate().plusDays(1);
+            if (correctionDate == null) {
+                if (automaticCorrectionDate.isAfter(DateUtils.getBusinessLocalDate())) {
+                    throwTransactionValidationError("error.msg.loan.transaction.correction.date.cannot.be.future",
+                            "The correction date cannot be in the future.", "correctionDate", automaticCorrectionDate);
+                }
+                return automaticCorrectionDate;
+            }
+            if (!correctionDate.isAfter(latestGLClosure.getClosingDate())) {
+                throwTransactionValidationError("error.msg.loan.transaction.correction.date.must.be.in.open.period",
+                        "The correction date must fall after the latest accounting closure date.", "correctionDate", correctionDate,
+                        latestGLClosure.getClosingDate());
+            }
+            if (correctionDate.isAfter(DateUtils.getBusinessLocalDate())) {
+                throwTransactionValidationError("error.msg.loan.transaction.correction.date.cannot.be.future",
+                        "The correction date cannot be in the future.", "correctionDate", correctionDate);
+            }
+            return correctionDate;
+        }
+        if (correctionDate != null) {
+            throwTransactionValidationError("error.msg.loan.transaction.correction.date.not.allowed",
+                    "A correction date is only allowed when the transaction falls in a closed accounting period.", "correctionDate",
+                    correctionDate);
+        }
+        return null;
+    }
+
+    private void validateRecoveryPaymentReversalDate(final LoanTransaction transactionToReverse, final LocalDate reversalDate) {
+        if (reversalDate.isBefore(transactionToReverse.getTransactionDate())) {
+            throwTransactionValidationError("error.msg.loan.recovery.payment.reverse.date.before.original",
+                    "The reversal date cannot be earlier than the original recovery payment date.", "transactionDate", reversalDate,
+                    transactionToReverse.getTransactionDate());
+        }
+        if (reversalDate.isAfter(DateUtils.getBusinessLocalDate())) {
+            throwTransactionValidationError("error.msg.loan.recovery.payment.reverse.date.future",
+                    "The reversal date cannot be in the future.", "transactionDate", reversalDate);
+        }
+    }
+
+    private void throwTransactionValidationError(final String errorCode, final String defaultUserMessage, final String parameterName,
+            final Object... defaultUserMessageArgs) {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        dataValidationErrors.add(ApiParameterError.parameterError(errorCode, defaultUserMessage, parameterName, defaultUserMessageArgs));
+        throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                dataValidationErrors);
+    }
+
     private void postJournalEntries(final Loan loan, final List<Long> existingTransactionIds,
             final List<Long> existingReversedTransactionIds) {
 
@@ -2896,121 +3118,23 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
     }
 
-    private Collection<OverdueLoanScheduleData> applyMaxOccurrenceWhileApplyingOverdueChargesForLoan(
-            Collection<OverdueLoanScheduleData> overdueLoanScheduleDatas) {
-        if (CollectionUtils.isNotEmpty(overdueLoanScheduleDatas)) {
-            Integer maxOccurrenceToApply = 0;
-            Collection<OverdueLoanScheduleData> modifiedOverdueLoanScheduleDatas = null;
-            OverdueLoanScheduleData firstElement = overdueLoanScheduleDatas.stream().findFirst().orElse(null);
-            if (firstElement != null && firstElement.getMaxOccurrenceTillChargeApplies() != null
-                    && firstElement.getMaxOccurrenceTillChargeApplies() > 0) {
-                maxOccurrenceToApply = firstElement.getMaxOccurrenceTillChargeApplies();
-            }
-
-            // create the sub collection and return if maxOccurrence is set to less than no. if installments
-            if (maxOccurrenceToApply > 0 && maxOccurrenceToApply < CollectionUtils.size(overdueLoanScheduleDatas)) {
-                final Integer maxOccurrenceForCharge = maxOccurrenceToApply;
-                modifiedOverdueLoanScheduleDatas = overdueLoanScheduleDatas.stream()
-                        .filter(loanScheduleData -> loanScheduleData.getPeriodNumber() <= maxOccurrenceForCharge)
-                        .collect(Collectors.toList());
-                return modifiedOverdueLoanScheduleDatas;
-            }
-        }
-        return overdueLoanScheduleDatas;
+    @Override
+    @Transactional
+    public void applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDatas) {
+        this.loanDailyLateFeeService.applyOverdueChargesForLoan(loanId, overdueLoanScheduleDatas);
     }
 
     @Override
     @Transactional
-    public void applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDatas) {
-
-        Loan loan = null;
-        final List<Long> existingTransactionIds = new ArrayList<>();
-        final List<Long> existingReversedTransactionIds = new ArrayList<>();
-        boolean runInterestRecalculation = false;
-        LocalDate recalculateFrom = DateUtils.getBusinessLocalDate();
-        LocalDate lastChargeDate = null;
-
-        overdueLoanScheduleDatas = applyMaxOccurrenceWhileApplyingOverdueChargesForLoan(overdueLoanScheduleDatas);
-
-        for (final OverdueLoanScheduleData overdueInstallment : overdueLoanScheduleDatas) {
-
-            final JsonElement parsedCommand = this.fromApiJsonHelper.parse(overdueInstallment.toString());
-            final JsonCommand command = JsonCommand.from(overdueInstallment.toString(), parsedCommand, this.fromApiJsonHelper, null, null,
-                    null, null, null, loanId, null, null, null, null, null, null);
-            LoanOverdueDTO overdueDTO = applyChargeToOverdueLoanInstallment(loanId, overdueInstallment.getChargeId(),
-                    overdueInstallment.getPeriodNumber(), command, loan, existingTransactionIds, existingReversedTransactionIds);
-            loan = overdueDTO.getLoan();
-            runInterestRecalculation = runInterestRecalculation || overdueDTO.isRunInterestRecalculation();
-            if (recalculateFrom.isAfter(overdueDTO.getRecalculateFrom())) {
-                recalculateFrom = overdueDTO.getRecalculateFrom();
-            }
-            if (lastChargeDate == null || overdueDTO.getLastChargeAppliedDate().isAfter(lastChargeDate)) {
-                lastChargeDate = overdueDTO.getLastChargeAppliedDate();
-            }
-        }
-        if (loan != null) {
-            boolean reprocessRequired = true;
-            LocalDate recalculatedTill = loan.fetchInterestRecalculateFromDate();
-            if (recalculateFrom.isAfter(recalculatedTill)) {
-                recalculateFrom = recalculatedTill;
-            }
-
-            if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
-                if (runInterestRecalculation && loan.isFeeCompoundingEnabledForInterestRecalculation()) {
-                    runScheduleRecalculation(loan, recalculateFrom);
-                    reprocessRequired = false;
-                }
-                updateOriginalSchedule(loan);
-            }
-
-            if (reprocessRequired) {
-                addInstallmentIfPenaltyAppliedAfterLastDueDate(loan, lastChargeDate);
-                ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
-                if (changedTransactionDetail != null) {
-                    for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings()
-                            .entrySet()) {
-                        this.loanTransactionRepository.save(mapEntry.getValue());
-                        // update loan with references to the newly created
-                        // transactions
-                        loan.addLoanTransaction(mapEntry.getValue());
-                        this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
-                    }
-                }
-                saveLoanWithDataIntegrityViolationChecks(loan);
-            }
-
-            postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
-
-            if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled() && runInterestRecalculation
-                    && loan.isFeeCompoundingEnabledForInterestRecalculation()) {
-                this.loanAccountDomainService.recalculateAccruals(loan);
-            }
-            businessEventNotifierService.notifyPostBusinessEvent(new LoanApplyOverdueChargeBusinessEvent(loan));
-
-        }
+    public void syncDailyLateFeesForLoan(final Long loanId, final LocalDate effectiveDate) {
+        this.loanDailyLateFeeService.syncDailyLateFeesForLoan(loanId, effectiveDate);
     }
 
-    private void addInstallmentIfPenaltyAppliedAfterLastDueDate(Loan loan, LocalDate lastChargeDate) {
-        if (lastChargeDate != null) {
-            List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
-            LoanRepaymentScheduleInstallment lastInstallment = loan.fetchRepaymentScheduleInstallment(installments.size());
-            if (lastChargeDate.isAfter(lastInstallment.getDueDate())) {
-                if (lastInstallment.isRecalculatedInterestComponent()) {
-                    installments.remove(lastInstallment);
-                    lastInstallment = loan.fetchRepaymentScheduleInstallment(installments.size());
-                }
-                boolean recalculatedInterestComponent = true;
-                BigDecimal principal = BigDecimal.ZERO;
-                BigDecimal interest = BigDecimal.ZERO;
-                BigDecimal feeCharges = BigDecimal.ZERO;
-                BigDecimal penaltyCharges = BigDecimal.ONE;
-                final Set<LoanInterestRecalcualtionAdditionalDetails> compoundingDetails = null;
-                LoanRepaymentScheduleInstallment newEntry = new LoanRepaymentScheduleInstallment(loan, installments.size() + 1,
-                        lastInstallment.getDueDate(), lastChargeDate, principal, interest, feeCharges, penaltyCharges,
-                        recalculatedInterestComponent, compoundingDetails);
-                loan.addLoanRepaymentScheduleInstallment(newEntry);
-            }
-        }
+    @Override
+    @Transactional
+    public void rebuildAndSyncDailyLateFeesForLoan(final Long loanId, final LocalDate rebuildFromDate,
+            final LocalDate effectiveDate) {
+        this.loanDailyLateFeeService.rebuildAndSyncDailyLateFeesForLoan(loanId, rebuildFromDate, effectiveDate);
     }
 
     public LoanOverdueDTO applyChargeToOverdueLoanInstallment(final Long loanId, final Long loanChargeId, final Integer periodNumber,
@@ -3140,6 +3264,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
         }
         saveLoanWithDataIntegrityViolationChecks(loan);
+        if (writeOffTransaction != null) {
+            rebuildAndSyncDailyLateFeesForLoan(loanId, writeOffTransaction.getTransactionDate(), DateUtils.getBusinessLocalDate());
+        }
 
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
         this.loanAccountDomainService.recalculateAccruals(loan);
@@ -3262,16 +3389,20 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             changedTransactionDetail = loan.updateDisbursementDateAndAmountForTranche(loanDisbursementDetails, command, changes,
                     scheduleGeneratorDTO);
         } else {
-            // BigDecimal setAmount = loan.getApprovedPrincipal();
-            Collection<LoanDisbursementDetails> loanDisburseDetails = loan.getDisbursementDetails();
-            BigDecimal setAmount = BigDecimal.ZERO;
-            for (LoanDisbursementDetails details : loanDisburseDetails) {
-                if (details.actualDisbursementDate() != null) {
-                    setAmount = setAmount.add(details.principal());
+            // For multi-disbursement loans, sum the actual disbursed amounts
+            // For single disbursement loans, use approved principal
+            if (loan.loanProduct().isMultiDisburseLoan()) {
+                Collection<LoanDisbursementDetails> loanDisburseDetails = loan.getDisbursementDetails();
+                BigDecimal setAmount = BigDecimal.ZERO;
+                for (LoanDisbursementDetails details : loanDisburseDetails) {
+                    if (details.actualDisbursementDate() != null) {
+                        setAmount = setAmount.add(details.principal());
+                    }
                 }
+                loan.repaymentScheduleDetail().setPrincipal(setAmount);
+            } else {
+                loan.repaymentScheduleDetail().setPrincipal(loan.getApprovedPrincipal());
             }
-
-            loan.repaymentScheduleDetail().setPrincipal(setAmount);
 
             if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
                 loan.regenerateRepaymentScheduleWithInterestRecalculation(scheduleGeneratorDTO);
@@ -3721,6 +3852,522 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     }
 
+    @Override
+    @Transactional
+    public CommandProcessingResult adjustLoanInsuranceCharge(final Long loanId, final Long loanChargeId,
+                                                             final JsonCommand command) {
+        // validate input
+        final BigDecimal newAmount = command.bigDecimalValueOfParameterNamed("amount");
+        final LocalDate newTransactionDate = command.localDateValueOfParameterNamed("transactionDate");
+        final String notes = command.stringValueOfParameterNamed("notes");
+        final Long newGlAccountId = command.parameterExists("glAccountId")
+                ? command.longValueOfParameterNamed("glAccountId") : null;
+
+        final List<ApiParameterError> errors = new ArrayList<>();
+
+        if (StringUtils.isBlank(notes)) {
+            errors.add(ApiParameterError.parameterError(
+                    "validation.msg.loan.insurance.adjustment.notes.required",
+                    "Reason is mandatory for insurance payment adjustments.",
+                    "notes"
+            ));
+        }
+
+        if (newAmount == null || newAmount.compareTo(BigDecimal.ZERO) < 0) {
+            errors.add(ApiParameterError.parameterError(
+                    "validation.msg.loan.insurance.adjustment.amount.negative",
+                    "Amount cannot be negative.",
+                    "amount"
+            ));
+        }
+
+        if (!errors.isEmpty()) throw new PlatformApiDataValidationException(errors);
+
+
+        // Load loan
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        checkClientOrGroupActive(loan);
+
+
+        // Validate accounting period not closed
+        final GLClosure latestClosure = glClosureRepository.getLatestGLClosureByBranch(loan.getOfficeId());
+        if (latestClosure != null && !newTransactionDate.isAfter(latestClosure.getClosingDate())) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.insurance.adjustment.period.closed",
+                    "Accounting period is closed for date: " + newTransactionDate
+                            + ". Latest closure date is: " + latestClosure.getClosingDate(),
+                    newTransactionDate
+            );
+        }
+
+        // Load and validate charge (must be disbursement/insurance charge)
+        final LoanCharge loanCharge = retrieveLoanChargeBy(loanId, loanChargeId);
+        if (!loanCharge.isDisbursementCharge()) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.charge.adjust.insurance.not.disbursement.charge",
+                    "Only disbursement charges (insurance) can be adjusted using this command.",
+                    loanChargeId);
+        }
+
+        // Find active REPAYMENT_AT_DISBURSEMENT transaction linked to this charge
+        LoanTransaction originalTransaction = null;
+        for (final LoanTransaction lt : loan.getLoanTransactions()) {
+            if (lt.isReversed()) continue;
+            if (!LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.equals(lt.getTypeOf())) continue;
+            for (final LoanChargePaidBy paidBy : lt.getLoanChargesPaid()) {
+                if (paidBy.getLoanCharge().getId().equals(loanChargeId)) {
+                    originalTransaction = lt;
+                    break;
+                }
+            }
+            if (originalTransaction != null) break;
+        }
+
+        if (originalTransaction == null) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.charge.adjust.insurance.no.active.transaction",
+                    "No active repayment-at-disbursement transaction found linked to this charge.",
+                    loanChargeId);
+        }
+
+
+        // throw error if same amount as current
+        final BigDecimal oldAmount = loanCharge.getAmount(loan.getCurrency()).getAmount();
+        log.info("Current charge amount={}, incoming amount={}", oldAmount, newAmount);
+
+        if (newAmount.compareTo(oldAmount) == 0 && newGlAccountId == null) {
+            throw new PlatformApiDataValidationException(List.of(ApiParameterError.parameterError(
+                    "validation.msg.loan.charge.adjustment.amount.same",
+                    "Insurance charge adjustment amount is the same as the current amount: " + oldAmount,
+                    "amount"
+            )));
+        }
+
+
+        // delta > 0 → client owes more, loan balance increases
+        // delta < 0 → charge reduced, loan balance decreases
+        // delta = -oldAmount → full reversal (zeroing)
+        final BigDecimal delta = newAmount.subtract(oldAmount);
+        final BigDecimal absDelta = delta.abs();
+        final boolean isCredit = delta.compareTo(BigDecimal.ZERO) < 0;
+        final boolean isZeroing = newAmount.compareTo(BigDecimal.ZERO) == 0;
+
+        // If zeroing — block if previous adjustments exist on this charge
+        // Zeroing after adjustments risks DR and CR on same GL — must be done manually
+        if (isZeroing) {
+            final boolean hasPreviousAdjustments = loan.getLoanTransactions().stream()
+                    .filter(lt -> !lt.isReversed())
+                    .filter(lt -> LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(lt.getTypeOf()))
+                    .anyMatch(lt -> lt.getLoanChargesPaid().stream()
+                            .anyMatch(paid -> paid.getLoanCharge().getId().equals(loanChargeId)));
+
+            if (hasPreviousAdjustments) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.zeroing.not.allowed",
+                        "Cannot zero an insurance charge that has already been adjusted. Please contact finance to manually reverse the GL entries.",
+                        loanChargeId
+                );
+            }
+        }
+
+        // If zeroing — skip reclassification even if glAccountId was passed
+        log.info("Insurance adjustment START - isZeroing={}, newGlAccountId={}, delta={}", isZeroing, newGlAccountId, delta);
+
+        Long effectiveGlAccountId;
+        if (isZeroing) {
+            log.info("Insurance adjustment - isZeroing, skipping GL");
+            effectiveGlAccountId = null;
+        } else if (newGlAccountId != null) {
+            log.info("Insurance adjustment - using passed glAccountId={}", newGlAccountId);
+            effectiveGlAccountId = newGlAccountId;
+        } else {
+            log.info("Insurance adjustment - no glAccountId passed, looking up last used GL");
+            final JournalEntry activeCreditEntry = findActiveCreditEntry(
+                    loan, originalTransaction, null);
+            effectiveGlAccountId = activeCreditEntry != null
+                    ? activeCreditEntry.getGlAccount().getId() : null;
+            log.info("Insurance adjustment - resolved effectiveGlAccountId={}", effectiveGlAccountId);
+        }
+
+
+        // Build changes map
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("previousAmount", oldAmount);
+        changes.put("previousTransactionDate", originalTransaction.getTransactionDate());
+        changes.put("amount", newAmount);
+        changes.put("delta", delta);
+        changes.put("notes", notes);
+        changes.put("adjustmentTransactionDate", originalTransaction.getTransactionDate());
+
+        if (!newTransactionDate.isEqual(originalTransaction.getTransactionDate())) {
+            changes.put("transactionDate", newTransactionDate);
+        }
+
+
+        // Track existing transaction IDs before any changes
+        final List<Long> existingTransactionIds = new ArrayList<>(loan.findExistingTransactionIds());
+        final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
+
+
+        // Post INSURANCE_CHARGE_ADJUSTMENT transaction for the full delta
+        // Always post the full absDelta — the charge adjustment itself corrects fee accounting
+        // DEPOSIT_REDRAW is only posted when the delta exceeds the total loan outstanding
+        final BigDecimal totalOutstanding = loan.getSummary().getTotalOutstanding().max(BigDecimal.ZERO);
+
+        final Money deltaMoney = Money.of(loan.getCurrency(), absDelta);
+        final LoanTransaction chargeAdjustmentTransaction = LoanTransaction.insuranceChargeAdjustment(
+                loan,
+                loan.getOffice(),
+                deltaMoney,
+                originalTransaction.getTransactionDate(),
+                isCredit);
+
+        chargeAdjustmentTransaction.updateLoan(loan);
+
+        // Link adjustment transaction to charge for audit trail
+        final LoanChargePaidBy adjustmentChargePaidBy = new LoanChargePaidBy(
+                chargeAdjustmentTransaction,
+                loanCharge,
+                absDelta,
+                null);
+        chargeAdjustmentTransaction.getLoanChargesPaid().add(adjustmentChargePaidBy);
+
+        this.loanTransactionRepository.saveAndFlush(chargeAdjustmentTransaction);
+        loan.getLoanTransactions().add(chargeAdjustmentTransaction);
+
+        // Post DEPOSIT_REDRAW only when delta exceeds total outstanding
+        // This prevents the loan balance from going negative in overpayment scenarios
+        Long depositRedrawTransactionId = null;
+        if (isCredit && absDelta.compareTo(totalOutstanding) > 0) {
+            final BigDecimal excessAmount = absDelta.subtract(totalOutstanding);
+            final Money excessMoney = Money.of(loan.getCurrency(), excessAmount);
+            final LoanTransaction depositRedrawTransaction = LoanTransaction.applyRedrawRepayment(
+                    loan.getOffice(),
+                    excessMoney,
+                    null,
+                    originalTransaction.getTransactionDate(),
+                    null,
+                    loan);
+
+            depositRedrawTransaction.updateLoan(loan);
+            this.loanTransactionRepository.saveAndFlush(depositRedrawTransaction);
+            loan.getLoanTransactions().add(depositRedrawTransaction);
+            depositRedrawTransactionId = depositRedrawTransaction.getId();
+
+            log.info("Insurance adjustment - DEPOSIT_REDRAW saved with id={}, amount={}, totalOutstanding={}",
+                    depositRedrawTransactionId, excessAmount, totalOutstanding);
+
+            // Post GL entries for DEPOSIT_REDRAW manually
+            // DR Loan Portfolio (reduce loan asset)
+            // CR Overpayment GL (record the client credit)
+            final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                    .findCoreProductToFinAccountMapping(
+                            loan.productId(),
+                            PortfolioProductType.LOAN.getValue(),
+                            AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                    );
+
+            final ProductToGLAccountMapping overpaymentMapping = productToGLAccountMappingRepository
+                    .findCoreProductToFinAccountMapping(
+                            loan.productId(),
+                            PortfolioProductType.LOAN.getValue(),
+                            AccountingConstants.CashAccountsForLoan.OVERPAYMENT.getValue()
+                    );
+
+            if (loanPortfolioMapping != null && overpaymentMapping != null) {
+                // DR Loan Portfolio
+                final JournalEntry portfolioDebit = buildManualJournalEntry(
+                        loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.DEBIT,
+                        excessAmount,
+                        "Insurance overpayment - reduce loan portfolio",
+                        depositRedrawTransaction,
+                        originalTransaction.getTransactionDate());
+                journalEntryRepository.save(portfolioDebit);
+
+                // CR Overpayment GL
+                final JournalEntry overpaymentCredit = buildManualJournalEntry(
+                        loan, overpaymentMapping.getGlAccount(), JournalEntryType.CREDIT,
+                        excessAmount,
+                        "Insurance overpayment - credit overpayment GL",
+                        depositRedrawTransaction,
+                        originalTransaction.getTransactionDate());
+                journalEntryRepository.save(overpaymentCredit);
+
+                log.info("Insurance adjustment - DEPOSIT_REDRAW GL posted DR={} CR={} amount={}",
+                        loanPortfolioMapping.getGlAccount().getGlCode(),
+                        overpaymentMapping.getGlAccount().getGlCode(),
+                        excessAmount);
+            } else {
+                log.warn("Insurance adjustment - DEPOSIT_REDRAW GL mappings not found, skipping GL entries");
+            }
+
+            changes.put("depositRedrawTransactionId", depositRedrawTransactionId);
+            changes.put("depositRedrawAmount", excessAmount);
+
+            log.info("Insurance adjustment - excess={} posted as DEPOSIT_REDRAW id={}", excessAmount, depositRedrawTransactionId);
+        }
+
+
+        // GL entries for the delta adjustment
+        // Two cases:
+        // 1. GL account is changing — full reclassification (reverse original + repost to new GL)
+        // 2. Same GL — post only the delta in correct direction
+        if (effectiveGlAccountId != null) {
+            log.info("Insurance adjustment - effectiveGlAccountId={}, isZeroing={}", effectiveGlAccountId, isZeroing);
+            final GLAccount newGlAccount = glAccountRepository.findById(effectiveGlAccountId)
+                    .orElseThrow(() -> new GeneralPlatformDomainRuleException(
+                            "error.msg.loan.insurance.adjustment.gl.account.not.found",
+                            "GL account not found for id: " + effectiveGlAccountId,
+                            effectiveGlAccountId
+                    ));
+
+            // Find the original CREDIT (income) entry — type_enum = 1
+            // Walks original transaction first, then previous adjustment transactions
+            final Long originalTransactionId = originalTransaction.getId();
+
+            final JournalEntry originalCreditEntry = findActiveCreditEntry(
+                    loan, originalTransaction, chargeAdjustmentTransaction);
+
+            if (originalCreditEntry == null) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.no.credit.entry",
+                        "No active credit journal entry found for original or adjustment transactions for charge: " + originalTransactionId,
+                        originalTransactionId
+                );
+            }
+
+            final GLAccount oldGlAccount = originalCreditEntry.getGlAccount();
+
+            if (!oldGlAccount.getId().equals(newGlAccount.getId())) {
+                // Full reclassification of original amount
+                final BigDecimal reclassAmount = originalCreditEntry.getAmount();
+                originalCreditEntry.setReversed(true);
+                journalEntryRepository.save(originalCreditEntry);
+
+                journalEntryRepository.save(buildManualJournalEntry(
+                        loan, oldGlAccount, JournalEntryType.DEBIT, reclassAmount,
+                        "Reversal - reclassify insurance GL from: " + oldGlAccount.getGlCode(),
+                        chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+
+                journalEntryRepository.save(buildManualJournalEntry(
+                        loan, newGlAccount, JournalEntryType.CREDIT, reclassAmount,
+                        "Reclassify insurance GL to: " + newGlAccount.getGlCode(),
+                        chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+
+                // Also post the delta to the new GL
+                final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                        .findCoreProductToFinAccountMapping(
+                                loan.productId(),
+                                PortfolioProductType.LOAN.getValue(),
+                                AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                        );
+
+                if (loanPortfolioMapping != null) {
+                    if (!isCredit) {
+                        // Increase — DR Loan Portfolio, CR new GL
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge increase - increase loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, newGlAccount, JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge increase - recognize additional income on new GL",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+                    } else {
+                        // Reduction — DR new GL, CR Loan Portfolio
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, newGlAccount, JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge reduction - reverse income by delta on new GL",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+
+                        journalEntryRepository.save(buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge reduction - reduce loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate()));
+                    }
+                }
+
+                changes.put("previousGlAccountId", oldGlAccount.getId());
+                changes.put("previousGlAccountCode", oldGlAccount.getGlCode());
+                changes.put("newGlAccountId", newGlAccountId);
+                changes.put("newGlAccountCode", newGlAccount.getGlCode());
+            } else {
+                // Same GL — post only the delta in correct direction
+                log.info("Insurance adjustment - same GL={}, posting delta={}, isCredit={}",
+                        oldGlAccount.getGlCode(), absDelta, isCredit);
+
+                final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                        .findCoreProductToFinAccountMapping(
+                                loan.productId(),
+                                PortfolioProductType.LOAN.getValue(),
+                                AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                        );
+
+                if (loanPortfolioMapping != null) {
+                    if (isCredit) {
+                        // Charge reduced — client was overcharged
+                        // DR Income GL (reverse income recognition by delta)
+                        final JournalEntry incomeDebit = buildManualJournalEntry(
+                                loan, oldGlAccount, JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge reduction - reverse income by delta",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        journalEntryRepository.save(incomeDebit);
+
+                        // CR Loan Portfolio (reduce loan asset by delta)
+                        final JournalEntry portfolioCredit = buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge reduction - reduce loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        journalEntryRepository.save(portfolioCredit);
+
+                    } else {
+                        // Charge increased — client was undercharged
+                        // DR Loan Portfolio (increase loan asset by delta)
+                        final JournalEntry portfolioDebit = buildManualJournalEntry(
+                                loan, loanPortfolioMapping.getGlAccount(), JournalEntryType.DEBIT, absDelta,
+                                "Insurance charge increase - increase loan portfolio",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        journalEntryRepository.save(portfolioDebit);
+
+                        // CR Income GL (recognize additional income)
+                        final JournalEntry incomeCredit = buildManualJournalEntry(
+                                loan, oldGlAccount, JournalEntryType.CREDIT, absDelta,
+                                "Insurance charge increase - recognize additional income",
+                                chargeAdjustmentTransaction, originalTransaction.getTransactionDate());
+                        journalEntryRepository.save(incomeCredit);
+                    }
+                } else {
+                    log.warn("Insurance adjustment - loan portfolio GL mapping not found, skipping delta GL entries");
+                }
+            }
+        }
+
+
+        // Update LoanCharge state
+        if (isZeroing) {
+            // Full reversal — zero out all charge fields
+            loanCharge.updateAmount(BigDecimal.ZERO);
+            loanCharge.resetOutstandingAmount(BigDecimal.ZERO);
+
+            // No previous adjustments guaranteed above — original credit is still active
+            // Reverse the original credit entry:
+            // DR Insurance Income GL (reverse the original credit)
+            // CR Loan Portfolio GL (reduce the loan asset — mirror of original disbursement entry)
+            final List<JournalEntry> originalEntries = journalEntryRepository
+                    .findActiveByLoanTransactionId(originalTransaction.getId());
+
+            final LocalDate originalTransactionDate = originalTransaction.getTransactionDate();
+
+            // Fetch loan portfolio GL account from product mapping
+            final ProductToGLAccountMapping loanPortfolioMapping = productToGLAccountMappingRepository
+                    .findCoreProductToFinAccountMapping(
+                            loan.productId(),
+                            PortfolioProductType.LOAN.getValue(),
+                            AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()
+                    );
+
+            if (loanPortfolioMapping == null) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.loan.portfolio.gl.not.found",
+                        "Loan portfolio GL account mapping not found for loan product: " + loan.productId(),
+                        loan.productId()
+                );
+            }
+
+            final GLAccount loanPortfolioGlAccount = loanPortfolioMapping.getGlAccount();
+
+            originalEntries.stream()
+                    .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
+                    .findFirst()
+                    .ifPresent(creditEntry -> {
+                        creditEntry.setReversed(true);
+                        journalEntryRepository.save(creditEntry);
+
+                        // DR Insurance Income GL (reverse the original credit)
+                        final JournalEntry reversalDebit = buildManualJournalEntry(
+                                loan, creditEntry.getGlAccount(), JournalEntryType.DEBIT,
+                                creditEntry.getAmount(),
+                                "Zeroing insurance charge - reversal of income GL",
+                                chargeAdjustmentTransaction,
+                                originalTransactionDate);
+                        journalEntryRepository.save(reversalDebit);
+
+                        // CR Loan Portfolio GL (reduce loan asset — mirrors original disbursement reversal)
+                        final JournalEntry portfolioCredit = buildManualJournalEntry(
+                                loan, loanPortfolioGlAccount, JournalEntryType.CREDIT,
+                                creditEntry.getAmount(),
+                                "Zeroing insurance charge - reduce loan portfolio",
+                                chargeAdjustmentTransaction,
+                                originalTransactionDate);
+                        journalEntryRepository.save(portfolioCredit);
+                    });
+        } else {
+            // Partial adjustment — recalculate outstanding, clamp to zero to prevent negative
+            loanCharge.updateAmount(newAmount);
+            final BigDecimal amountPaid = loanCharge.getAmountPaid(loan.getCurrency()).getAmount();
+            loanCharge.resetOutstandingAmount(newAmount.subtract(amountPaid).max(BigDecimal.ZERO));
+        }
+
+        this.loanChargeRepository.saveAndFlush(loanCharge);
+        loan.refreshFeeChargesDueAtDisbursement();
+
+
+        // Persist mandatory note against adjustment transaction
+        final Note note = Note.loanTransactionNote(loan, chargeAdjustmentTransaction, notes);
+        this.noteRepository.save(note);
+
+
+        // Recalculate loan summary derived fields
+        loan.updateLoanSummaryDerivedFields();
+        saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+
+        // Force fee charges outstanding to zero if negative
+        if (loan.getSummary().getTotalFeeChargesOutstanding().compareTo(BigDecimal.ZERO) < 0) {
+            final BigDecimal negativeAmount = loan.getSummary().getTotalFeeChargesOutstanding().abs();
+            loan.getSummary().updateFeeChargeOutstanding(BigDecimal.ZERO);
+            final BigDecimal correctedTotal = loan.getSummary().getTotalOutstanding()
+                    .add(negativeAmount)
+                    .max(BigDecimal.ZERO);
+            loan.getSummary().updateTotalOutstanding(correctedTotal);
+            saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+            log.info("Insurance adjustment - fee outstanding forced to zero, total outstanding corrected to={}",
+                    correctedTotal);
+        }
+
+        // If DEPOSIT_REDRAW was posted, it covers any remaining outstanding balance
+        // DEPOSIT_REDRAW type does not reduce interest_repaid in summary recalc, so force to zero
+        if (depositRedrawTransactionId != null
+                && loan.getSummary().getTotalOutstanding().compareTo(BigDecimal.ZERO) > 0) {
+            log.info("Insurance adjustment - DEPOSIT_REDRAW covers remaining outstanding={}, forcing to zero",
+                    loan.getSummary().getTotalOutstanding());
+            loan.getSummary().updateTotalOutstanding(BigDecimal.ZERO);
+            saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+        }
+
+        // Exclude only the DEPOSIT_REDRAW created in this operation from GL posting
+        // GL entries already posted manually above — must not double-post
+        if (depositRedrawTransactionId != null) {
+            existingTransactionIds.add(depositRedrawTransactionId);
+        }
+
+        // Post GL journal entries for the delta adjustment
+        postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+
+        changes.put("originalTransactionId", originalTransaction.getId());
+        changes.put("chargeAdjustmentTransactionId", chargeAdjustmentTransaction.getId());
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanChargeId)
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .with(changes)
+                .build();
+    }
+
     private void validateIsMultiDisbursalLoanAndDisbursedMoreThanOneTranche(Loan loan) {
         if (!loan.isMultiDisburmentLoan()) {
             final String errorMessage = "loan.product.does.not.support.multiple.disbursals.cannot.undo.last.disbursal";
@@ -3768,6 +4415,71 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         if (!CollectionUtils.isEmpty(loanRepaymentReminders)) {
             loanRepaymentReminderRepository.deleteAll(loanRepaymentReminders);
         }
+    }
+
+    private JournalEntry buildManualJournalEntry(
+            final Loan loan,
+            final GLAccount glAccount,
+            final JournalEntryType entryType,
+            final BigDecimal amount,
+            final String description,
+            final LoanTransaction loanTransaction,
+            final LocalDate entryDate) {
+
+        return JournalEntry.createNew(
+                loan.getOffice(),                          // office
+                null,                                      // paymentDetail
+                glAccount,                                 // glAccount
+                loan.getCurrency().getCode(),              // currencyCode
+                "L" + loanTransaction.getId(),              // transactionId
+                false,                                     // manualEntry
+                entryDate,                                 // transactionDate
+                entryType,                                 // journalEntryType
+                amount,                                    // amount
+                description,                               // description
+                PortfolioProductType.LOAN.getValue(),      // entityType
+                loan.getId(),                              // entityId
+                null,                                      // referenceNumber
+                loanTransaction,                           // loanTransaction
+                null,                                      // savingsTransaction
+                null,                                      // clientTransaction
+                null                                       // shareTransactionId
+        );
+    }
+
+    private JournalEntry findActiveCreditEntry(
+            final Loan loan,
+            final LoanTransaction originalTransaction,
+            final LoanTransaction currentAdjustmentTransaction) {
+
+        // First check original disbursement transaction
+        List<JournalEntry> entries = journalEntryRepository
+                .findAllByLoanTransactionId(originalTransaction.getId());
+
+        JournalEntry creditEntry = entries.stream()
+                .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
+                .filter(e -> !e.isReversed())
+                .findFirst()
+                .orElse(null);
+
+        // Fallback — walk previous adjustment transactions
+        if (creditEntry == null) {
+            for (final LoanTransaction lt : loan.getLoanTransactions()) {
+                if (lt.isReversed()) continue;
+                if (!LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(lt.getTypeOf())) continue;
+                if (currentAdjustmentTransaction != null && lt.getId().equals(currentAdjustmentTransaction.getId())) continue;
+                final List<JournalEntry> adjEntries = journalEntryRepository
+                        .findAllByLoanTransactionId(lt.getId());
+                creditEntry = adjEntries.stream()
+                        .filter(e -> JournalEntryType.CREDIT.getValue().equals(e.getType()))
+                        .filter(e -> !e.isReversed())
+                        .findFirst()
+                        .orElse(null);
+                if (creditEntry != null) break;
+            }
+        }
+
+        return creditEntry;
     }
 
 }

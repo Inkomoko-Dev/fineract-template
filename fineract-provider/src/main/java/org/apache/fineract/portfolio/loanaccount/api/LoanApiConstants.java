@@ -28,6 +28,11 @@ public interface LoanApiConstants {
     String disbursementNetDisbursalAmountParameterName = "netDisbursalAmount";
     String paymentToParameterName = "paymentTo";
     String beneficiaryNameParameterName = "beneficiaryName";
+    String disbursementTypeParameterName = "disbursementType";
+    String fxRateParameterName = "fxRate";
+    String usdAmountParameterName = "usdAmount";
+    String fxSourceParameterName = "fxSource";
+    String fxTimestampParameterName = "fxTimestamp";
     String updatedDisbursementDateParameterName = "updatedExpectedDisbursementDate";
     String updatedDisbursementPrincipalParameterName = "updatedPrincipal";
     String disbursementIdParameterName = "id";

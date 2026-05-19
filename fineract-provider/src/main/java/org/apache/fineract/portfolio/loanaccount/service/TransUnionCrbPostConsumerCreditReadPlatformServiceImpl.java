@@ -64,16 +64,28 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
 
         public String schema() {
             final StringBuilder sql = new StringBuilder();
+            final String addressTypePriorityExpression = "CASE "
+                    + "WHEN UPPER(address_type_cv.code_value) IN ('CURRENT ADDRESS', 'PRIMARY', 'PRIMARY ADDRESS') THEN 0 "
+                    + "WHEN UPPER(address_type_cv.code_value) IN ('HOME', 'RESIDENTIAL', 'RESIDENTIAL ADDRESS') THEN 1 "
+                    + "WHEN UPPER(address_type_cv.code_value) = 'BUSINESS' THEN 2 "
+                    + "ELSE 3 END";
 
-            sql.append("  WITH RankedAddresses AS ( " + "    SELECT client_id, " + "           address_id, "
-                    + "           ROW_NUMBER() OVER (PARTITION BY client_id ORDER BY address_id DESC) AS row_num "
-                    + "    FROM m_client_address " + "  ) "
+            sql.append("  WITH RankedAddresses AS ( " + "    SELECT ca.client_id, " + "           ca.address_id, "
+                    + "           address_type_cv.code_value AS addressType, "
+                    + "           ROW_NUMBER() OVER (PARTITION BY ca.client_id "
+                    + "                              ORDER BY CASE WHEN ca.is_active = true THEN 0 ELSE 1 END, "
+                    + "                                       " + addressTypePriorityExpression + ", "
+                    + "                                       ca.address_id DESC) AS row_num "
+                    + "    FROM m_client_address ca "
+                    + "         LEFT JOIN m_code_value address_type_cv ON ca.address_type_id = address_type_cv.id " + "  ) "
                     + "  SELECT l.id                                                                              AS loanId, "
                     + "       l.account_no                                                                      AS accountNumber, "
                     + "       l.loan_status_id                                                                  AS loanStatus, "
                     + "       l.currency_code                                                                   AS currencyType, "
+                    + "       ranked_address.address_id                                                         AS selectedAddressId, "
+                    + "       ranked_address.addressType                                                        AS selectedAddressType, "
                     + "       country_cv.code_value                                                             AS country, "
-                    + "       mc.firstname                                                                      AS surName, ");
+                    + "       mc.lastname                                                                       AS surName, ");
             if (databaseTypeResolver.isMySQL()) {
                 sql.append(
                         "      COALESCE(DATEDIFF(NOW(), mlaa.overdue_since_date_derived)  ,0)                           AS daysInArrears, ");
@@ -187,8 +199,6 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     + "      now()                                                          AS dateAccountUpdated, "
                     + "       r.installments_in_arrears                                                         AS installmentsInArrears "
                     + "  FROM m_loan l " + "         INNER JOIN m_client mc ON l.client_id = mc.id "
-                    + "         LEFT JOIN m_client_recruitment_survey mcrs ON mc.id = mcrs.client_id "
-                    + "         LEFT JOIN m_code_value country_cv ON mcrs.country_cv_id = country_cv.id "
                     + "         LEFT JOIN m_loan_arrears_aging mlaa ON l.id = mlaa.loan_id "
                     + "         LEFT JOIN m_client_other_info info ON mc.id = info.client_id "
                     + "         LEFT JOIN m_code_value nationality_cv ON info.nationality_cv_id = nationality_cv.id "
@@ -222,10 +232,10 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     "    ) x\n" +
                     ") AS first_payment\n" +
                     "  ON l.id = first_payment.loan_id "
-                    + "         LEFT JOIN ( " + "    SELECT client_id, " + "           MAX(address_id) AS last_address_id "
-                    + "    FROM m_client_address " + "    GROUP BY client_id "
-                    + " ) AS last_client_address ON mc.id = last_client_address.client_id "
-                    + "         LEFT JOIN m_address ra ON last_client_address.last_address_id = ra.id "
+                    + "         LEFT JOIN RankedAddresses ranked_address ON mc.id = ranked_address.client_id "
+                    + "                                                   AND ranked_address.row_num = 1 "
+                    + "         LEFT JOIN m_address ra ON ranked_address.address_id = ra.id "
+                    + "         LEFT JOIN m_code_value country_cv ON ra.country_id = country_cv.id "
                     + "         LEFT JOIN (SELECT loan_id, " + "                           COUNT(*) AS installments_in_arrears "
                     + "                    FROM m_loan_repayment_schedule " + "                    WHERE duedate <= CURRENT_DATE "
                     + "                      AND completed_derived = FALSE " + "                      AND obligations_met_on_date IS NULL "
@@ -258,6 +268,9 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
             final String accountNumber = rs.getString("accountNumber");
             final Integer loanStatus = rs.getInt("loanStatus");
             final String currencyType = rs.getString("currencyType");
+            final Number selectedAddressIdValue = (Number) rs.getObject("selectedAddressId");
+            final Long selectedAddressId = selectedAddressIdValue != null ? selectedAddressIdValue.longValue() : null;
+            final String selectedAddressType = rs.getString("selectedAddressType");
             final String country = rs.getString("country");
             final String surName = rs.getString("surName");
             final Integer daysInArrears = rs.getInt("daysInArrears");
@@ -323,6 +336,8 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
             final LocalDate dateAccountUpdated = JdbcSupport.getLocalDate(rs, "dateAccountUpdated");
 
             TransUnionRwandaConsumerCreditData trans = new TransUnionRwandaConsumerCreditData();
+            trans.setSelectedAddressId(selectedAddressId);
+            trans.setSelectedAddressType(selectedAddressType);
             trans.setLoanId(loanId);
             trans.setLoanStatus(loanStatus);
             trans.setCurrencyType(currencyType);

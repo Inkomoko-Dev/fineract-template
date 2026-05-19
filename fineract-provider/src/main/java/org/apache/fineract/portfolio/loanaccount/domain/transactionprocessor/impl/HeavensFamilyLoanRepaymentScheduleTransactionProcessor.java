@@ -74,7 +74,9 @@ public class HeavensFamilyLoanRepaymentScheduleTransactionProcessor extends Abst
     }
 
     /**
-     * For early/'in advance' repayments, pays off principal component only.
+     * For early/'in advance' repayments, pay only accrued interest up to the payment date,
+     * write off unearned interest, then pay principal. This ensures clients are not charged
+     * interest that has not yet accrued when they prepay.
      */
     @Override
     protected Money handleTransactionThatIsPaymentInAdvanceOfInstallment(final LoanRepaymentScheduleInstallment currentInstallment,
@@ -102,25 +104,12 @@ public class HeavensFamilyLoanRepaymentScheduleTransactionProcessor extends Abst
                 transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortion);
             }
         } else {
-
-            if (currentInstallment.isPrincipalNotCompleted(currency)) {
-                principalPortion = currentInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
-                if (currentInstallment.isPrincipalCompleted(currency)) {
-                    // FIXME - KW - if auto waiving interest need to create
-                    // another transaction to handle this.
-                    currentInstallment.waiveInterestComponent(transactionDate, currentInstallment.getInterestCharged(currency));
-                }
-
-                loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
-
-                transactionAmountRemaining = transactionAmountRemaining.minus(principalPortion);
-            }
-
-            // 1. pay of principal with over payment.
+            // Pay principal first
             principalPortion = currentInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(principalPortion);
 
-            interestPortion = currentInstallment.payInterestComponent(transactionDate, transactionAmountRemaining);
+            // Pay ONLY accrued interest and write off unearned interest for this installment
+            interestPortion = currentInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
 
             feeChargesPortion = currentInstallment.payFeeChargesComponent(transactionDate, transactionAmountRemaining);
@@ -128,6 +117,32 @@ public class HeavensFamilyLoanRepaymentScheduleTransactionProcessor extends Abst
 
             penaltyChargesPortion = currentInstallment.payPenaltyChargesComponent(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(penaltyChargesPortion);
+
+            loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+
+            // Process remaining installments (future installments) - write off their interest too
+            if (transactionAmountRemaining.isGreaterThanZero()) {
+                for (final LoanRepaymentScheduleInstallment futureInstallment : installments) {
+                    if (futureInstallment.getInstallmentNumber() > currentInstallment.getInstallmentNumber()
+                            && futureInstallment.isNotFullyPaidOff()
+                            && transactionAmountRemaining.isGreaterThanZero()) {
+
+                        // For future installments, write off all interest (none has accrued)
+                        futureInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, Money.zero(currency));
+
+                        // Pay principal from future installments
+                        Money futurePrincipalPortion = futureInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
+                        transactionAmountRemaining = transactionAmountRemaining.minus(futurePrincipalPortion);
+
+                        if (futurePrincipalPortion.isGreaterThanZero()) {
+                            principalPortion = principalPortion.plus(futurePrincipalPortion);
+                            loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+                            transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, futureInstallment,
+                                    futurePrincipalPortion, Money.zero(currency), Money.zero(currency), Money.zero(currency)));
+                        }
+                    }
+                }
+            }
         }
 
         loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);

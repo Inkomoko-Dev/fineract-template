@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -42,8 +43,12 @@ import org.apache.fineract.portfolio.loanaccount.api.LoanApprovalMatrixConstants
 import org.apache.fineract.portfolio.loanaccount.data.LoanCashFlowProjectionData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanCashFlowReport;
 import org.apache.fineract.portfolio.loanaccount.data.LoanNetCashFlowData;
+import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfig;
+import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfigRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrix;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrixLevel;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrixLevelRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagementRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
@@ -58,6 +63,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class LoanDecisionStateUtilService {
 
     private final ConfigurationReadPlatformService configurationReadPlatformService;
@@ -69,6 +75,9 @@ public class LoanDecisionStateUtilService {
     private final LoanRepositoryWrapper loanRepositoryWrapper;
     private final LoanReadPlatformService loanReadPlatformService;
     private final LoanCollateralManagementRepository loanCollateralManagementRepository;
+    private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
+    private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
+    private final LoanApprovalMatrixLevelRepository loanApprovalMatrixLevelRepository;
 
     public void validateLoanAccountWithExtraLoanDecisionStagesConfiguredGlobally(Loan loan, final JsonCommand command) {
         final Boolean isExtendLoanLifeCycleConfig = isExtendLoanLifeCycleConfig();
@@ -263,17 +272,23 @@ public class LoanDecisionStateUtilService {
 
     @NotNull
     public Boolean isLoanAccountInICReview(LoanDecisionState loanDecisionState) {
-        switch (loanDecisionState) {
-            case DUE_DILIGENCE: // For the loan to have due diligence review, it's next stage is IC Review Level One
-                                // Making DUE_DILIGENCE necessary to this action
-            case IC_REVIEW_LEVEL_ONE:
-            case IC_REVIEW_LEVEL_TWO:
-            case IC_REVIEW_LEVEL_THREE:
-            case IC_REVIEW_LEVEL_FOUR:
-                return true;
-            default:
-                return false;
+        // Use dynamic helper to check if this is an IC review level
+        // This now supports unlimited IC review levels beyond the hardcoded 5
+        if (loanDecisionState.isAnyIcReviewLevel()) {
+            Integer levelNumber = loanDecisionState.getIcReviewLevelNumber();
+            // Check if it's not the last level (last level goes to PREPARE_AND_SIGN_CONTRACT)
+            return levelNumber != null && !isLastIcReviewLevel(levelNumber);
         }
+        // DUE_DILIGENCE is also considered "in IC review" as its next stage is IC Review Level One
+        return loanDecisionState.isDueDiligence();
+    }
+
+    /**
+     * Check if the given level number is the last configured IC review level.
+     */
+    private boolean isLastIcReviewLevel(Integer levelNumber) {
+        Integer maxLevel = dynamicIcReviewLevelHelper.getMaxIcReviewLevel();
+        return maxLevel != null && levelNumber.equals(maxLevel);
     }
 
     private void validateLoanAccountToComplyToApprovalMatrixLevelTwo(Loan loan, LoanApprovalMatrix approvalMatrix, Boolean isLoanFirstCycle,
@@ -541,6 +556,16 @@ public class LoanDecisionStateUtilService {
 
     public void validateLoanAccountToComplyToApprovalMatrixStage(Loan loan, LoanApprovalMatrix approvalMatrix, Boolean isLoanFirstCycle,
             Boolean isLoanUnsecure, LoanDecisionState currentStage, BigDecimal dueDiligenceRecommendedAmount) {
+
+        // Try dynamic validation first for any IC review level
+        Integer levelNumber = currentStage.getIcReviewLevelNumber();
+        if (levelNumber != null) {
+            validateLoanAccountToComplyToApprovalMatrixStageDynamic(loan, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
+                    levelNumber, dueDiligenceRecommendedAmount);
+            return;
+        }
+
+        // Fallback to legacy switch for backward compatibility (should not reach here for IC review levels)
         switch (currentStage) {
             case IC_REVIEW_LEVEL_ONE:
                 validateLoanAccountToComplyToApprovalMatrixLevelOne(loan, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
@@ -567,6 +592,149 @@ public class LoanDecisionStateUtilService {
                         String.format("Invalid Loan Stage detected to be validated . Provided Stage [%s]", currentStage));
         }
 
+    }
+
+    /**
+     * Dynamic validation method that works for any IC review level (1, 2, 3, 4, 5, 6, 7, ...).
+     * This method queries the m_loan_approval_matrix_level table to get criteria for the current level.
+     */
+    private void validateLoanAccountToComplyToApprovalMatrixStageDynamic(Loan loan, LoanApprovalMatrix approvalMatrix,
+            Boolean isLoanFirstCycle, Boolean isLoanUnsecure, Integer levelNumber, BigDecimal dueDiligenceRecommendedAmount) {
+
+        // Get the approval matrix level configuration for this level
+        LoanApprovalMatrixLevel matrixLevel = loanApprovalMatrixLevelRepository.findByApprovalMatrixIdAndLevelNumber(
+                approvalMatrix.getId(), levelNumber);
+
+        if (matrixLevel == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.approval.matrix.level.not.configured",
+                    String.format("Approval matrix level %d is not configured for this approval matrix", levelNumber));
+        }
+
+        // Determine which criteria to use based on loan type
+        BigDecimal currentStageMaxAmount;
+        Integer currentStageMinTerm;
+        Integer currentStageMaxTerm;
+        BigDecimal previousStageMaxAmount = null;
+        String errorMsg;
+        String stateMsg;
+
+        if (isLoanFirstCycle && isLoanUnsecure) {
+            // Loan is FirstCycle and Unsecure
+            currentStageMaxAmount = matrixLevel.getUnsecuredFirstCycleMaxAmount();
+            currentStageMinTerm = matrixLevel.getUnsecuredFirstCycleMinTerm();
+            currentStageMaxTerm = matrixLevel.getUnsecuredFirstCycleMaxTerm();
+            errorMsg = String.format("error.msg.invalid.loan.principal.does.not.qualify.for.IC-review.level.%s.unsecured.first.cycle",
+                    getLevelName(levelNumber));
+            stateMsg = String.format("Level %s Unsecured first cycle", getLevelName(levelNumber));
+
+            // Get previous level max amount if not level 1
+            if (levelNumber > 1) {
+                previousStageMaxAmount = getPreviousLevelMaxAmount(approvalMatrix.getId(), levelNumber - 1, isLoanFirstCycle, isLoanUnsecure);
+            }
+
+        } else if (!isLoanFirstCycle && isLoanUnsecure) {
+            // Loan is (Second cycle or plus) and Unsecure
+            currentStageMaxAmount = matrixLevel.getUnsecuredSecondCycleMaxAmount();
+            currentStageMinTerm = matrixLevel.getUnsecuredSecondCycleMinTerm();
+            currentStageMaxTerm = matrixLevel.getUnsecuredSecondCycleMaxTerm();
+            errorMsg = String.format("error.msg.invalid.loan.principal.does.not.qualify.for.IC-review.level.%s.unsecured.second.cycle.plus",
+                    getLevelName(levelNumber));
+            stateMsg = String.format("Level %s Unsecured second cycle plus", getLevelName(levelNumber));
+
+            if (levelNumber > 1) {
+                previousStageMaxAmount = getPreviousLevelMaxAmount(approvalMatrix.getId(), levelNumber - 1, isLoanFirstCycle, isLoanUnsecure);
+            }
+
+        } else if (isLoanFirstCycle && !isLoanUnsecure) {
+            // First Cycle and secured Loan
+            currentStageMaxAmount = matrixLevel.getSecuredFirstCycleMaxAmount();
+            currentStageMinTerm = matrixLevel.getSecuredFirstCycleMinTerm();
+            currentStageMaxTerm = matrixLevel.getSecuredFirstCycleMaxTerm();
+            errorMsg = String.format("error.msg.invalid.loan.principal.does.not.qualify.for.IC-review.level.%s.secured.first.cycle",
+                    getLevelName(levelNumber));
+            stateMsg = String.format("Level %s secured first cycle", getLevelName(levelNumber));
+
+            if (levelNumber > 1) {
+                previousStageMaxAmount = getPreviousLevelMaxAmount(approvalMatrix.getId(), levelNumber - 1, isLoanFirstCycle, isLoanUnsecure);
+            }
+
+        } else if (!isLoanFirstCycle && !isLoanUnsecure) {
+            // Second Cycle or plus and secured
+            currentStageMaxAmount = matrixLevel.getSecuredSecondCycleMaxAmount();
+            currentStageMinTerm = matrixLevel.getSecuredSecondCycleMinTerm();
+            currentStageMaxTerm = matrixLevel.getSecuredSecondCycleMaxTerm();
+            errorMsg = String.format("error.msg.invalid.loan.principal.does.not.qualify.for.IC-review.level.%s.secured.second.cycle.plus",
+                    getLevelName(levelNumber));
+            stateMsg = String.format("Level %s Secured second cycle plus", getLevelName(levelNumber));
+
+            if (levelNumber > 1) {
+                previousStageMaxAmount = getPreviousLevelMaxAmount(approvalMatrix.getId(), levelNumber - 1, isLoanFirstCycle, isLoanUnsecure);
+            }
+
+        } else {
+            throw new GeneralPlatformDomainRuleException(
+                    String.format("error.msg.invalid.loan.principal.not.matching.approval.matrix.in.IC.review.Level.%s", getLevelName(levelNumber)),
+                    String.format("This Loan Account Principal [ %s ] , does not match IC Review Level %s Operations.",
+                            loan.getProposedPrincipal(), getLevelName(levelNumber)));
+        }
+
+        // Validate based on level
+        if (levelNumber == 1) {
+            validateLoanAccountCompliancePolicyBasedOnApprovalMatrixLevelOne(dueDiligenceRecommendedAmount,
+                    currentStageMaxAmount, loan.getNumberOfRepayments(), currentStageMinTerm, currentStageMaxTerm,
+                    errorMsg, stateMsg);
+        } else {
+            // Check if this is the last level
+            Integer maxLevel = dynamicIcReviewLevelHelper.getMaxIcReviewLevel();
+            if (maxLevel != null && levelNumber.equals(maxLevel)) {
+                // Last level uses different validation logic
+                validateLoanAccountCompliancePolicyBasedOnApprovalMatrixLevelFive(dueDiligenceRecommendedAmount,
+                        currentStageMaxAmount, loan.getNumberOfRepayments(), currentStageMinTerm, currentStageMaxTerm,
+                        errorMsg, stateMsg, previousStageMaxAmount);
+            } else {
+                // Middle levels (2, 3, 4, 6, 7, etc.)
+                validateLoanAccountCompliancePolicyBasedOnApprovalMatrixLevelTwoAndAbove(dueDiligenceRecommendedAmount,
+                        currentStageMaxAmount, loan.getNumberOfRepayments(), currentStageMinTerm, currentStageMaxTerm,
+                        errorMsg, stateMsg, previousStageMaxAmount);
+            }
+        }
+
+        log.debug("Validated loan {} against approval matrix level {}: amount={}, terms={}",
+                loan.getId(), levelNumber, dueDiligenceRecommendedAmount, loan.getNumberOfRepayments());
+    }
+
+    /**
+     * Helper method to get the maximum amount from the previous level.
+     */
+    private BigDecimal getPreviousLevelMaxAmount(Long approvalMatrixId, Integer previousLevelNumber,
+            Boolean isLoanFirstCycle, Boolean isLoanUnsecure) {
+        LoanApprovalMatrixLevel previousLevel = loanApprovalMatrixLevelRepository.findByApprovalMatrixIdAndLevelNumber(
+                approvalMatrixId, previousLevelNumber);
+
+        if (previousLevel == null) {
+            return BigDecimal.ZERO;
+        }
+
+        if (isLoanFirstCycle && isLoanUnsecure) {
+            return previousLevel.getUnsecuredFirstCycleMaxAmount();
+        } else if (!isLoanFirstCycle && isLoanUnsecure) {
+            return previousLevel.getUnsecuredSecondCycleMaxAmount();
+        } else if (isLoanFirstCycle && !isLoanUnsecure) {
+            return previousLevel.getSecuredFirstCycleMaxAmount();
+        } else {
+            return previousLevel.getSecuredSecondCycleMaxAmount();
+        }
+    }
+
+    /**
+     * Helper method to convert level number to level name (1 -> "One", 2 -> "Two", etc.)
+     */
+    private String getLevelName(Integer levelNumber) {
+        String[] names = {"", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"};
+        if (levelNumber > 0 && levelNumber < names.length) {
+            return names[levelNumber];
+        }
+        return levelNumber.toString();
     }
 
     public void validateCollateralReviewBusinessRule(JsonCommand command, Loan loan, LoanDecision loanDecision) {
@@ -722,13 +890,20 @@ public class LoanDecisionStateUtilService {
                     "Loan Account current status is invalid. Expected" + loan.status().getCode() + " but found " + loan.status().getCode());
         }
         if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isIcReviewLevelOne()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.is.invalid",
-                    "Loan Account Decision state is invalid. Expected" + LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue() + " but found "
-                            + loan.getLoanDecisionState());
+            // Use dynamicIcReviewLevelHelper to get proper display name for dynamic levels (6+)
+            String currentStateName = dynamicIcReviewLevelHelper.getLevelDisplayName(loan.getLoanDecisionState());
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.is.invalid.for.ic.level.two",
+                    "Loan cannot be processed at IC Review Level Two because it is currently at stage '"
+                            + currentStateName + "' (state " + loan.getLoanDecisionState()
+                            + "). Expected stage: IC_REVIEW_LEVEL_ONE (state 1400). "
+                            + "Please ensure IC Review Level One is completed before proceeding with Level Two, "
+                            + "or contact system administrator if the loan state needs correction.");
         }
         if (!loan.getLoanDecisionState().equals(loanDecision.getLoanDecisionState())) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.does.not.reconcile",
-                    "Loan Account Decision state Does not reconcile . Operation is terminated");
+                    "Loan Account Decision state is out of sync between loan and decision tables. "
+                            + "Loan state: " + loan.getLoanDecisionState() + ", Decision state: " + loanDecision.getLoanDecisionState()
+                            + ". Please contact system administrator to resolve this inconsistency.");
         }
     }
 
@@ -1056,8 +1231,69 @@ public class LoanDecisionStateUtilService {
         }
     }
 
+    /**
+     * Dynamic version of generateTheNextIcReviewStageFive that accepts the actual decision state value
+     * instead of LoanDecisionState enum. This is needed for dynamic IC review levels (6+) where
+     * the enum's getValue() would incorrectly return 1800 instead of the actual value like 1801.
+     */
+    private void generateTheNextIcReviewStageFiveDynamic(BigDecimal dueDiligenceRecommendedAmount, BigDecimal nextStageMatrixMaxAmount,
+            Integer numberOfRepayment, Integer nextStageMatrixMinTerm, Integer nextStageMatrixMaxTerm, LoanDecision loanDecision,
+            Integer nextStageDecisionStateValue, BigDecimal currentStageMaximumLoanAmount) {
+
+        if ((dueDiligenceRecommendedAmount.compareTo(currentStageMaximumLoanAmount) > 0
+                && (dueDiligenceRecommendedAmount.compareTo(nextStageMatrixMaxAmount) <= 0))
+                && (numberOfRepayment > nextStageMatrixMinTerm && numberOfRepayment <= nextStageMatrixMaxTerm)) {
+            loanDecision.setNextLoanIcReviewDecisionState(nextStageDecisionStateValue);
+        } else {
+            loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        }
+    }
+
+    /**
+     * Dynamic version of generateTheNextIcReviewStage that accepts the actual decision state value
+     * instead of LoanDecisionState enum. This is needed for dynamic IC review levels (6+) where
+     * the enum's getValue() would incorrectly return 1800 instead of the actual value like 1801.
+     */
+    private void generateTheNextIcReviewStageDynamic(BigDecimal dueDiligenceRecommendedAmount, BigDecimal nextStageMatrixMaxAmount,
+            Integer numberOfRepayment, Integer nextStageMatrixMinTerm, Integer nextStageMatrixMaxTerm, LoanDecision loanDecision,
+            Integer nextStageDecisionStateValue, BigDecimal currentStageMaximumLoanAmount) {
+
+        if ((dueDiligenceRecommendedAmount.compareTo(currentStageMaximumLoanAmount.add(BigDecimal.ONE)) >= 0
+                && (dueDiligenceRecommendedAmount.compareTo(nextStageMatrixMaxAmount) <= 0
+                        || dueDiligenceRecommendedAmount.compareTo(nextStageMatrixMaxAmount) > 0))
+                && (numberOfRepayment > nextStageMatrixMinTerm && numberOfRepayment <= nextStageMatrixMaxTerm)) {
+            loanDecision.setNextLoanIcReviewDecisionState(nextStageDecisionStateValue);
+        } else {
+            loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        }
+    }
+
+    /**
+     * Overloaded method that accepts the level number directly.
+     * This should be used for dynamic IC review levels (6+) to avoid the lossy conversion
+     * through LoanDecisionState.fromInt() which maps 1801-1899 back to IC_REVIEW_LEVEL_FIVE (1800).
+     */
+    public void determineTheNextDecisionStage(Loan loan, LoanDecision loanDecision, LoanApprovalMatrix approvalMatrix,
+            Boolean isLoanFirstCycle, Boolean isLoanUnsecure, Integer currentLevelNumber, BigDecimal dueDiligenceRecommendedAmount) {
+
+        if (currentLevelNumber != null) {
+            determineTheNextDecisionStageDynamic(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
+                    currentLevelNumber, dueDiligenceRecommendedAmount);
+        }
+    }
+
     public void determineTheNextDecisionStage(Loan loan, LoanDecision loanDecision, LoanApprovalMatrix approvalMatrix,
             Boolean isLoanFirstCycle, Boolean isLoanUnsecure, LoanDecisionState currentStage, BigDecimal dueDiligenceRecommendedAmount) {
+
+        // Try dynamic determination first for any IC review level
+        Integer levelNumber = currentStage.getIcReviewLevelNumber();
+        if (levelNumber != null) {
+            determineTheNextDecisionStageDynamic(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
+                    levelNumber, dueDiligenceRecommendedAmount);
+            return;
+        }
+
+        // Fallback to legacy switch for backward compatibility (should not reach here for IC review levels)
         switch (currentStage) {
             case IC_REVIEW_LEVEL_ONE:
                 determineTheNextDecisionStateAfterLevelOne(loan, loanDecision, approvalMatrix, isLoanFirstCycle, isLoanUnsecure,
@@ -1080,6 +1316,103 @@ public class LoanDecisionStateUtilService {
                         String.format("Invalid Loan Stage detected [%s]", currentStage));
         }
 
+    }
+
+    /**
+     * Dynamic method to determine the next decision stage for any IC review level (1, 2, 3, 4, 5, 6, 7, ...).
+     * This method queries the m_ic_review_level_config and m_loan_approval_matrix_level tables to determine
+     * if the loan qualifies for the next level or should proceed to contract signing.
+     */
+    private void determineTheNextDecisionStageDynamic(Loan loan, LoanDecision loanDecision, LoanApprovalMatrix approvalMatrix,
+            Boolean isLoanFirstCycle, Boolean isLoanUnsecure, Integer currentLevelNumber, BigDecimal dueDiligenceRecommendedAmount) {
+
+        // Get all active IC review levels ordered by display order
+        List<IcReviewLevelConfig> allLevels = icReviewLevelConfigRepository.findAllActiveOrderByDisplayOrder();
+
+        // Find the next level
+        IcReviewLevelConfig nextLevel = null;
+        for (int i = 0; i < allLevels.size(); i++) {
+            if (allLevels.get(i).getLevelNumber().equals(currentLevelNumber) && i + 1 < allLevels.size()) {
+                nextLevel = allLevels.get(i + 1);
+                break;
+            }
+        }
+
+        // If no next level exists, go to PREPARE_AND_SIGN_CONTRACT
+        if (nextLevel == null) {
+            loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+            log.debug("Loan {} at level {} - no next level found, proceeding to PREPARE_AND_SIGN_CONTRACT",
+                    loan.getId(), currentLevelNumber);
+            return;
+        }
+
+        // Get the current level's max amount
+        LoanApprovalMatrixLevel currentMatrixLevel = loanApprovalMatrixLevelRepository.findByApprovalMatrixIdAndLevelNumber(
+                approvalMatrix.getId(), currentLevelNumber);
+
+        // Get the next level's criteria
+        LoanApprovalMatrixLevel nextMatrixLevel = loanApprovalMatrixLevelRepository.findByApprovalMatrixIdAndLevelNumber(
+                approvalMatrix.getId(), nextLevel.getLevelNumber());
+
+        if (currentMatrixLevel == null || nextMatrixLevel == null) {
+            // If matrix levels are not configured, default to PREPARE_AND_SIGN_CONTRACT
+            loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+            log.warn("Loan {} - approval matrix levels not configured for current level {} or next level {}, proceeding to PREPARE_AND_SIGN_CONTRACT",
+                    loan.getId(), currentLevelNumber, nextLevel.getLevelNumber());
+            return;
+        }
+
+        // Determine which criteria to use based on loan type
+        BigDecimal currentStageMaxAmount;
+        BigDecimal nextStageMaxAmount;
+        Integer nextStageMinTerm;
+        Integer nextStageMaxTerm;
+
+        if (isLoanFirstCycle && isLoanUnsecure) {
+            currentStageMaxAmount = currentMatrixLevel.getUnsecuredFirstCycleMaxAmount();
+            nextStageMaxAmount = nextMatrixLevel.getUnsecuredFirstCycleMaxAmount();
+            nextStageMinTerm = nextMatrixLevel.getUnsecuredFirstCycleMinTerm();
+            nextStageMaxTerm = nextMatrixLevel.getUnsecuredFirstCycleMaxTerm();
+        } else if (!isLoanFirstCycle && isLoanUnsecure) {
+            currentStageMaxAmount = currentMatrixLevel.getUnsecuredSecondCycleMaxAmount();
+            nextStageMaxAmount = nextMatrixLevel.getUnsecuredSecondCycleMaxAmount();
+            nextStageMinTerm = nextMatrixLevel.getUnsecuredSecondCycleMinTerm();
+            nextStageMaxTerm = nextMatrixLevel.getUnsecuredSecondCycleMaxTerm();
+        } else if (isLoanFirstCycle && !isLoanUnsecure) {
+            currentStageMaxAmount = currentMatrixLevel.getSecuredFirstCycleMaxAmount();
+            nextStageMaxAmount = nextMatrixLevel.getSecuredFirstCycleMaxAmount();
+            nextStageMinTerm = nextMatrixLevel.getSecuredFirstCycleMinTerm();
+            nextStageMaxTerm = nextMatrixLevel.getSecuredFirstCycleMaxTerm();
+        } else {
+            currentStageMaxAmount = currentMatrixLevel.getSecuredSecondCycleMaxAmount();
+            nextStageMaxAmount = nextMatrixLevel.getSecuredSecondCycleMaxAmount();
+            nextStageMinTerm = nextMatrixLevel.getSecuredSecondCycleMinTerm();
+            nextStageMaxTerm = nextMatrixLevel.getSecuredSecondCycleMaxTerm();
+        }
+
+        // Check if this is the last level
+        Integer maxLevel = dynamicIcReviewLevelHelper.getMaxIcReviewLevel();
+        boolean isLastLevel = maxLevel != null && nextLevel.getLevelNumber().equals(maxLevel);
+
+        // Determine next stage based on loan amount and terms
+        // IMPORTANT: Use the actual decision state value from the database (e.g., 1801 for Level 6)
+        // rather than LoanDecisionState enum which maps dynamic levels (1801-1899) back to IC_REVIEW_LEVEL_FIVE (1800)
+        Integer nextDecisionStateValue = nextLevel.getDecisionStateValue();
+
+        if (isLastLevel) {
+            // Last level uses different logic (similar to level 5)
+            generateTheNextIcReviewStageFiveDynamic(dueDiligenceRecommendedAmount, nextStageMaxAmount,
+                    loan.getNumberOfRepayments(), nextStageMinTerm, nextStageMaxTerm, loanDecision,
+                    nextDecisionStateValue, currentStageMaxAmount);
+        } else {
+            // Middle levels use standard logic
+            generateTheNextIcReviewStageDynamic(dueDiligenceRecommendedAmount, nextStageMaxAmount,
+                    loan.getNumberOfRepayments(), nextStageMinTerm, nextStageMaxTerm, loanDecision,
+                    nextDecisionStateValue, currentStageMaxAmount);
+        }
+
+        log.debug("Loan {} at level {} - determined next stage: {}", loan.getId(), currentLevelNumber,
+                loanDecision.getNextLoanIcReviewDecisionState());
     }
 
     private void determineTheNextDecisionStateAfterLevelOne(Loan loan, LoanDecision loanDecision, LoanApprovalMatrix approvalMatrix,

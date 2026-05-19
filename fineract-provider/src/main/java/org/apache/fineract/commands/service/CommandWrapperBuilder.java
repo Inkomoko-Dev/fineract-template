@@ -795,6 +795,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder adjustLoanInsuranceCharge(final Long loanId, final Long loanChargeId) {
+        this.actionName = "ADJUSTINSURANCE";
+        this.entityName = "LOANCHARGE";
+        this.loanId = loanId;
+        this.entityId = loanChargeId;
+        this.href = "/loans/" + loanId + "/charges/" + loanChargeId;
+        return this;
+    }
+
     public CommandWrapperBuilder deleteLoanCharge(final Long loanId, final Long loanChargeId) {
         this.actionName = "DELETE";
         this.entityName = "LOANCHARGE";
@@ -900,6 +909,15 @@ public class CommandWrapperBuilder {
         this.entityId = transactionId;
         this.loanId = loanId;
         this.href = "/loans/" + loanId + "/transactions/" + transactionId;
+        return this;
+    }
+
+    public CommandWrapperBuilder reverseRecoveryPaymentTransaction(final Long loanId, final Long transactionId) {
+        this.actionName = "REVERSERECOVERYPAYMENT";
+        this.entityName = "LOAN";
+        this.entityId = transactionId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=reverserecoverypayment";
         return this;
     }
 
@@ -3978,6 +3996,32 @@ public class CommandWrapperBuilder {
         this.actionName = "REJECT";
         this.entityName = "LOANICREVIEWDECISIONLEVELFIVE";
         this.href = "/loans/decision/icReviewDecisionLevelFive/reject/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
+    /**
+     * Dynamic IC Review Decision Accept - supports any level number (6+)
+     * For levels 1-5, use the specific methods above for backward compatibility.
+     */
+    public CommandWrapperBuilder acceptIcReviewDecisionDynamic(final long loanId, final int levelNumber) {
+        this.actionName = "ACCEPT";
+        this.entityName = "LOANICREVIEWDECISIONDYNAMIC";
+        this.href = "/loans/decision/icReviewDecision/level/" + levelNumber + "/" + loanId;
+        this.loanId = loanId;
+
+        return this;
+    }
+
+    /**
+     * Dynamic IC Review Decision Reject - supports any level number (6+)
+     * For levels 1-5, use the specific methods above for backward compatibility.
+     */
+    public CommandWrapperBuilder rejectIcReviewDecisionDynamic(final long loanId, final int levelNumber) {
+        this.actionName = "REJECT";
+        this.entityName = "LOANICREVIEWDECISIONDYNAMIC";
+        this.href = "/loans/decision/icReviewDecision/level/" + levelNumber + "/reject/" + loanId;
         this.loanId = loanId;
 
         return this;

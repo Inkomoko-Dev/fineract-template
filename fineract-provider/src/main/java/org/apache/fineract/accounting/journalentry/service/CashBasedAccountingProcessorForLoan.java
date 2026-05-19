@@ -57,7 +57,9 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
 
             if (correctionRequired) {
                 loanTransactionDTO.setCorrection(true);
-                loanTransactionDTO.setCorrectionDate(DateUtils.getStartOfCurrentMonth()); // first day of current month
+                if (loanTransactionDTO.getCorrectionDate() == null) {
+                    loanTransactionDTO.setCorrectionDate(DateUtils.getStartOfCurrentMonth());
+                }
             }
 
             /** Handle Disbursements and reversals of disbursements **/
@@ -109,6 +111,14 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
             /** Logic for Refunds of Active Loans **/
             else if (loanTransactionDTO.getTransactionType().isRefundForActiveLoans()) {
                 createJournalEntriesForRefundForActiveLoan(loanDTO, loanTransactionDTO, office);
+            }
+
+            else if (loanTransactionDTO.getTransactionType().isInsuranceChargeAdjustment()) {
+                // journal entries are posted directly in LoanWritePlatformServiceJpaRepositoryImpl
+            }
+
+            else if (loanTransactionDTO.getTransactionType().isDepositRedraw()) {
+                // journal entries are posted directly in LoanWritePlatformServiceJpaRepositoryImpl
             }
         }
     }

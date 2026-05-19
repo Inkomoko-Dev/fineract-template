@@ -50,7 +50,9 @@ public class FineractStyleLoanRepaymentScheduleTransactionProcessor extends Abst
     }
 
     /**
-     * For early/'in advance' repayments, pay off in the same way as on-time payments, interest first then principal.
+     * For early/'in advance' repayments, pay only accrued interest up to the payment date,
+     * write off unearned interest, then pay principal. This ensures clients are not charged
+     * interest that has not yet accrued when they prepay.
      */
     @Override
     protected Money handleTransactionThatIsPaymentInAdvanceOfInstallment(final LoanRepaymentScheduleInstallment currentInstallment,
@@ -58,8 +60,75 @@ public class FineractStyleLoanRepaymentScheduleTransactionProcessor extends Abst
             final LocalDate transactionDate, final Money paymentInAdvance,
             List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {
 
-        return handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment, loanTransaction, paymentInAdvance,
-                transactionMappings);
+        return handleAdvancePaymentWithAccruedInterest(currentInstallment, installments, loanTransaction,
+                transactionDate, paymentInAdvance, transactionMappings);
+    }
+
+    /**
+     * Handles advance payment by charging only accrued interest and writing off unearned interest.
+     * Payment allocation order: penalties -> fees -> accrued interest (write off unearned) -> principal
+     */
+    private Money handleAdvancePaymentWithAccruedInterest(final LoanRepaymentScheduleInstallment currentInstallment,
+            final List<LoanRepaymentScheduleInstallment> installments, final LoanTransaction loanTransaction,
+            final LocalDate transactionDate, final Money paymentInAdvance,
+            List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {
+
+        final MonetaryCurrency currency = paymentInAdvance.getCurrency();
+        Money transactionAmountRemaining = paymentInAdvance;
+        Money principalPortion = Money.zero(currency);
+        Money interestPortion = Money.zero(currency);
+        Money feeChargesPortion = Money.zero(currency);
+        Money penaltyChargesPortion = Money.zero(currency);
+
+        // Pay penalties first
+        penaltyChargesPortion = currentInstallment.payPenaltyChargesComponent(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(penaltyChargesPortion);
+
+        // Pay fees
+        feeChargesPortion = currentInstallment.payFeeChargesComponent(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortion);
+
+        // Pay ONLY accrued interest and write off unearned interest for this installment
+        interestPortion = currentInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
+
+        // Pay principal with remaining amount
+        principalPortion = currentInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(principalPortion);
+
+        loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+
+        if (principalPortion.plus(interestPortion).plus(feeChargesPortion).plus(penaltyChargesPortion).isGreaterThanZero()) {
+            transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, currentInstallment,
+                    principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion));
+        }
+
+        // Process remaining installments (future installments) - write off their interest too
+        if (transactionAmountRemaining.isGreaterThanZero()) {
+            for (final LoanRepaymentScheduleInstallment futureInstallment : installments) {
+                if (futureInstallment.getInstallmentNumber() > currentInstallment.getInstallmentNumber()
+                        && futureInstallment.isNotFullyPaidOff()
+                        && transactionAmountRemaining.isGreaterThanZero()) {
+
+                    // For future installments, write off all interest (none has accrued)
+                    Money futureInterestWrittenOff = futureInstallment.payAccruedInterestComponentAndWriteOffUnearned(
+                            transactionDate, Money.zero(currency));
+
+                    // Pay principal from future installments
+                    Money futurePrincipalPortion = futureInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
+                    transactionAmountRemaining = transactionAmountRemaining.minus(futurePrincipalPortion);
+
+                    if (futurePrincipalPortion.isGreaterThanZero()) {
+                        principalPortion = principalPortion.plus(futurePrincipalPortion);
+                        loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+                        transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, futureInstallment,
+                                futurePrincipalPortion, Money.zero(currency), Money.zero(currency), Money.zero(currency)));
+                    }
+                }
+            }
+        }
+
+        return transactionAmountRemaining;
     }
 
     /**

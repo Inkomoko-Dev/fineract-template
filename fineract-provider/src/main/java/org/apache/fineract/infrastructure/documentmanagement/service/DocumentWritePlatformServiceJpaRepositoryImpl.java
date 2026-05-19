@@ -20,11 +20,13 @@ package org.apache.fineract.infrastructure.documentmanagement.service;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.format.DateTimeFormatter;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.documentmanagement.api.DocumentApiConstant;
 import org.apache.fineract.infrastructure.documentmanagement.command.DocumentCommand;
 import org.apache.fineract.infrastructure.documentmanagement.command.DocumentCommandValidator;
@@ -37,6 +39,15 @@ import org.apache.fineract.infrastructure.documentmanagement.exception.ContentMa
 import org.apache.fineract.infrastructure.documentmanagement.exception.DocumentNotFoundException;
 import org.apache.fineract.infrastructure.documentmanagement.exception.InvalidEntityTypeForDocumentManagementException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.portfolio.client.domain.Client;
+import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
+import org.apache.fineract.portfolio.note.domain.Note;
+import org.apache.fineract.portfolio.note.domain.NoteRepository;
+import org.apache.fineract.portfolio.savings.domain.SavingsAccount;
+import org.apache.fineract.portfolio.savings.domain.SavingsAccountRepositoryWrapper;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.tika.Tika;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,19 +61,30 @@ import org.springframework.transaction.annotation.Transactional;
 public class DocumentWritePlatformServiceJpaRepositoryImpl implements DocumentWritePlatformService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DocumentWritePlatformServiceJpaRepositoryImpl.class);
+    private static final DateTimeFormatter AUDIT_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final PlatformSecurityContext context;
     private final DocumentRepository documentRepository;
     private final ContentRepositoryFactory contentRepositoryFactory;
     private final CodeValueRepositoryWrapper codeValueRepository;
+    private final NoteRepository noteRepository;
+    private final ClientRepositoryWrapper clientRepositoryWrapper;
+    private final LoanRepositoryWrapper loanRepositoryWrapper;
+    private final SavingsAccountRepositoryWrapper savingsAccountRepositoryWrapper;
 
     @Autowired
     public DocumentWritePlatformServiceJpaRepositoryImpl(final PlatformSecurityContext context, final DocumentRepository documentRepository,
-            final ContentRepositoryFactory documentStoreFactory, CodeValueRepositoryWrapper codeValueRepository) {
+            final ContentRepositoryFactory documentStoreFactory, CodeValueRepositoryWrapper codeValueRepository,
+            final NoteRepository noteRepository, final ClientRepositoryWrapper clientRepositoryWrapper,
+            final LoanRepositoryWrapper loanRepositoryWrapper, final SavingsAccountRepositoryWrapper savingsAccountRepositoryWrapper) {
         this.context = context;
         this.documentRepository = documentRepository;
         this.contentRepositoryFactory = documentStoreFactory;
         this.codeValueRepository = codeValueRepository;
+        this.noteRepository = noteRepository;
+        this.clientRepositoryWrapper = clientRepositoryWrapper;
+        this.loanRepositoryWrapper = loanRepositoryWrapper;
+        this.savingsAccountRepositoryWrapper = savingsAccountRepositoryWrapper;
     }
 
     @Transactional
@@ -142,7 +164,7 @@ public class DocumentWritePlatformServiceJpaRepositoryImpl implements DocumentWr
     @Override
     public CommandProcessingResult updateDocument(final DocumentCommand documentCommand, final InputStream inputStream) {
         try {
-            this.context.authenticatedUser();
+            final AppUser currentUser = this.context.authenticatedUser();
 
             String oldLocation = null;
             final DocumentCommandValidator validator = new DocumentCommandValidator(documentCommand);
@@ -152,6 +174,9 @@ public class DocumentWritePlatformServiceJpaRepositoryImpl implements DocumentWr
             final Document documentForUpdate = this.documentRepository.findById(documentCommand.getId())
                     .orElseThrow(() -> new DocumentNotFoundException(documentCommand.getParentEntityType(),
                             documentCommand.getParentEntityId(), documentCommand.getId()));
+
+            // Capture the previous name for audit trail
+            final String previousName = documentForUpdate.getName();
 
             final StorageType documentStoreType = documentForUpdate.storageType();
             oldLocation = documentForUpdate.getLocation();
@@ -169,6 +194,12 @@ public class DocumentWritePlatformServiceJpaRepositoryImpl implements DocumentWr
             }
 
             this.documentRepository.saveAndFlush(documentForUpdate);
+
+            // Create audit trail note if document name was changed
+            if (documentCommand.isNameChanged() && previousName != null && !previousName.equals(documentCommand.getName())) {
+                createDocumentRenameAuditNote(documentForUpdate.getParentEntityType(), documentForUpdate.getParentEntityId(),
+                        previousName, documentCommand.getName(), currentUser);
+            }
 
             return new CommandProcessingResult(documentForUpdate.getId());
         } catch (final JpaSystemException | DataIntegrityViolationException dve) {
@@ -201,6 +232,49 @@ public class DocumentWritePlatformServiceJpaRepositoryImpl implements DocumentWr
     private void validateParentEntityType(final DocumentCommand documentCommand) {
         if (!checkValidEntityType(documentCommand.getParentEntityType())) {
             throw new InvalidEntityTypeForDocumentManagementException(documentCommand.getParentEntityType());
+        }
+    }
+
+    /**
+     * Creates an audit trail note when a document is renamed.
+     * The note is attached to the parent entity (Client, Loan, or Savings Account)
+     * and includes the previous name, new name, user, and timestamp.
+     *
+     * @param parentEntityType The type of parent entity (CLIENTS, LOANS, SAVINGS, etc.)
+     * @param parentEntityId The ID of the parent entity
+     * @param previousName The previous document name
+     * @param newName The new document name
+     * @param user The user who performed the rename
+     */
+    private void createDocumentRenameAuditNote(final String parentEntityType, final Long parentEntityId,
+            final String previousName, final String newName, final AppUser user) {
+        try {
+            final String timestamp = DateUtils.getLocalDateTimeOfTenant().format(AUDIT_DATE_FORMATTER);
+            final String userName = user.getUsername();
+            final String auditNoteText = String.format("Document renamed: '%s' → '%s' | By: %s | At: %s",
+                    previousName, newName, userName, timestamp);
+
+            Note auditNote = null;
+
+            if (DocumentManagementEntity.CLIENTS.name().equalsIgnoreCase(parentEntityType)) {
+                final Client client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(parentEntityId);
+                auditNote = new Note(client, auditNoteText);
+            } else if (DocumentManagementEntity.LOANS.name().equalsIgnoreCase(parentEntityType)) {
+                final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(parentEntityId);
+                auditNote = Note.loanNote(loan, auditNoteText);
+            } else if (DocumentManagementEntity.SAVINGS.name().equalsIgnoreCase(parentEntityType)) {
+                final SavingsAccount savingsAccount = this.savingsAccountRepositoryWrapper.findOneWithNotFoundDetection(parentEntityId);
+                auditNote = Note.savingNote(savingsAccount, auditNoteText);
+            }
+
+            if (auditNote != null) {
+                this.noteRepository.saveAndFlush(auditNote);
+                LOG.info("Document rename audit note created for {} with ID {}: {}", parentEntityType, parentEntityId, auditNoteText);
+            }
+        } catch (Exception e) {
+            // Log the error but don't fail the document update operation
+            LOG.warn("Failed to create audit note for document rename on {} with ID {}: {}",
+                    parentEntityType, parentEntityId, e.getMessage());
         }
     }
 

@@ -69,6 +69,12 @@ public interface LoanAccountDomainService {
             boolean isRecoveryRepayment, boolean isAccountTransfer, HolidayDetailDTO holidayDetailDto, Boolean isHolidayValidationDone,
             boolean isLoanToLoanTransfer);
 
+    LoanTransaction makeRepayment(LoanTransactionType repaymentTransactionType, Loan loan, CommandProcessingResultBuilder builderResult,
+            LocalDate transactionDate, BigDecimal transactionAmount, PaymentDetail paymentDetail, String noteText, String txnExternalId,
+            boolean isRecoveryRepayment, boolean isAccountTransfer, HolidayDetailDTO holidayDetailDto, Boolean isHolidayValidationDone,
+            boolean isLoanToLoanTransfer, Long originalTransactionId, LocalDate correctionDate,
+            boolean bypassLastTransactionDateValidation);
+
     void saveLoanWithDataIntegrityViolationChecks(Loan loan);
 
     Map<String, Object> foreCloseLoan(Loan loan, LocalDate foreClourseDate, String noteText, boolean isTopup);

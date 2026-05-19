@@ -56,6 +56,8 @@ public interface LoanWritePlatformService {
 
     CommandProcessingResult adjustLoanTransaction(Long loanId, Long transactionId, JsonCommand command, Boolean isUndoForeClosure);
 
+    CommandProcessingResult reverseLoanRecoveryPayment(Long loanId, Long transactionId, JsonCommand command);
+
     CommandProcessingResult waiveInterestOnLoan(Long loanId, JsonCommand command);
 
     CommandProcessingResult writeOff(Long loanId, JsonCommand command);
@@ -111,6 +113,10 @@ public interface LoanWritePlatformService {
 
     void applyOverdueChargesForLoan(Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDatas);
 
+    void syncDailyLateFeesForLoan(Long loanId, LocalDate effectiveDate);
+
+    void rebuildAndSyncDailyLateFeesForLoan(Long loanId, LocalDate rebuildFromDate, LocalDate effectiveDate);
+
     void recalculateInterest(long loanId);
 
     CommandProcessingResult undoLastLoanDisbursal(Long loanId, JsonCommand command);
@@ -136,4 +142,6 @@ public interface LoanWritePlatformService {
 
     @Transactional
     CommandProcessingResult rejectDisbursement(Long loanId, JsonCommand command);
+
+    CommandProcessingResult adjustLoanInsuranceCharge(Long loanId, Long loanChargeId, JsonCommand command);
 }
