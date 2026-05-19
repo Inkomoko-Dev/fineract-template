@@ -219,10 +219,15 @@ public class JasperReportApiResource {
         JasperReport jasperReport = this.readReportingService.retrieveReport(reportId);
         InputStream resource = readReportingService.downloadReport(reportId);
 
-        return Response.ok(resource, jasperReport.getFileFormat())
+        String mediaType = jasperReport.getFileFormat();
+
+        if (mediaType == null || mediaType.isBlank()) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        return Response.ok(resource, mediaType)
                 .header("Content-Disposition",
                         "inline; filename=\"" + jasperReport.getReportName()
-                                + getFileExtension(jasperReport.getFileFormat()) + "\"")
+                                + getFileExtension(mediaType) + "\"")
                 .build();
     }
 
