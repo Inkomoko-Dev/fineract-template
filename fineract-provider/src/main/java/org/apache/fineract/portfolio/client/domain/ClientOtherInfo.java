@@ -142,14 +142,13 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
                 .stringValueOfParameterNamedAllowingNull(ClientApiConstants.NATIONAL_IDENTIFICATION_NUMBER);
         final String passportNumber = command.stringValueOfParameterNamed(ClientApiConstants.PASSPORT_NUMBER);
         final String bankAccountNumber = command.stringValueOfParameterNamed(ClientApiConstants.BANK_ACCOUNT_NUMBER);
-        final String bankName = bank != null ? null : command.stringValueOfParameterNamed(ClientApiConstants.BANK_NAME);
         final String telephoneNo = command.stringValueOfParameterNamed(ClientApiConstants.telephoneNoParamName);
         final LocalDate yearArrivedInHostCountry = command
                 .localDateValueOfParameterNamed(ClientApiConstants.yearArrivedInHostCountryParamName);
 
         final ClientOtherInfo clientOtherInfo = new ClientOtherInfo(client, strata, yearArrivedInHostCountry, nationality,
                 numberOfChildren, numberOfDependents, nationalIdentificationNumber, passportNumber,
-                bankAccountNumber, bankName, telephoneNo);
+                bankAccountNumber, null, telephoneNo);
 
         clientOtherInfo.bank = bank;
 
@@ -167,14 +166,13 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
         final BigDecimal incomeGeneratingActivityMonthlyAmount = command
                 .bigDecimalValueOfParameterNamed(ClientApiConstants.incomeGeneratingActivityMonthlyAmountParamName);
         final String bankAccountNumber = command.stringValueOfParameterNamed(ClientApiConstants.BANK_ACCOUNT_NUMBER);
-        final String bankName = bank != null ? null : command.stringValueOfParameterNamed(ClientApiConstants.BANK_NAME);
         final String telephoneNo = command.stringValueOfParameterNamedAllowingNull(ClientApiConstants.telephoneNoParamName);
         final LocalDate yearArrivedInHostCountry = command
                 .localDateValueOfParameterNamed(ClientApiConstants.yearArrivedInHostCountryParamName);
 
         final ClientOtherInfo clientOtherInfo = new ClientOtherInfo(client, strata, businessLocation, taxIdentificationNumber,
                 incomeGeneratingActivity, incomeGeneratingActivityMonthlyAmount, telephoneNo, coSignors, guarantor,
-                bankAccountNumber, bankName, yearArrivedInHostCountry);
+                bankAccountNumber, null, yearArrivedInHostCountry);
 
         // Set bank FK
         clientOtherInfo.bank = bank;
@@ -233,12 +231,6 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
                 actualChanges.put(ClientApiConstants.BANK_ACCOUNT_NUMBER, newValue);
                 this.bankAccountNumber = newValue;
             }
-            if (command.isChangeInStringParameterNamed(ClientApiConstants.BANK_NAME, this.bankName)) {
-                final String newValue = command.stringValueOfParameterNamed(ClientApiConstants.BANK_NAME);
-                actualChanges.put(ClientApiConstants.BANK_NAME, newValue);
-                this.bankName = newValue;
-            }
-
             if (command.isChangeInLongParameterNamed(ClientApiConstants.BANK_ID, this.getBankId())) {
                 final Long newValue = command.longValueOfParameterNamed(ClientApiConstants.BANK_ID);
                 actualChanges.put(ClientApiConstants.BANK_ID, newValue);
@@ -294,12 +286,6 @@ public class ClientOtherInfo extends AbstractPersistableCustom {
                 actualChanges.put(ClientApiConstants.BANK_ACCOUNT_NUMBER, newValue);
                 this.bankAccountNumber = newValue;
             }
-            if (command.isChangeInStringParameterNamed(ClientApiConstants.BANK_NAME, this.bankName)) {
-                final String newValue = command.stringValueOfParameterNamed(ClientApiConstants.BANK_NAME);
-                actualChanges.put(ClientApiConstants.BANK_NAME, newValue);
-                this.bankName = newValue;
-            }
-
             if (command.isChangeInLongParameterNamed(ClientApiConstants.BANK_ID, this.getBankId())) {
                 final Long newValue = command.longValueOfParameterNamed(ClientApiConstants.BANK_ID);
                 actualChanges.put(ClientApiConstants.BANK_ID, newValue);

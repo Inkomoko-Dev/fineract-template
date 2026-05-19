@@ -95,10 +95,7 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
             final Long bankId = command.longValueOfParameterNamed(ClientApiConstants.BANK_ID);
             RefBank bank = null;
             if (bankId != null) {
-                bank = this.refBankRepository.findById(bankId)
-                        .orElseThrow(() -> new GeneralPlatformDomainRuleException(
-                                "error.msg.bank.not.found",
-                                "Bank with identifier " + bankId + " does not exist.", bankId));
+                bank = findActiveBank(bankId);
             }
 
             if (LegalForm.fromInt(client.getLegalForm().intValue()).isPerson()) {
@@ -196,10 +193,7 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
                 final Long newBankId = command.longValueOfParameterNamed(ClientApiConstants.BANK_ID);
                 RefBank bank = null;
                 if (newBankId != null) {
-                    bank = this.refBankRepository.findById(newBankId)
-                            .orElseThrow(() -> new GeneralPlatformDomainRuleException(
-                                    "error.msg.bank.not.found",
-                                    "Bank with identifier " + newBankId + " does not exist.", newBankId));
+                    bank = findActiveBank(newBankId);
                 }
                 clientOtherInfo.setBank(bank);
             }
@@ -222,6 +216,12 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
             return CommandProcessingResult.empty();
         }
 
+    }
+
+    private RefBank findActiveBank(final Long bankId) {
+        return this.refBankRepository.findByIdAndIsActiveTrue(bankId)
+                .orElseThrow(() -> new GeneralPlatformDomainRuleException("error.msg.bank.not.found",
+                        "Bank with identifier " + bankId + " does not exist or is inactive.", bankId));
     }
 
     private void handleDataIntegrityIssues(final JsonCommand command, final Throwable realCause, final Exception dve) {

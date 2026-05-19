@@ -157,7 +157,9 @@ public class ClientOtherInfoReadPlatformServiceImpl implements ClientOtherInfoRe
                     + " co.year_arrived_in_country AS yearArrivedInHostCountry, cy.code_value AS yearArrivedInHostCountryName,"
                     + "co.bank_id AS bankId, rb.bank_name AS refBankName, rb.bank_code AS refBankCode, rb.country AS refBankCountry "
                     + " FROM m_client_other_info co"
-                    + " left join m_code_value cv on co.strata_cv_id=cv.id left join m_code_value cy on co.year_arrived_in_country_cv_id=cy.id";
+                    + " left join m_code_value cv on co.strata_cv_id=cv.id"
+                    + " left join m_code_value cy on co.year_arrived_in_country_cv_id=cy.id"
+                    + " left join ref_banks rb on co.bank_id = rb.id";
         }
 
         @Override

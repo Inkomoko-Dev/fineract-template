@@ -57,7 +57,7 @@ public class RefBankReadPlatformServiceImpl implements RefBankReadPlatformServic
 
     @Override
     public RefBankData retrieveBank(final Long bankId) {
-        final RefBank bank = refBankRepository.findById(bankId)
+        final RefBank bank = refBankRepository.findByIdAndIsActiveTrue(bankId)
                 .orElseThrow(() -> new RefBankNotFoundException(bankId));
         return toData(bank);
     }
