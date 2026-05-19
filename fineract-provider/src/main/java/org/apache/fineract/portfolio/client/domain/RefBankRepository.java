@@ -23,10 +23,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface RefBankRepository extends JpaRepository<RefBank, Long> {
 
     List<RefBank> findAllByIsActiveTrueOrderByCountryAscBankNameAsc();
+
+    Optional<RefBank> findByIdAndIsActiveTrue(Long id);
 
     @Query("SELECT b FROM RefBank b WHERE b.isActive = true AND (" +
            "LOWER(b.bankName) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
