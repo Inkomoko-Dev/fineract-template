@@ -1164,7 +1164,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final HolidayDetailDTO holidayDetailDto = null;
             boolean isAccountTransfer = false;
             final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
-            LoanTransaction loanTransaction = makeRepaymentWithDailyLateFees(repaymentTransactionType, loan,
+            LoanTransaction loanTransaction = makeRepayment(repaymentTransactionType, loan,
                     commandProcessingResultBuilder, transactionDate, transactionAmount, paymentDetail, noteText, txnExternalId,
                     isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, false,
                     originalRecoveryTransaction == null ? null : originalRecoveryTransaction.getId(), correctionDate,
@@ -1265,7 +1265,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     this.paymentDetailWritePlatformService.persistPaymentDetail(paymentDetail);
                 }
                 final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
-                LoanTransaction loanTransaction = makeRepaymentWithDailyLateFees(LoanTransactionType.REPAYMENT, loan,
+                LoanTransaction loanTransaction = makeRepayment(LoanTransactionType.REPAYMENT, loan,
                         commandProcessingResultBuilder, bulkRepaymentCommand.getTransactionDate(),
                         singleLoanRepaymentCommand.getTransactionAmount(), paymentDetail, bulkRepaymentCommand.getNote(), null,
                         isRecoveryRepayment, isAccountTransfer, holidayDetailDTO, isHolidayValidationDone);
@@ -1276,31 +1276,26 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return changes;
     }
 
-    private LoanTransaction makeRepaymentWithDailyLateFees(final LoanTransactionType repaymentTransactionType, final Loan loan,
+    private LoanTransaction makeRepayment(final LoanTransactionType repaymentTransactionType, final Loan loan,
             final CommandProcessingResultBuilder commandProcessingResultBuilder, final LocalDate transactionDate,
             final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final String txnExternalId,
             final boolean isRecoveryRepayment, final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto,
             final Boolean isHolidayValidationDone) {
-        return makeRepaymentWithDailyLateFees(repaymentTransactionType, loan, commandProcessingResultBuilder, transactionDate,
+        return makeRepayment(repaymentTransactionType, loan, commandProcessingResultBuilder, transactionDate,
                 transactionAmount, paymentDetail, noteText, txnExternalId, isRecoveryRepayment, isAccountTransfer, holidayDetailDto,
                 isHolidayValidationDone, false, null, null, false);
     }
 
-    private LoanTransaction makeRepaymentWithDailyLateFees(final LoanTransactionType repaymentTransactionType, final Loan loan,
+    private LoanTransaction makeRepayment(final LoanTransactionType repaymentTransactionType, final Loan loan,
             final CommandProcessingResultBuilder commandProcessingResultBuilder, final LocalDate transactionDate,
             final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final String txnExternalId,
             final boolean isRecoveryRepayment, final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto,
             final Boolean isHolidayValidationDone, final boolean isLoanToLoanTransfer, final Long originalTransactionId,
             final LocalDate correctionDate, final boolean bypassLastTransactionDateValidation) {
-        this.loanDailyLateFeeService.syncDailyLateFeesForLoan(loan.getId(), transactionDate);
         LoanTransaction loanTransaction = this.loanAccountDomainService.makeRepayment(repaymentTransactionType, loan,
                 commandProcessingResultBuilder, transactionDate, transactionAmount, paymentDetail, noteText, txnExternalId,
                 isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, isLoanToLoanTransfer,
                 originalTransactionId, correctionDate, bypassLastTransactionDateValidation);
-        if (transactionDate.isBefore(DateUtils.getBusinessLocalDate())) {
-            this.loanDailyLateFeeService.rebuildAndSyncDailyLateFeesForLoan(loan.getId(), transactionDate.plusDays(1),
-                    DateUtils.getBusinessLocalDate());
-        }
         return loanTransaction;
     }
 
