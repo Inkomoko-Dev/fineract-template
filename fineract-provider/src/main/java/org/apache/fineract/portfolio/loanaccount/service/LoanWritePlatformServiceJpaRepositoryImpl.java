@@ -3845,8 +3845,308 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     @Override
     @Transactional
+    public CommandProcessingResult editDisbursementInsurance(final Long loanId, final Long transactionId, final JsonCommand command) {
+        final Long loanChargeId = command.longValueOfParameterNamed("loanChargeId");
+        return editDisbursementInsuranceAtDisbursement(loanId, transactionId, loanChargeId, command, false);
+    }
+
+    private CommandProcessingResult editDisbursementInsuranceAtDisbursement(final Long loanId, final Long transactionId,
+            final Long loanChargeId, final JsonCommand command, final boolean returnLoanChargeAsEntity) {
+        final AppUser currentUser = getAppUserIfPresent();
+        final BigDecimal newAmount = command.bigDecimalValueOfParameterNamed("amount");
+        final LocalDate newTransactionDate = command.localDateValueOfParameterNamed("transactionDate");
+        final String noteText = getInsuranceEditNote(command);
+        final String txnExternalId = StringUtils.trimToNull(command.stringValueOfParameterNamedAllowingNull("externalId"));
+        if (loanChargeId == null) {
+            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.loan.charge.id.required",
+                    "The loanChargeId is required to edit insurance payment at disbursement.", "loanChargeId");
+        }
+
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        checkClientOrGroupActive(loan);
+        validateLoanCanEditDisbursementInsurance(loan);
+
+        final LoanCharge loanCharge = retrieveLoanChargeBy(loanId, loanChargeId);
+        validateEditableDisbursementInsuranceCharge(loanCharge);
+
+        final LoanTransaction originalTransaction = findActiveDisbursementInsuranceTransaction(loan, loanChargeId, transactionId);
+        businessEventNotifierService.notifyPreBusinessEvent(
+                new LoanAdjustTransactionBusinessEvent(new LoanAdjustTransactionBusinessEvent.Data(originalTransaction)));
+
+        if (this.accountTransfersReadPlatformService.isAccountTransfer(originalTransaction.getId(), PortfolioAccountType.LOAN)) {
+            throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
+                    "Loan transaction:" + originalTransaction.getId() + " update not allowed as it involves in account transfer",
+                    originalTransaction.getId());
+        }
+
+        validateDisbursementInsuranceEditDate(loan, loanCharge, newTransactionDate);
+
+        final LoanChargePaidBy selectedChargePaidBy = findChargePaidBy(originalTransaction, loanChargeId);
+        final BigDecimal previousAmount = selectedChargePaidBy.getAmount();
+        final BigDecimal previousLoanChargeAmount = loanCharge.getAmount(loan.getCurrency()).getAmount();
+        final LocalDate originalTransactionDate = originalTransaction.getTransactionDate();
+
+        if (StringUtils.isNotBlank(txnExternalId) && txnExternalId.equals(originalTransaction.getExternalId())) {
+            throwTransactionValidationError("error.msg.loan.transaction.external.id.same.as.original",
+                    "The corrected transaction externalId must be different from the original transaction externalId.",
+                    "externalId", txnExternalId);
+        }
+
+        final boolean originalDateClosed = isDateInClosedAccountingPeriod(loan, originalTransactionDate);
+        final boolean newDateClosed = isDateInClosedAccountingPeriod(loan, newTransactionDate);
+        final boolean transactionDateChanged = !newTransactionDate.isEqual(originalTransactionDate);
+        if (transactionDateChanged && (originalDateClosed || newDateClosed)) {
+            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.date.closed.period",
+                    "Insurance payment date correction cannot update a transaction in a closed accounting period.",
+                    "transactionDate", newTransactionDate);
+        }
+
+        final BigDecimal amountDelta = newAmount.subtract(previousLoanChargeAmount);
+        final boolean amountChanged = amountDelta.compareTo(BigDecimal.ZERO) != 0;
+        if (amountChanged && newDateClosed) {
+            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.amount.closed.period",
+                    "Insurance payment amount adjustment cannot be posted in a closed accounting period.",
+                    "transactionDate", newTransactionDate);
+        }
+
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("loanChargeId", loanChargeId);
+        changes.put("previousAmount", previousAmount);
+        changes.put("previousLoanChargeAmount", previousLoanChargeAmount);
+        changes.put("amount", newAmount);
+        changes.put("amountDelta", amountDelta);
+        changes.put("previousTransactionDate", originalTransactionDate);
+        changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
+        changes.put("locale", command.locale());
+        changes.put("dateFormat", command.dateFormat());
+        changes.put("previousExternalId", originalTransaction.getExternalId());
+        if (command.parameterExists("externalId")) {
+            changes.put("externalId", txnExternalId);
+        }
+        if (StringUtils.isNotBlank(noteText)) {
+            changes.put("note", noteText);
+        }
+        changes.put("changedByUserId", currentUser.getId());
+        changes.put("changedByUsername", currentUser.getUsername());
+        changes.put("changedOnDateTime", DateUtils.getOffsetDateTimeOfTenant().toString());
+
+        if (transactionDateChanged) {
+            originalTransaction.updateTransactionDate(newTransactionDate);
+            final List<JournalEntry> originalJournalEntries = this.journalEntryRepository
+                    .findActiveByLoanTransactionId(originalTransaction.getId());
+            for (final JournalEntry journalEntry : originalJournalEntries) {
+                journalEntry.setTransactionDate(newTransactionDate);
+                this.journalEntryRepository.save(journalEntry);
+            }
+            this.loanTransactionRepository.saveAndFlush(originalTransaction);
+            changes.put("journalEntriesDateUpdated", originalJournalEntries.size());
+        }
+
+        if (StringUtils.isNotBlank(txnExternalId)) {
+            originalTransaction.updateExternalId(txnExternalId);
+            this.loanTransactionRepository.saveAndFlush(originalTransaction);
+        }
+
+        LoanTransaction adjustmentTransaction = null;
+        if (amountChanged) {
+            final BigDecimal absDelta = amountDelta.abs();
+            final boolean isCredit = amountDelta.compareTo(BigDecimal.ZERO) < 0;
+            final Money deltaMoney = Money.of(loan.getCurrency(), absDelta);
+            adjustmentTransaction = LoanTransaction.insuranceChargeAdjustment(loan, loan.getOffice(), deltaMoney, newTransactionDate,
+                    isCredit);
+            adjustmentTransaction.updateLoan(loan);
+            adjustmentTransaction.getLoanChargesPaid()
+                    .add(new LoanChargePaidBy(adjustmentTransaction, loanCharge, absDelta,
+                            selectedChargePaidBy.getInstallmentNumber()));
+            this.loanTransactionRepository.saveAndFlush(adjustmentTransaction);
+            loan.addLoanTransaction(adjustmentTransaction);
+
+            final JournalEntry activeCreditEntry = findActiveCreditEntry(loan, originalTransaction, adjustmentTransaction);
+            if (activeCreditEntry == null) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.insurance.adjustment.no.credit.entry",
+                        "No active insurance income journal entry found for repayment-at-disbursement transaction: "
+                                + originalTransaction.getId(),
+                        originalTransaction.getId());
+            }
+            final ProductToGLAccountMapping loanPortfolioMapping = this.productToGLAccountMappingRepository
+                    .findCoreProductToFinAccountMapping(loan.productId(), PortfolioProductType.LOAN.getValue(),
+                            AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue());
+            if (loanPortfolioMapping == null) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.insurance.adjustment.loan.portfolio.gl.not.found",
+                        "Loan portfolio GL account mapping not found for loan product: " + loan.productId(), loan.productId());
+            }
+
+            if (isCredit) {
+                this.journalEntryRepository.save(buildManualJournalEntry(loan, activeCreditEntry.getGlAccount(),
+                        JournalEntryType.DEBIT, absDelta, "Insurance charge reduction - adjust income",
+                        adjustmentTransaction, newTransactionDate));
+                this.journalEntryRepository.save(buildManualJournalEntry(loan, loanPortfolioMapping.getGlAccount(),
+                        JournalEntryType.CREDIT, absDelta, "Insurance charge reduction - adjust loan portfolio",
+                        adjustmentTransaction, newTransactionDate));
+            } else {
+                this.journalEntryRepository.save(buildManualJournalEntry(loan, loanPortfolioMapping.getGlAccount(),
+                        JournalEntryType.DEBIT, absDelta, "Insurance charge increase - adjust loan portfolio",
+                        adjustmentTransaction, newTransactionDate));
+                this.journalEntryRepository.save(buildManualJournalEntry(loan, activeCreditEntry.getGlAccount(),
+                        JournalEntryType.CREDIT, absDelta, "Insurance charge increase - adjust income",
+                        adjustmentTransaction, newTransactionDate));
+            }
+
+            changes.put("adjustmentTransactionId", adjustmentTransaction.getId());
+            changes.put("adjustmentType", isCredit ? "CREDIT" : "DEBIT");
+        }
+
+        loanCharge.updateAmount(newAmount);
+        loanCharge.markAsFullyPaid();
+        this.loanChargeRepository.saveAndFlush(loanCharge);
+
+        loan.refreshFeeChargesDueAtDisbursement();
+        loan.updateLoanSummaryDerivedFields();
+        saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+        this.loanAccountDomainService.recalculateAccruals(loan);
+
+        final LoanTransaction noteTarget = adjustmentTransaction != null ? adjustmentTransaction : originalTransaction;
+        if (StringUtils.isNotBlank(noteText)) {
+            final Note note = Note.loanTransactionNote(loan, noteTarget, noteText);
+            this.noteRepository.save(note);
+        }
+
+        changes.put("originalTransactionId", originalTransaction.getId());
+
+        final LoanAdjustTransactionBusinessEvent.Data eventData = new LoanAdjustTransactionBusinessEvent.Data(originalTransaction);
+        eventData.setNewTransactionDetail(noteTarget);
+        businessEventNotifierService.notifyPostBusinessEvent(new LoanAdjustTransactionBusinessEvent(eventData));
+
+        final Long entityId = returnLoanChargeAsEntity ? loanChargeId : originalTransaction.getId();
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(entityId)
+                .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
+                .with(changes).build();
+    }
+
+    private void validateLoanCanEditDisbursementInsurance(final Loan loan) {
+        if (!loan.isDisbursed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.loan.not.disbursed",
+                    "Insurance payment at disbursement can only be edited after loan disbursement.", loan.getId());
+        }
+        if (loan.isClosed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.loan.closed",
+                    "Insurance payment at disbursement cannot be edited on a closed loan.", loan.getId());
+        }
+    }
+
+    private void validateEditableDisbursementInsuranceCharge(final LoanCharge loanCharge) {
+        if (!loanCharge.isActive()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.charge.inactive",
+                    "Only active loan charges can be edited as disbursement insurance.", loanCharge.getId());
+        }
+        if (!loanCharge.isDueAtDisbursement()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.not.disbursement.charge",
+                    "Only charges due at disbursement can be edited as disbursement insurance.", loanCharge.getId());
+        }
+        if (loanCharge.isPenaltyCharge()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.penalty.charge.not.allowed",
+                    "Penalty charges cannot be edited as disbursement insurance.", loanCharge.getId());
+        }
+    }
+
+    private LoanTransaction findActiveDisbursementInsuranceTransaction(final Loan loan, final Long loanChargeId,
+            final Long transactionId) {
+        if (transactionId != null) {
+            final LoanTransaction transaction = this.loanTransactionRepository.findById(transactionId)
+                    .orElseThrow(() -> new LoanTransactionNotFoundException(transactionId));
+            if (transaction.isNotBelongingToLoanOf(loan)) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.loan.mismatch",
+                        "The selected transaction does not belong to the specified loan.");
+            }
+            if (transaction.isReversed()) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.transaction.reversed",
+                        "The selected repayment-at-disbursement transaction has already been reversed.", transactionId);
+            }
+            if (!LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.equals(transaction.getTypeOf())) {
+                throw new InvalidLoanTransactionTypeException("transaction",
+                        "edit.disbursement.insurance.is.only.allowed.for.repayment.at.disbursement",
+                        "Only repayment-at-disbursement transactions can be edited with this command.");
+            }
+            if (findChargePaidBy(transaction, loanChargeId) == null) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.charge.not.linked",
+                        "The selected repayment-at-disbursement transaction is not linked to the specified loan charge.",
+                        loanChargeId);
+            }
+            return transaction;
+        }
+
+        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction.isNotReversed() && transaction.isRepaymentAtDisbursement()
+                    && findChargePaidBy(transaction, loanChargeId) != null) {
+                return transaction;
+            }
+        }
+        throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.no.active.transaction",
+                "No active repayment-at-disbursement transaction found for the specified insurance charge.", loanChargeId);
+    }
+
+    private LoanChargePaidBy findChargePaidBy(final LoanTransaction transaction, final Long loanChargeId) {
+        for (final LoanChargePaidBy chargePaidBy : transaction.getLoanChargesPaid()) {
+            if (chargePaidBy.getLoanCharge().getId().equals(loanChargeId)) {
+                return chargePaidBy;
+            }
+        }
+        return null;
+    }
+
+    private void validateDisbursementInsuranceEditDate(final Loan loan, final LoanCharge loanCharge,
+            final LocalDate newTransactionDate) {
+        if (newTransactionDate.isAfter(DateUtils.getBusinessLocalDate())) {
+            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.date.future",
+                    "The insurance payment transaction date cannot be in the future.", "transactionDate", newTransactionDate);
+        }
+        final LocalDate disbursementDate = getActualDisbursementDateForCharge(loan, loanCharge);
+        if (disbursementDate != null && newTransactionDate.isBefore(disbursementDate)) {
+            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.date.before.disbursement",
+                    "The insurance payment transaction date cannot be before the related disbursement date.", "transactionDate",
+                    newTransactionDate, disbursementDate);
+        }
+    }
+
+    private LocalDate getActualDisbursementDateForCharge(final Loan loan, final LoanCharge loanCharge) {
+        LocalDate disbursementDate = loan.getDisbursementDate();
+        if (loanCharge.isTrancheDisbursementCharge() && loanCharge.getTrancheDisbursementCharge() != null
+                && loanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails() != null
+                && loanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails().actualDisbursementDate() != null) {
+            disbursementDate = loanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails().actualDisbursementDate();
+        }
+        return disbursementDate;
+    }
+
+    private boolean isDateInClosedAccountingPeriod(final Loan loan, final LocalDate transactionDate) {
+        final GLClosure latestGLClosure = this.glClosureRepository.getLatestGLClosureByBranch(loan.getOfficeId());
+        return latestGLClosure != null && !transactionDate.isAfter(latestGLClosure.getClosingDate());
+    }
+
+    private String getInsuranceEditNote(final JsonCommand command) {
+        if (command.parameterExists("note")) {
+            return command.stringValueOfParameterNamed("note");
+        }
+        return command.stringValueOfParameterNamed("notes");
+    }
+
+    @Override
+    @Transactional
     public CommandProcessingResult adjustLoanInsuranceCharge(final Long loanId, final Long loanChargeId,
                                                              final JsonCommand command) {
+        if (command != null) {
+            final String notes = command.stringValueOfParameterNamed("notes");
+            if (StringUtils.isBlank(notes)) {
+                throw new PlatformApiDataValidationException(List.of(ApiParameterError.parameterError(
+                        "validation.msg.loan.insurance.adjustment.notes.required",
+                        "Reason is mandatory for insurance payment adjustments.",
+                        "notes"
+                )));
+            }
+            return editDisbursementInsuranceAtDisbursement(loanId, null, loanChargeId, command, true);
+        }
+
         // validate input
         final BigDecimal newAmount = command.bigDecimalValueOfParameterNamed("amount");
         final LocalDate newTransactionDate = command.localDateValueOfParameterNamed("transactionDate");
