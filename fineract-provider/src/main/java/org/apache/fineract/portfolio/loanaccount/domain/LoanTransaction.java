@@ -888,6 +888,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return submittedOnDate;
     }
 
+    public void updateTransactionDate(final LocalDate transactionDate) {
+        this.dateOf = transactionDate;
+    }
+
 
     public static LoanTransaction insuranceChargeAdjustment(
             final Loan loan,
@@ -906,6 +910,9 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         loanTransaction.submittedOnDate = DateUtils.getBusinessLocalDate();
         loanTransaction.amount = amount.getAmount();
         loanTransaction.feeChargesPortion = amount.getAmount();
+        loanTransaction.reversed = false;
+        loanTransaction.manuallyAdjustedOrReversed = false;
+        loanTransaction.reversalTransaction = false;
         return loanTransaction;
     }
 
