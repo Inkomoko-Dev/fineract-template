@@ -94,6 +94,11 @@
     </changeSet>
 
     <changeSet author="willy" id="CGLT-588-kiva-posting-logger-report" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1) FROM stretchy_report WHERE report_name = 'Kiva Posting Logger'
+            </sqlCheck>
+        </preConditions>
         <insert tableName="stretchy_report">
             <column name="report_name" value="Kiva Posting Logger"/>
             <column name="report_type" value="Table"/>
@@ -123,6 +128,11 @@ ORDER BY logger.id DESC"/>
     </changeSet>
 
     <changeSet author="willy" id="CGLT-588-kiva-posting-logger-report-permission">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1) FROM m_permission WHERE code = 'READ_Kiva Posting Logger'
+            </sqlCheck>
+        </preConditions>
         <insert tableName="m_permission">
             <column name="grouping" value="report"/>
             <column name="code" value="READ_Kiva Posting Logger"/>
