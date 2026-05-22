@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!--
+        CGLT-539-6: Fix office hierarchy in "Loan payments due" report.
+
+        The previous SQL (CGLT-539-4) joined m_client directly to m_office on
+        mo.id = cl.office_id, meaning only clients whose home office was
+        EXACTLY the selected office were returned. Clients in sub-offices
+        (branches under a parent region) were excluded.
+
+        This migration rewrites the SQL using the standard two-alias office
+        hierarchy pattern used across all other reports in the system:
+            JOIN m_office ounder ON ounder.hierarchy LIKE CONCAT(mo.hierarchy, '%')
+            INNER JOIN m_client cl ON cl.office_id = ounder.id
+        so that selecting a parent office also includes all child offices.
+
+        The "location" column is updated to ounder.name (the actual client's
+        branch) rather than mo.name (the selected filter office).
+    -->
+    <changeSet id="CGLT-539-6-fix-office-hierarchy-loan-payments-due" author="antigravity">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due'
+            </sqlCheck>
+        </preConditions>
+
+        <update tableName="stretchy_report">
+            <column name="report_sql" value="SELECT l.id AS &quot;loanId&quot;, cl.id AS &quot;clientId&quot;, cl.display_name AS &quot;clientName&quot;, l.account_no AS &quot;loanAccountNumber&quot;, IFNULL(CONCAT(sf.firstname, ' ', sf.lastname), '-') AS &quot;loanOfficer&quot;, ounder.name AS &quot;location&quot;, ls.installment AS &quot;installmentNumber&quot;, ls.duedate AS &quot;dueDate&quot;, DATE_ADD(ls.duedate, INTERVAL ${gracePeriod} DAY) AS &quot;graceDate&quot;, CASE WHEN DATEDIFF('${asAtDate}', ls.duedate) &gt; 0 THEN DATEDIFF('${asAtDate}', ls.duedate) ELSE 0 END AS &quot;daysPastDue&quot;, IFNULL(ls.principal_amount, 0) - IFNULL(ls.principal_completed_derived, 0) - IFNULL(ls.principal_writtenoff_derived, 0) AS &quot;principalDue&quot;, IFNULL(ls.interest_amount, 0) - IFNULL(ls.interest_completed_derived, 0) - IFNULL(ls.interest_waived_derived, 0) - IFNULL(ls.interest_writtenoff_derived, 0) AS &quot;interestDue&quot;, IFNULL(ls.fee_charges_amount, 0) - IFNULL(ls.fee_charges_completed_derived, 0) - IFNULL(ls.fee_charges_waived_derived, 0) - IFNULL(ls.fee_charges_writtenoff_derived, 0) AS &quot;feesDue&quot;, IFNULL(ls.penalty_charges_amount, 0) - IFNULL(ls.penalty_charges_completed_derived, 0) - IFNULL(ls.penalty_charges_waived_derived, 0) - IFNULL(ls.penalty_charges_writtenoff_derived, 0) AS &quot;penaltiesDue&quot;, (IFNULL(ls.principal_amount, 0) - IFNULL(ls.principal_completed_derived, 0) - IFNULL(ls.principal_writtenoff_derived, 0) + IFNULL(ls.interest_amount, 0) - IFNULL(ls.interest_completed_derived, 0) - IFNULL(ls.interest_waived_derived, 0) - IFNULL(ls.interest_writtenoff_derived, 0) + IFNULL(ls.fee_charges_amount, 0) - IFNULL(ls.fee_charges_completed_derived, 0) - IFNULL(ls.fee_charges_waived_derived, 0) - IFNULL(ls.fee_charges_writtenoff_derived, 0) + IFNULL(ls.penalty_charges_amount, 0) - IFNULL(ls.penalty_charges_completed_derived, 0) - IFNULL(ls.penalty_charges_waived_derived, 0) - IFNULL(ls.penalty_charges_writtenoff_derived, 0)) AS &quot;installmentOutstanding&quot;, rev.enum_message_property AS &quot;loanStatus&quot;, CASE WHEN ls.duedate &lt; '${asAtDate}' THEN 'Yes' ELSE 'No' END AS &quot;inArrears&quot; FROM m_office mo JOIN m_office ounder ON ounder.hierarchy LIKE CONCAT(mo.hierarchy, '%') INNER JOIN m_client cl ON cl.office_id = ounder.id INNER JOIN m_loan l ON cl.id = l.client_id INNER JOIN m_loan_repayment_schedule ls ON l.id = ls.loan_id LEFT JOIN m_staff sf ON sf.id = l.loan_officer_id LEFT JOIN r_enum_value rev ON rev.enum_id = l.loan_status_id AND rev.enum_name = 'loan_status_id' WHERE mo.id = ${officeId} AND (${loanOfficerId} = -1 OR IFNULL(l.loan_officer_id, -10) = ${loanOfficerId}) AND (${loanProductId} = -1 OR l.product_id = ${loanProductId}) AND ls.completed_derived = 0 AND DATE(ls.duedate) &lt;= DATE_ADD(DATE('${asAtDate}'), INTERVAL ${gracePeriod} DAY) AND l.loan_status_id IN (300, 601) AND ('${includeWrittenOff}' = '1' OR l.loan_status_id &lt;&gt; 601) ORDER BY ls.duedate ASC, cl.display_name ASC, ls.installment ASC"/>
+            <where>report_name = 'Loan payments due'</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>
