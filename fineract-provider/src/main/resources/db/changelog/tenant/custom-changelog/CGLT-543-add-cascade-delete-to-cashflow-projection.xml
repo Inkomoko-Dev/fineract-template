@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet author="system" id="CGLT-543-cascade-delete-cashflow-projection">
+        <dropForeignKeyConstraint baseTableName="m_loan_cashflow_projection" constraintName="FK_loan_cashflow_information_info_id" />
+        <addForeignKeyConstraint baseTableName="m_loan_cashflow_projection" baseColumnNames="cashflow_info_id"
+                                 constraintName="FK_loan_cashflow_information_info_id"
+                                 referencedTableName="loan_cashflow_information" referencedColumnNames="id"
+                                 onDelete="CASCADE" />
+    </changeSet>
+
+</databaseChangeLog>
