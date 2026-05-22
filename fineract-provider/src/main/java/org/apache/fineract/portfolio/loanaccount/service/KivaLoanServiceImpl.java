@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,9 +50,11 @@ import okhttp3.HttpUrl;
 import okhttp3.FormBody;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
+import org.apache.fineract.infrastructure.codes.exception.CodeValueNotFoundException;
 import org.apache.fineract.infrastructure.codes.service.CodeValueReadPlatformService;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
+import org.apache.fineract.infrastructure.core.service.IntegrationHttpRetryService;
 import org.apache.fineract.infrastructure.dataqueries.data.GenericResultsetData;
 import org.apache.fineract.infrastructure.dataqueries.data.ResultsetColumnHeaderData;
 import org.apache.fineract.infrastructure.dataqueries.data.ResultsetRowData;
@@ -62,6 +65,7 @@ import org.apache.fineract.infrastructure.documentmanagement.service.DocumentRea
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRecruitmentSurvey;
 import org.apache.fineract.portfolio.client.domain.ClientRecruitmentSurveyRepository;
@@ -86,6 +90,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.KivaLoanAwaitingApproval
 import org.apache.fineract.portfolio.loanaccount.domain.KivaLoanAwaitingApprovalRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.KivaLocation;
 import org.apache.fineract.portfolio.loanaccount.domain.KivaLocationRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.KivaPostingLogger;
+import org.apache.fineract.portfolio.loanaccount.domain.KivaPostingLoggerRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.KivaTheme;
 import org.apache.fineract.portfolio.loanaccount.domain.KivaThemeRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.KivaSectorActivity;
@@ -96,10 +102,12 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDueDiligenceException;
 import org.apache.fineract.portfolio.loanaccount.serialization.KivaDateSerializerApi;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.env.Environment;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.stereotype.Service;
@@ -129,11 +137,35 @@ public class KivaLoanServiceImpl implements KivaLoanService {
     private final KivaSectorActivityRepository kivaSectorActivityRepository;
     private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
     private final CodeValueReadPlatformService codeValueReadPlatformService;
+    private final KivaPostingLoggerRepository kivaPostingLoggerRepository;
+    private final PlatformSecurityContext context;
+    @Autowired
+    @Qualifier("kivaHttpClient")
+    private OkHttpClient kivaHttpClient;
+    @Autowired
+    private IntegrationHttpRetryService integrationHttpRetryService;
     @Autowired
     private Environment env;
 
     private static final String KIVA_DEPARTMENT_NOT_FOUND = "Loan Department not supported by kiva";
     private static final String KIVA_SECTOR_ACTIVITY_MISMATCH = "The Sector and Activity are not compatible with Kiva";
+    private static final String STAGE_PREFLIGHT_VALIDATION = "PREFLIGHT_VALIDATION";
+    private static final String STAGE_PAYLOAD_MAPPING = "PAYLOAD_MAPPING";
+    private static final String STAGE_KIVA_POST_LOAN_DRAFT = "KIVA_POST_LOAN_DRAFT";
+    private static final String CATEGORY_MISSING_PROFILE_IMAGE = "MISSING_PROFILE_IMAGE";
+    private static final String CATEGORY_UNSUPPORTED_PROFILE_IMAGE_TYPE = "UNSUPPORTED_PROFILE_IMAGE_TYPE";
+    private static final String CATEGORY_MISSING_DESCRIPTION = "MISSING_DESCRIPTION";
+    private static final String CATEGORY_MISSING_RECRUITMENT_SURVEY = "MISSING_RECRUITMENT_SURVEY";
+    private static final String CATEGORY_UNSUPPORTED_LOCATION = "UNSUPPORTED_LOCATION";
+    private static final String CATEGORY_MISSING_KIVA_BUSINESS_DETAILS = "MISSING_KIVA_BUSINESS_DETAILS";
+    private static final String CATEGORY_MISSING_LOAN_USE = "MISSING_LOAN_USE";
+    private static final String CATEGORY_UNSUPPORTED_SECTOR_ACTIVITY = "UNSUPPORTED_SECTOR_ACTIVITY";
+    private static final String CATEGORY_UNSUPPORTED_CURRENCY = "UNSUPPORTED_CURRENCY";
+    private static final String CATEGORY_UNSUPPORTED_THEME = "UNSUPPORTED_THEME";
+    private static final String CATEGORY_MULTIPLE_DATA_INTEGRITY_ISSUES = "MULTIPLE_DATA_INTEGRITY_ISSUES";
+    private static final String CATEGORY_KIVA_REJECTION = "KIVA_REJECTION";
+    private static final String CATEGORY_KIVA_SYSTEM_ERROR = "KIVA_SYSTEM_ERROR";
+    private static final String CATEGORY_UNEXPECTED_ERROR = "UNEXPECTED_ERROR";
 
     @JsonIgnoreProperties({"stackTrace", "suppressed", "localizedMessage"})
     static abstract class ThrowableMixin {}
@@ -142,6 +174,9 @@ public class KivaLoanServiceImpl implements KivaLoanService {
     public void postLoanAccountsToKiva() {
         // Authenticate to KIVA
         String accessToken = authenticateToKiva();
+        final AppUser currentUser = this.context.authenticatedUser();
+        final String batchId = UUID.randomUUID().toString();
+        final LocalDate date = LocalDate.now(ZoneId.systemDefault());
 
         List<KivaLoanAccountSchedule> kivaLoanAccountSchedules = new ArrayList<>();
         List<KivaLoanAccount> kivaLoanAccounts = new ArrayList<>();
@@ -152,40 +187,55 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         ArrayList<KivaLoanExceptions> kivaLoanExceptions = new ArrayList<>();
 
-        List<Throwable> exceptions = new ArrayList<>();
+        List<Throwable> jobFailingExceptions = new ArrayList<>();
 
         LOG.info("Posting this Loan Account To Kiva And Size = = > " + loanList.size());
         if (!CollectionUtils.isEmpty(loanList)) {
             for (Loan loan : loanList) {
+                String loanToKiva = null;
                 try {
                     kivaLoanAccounts.clear();
                     kivaLoanAccountSchedules.clear();
-                    String loanToKiva = loanPayloadToKivaMapper(kivaLoanAccountSchedules, kivaLoanAccounts, notPictured, loan);
-                    LOG.info("Loan Account To be Sent to Kiva : =GSON = >  " + loanToKiva);
+                    validateLoanForKivaPosting(loan);
+                    loanToKiva = loanPayloadToKivaMapper(kivaLoanAccountSchedules, kivaLoanAccounts, notPictured, loan);
+                    LOG.info("Loan Account To be Sent to Kiva : =GSON = >  " + sanitizeKivaPayloadForLogging(loanToKiva));
                     String loanDraftUUID = postLoanToKiva(accessToken, loanToKiva);
                     loan.setKivaUUId(loanDraftUUID);
                     loanRepository.saveAndFlush(loan);
+                    saveKivaPostingLogger(loan, batchId, true, null, null, loanDraftUUID, null, loanToKiva, currentUser, date);
+                } catch (KivaPreflightValidationException e) {
+                    log.info("Loan account {} skipped for Kiva because {}", loan.getAccountNumber(), e.getMessage());
+                    addKivaLoanException(kivaLoanExceptions, loan, e);
+                    saveKivaPostingLogger(loan, batchId, false, e.getFailureStage(), e.getFailureCategory(), null, e.getMessage(),
+                            loanToKiva, currentUser, date);
+                } catch (PlatformDataIntegrityException e) {
+                    log.info("Kiva rejected loan account {}: {}", loan.getAccountNumber(), e.getDefaultUserMessage());
+                    addKivaLoanException(kivaLoanExceptions, loan, e);
+                    saveKivaPostingLogger(loan, batchId, false, STAGE_KIVA_POST_LOAN_DRAFT, CATEGORY_KIVA_REJECTION, null,
+                            e.getDefaultUserMessage(), loanToKiva, currentUser, date);
                 } catch (Exception e) {
-                    log.error("Post Loan to KIVA has failed" + e);
-                    KivaLoanExceptions kivaLoanException = new KivaLoanExceptions();
-                    kivaLoanException.setError(e);
-                    kivaLoanException.setLoanId(loan.getAccountNumber());
-                    kivaLoanExceptions.add(kivaLoanException);
+                    String failureCategory = isInfrastructureFailure(e) ? CATEGORY_KIVA_SYSTEM_ERROR : CATEGORY_UNEXPECTED_ERROR;
+                    String failureStage = loanToKiva == null ? STAGE_PAYLOAD_MAPPING : STAGE_KIVA_POST_LOAN_DRAFT;
+                    log.error("Post Loan to KIVA failed for loan account {}", loan.getAccountNumber(), e);
+                    addKivaLoanException(kivaLoanExceptions, loan, e);
+                    saveKivaPostingLogger(loan, batchId, false, failureStage, failureCategory, null, getExceptionMessage(e),
+                            loanToKiva, currentUser, date);
+                    jobFailingExceptions.add(e);
                 }
             }
-            try{
-                if(!CollectionUtils.isEmpty(kivaLoanExceptions)){
-                    postKivaExceptions(kivaLoanExceptions);
-                    RuntimeException exception = new RuntimeException("There were " + kivaLoanExceptions.size() + " kiva exceptions.");
-                    exceptions.add(exception);
-                }}
-            catch (Exception e){
-                log.error("Could not post errors to external service" + e);
-                exceptions.add(e);
-            }
-            if (!CollectionUtils.isEmpty(exceptions)) {
+            if (!CollectionUtils.isEmpty(kivaLoanExceptions)) {
                 try {
-                    throw new JobExecutionException(exceptions);
+                    postKivaExceptions(kivaLoanExceptions);
+                } catch (Exception e) {
+                    log.error("Could not post Kiva record errors to external service", e);
+                    if (!CollectionUtils.isEmpty(jobFailingExceptions)) {
+                        jobFailingExceptions.add(e);
+                    }
+                }
+            }
+            if (!CollectionUtils.isEmpty(jobFailingExceptions)) {
+                try {
+                    throw new JobExecutionException(jobFailingExceptions);
                 } catch (JobExecutionException e) {
                     throw new RuntimeException(e);
                 }
@@ -202,19 +252,218 @@ public class KivaLoanServiceImpl implements KivaLoanService {
         try {
             json = mapper.writeValueAsString(kivaLoanExceptions);
 
-            OkHttpClient client = new OkHttpClient().newBuilder().build();
-
             RequestBody body = RequestBody.create(json, MediaType.parse(org.springframework.http.MediaType.APPLICATION_JSON_VALUE));
             Request request = new Request.Builder()
                     .url(getConfigProperty("fineract.integrations.kiva.logsUrl"))
                     .method("POST", body)
                     .addHeader(FORM_URL_CONTENT_TYPE, org.springframework.http.MediaType.APPLICATION_JSON_VALUE)
                     .build();
-                Response response = client.newCall(request).execute();
-
-                log.info("External log service response: "+ response.body().string());
+            try (Response response = integrationHttpRetryService.execute("Kiva", "post exception logs", kivaHttpClient, request)) {
+                log.info("External log service response: " + (response.body() != null ? response.body().string() : ""));
+            }
         } catch (IOException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private void addKivaLoanException(ArrayList<KivaLoanExceptions> kivaLoanExceptions, Loan loan, Throwable throwable) {
+        KivaLoanExceptions kivaLoanException = new KivaLoanExceptions();
+        kivaLoanException.setError(throwable);
+        kivaLoanException.setLoanId(loan.getAccountNumber());
+        kivaLoanExceptions.add(kivaLoanException);
+    }
+
+    private void saveKivaPostingLogger(Loan loan, String batchId, Boolean hasPassed, String failureStage, String failureCategory,
+            String kivaResponseId, String errorLogs, String payload, AppUser currentUser, LocalDate date) {
+        Client client = loan.getClient();
+        String clientName = client != null ? client.getDisplayName() : null;
+        KivaPostingLogger logger = new KivaPostingLogger(batchId, hasPassed, loan.getId(), loan.getAccountNumber(), loan.getClientId(),
+                clientName, failureStage, failureCategory, kivaResponseId, errorLogs, sanitizeKivaPayloadForLogging(payload), date);
+        logger.setCreatedBy(currentUser.getId());
+        logger.setLastModifiedBy(currentUser.getId());
+        kivaPostingLoggerRepository.saveAndFlush(logger);
+    }
+
+    private void validateLoanForKivaPosting(Loan loan) {
+        List<KivaPreflightValidationException> validationFailures = new ArrayList<>();
+        collectKivaValidationFailure(validationFailures, () -> validateKivaProfileImageForPosting(loan));
+        collectKivaValidationFailure(validationFailures, () -> validateKivaDescriptionForPosting(loan));
+        collectKivaValidationFailure(validationFailures, () -> validateKivaRecruitmentSurveyForPosting(loan));
+        collectKivaValidationFailure(validationFailures, () -> validateKivaBusinessDetailsForPosting(loan));
+        collectKivaValidationFailure(validationFailures, () -> validateKivaCurrencyForPosting(loan));
+        collectKivaValidationFailure(validationFailures, () -> validateKivaThemeForPosting(loan));
+
+        if (!validationFailures.isEmpty()) {
+            throw KivaPreflightValidationException.aggregate(validationFailures);
+        }
+    }
+
+    private void collectKivaValidationFailure(List<KivaPreflightValidationException> validationFailures, Runnable validation) {
+        try {
+            validation.run();
+        } catch (KivaPreflightValidationException e) {
+            validationFailures.add(e);
+        }
+    }
+
+    private void validateKivaProfileImageForPosting(Loan loan) {
+        DocumentData documentData;
+        try {
+            documentData = this.documentReadPlatformService.retrieveKivaLoanProfileImage("loans", loan.getId());
+        } catch (EmptyResultDataAccessException e) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_MISSING_PROFILE_IMAGE,
+                    "Loan profile image not uploaded");
+        }
+
+        if (documentData == null || documentData.fileLocation() == null || !StorageType.FILE_SYSTEM.equals(documentData.storageType())) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_MISSING_PROFILE_IMAGE,
+                    "Loan profile image not uploaded");
+        }
+
+        String contentType = documentData.contentType();
+        if (!"image/png".equalsIgnoreCase(contentType) && !"image/jpg".equalsIgnoreCase(contentType)
+                && !"image/jpeg".equalsIgnoreCase(contentType) && !"image/gif".equalsIgnoreCase(contentType)) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_UNSUPPORTED_PROFILE_IMAGE_TYPE,
+                    "Only PNG, GIF, JPEG and JPG profile images are accepted by Kiva but " + contentType + " was found");
+        }
+    }
+
+    private void validateKivaDescriptionForPosting(Loan loan) {
+        if (isBlank(loan.getDescription())) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_MISSING_DESCRIPTION,
+                    "Loan description required");
+        }
+    }
+
+    private void validateKivaRecruitmentSurveyForPosting(Loan loan) {
+        ClientRecruitmentSurvey clientRecruitmentSurvey = clientRecruitmentSurveyRepository.getByClientId(loan.getClientId());
+        if (clientRecruitmentSurvey == null) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_MISSING_RECRUITMENT_SURVEY,
+                    "Client recruitment survey required");
+        }
+        if (clientRecruitmentSurvey.getSurveyLocation() == null || clientRecruitmentSurvey.getCountry() == null) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_UNSUPPORTED_LOCATION,
+                    "Client recruitment survey location and country are required");
+        }
+
+        String clientLocation = clientRecruitmentSurvey.getSurveyLocation().label();
+        String clientCountry = clientRecruitmentSurvey.getCountry().label();
+        if (isBlank(clientLocation) || isBlank(clientCountry)) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_UNSUPPORTED_LOCATION,
+                    "Client recruitment survey location and country are required");
+        }
+
+        boolean supportedLocation = this.kivaLocationRepository.findAll().stream()
+                .anyMatch(location -> clientLocation.equalsIgnoreCase(location.getLocation())
+                        && clientCountry.equalsIgnoreCase(location.getCountry()));
+        if (!supportedLocation) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_UNSUPPORTED_LOCATION,
+                    "Client survey location/country not supported by Kiva");
+        }
+    }
+
+    private void validateKivaBusinessDetailsForPosting(Loan loan) {
+        Map<String, Object> kivaBusinessDetails;
+        try {
+            kivaBusinessDetails = getKivaBusinessDetails(loan.getId());
+        } catch (LoanDueDiligenceException | CodeValueNotFoundException | NumberFormatException | NullPointerException e) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_MISSING_KIVA_BUSINESS_DETAILS,
+                    getExceptionMessage(e));
+        }
+
+        String loanUse = (String) kivaBusinessDetails.get(LOAN_USE);
+        if (isBlank(loanUse)) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_MISSING_LOAN_USE,
+                    "Loan Use is required");
+        }
+
+        String sector = (String) kivaBusinessDetails.get("sector");
+        String activity = (String) kivaBusinessDetails.get("activity");
+        if (isBlank(sector) || isBlank(activity)) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_MISSING_KIVA_BUSINESS_DETAILS,
+                    "Loan is missing Kiva sector or activity");
+        }
+
+        if (this.kivaSectorActivityRepository.findBySectorAndActivity(sector, activity).isEmpty()) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_UNSUPPORTED_SECTOR_ACTIVITY,
+                    KIVA_SECTOR_ACTIVITY_MISMATCH);
+        }
+    }
+
+    private void validateKivaCurrencyForPosting(Loan loan) {
+        String currencyCode = loan.getCurrencyCode();
+        if (isBlank(currencyCode)) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_UNSUPPORTED_CURRENCY,
+                    "Loan Currency is required by Kiva");
+        }
+
+        boolean supportedCurrency = this.kivaCurrencyRepository.findAll().stream()
+                .anyMatch(currency -> currencyCode.equalsIgnoreCase(currency.getName()));
+        if (!supportedCurrency) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_UNSUPPORTED_CURRENCY,
+                    "Loan Currency not supported by Kiva");
+        }
+    }
+
+    private void validateKivaThemeForPosting(Loan loan) {
+        if (loan.getDepartment() == null || isBlank(loan.getDepartment().label())) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_UNSUPPORTED_THEME,
+                    KIVA_DEPARTMENT_NOT_FOUND);
+        }
+
+        if (this.kivaThemeRepository.findByName(loan.getDepartment().label()).isEmpty()) {
+            throw new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_UNSUPPORTED_THEME,
+                    KIVA_DEPARTMENT_NOT_FOUND);
+        }
+    }
+
+    private boolean isInfrastructureFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof IOException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private String getExceptionMessage(Throwable throwable) {
+        if (throwable instanceof LoanDueDiligenceException) {
+            return ((LoanDueDiligenceException) throwable).getDefaultUserMessage();
+        }
+        if (throwable instanceof GeneralPlatformDomainRuleException) {
+            return ((GeneralPlatformDomainRuleException) throwable).getDefaultUserMessage();
+        }
+        if (throwable instanceof PlatformDataIntegrityException) {
+            return ((PlatformDataIntegrityException) throwable).getDefaultUserMessage();
+        }
+        if (!isBlank(throwable.getMessage())) {
+            return throwable.getMessage();
+        }
+        if (throwable.getCause() != null && !isBlank(throwable.getCause().getMessage())) {
+            return throwable.getCause().getMessage();
+        }
+        return throwable.getClass().getSimpleName();
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private String sanitizeKivaPayloadForLogging(String payload) {
+        if (isBlank(payload)) {
+            return payload;
+        }
+        try {
+            JsonObject jsonObject = JsonParser.parseString(payload).getAsJsonObject();
+            if (jsonObject.has("image_encoded")) {
+                jsonObject.addProperty("image_encoded", "[base64 image redacted]");
+            }
+            return jsonObject.toString();
+        } catch (Exception e) {
+            int maxLength = 60_000;
+            return payload.length() > maxLength ? payload.substring(0, maxLength) : payload;
         }
     }
 
@@ -434,9 +683,6 @@ public class KivaLoanServiceImpl implements KivaLoanService {
         HttpUrl.Builder urlBuilder = HttpUrl.parse(getConfigProperty("fineract.integrations.kiva.oAuthUrl")).newBuilder();
         String url = urlBuilder.build().toString();
 
-        OkHttpClient client = new OkHttpClient();
-        Response response = null;
-
         RequestBody formBody = new FormBody.Builder().add("grant_type", getConfigProperty("fineract.integrations.kiva.grantType"))
                 .add("scope", getConfigProperty("fineract.integrations.kiva.scope"))
                 .add("audience", getConfigProperty("fineract.integrations.kiva.audience"))
@@ -447,9 +693,8 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         List<Throwable> exceptions = new ArrayList<>();
 
-        try {
-            response = client.newCall(request).execute();
-            String resObject = response.body().string();
+        try (Response response = integrationHttpRetryService.execute("Kiva", "authenticate", kivaHttpClient, request)) {
+            String resObject = response.body() != null ? response.body().string() : "";
             if (response.isSuccessful()) {
 
                 JsonObject jsonResponse = JsonParser.parseString(resObject).getAsJsonObject();
@@ -500,18 +745,12 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         String url = urlBuilder.toString();
 
-        OkHttpClient client = new OkHttpClient();
-        Response response = null;
-
         RequestBody formBody = RequestBody.create(MediaType.parse(FORM_URL_CONTENT_TYPE), loanToKiva);
 
         Request request = new Request.Builder().url(url).header("Authorization", "Bearer " + accessToken).post(formBody).build();
 
-        List<Throwable> exceptions = new ArrayList<>();
-
-        try {
-            response = client.newCall(request).execute();
-            String resObject = response.body().string();
+        try (Response response = integrationHttpRetryService.execute("Kiva", "post loan draft", kivaHttpClient, request)) {
+            String resObject = response.body() != null ? response.body().string() : "";
             if (response.isSuccessful()) {
 
                 JsonObject jsonResponse = JsonParser.parseString(resObject).getAsJsonObject();
@@ -525,16 +764,9 @@ public class KivaLoanServiceImpl implements KivaLoanService {
                 handleAPIIntegrityIssues(resObject);
 
             }
-        } catch (Exception e) {
-            log.error("Post Loan to KIVA has failed" + e);
-            exceptions.add(e);
-        }
-        if (!CollectionUtils.isEmpty(exceptions)) {
-            try {
-                throw new JobExecutionException(exceptions);
-            } catch (JobExecutionException e) {
-                throw new RuntimeException(e);
-            }
+        } catch (IOException e) {
+            log.error("Post Loan to KIVA has failed", e);
+            throw new RuntimeException(e);
         }
         return null;
     }
@@ -563,15 +795,12 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         String url = builder.build().toString();
 
-        OkHttpClient client = new OkHttpClient();
         List<Throwable> exceptions = new ArrayList<>();
-        Response response = null;
 
         Request request = new Request.Builder().url(url).header("Authorization", "Bearer " + accessToken).get().build();
 
-        try {
-            response = client.newCall(request).execute();
-            String resObject = response.body().string();
+        try (Response response = integrationHttpRetryService.execute("Kiva", "get repayment loans", kivaHttpClient, request)) {
+            String resObject = response.body() != null ? response.body().string() : "";
             if (response.isSuccessful()) {
                 return fromJson(JsonParser.parseString(resObject).getAsJsonObject());
             } else {
@@ -650,8 +879,6 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         String url = urlBuilder.toString();
         LOG.info("Post Loan Repayments to KIVA URL :=>" + url);
-        OkHttpClient client = new OkHttpClient();
-        Response response = null;
 
         RequestBody formBody = RequestBody.create(MediaType.parse(FORM_URL_CONTENT_TYPE), repayments);
 
@@ -659,9 +886,8 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         List<Throwable> exceptions = new ArrayList<>();
 
-        try {
-            response = client.newCall(request).execute();
-            String resObject = response.body().string();
+        try (Response response = integrationHttpRetryService.execute("Kiva", "post repayments", kivaHttpClient, request)) {
+            String resObject = response.body() != null ? response.body().string() : "";
             if (response.isSuccessful()) {
 
                 JsonObject jsonResponse = JsonParser.parseString(resObject).getAsJsonObject();
@@ -770,14 +996,11 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         String url = builder.build().toString();
 
-        OkHttpClient client = new OkHttpClient();
-        Response response = null;
         List<Throwable> exceptions = new ArrayList<>();
         Request request = new Request.Builder().url(url).header("Authorization", "Bearer " + accessToken).get().build();
 
-        try {
-            response = client.newCall(request).execute();
-            String resObject = response.body().string();
+        try (Response response = integrationHttpRetryService.execute("Kiva", "get supported currencies", kivaHttpClient, request)) {
+            String resObject = response.body() != null ? response.body().string() : "";
             if (response.isSuccessful()) {
                 ObjectMapper objectMapper = new ObjectMapper();
                 KivaSupportedCurrencyData data = objectMapper.readValue(resObject, KivaSupportedCurrencyData.class);
@@ -821,15 +1044,11 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         String url = builder.build().toString();
 
-        OkHttpClient client = new OkHttpClient();
-        Response response = null;
-
         List<Throwable> exceptions = new ArrayList<>();
         Request request = new Request.Builder().url(url).header("Authorization", "Bearer " + accessToken).get().build();
 
-        try {
-            response = client.newCall(request).execute();
-            String resObject = response.body().string();
+        try (Response response = integrationHttpRetryService.execute("Kiva", "get supported themes", kivaHttpClient, request)) {
+            String resObject = response.body() != null ? response.body().string() : "";
             if (response.isSuccessful()) {
                 ObjectMapper objectMapper = new ObjectMapper();
                 KivaSupportedThemeData data = objectMapper.readValue(resObject, KivaSupportedThemeData.class);
@@ -874,15 +1093,11 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         String url = builder.build().toString();
 
-        OkHttpClient client = new OkHttpClient();
-        Response response = null;
-
         List<Throwable> exceptions = new ArrayList<>();
         Request request = new Request.Builder().url(url).header("Authorization", "Bearer " + accessToken).get().build();
 
-        try {
-            response = client.newCall(request).execute();
-            String resObject = response.body().string();
+        try (Response response = integrationHttpRetryService.execute("Kiva", "get supported locations", kivaHttpClient, request)) {
+            String resObject = response.body() != null ? response.body().string() : "";
             if (response.isSuccessful()) {
                 ObjectMapper objectMapper = new ObjectMapper();
                 KivaSupportedLocationData data = objectMapper.readValue(resObject, KivaSupportedLocationData.class);
@@ -915,6 +1130,42 @@ public class KivaLoanServiceImpl implements KivaLoanService {
             }
         }
 
+    }
+
+    private static final class KivaPreflightValidationException extends RuntimeException {
+
+        private final String failureStage;
+        private final String failureCategory;
+
+        private KivaPreflightValidationException(String failureStage, String failureCategory, String message) {
+            super(message);
+            this.failureStage = failureStage;
+            this.failureCategory = failureCategory;
+        }
+
+        private static KivaPreflightValidationException aggregate(List<KivaPreflightValidationException> validationFailures) {
+            if (validationFailures.size() == 1) {
+                return validationFailures.get(0);
+            }
+
+            StringBuilder message = new StringBuilder();
+            for (KivaPreflightValidationException validationFailure : validationFailures) {
+                if (message.length() > 0) {
+                    message.append("; ");
+                }
+                message.append(validationFailure.getFailureCategory()).append(": ").append(validationFailure.getMessage());
+            }
+            return new KivaPreflightValidationException(STAGE_PREFLIGHT_VALIDATION, CATEGORY_MULTIPLE_DATA_INTEGRITY_ISSUES,
+                    message.toString());
+        }
+
+        private String getFailureStage() {
+            return failureStage;
+        }
+
+        private String getFailureCategory() {
+            return failureCategory;
+        }
     }
 
 }

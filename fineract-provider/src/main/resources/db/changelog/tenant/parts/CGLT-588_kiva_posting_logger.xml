@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-588-create-m_kiva_posting_logger" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_kiva_posting_logger"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_kiva_posting_logger">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="batch_id" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="has_passed" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="true"/>
+            </column>
+            <column name="loan_id" type="bigint">
+                <constraints nullable="true"/>
+            </column>
+            <column name="loan_account_no" type="varchar(100)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="client_id" type="bigint">
+                <constraints nullable="true"/>
+            </column>
+            <column name="client_name" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="failure_stage" type="varchar(100)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="failure_category" type="varchar(100)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="kiva_response_id" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="error_logs" type="TEXT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="pay_load" type="TEXT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="date" type="date">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_by" type="bigint">
+                <constraints nullable="false" foreignKeyName="FK_m_kiva_posting_logger_created_by" references="m_appuser(id)"/>
+            </column>
+            <column name="last_modified_by" type="bigint">
+                <constraints nullable="false" foreignKeyName="FK_m_kiva_posting_logger_last_modified_by" references="m_appuser(id)"/>
+            </column>
+            <column name="created_on_utc" type="timestamp" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="timestamp" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="m_kiva_posting_logger" indexName="idx_m_kiva_posting_logger_batch_id">
+            <column name="batch_id"/>
+        </createIndex>
+        <createIndex tableName="m_kiva_posting_logger" indexName="idx_m_kiva_posting_logger_loan_id">
+            <column name="loan_id"/>
+        </createIndex>
+        <createIndex tableName="m_kiva_posting_logger" indexName="idx_m_kiva_posting_logger_category">
+            <column name="failure_category"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="willy" id="CGLT-588-kiva-posting-logger-report" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1) FROM stretchy_report WHERE report_name = 'Kiva Posting Logger'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report">
+            <column name="report_name" value="Kiva Posting Logger"/>
+            <column name="report_type" value="Table"/>
+            <column name="report_subtype"/>
+            <column name="report_category" value="Loan"/>
+            <column name="report_sql" value="SELECT logger.id AS loggerId,
+       logger.batch_id AS loggerBatchId,
+       logger.date AS runDate,
+       COALESCE(l.account_no, logger.loan_account_no) AS loanAccountNo,
+       COALESCE(cl.display_name, logger.client_name) AS clientName,
+       logger.has_passed AS requestPassed,
+       logger.failure_stage AS failureStage,
+       logger.failure_category AS failureCategory,
+       logger.kiva_response_id AS kivaResponseId,
+       logger.error_logs AS errorLogs,
+       logger.pay_load AS requestPayload,
+       CONCAT(usr.firstname, ' ', usr.lastname) AS createdBy
+FROM m_kiva_posting_logger logger
+         LEFT JOIN m_loan l ON logger.loan_id = l.id
+         LEFT JOIN m_client cl ON l.client_id = cl.id
+         LEFT JOIN m_appuser usr ON logger.created_by = usr.id
+ORDER BY logger.id DESC"/>
+            <column name="core_report" valueBoolean="true"/>
+            <column name="use_report" valueBoolean="true"/>
+            <column name="self_service_user_report" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="willy" id="CGLT-588-kiva-posting-logger-report-permission">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1) FROM m_permission WHERE code = 'READ_Kiva Posting Logger'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="report"/>
+            <column name="code" value="READ_Kiva Posting Logger"/>
+            <column name="entity_name" value="Kiva Posting Logger"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
