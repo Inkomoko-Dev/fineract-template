@@ -2657,7 +2657,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             LOG.warn("Cashflow generation/regeneration blocked for loan {} - Loan must be in Review Application or Due Diligence stage. Current state: {}, User: {}",
                     loanId, loan.getLoanDecisionState(), currentUser != null ? currentUser.getUsername() : "unknown");
             throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.cashflow.cannot.be.generated",
-                    "Cashflows can only be generated or regenerated while the loan is in Review Application or Due Diligence stage.");
+                    "Cashflows can only be generated or regenerated while the loan is in Due diligence stage.");
         }
         List<LoanCashFlowData> loanCashFlowDataList = this.loanReadPlatformService.retrieveCashFlow(loanId);
         if (CollectionUtils.isEmpty(loanCashFlowDataList)) {
