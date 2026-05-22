@@ -2646,13 +2646,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         final Loan loan = retrieveLoanBy(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
-        // Validate that loan is in Due Diligence stage - cashflows can only be generated/regenerated in this stage
-        if (loan.getLoanDecisionState() == null || !loan.status().isSubmittedAndPendingApproval()
-                || !loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue())) {
-            LOG.warn("Cashflow generation/regeneration blocked for loan {} - Loan is not in Due Diligence stage. Current state: {}, User: {}",
+        // Validate that loan is in Review Application or Due Diligence stage.
+        // Cashflows must be generated BEFORE accepting Due Diligence (loan is in REVIEW_APPLICATION at that point),
+        // and can also be regenerated WHILE the loan is still in Due Diligence (before advancing to IC Review).
+        final boolean isInReviewApplication = loan.getLoanDecisionState() != null
+                && loan.getLoanDecisionState().equals(LoanDecisionState.REVIEW_APPLICATION.getValue());
+        final boolean isInDueDiligence = loan.getLoanDecisionState() != null
+                && loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue());
+        if (!loan.status().isSubmittedAndPendingApproval() || (!isInReviewApplication && !isInDueDiligence)) {
+            LOG.warn("Cashflow generation/regeneration blocked for loan {} - Loan must be in Review Application or Due Diligence stage. Current state: {}, User: {}",
                     loanId, loan.getLoanDecisionState(), currentUser != null ? currentUser.getUsername() : "unknown");
             throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.cashflow.cannot.be.generated",
-                    "Cashflows can only be generated or regenerated while the loan is in Due Diligence stage.");
+                    "Cashflows can only be generated or regenerated while the loan is in Review Application or Due Diligence stage.");
         }
         List<LoanCashFlowData> loanCashFlowDataList = this.loanReadPlatformService.retrieveCashFlow(loanId);
         if (CollectionUtils.isEmpty(loanCashFlowDataList)) {
