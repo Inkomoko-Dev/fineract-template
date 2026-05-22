@@ -2713,13 +2713,13 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         final String actionType = isRegeneration ? "REGENERATION" : "GENERATION";
         final String noteText = String.format("Cashflow %s completed successfully. User: %s, Date/Time: %s",
                 actionType, currentUser != null ? currentUser.getUsername() : "unknown",
-                java.time.LocalDateTime.now());
+                java.time.LocalDateTime.now(ZoneId.systemDefault()));
         final Note note = Note.loanNote(loan, noteText);
         this.noteRepository.save(note);
 
         LOG.info("Cashflow {} completed successfully for loan {} by user {} at {}",
                 actionType, loanId, currentUser != null ? currentUser.getUsername() : "unknown",
-                java.time.LocalDateTime.now());
+                java.time.LocalDateTime.now(ZoneId.systemDefault()));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
