@@ -1826,7 +1826,7 @@ public class ReadWriteNonCoreDataServiceImpl implements ReadWriteNonCoreDataServ
                         if (queryParamColumnUnderscored.equalsIgnoreCase(columnHeaderUnderscored)) {
                             pValue = queryParams.get(key);
                             pValue = validateColumn(columnHeader, pValue, dateFormat, clientApplicationLocale);
-                            if (columnHeader.isDecimalDisplayType()) {
+                            if (columnHeader.isDecimalDisplayType() && StringUtils.isNotBlank(pValue)) {
                                 BigDecimal typeConvert = new BigDecimal(pValue);
                                 pValue = typeConvert.setScale(2, RoundingMode.DOWN).toString();
                             }
