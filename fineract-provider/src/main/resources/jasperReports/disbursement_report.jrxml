@@ -82,23 +82,24 @@
             l.approved_principal AS total_loan_amount,
             l.approvedon_date AS approved_date,
             CONCAT(COALESCE(u.firstname, ''), ' ', COALESCE(u.lastname, '')) AS approved_by,
-            (SELECT GROUP_CONCAT(DISTINCT CONCAT(COALESCE(g.firstname, ''), ' ', COALESCE(g.lastname, '')) SEPARATOR '; ') FROM m_guarantor g WHERE g.loan_id = l.id) AS guarantor_name,
-            (SELECT g.id FROM m_guarantor g WHERE g.loan_id = l.id LIMIT 1) AS guarantor_id,
-            (SELECT GROUP_CONCAT(DISTINCT g.mobile_number SEPARATOR '; ') FROM m_guarantor g WHERE g.loan_id = l.id) AS guarantor_phone,
-            (
+            CAST((SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(g.firstname, ''), ' ', COALESCE(g.lastname, ''))), ''), c_g.display_name) SEPARATOR '; ') FROM m_guarantor g LEFT JOIN m_client c_g ON g.entity_id = c_g.id WHERE g.loan_id = l.id) AS CHAR) AS guarantor_name,
+            CAST((SELECT GROUP_CONCAT(DISTINCT g.id SEPARATOR '; ') FROM m_guarantor g WHERE g.loan_id = l.id) AS CHAR) AS guarantor_id,
+            CAST((SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(TRIM(g.mobile_number), ''), c_g.mobile_no) SEPARATOR '; ') FROM m_guarantor g LEFT JOIN m_client c_g ON g.entity_id = c_g.id WHERE g.loan_id = l.id) AS CHAR) AS guarantor_phone,
+            CAST((
                 SELECT GROUP_CONCAT(DISTINCT
                     CASE
+                        WHEN cv.code_value IS NOT NULL THEN cv.code_value
                         WHEN g2.type_enum = 1 THEN 'Personal'
                         WHEN g2.type_enum = 2 THEN 'Salary'
-                        ELSE cv.code_value
+                        ELSE 'Personal'
                     END
                     SEPARATOR '; '
                 )
                 FROM m_guarantor g2
                 LEFT JOIN m_code_value cv ON g2.client_reln_cv_id = cv.id
                 WHERE g2.loan_id = l.id
-            ) AS guarantor_type,
-            (
+            ) AS CHAR) AS guarantor_type,
+            CAST((
                 SELECT GROUP_CONCAT(DISTINCT type_name SEPARATOR '; ')
                 FROM (
                     SELECT lc.loan_id, cv.code_value AS type_name
@@ -111,7 +112,7 @@
                     JOIN m_collateral_management cm ON ccm.collateral_id = cm.id
                 ) AS t
                 WHERE t.loan_id = l.id
-            ) AS collateral_type,
+            ) AS CHAR) AS collateral_type,
             (
                 SELECT SUM(val)
                 FROM (
