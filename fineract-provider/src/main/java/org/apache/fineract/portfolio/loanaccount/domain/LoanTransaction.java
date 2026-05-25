@@ -282,11 +282,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         LoanTransaction reversal = new LoanTransaction(originalTransaction.loan, originalTransaction.office, originalTransaction.typeOf,
                 reversalDate, originalTransaction.amount, originalTransaction.principalPortion, originalTransaction.interestPortion,
                 originalTransaction.feeChargesPortion, originalTransaction.penaltyChargesPortion,
-                originalTransaction.overPaymentPortion, true, originalTransaction.paymentDetail, null);
+                originalTransaction.overPaymentPortion, false, originalTransaction.paymentDetail, null);
         reversal.originalTxnId = originalTransaction.getId();
         reversal.reversalTransaction = true;
         reversal.correctionDate = correctionDate;
-        reversal.manuallyAdjustedOrReversed = true;
         return reversal;
     }
 
@@ -562,7 +561,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public boolean isRecoveryRepayment() {
-        return LoanTransactionType.RECOVERY_REPAYMENT.equals(getTypeOf()) && isNotReversed();
+        return LoanTransactionType.RECOVERY_REPAYMENT.equals(getTypeOf()) && isNotReversed() && !isReversalTransaction();
     }
 
     public boolean isRecoveryRepaymentType() {
@@ -681,7 +680,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         thisTransactionData.put("id", getId());
         thisTransactionData.put("officeId", this.office.getId());
         thisTransactionData.put("type", transactionType);
-        thisTransactionData.put("reversed", Boolean.valueOf(isReversed()));
+        thisTransactionData.put("reversed", Boolean.valueOf(isReversed() || isReversalTransaction()));
         thisTransactionData.put("date", getTransactionDate());
         thisTransactionData.put("currency", currencyData);
         thisTransactionData.put("amount", this.amount);

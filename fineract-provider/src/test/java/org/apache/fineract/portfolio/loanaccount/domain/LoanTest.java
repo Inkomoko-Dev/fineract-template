@@ -19,16 +19,27 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.organisation.monetary.data.CurrencyData;
+import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -36,6 +47,13 @@ import org.springframework.test.util.ReflectionTestUtils;
  * Tests {@link Loan}.
  */
 public class LoanTest {
+
+    @BeforeEach
+    public void init() {
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
+        ThreadLocalContextUtil
+                .setBusinessDates(new HashMap<>(Map.of(BusinessDateType.BUSINESS_DATE, LocalDate.of(2026, 5, 25))));
+    }
 
     /**
      * Tests {@link Loan#getCharges()} with charges.
@@ -73,6 +91,32 @@ public class LoanTest {
         final Collection<LoanCharge> chargeIds = loan.getCharges();
 
         assertEquals(0, chargeIds.size());
+    }
+
+    @Test
+    public void loanReversalTransactionKeepsReversedFlagsFalse() {
+        final Office office = mock(Office.class);
+        when(office.getId()).thenReturn(1L);
+        final Loan loan = mock(Loan.class);
+        when(loan.getNetDisbursalAmount()).thenReturn(BigDecimal.ZERO);
+        final LoanTransaction originalTransaction = new LoanTransaction();
+        ReflectionTestUtils.setField(originalTransaction, "id", 10L);
+        ReflectionTestUtils.setField(originalTransaction, "loan", loan);
+        ReflectionTestUtils.setField(originalTransaction, "office", office);
+        ReflectionTestUtils.setField(originalTransaction, "typeOf", LoanTransactionType.RECOVERY_REPAYMENT.getValue());
+        ReflectionTestUtils.setField(originalTransaction, "dateOf", LocalDate.of(2026, 5, 25));
+        ReflectionTestUtils.setField(originalTransaction, "amount", BigDecimal.valueOf(100));
+
+        final LoanTransaction reversalTransaction = LoanTransaction.reversal(originalTransaction, LocalDate.of(2026, 5, 25), null);
+        final Map<String, Object> accountingData = reversalTransaction.toMapData(new CurrencyData("KES", "Kenyan Shilling", 2, 1, "KSh",
+                "currency.KES"));
+
+        assertTrue(reversalTransaction.isReversalTransaction());
+        assertFalse(reversalTransaction.isReversed());
+        assertFalse(reversalTransaction.isManuallyAdjustedOrReversed());
+        assertFalse(reversalTransaction.isRecoveryRepayment());
+        assertTrue(reversalTransaction.isRecoveryRepaymentType());
+        assertEquals(Boolean.TRUE, accountingData.get("reversed"));
     }
 
     /**
