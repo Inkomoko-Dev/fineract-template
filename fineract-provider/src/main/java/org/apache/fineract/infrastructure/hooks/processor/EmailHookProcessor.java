@@ -57,7 +57,7 @@ public class EmailHookProcessor implements HookProcessor {
     private final AppUserRepository appUserRepository;
     private final StaffRepository staffRepository;
     private final GmailBackedPlatformEmailService emailService;
-    @Value("${CBS-ENVIRONMENT-LINK}")
+    @Value("${CBS_ENVIRONMENT_LINK}")
     private String cbsEnvironmentLink;
 
     @Override
