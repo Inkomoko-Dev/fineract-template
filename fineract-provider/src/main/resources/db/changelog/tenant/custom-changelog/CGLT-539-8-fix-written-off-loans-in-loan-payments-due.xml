@@ -38,7 +38,7 @@
            hide the 'Export to CSV/Excel' buttons. This migration changes the report_type to 'Table'
            so it behaves like a standard downloadable report.
     -->
-    <changeSet id="CGLT-539-8-fix-written-off-loans-in-loan-payments-due" author="antigravity">
+    <changeSet id="CGLT-539-8-fix-written-off-loans-in-loan-payments-due" author="Felix Mutua">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
                 SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due'
