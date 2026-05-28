@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!--
+        CGLT-539-8: Fix "Loan payments due" report to include written off loans and enable download.
+
+        Issues fixed:
+        1. Written-off loans were missing: The previous query used `ls.completed_derived = 0`. Fineract
+           marks installments as completed (=1) when they are written off. This prevented written-off
+           loans from showing up even when the include toggle was checked. The logic was replaced with
+           an explicit formula `(Amount - Paid - Waived) > 0` to check for truly unpaid balances,
+           and the writtenoff_derived amounts are no longer subtracted from the "Due" output columns
+           so collections teams can see the amount they are supposed to follow up on.
+        2. Lacked download option: The report type was 'SMS' (legacy). In Fineract, 'SMS' reports
+           hide the 'Export to CSV/Excel' buttons. This migration changes the report_type to 'Table'
+           so it behaves like a standard downloadable report.
+    -->
+    <changeSet id="CGLT-539-8-fix-written-off-loans-in-loan-payments-due" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments due'
+            </sqlCheck>
+        </preConditions>
+
+        <update tableName="stretchy_report">
+            <column name="report_type" value="Table"/>
+            <column name="report_sql" value="SELECT l.id AS &quot;loanId&quot;, cl.id AS &quot;clientId&quot;, cl.display_name AS &quot;clientName&quot;, l.account_no AS &quot;loanAccountNumber&quot;, IFNULL(CONCAT(sf.firstname, ' ', sf.lastname), '-') AS &quot;loanOfficer&quot;, ounder.name AS &quot;location&quot;, ls.installment AS &quot;installmentNumber&quot;, ls.duedate AS &quot;dueDate&quot;, DATE_ADD(ls.duedate, INTERVAL ${gracePeriod} DAY) AS &quot;graceDate&quot;, CASE WHEN DATEDIFF('${asAtDate}', ls.duedate) &gt; 0 THEN DATEDIFF('${asAtDate}', ls.duedate) ELSE 0 END AS &quot;daysPastDue&quot;, IFNULL(ls.principal_amount, 0) - IFNULL(ls.principal_completed_derived, 0) AS &quot;principalDue&quot;, IFNULL(ls.interest_amount, 0) - IFNULL(ls.interest_completed_derived, 0) - IFNULL(ls.interest_waived_derived, 0) AS &quot;interestDue&quot;, IFNULL(ls.fee_charges_amount, 0) - IFNULL(ls.fee_charges_completed_derived, 0) - IFNULL(ls.fee_charges_waived_derived, 0) AS &quot;feesDue&quot;, IFNULL(ls.penalty_charges_amount, 0) - IFNULL(ls.penalty_charges_completed_derived, 0) - IFNULL(ls.penalty_charges_waived_derived, 0) AS &quot;penaltiesDue&quot;, (IFNULL(ls.principal_amount, 0) - IFNULL(ls.principal_completed_derived, 0) + IFNULL(ls.interest_amount, 0) - IFNULL(ls.interest_completed_derived, 0) - IFNULL(ls.interest_waived_derived, 0) + IFNULL(ls.fee_charges_amount, 0) - IFNULL(ls.fee_charges_completed_derived, 0) - IFNULL(ls.fee_charges_waived_derived, 0) + IFNULL(ls.penalty_charges_amount, 0) - IFNULL(ls.penalty_charges_completed_derived, 0) - IFNULL(ls.penalty_charges_waived_derived, 0)) AS &quot;installmentOutstanding&quot;, rev.enum_message_property AS &quot;loanStatus&quot;, CASE WHEN ls.duedate &lt; '${asAtDate}' THEN 'Yes' ELSE 'No' END AS &quot;inArrears&quot; FROM m_office mo JOIN m_office ounder ON ounder.hierarchy LIKE CONCAT(mo.hierarchy, '%') INNER JOIN m_client cl ON cl.office_id = ounder.id INNER JOIN m_loan l ON cl.id = l.client_id INNER JOIN m_loan_repayment_schedule ls ON l.id = ls.loan_id LEFT JOIN m_staff sf ON sf.id = l.loan_officer_id LEFT JOIN r_enum_value rev ON rev.enum_id = l.loan_status_id AND rev.enum_name = 'loan_status_id' WHERE mo.id = ${officeId} AND (${loanOfficerId} = -1 OR IFNULL(l.loan_officer_id, -10) = ${loanOfficerId}) AND (${loanProductId} = -1 OR l.product_id = ${loanProductId}) AND ((IFNULL(ls.principal_amount, 0) - IFNULL(ls.principal_completed_derived, 0) + IFNULL(ls.interest_amount, 0) - IFNULL(ls.interest_completed_derived, 0) - IFNULL(ls.interest_waived_derived, 0) + IFNULL(ls.fee_charges_amount, 0) - IFNULL(ls.fee_charges_completed_derived, 0) - IFNULL(ls.fee_charges_waived_derived, 0) + IFNULL(ls.penalty_charges_amount, 0) - IFNULL(ls.penalty_charges_completed_derived, 0) - IFNULL(ls.penalty_charges_waived_derived, 0)) &gt; 0) AND DATE(ls.duedate) &lt;= DATE_ADD(DATE('${asAtDate}'), INTERVAL ${gracePeriod} DAY) AND l.loan_status_id IN (300, 601) AND ('${includeWrittenOff}' = '1' OR l.loan_status_id &lt;&gt; 601) ORDER BY ls.duedate ASC, cl.display_name ASC, ls.installment ASC"/>
+            <where>report_name = 'Loan payments due'</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>
