@@ -321,32 +321,32 @@ public class DynamicIcReviewLevelHelper {
                     Integer levelNumber = getIcReviewLevelNumber(firstIcLevel);
                     return getAcceptPermissionForLevel(levelNumber);
                 }
-                return null;
+                return getAcceptPermissionForLevel(1);
 
             case DUE_DILIGENCE:
-                // Next is first IC review level (after due diligence)
+                // The person performing the first IC review level needs to select the second IC review level approver
                 Integer firstLevel = getFirstIcReviewDecisionState();
                 if (firstLevel != null) {
                     Integer levelNumber = getIcReviewLevelNumber(firstLevel);
-                    return getAcceptPermissionForLevel(levelNumber);
+                    return getAcceptPermissionForLevel(levelNumber + 1);
                 }
-                return null;
+                return getAcceptPermissionForLevel(2);
 
             case COLLATERAL_REVIEW:
-                // Next is first IC review level (after collateral review)
-                Integer firstLevelAfterCollateral = getFirstIcReviewDecisionState();
-                if (firstLevelAfterCollateral != null) {
-                    Integer levelNumber = getIcReviewLevelNumber(firstLevelAfterCollateral);
-                    return getAcceptPermissionForLevel(levelNumber);
-                }
                 return null;
 
             default:
                 // Check if current state is an IC review level
                 if (isIcReviewLevel(currentDecisionState)) {
-                    // Return permission for the CURRENT level (users who can approve this level)
+                    // The current state is N. The person performing action N+1 needs to select approver for N+2.
                     Integer levelNumber = getIcReviewLevelNumber(currentDecisionState);
-                    return getAcceptPermissionForLevel(levelNumber);
+                    Integer nextStageLevel = levelNumber + 2;
+                    Integer maxLevel = getMaxIcReviewLevel();
+                    
+                    if (maxLevel != null && nextStageLevel > maxLevel) {
+                        return null; // No next stage after max level
+                    }
+                    return getAcceptPermissionForLevel(nextStageLevel);
                 }
                 return null;
         }
