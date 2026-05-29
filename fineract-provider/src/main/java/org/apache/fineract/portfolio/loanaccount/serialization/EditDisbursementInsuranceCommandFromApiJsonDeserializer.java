@@ -78,6 +78,10 @@ public class EditDisbursementInsuranceCommandFromApiJsonDeserializer {
 
         final String notes = this.fromApiJsonHelper.extractStringNamed("notes", element);
         validator.reset().parameter("notes").value(notes).ignoreIfNull().notExceedingLengthOf(1000);
+        if (StringUtils.isBlank(note) && StringUtils.isBlank(notes)) {
+            errors.add(ApiParameterError.parameterError("validation.msg.loan.transaction.edit.disbursement.insurance.reason.required",
+                    "Reason is mandatory when editing an insurance payment at disbursement.", "note"));
+        }
 
         final Integer paymentTypeId = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("paymentTypeId", element);
         validator.reset().parameter("paymentTypeId").value(paymentTypeId).ignoreIfNull().integerGreaterThanZero();

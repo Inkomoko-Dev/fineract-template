@@ -73,6 +73,10 @@ public class AdjustLoanInsuranceChargeCommandFromApiJsonDeserializer {
 
         final String notes = this.fromApiJsonHelper.extractStringNamed("notes", element);
         validator.reset().parameter("notes").value(notes).ignoreIfNull().notExceedingLengthOf(500);
+        if (StringUtils.isBlank(notes)) {
+            errors.add(ApiParameterError.parameterError("validation.msg.loan.insurance.adjustment.notes.required",
+                    "Reason is mandatory for insurance payment adjustments.", "notes"));
+        }
 
         if (this.fromApiJsonHelper.parameterExists("glAccountId", element)) {
             final Long newGlAccountId = this.fromApiJsonHelper.extractLongNamed("glAccountId", element);
