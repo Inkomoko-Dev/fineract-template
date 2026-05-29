@@ -451,6 +451,15 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
                 .plus(getPenaltyChargesPortion(currency)).getAmount();
     }
 
+    public void updateRepaymentAtDisbursementComponents(final Money feeCharges, final Money penaltyCharges) {
+        this.principalPortion = null;
+        this.interestPortion = null;
+        this.feeChargesPortion = feeCharges.getAmountDefaultedToNullIfZero();
+        this.penaltyChargesPortion = penaltyCharges.getAmountDefaultedToNullIfZero();
+        this.overPaymentPortion = null;
+        this.amount = feeCharges.plus(penaltyCharges).getAmount();
+    }
+
     public void updateOverPayments(final Money overPayment) {
         final MonetaryCurrency currency = overPayment.getCurrency();
         this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(overPayment).getAmount());
@@ -848,6 +857,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
 
     public PaymentDetail getPaymentDetail() {
         return this.paymentDetail;
+    }
+
+    public void updatePaymentDetail(final PaymentDetail paymentDetail) {
+        this.paymentDetail = paymentDetail;
     }
 
     public Long getOriginalTransactionId() {
