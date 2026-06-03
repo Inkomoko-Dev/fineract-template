@@ -3292,6 +3292,18 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
     }
 
+    private void validateRecoveryRepaymentDoesNotExceedRemainingWrittenOffAmount(final LoanTransaction loanTransaction) {
+        final Money totalWrittenOff = Money.of(loanCurrency(), getSummary().getTotalWrittenOff());
+        final Money totalRecovered = calculateTotalRecoveredPayments();
+        final Money remainingWrittenOffAmount = totalWrittenOff.minus(totalRecovered);
+
+        if (remainingWrittenOffAmount.isLessThanZero()
+                || loanTransaction.getAmount(loanCurrency()).isGreaterThan(remainingWrittenOffAmount)) {
+            final String errorMessage = "The transaction amount cannot be greater than the remaining written off amount.";
+            throw new InvalidLoanStateTransitionException("transaction", "cannot.be.greater.than.total.written.off", errorMessage);
+        }
+    }
+
     private void validateRepaymentTypeAccountStatus(LoanTransaction repaymentTransaction, LoanEvent event) {
         if (repaymentTransaction.isGoodwillCredit() || repaymentTransaction.isMerchantIssuedRefund()
                 || repaymentTransaction.isPayoutRefund()) {
@@ -3391,10 +3403,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             statusEnum = loanLifecycleStateMachine.transition(LoanEvent.LOAN_REPAYMENT_OR_WAIVER, LoanStatus.fromInt(this.loanStatus));
         }
 
-        if (loanTransaction.isRecoveryRepayment()
-                && loanTransaction.getAmount(loanCurrency()).getAmount().compareTo(getSummary().getTotalWrittenOff()) > 0) {
-            final String errorMessage = "The transaction amount cannot greater than the remaining written off amount.";
-            throw new InvalidLoanStateTransitionException("transaction", "cannot.be.greater.than.total.written.off", errorMessage);
+        if (loanTransaction.isRecoveryRepayment()) {
+            validateRecoveryRepaymentDoesNotExceedRemainingWrittenOffAmount(loanTransaction);
         }
 
         this.loanStatus = statusEnum.getValue();
