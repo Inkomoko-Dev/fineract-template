@@ -4453,6 +4453,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         if (disbursementDetails == null || disbursementDetails.isEmpty()) {
             return;
         }
+        if (!loan.isMultiDisburmentLoan() && disbursementDetails.size() == 1) {
+            final LoanDisbursementDetails singleDisbursement = disbursementDetails.get(0);
+            singleDisbursement.updatePrincipal(loan.getApprovedPrincipal());
+            singleDisbursement.setNetDisbursalAmount(loan.getNetDisbursalAmount());
+            return;
+        }
         if (editedLoanCharge != null && editedLoanCharge.getTrancheDisbursementCharge() != null
                 && editedLoanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails() != null) {
             final LoanDisbursementDetails editedDisbursement = editedLoanCharge.getTrancheDisbursementCharge()
