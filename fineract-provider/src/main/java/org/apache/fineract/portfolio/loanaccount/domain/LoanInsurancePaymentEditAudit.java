@@ -173,4 +173,16 @@ public class LoanInsurancePaymentEditAudit extends AbstractPersistableCustom {
     public Long getNewIncomeGlAccountId() {
         return this.newIncomeGlAccountId;
     }
+
+    public Long getOriginalTransactionId() {
+        return this.originalTransactionId;
+    }
+
+    public Long getAdjustmentTransactionId() {
+        return this.adjustmentTransactionId;
+    }
+
+    public BigDecimal getNewAmount() {
+        return this.newAmount;
+    }
 }
