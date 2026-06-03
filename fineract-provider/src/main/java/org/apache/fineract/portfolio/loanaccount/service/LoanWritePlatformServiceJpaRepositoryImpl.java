@@ -4003,7 +4003,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             loanCharge.markAsFullyPaid();
             this.loanChargeRepository.saveAndFlush(loanCharge);
 
-            recalculateLoanAfterInsurancePaymentEdit(loan);
+            recalculateLoanAfterInsurancePaymentEdit(loan, loanCharge);
             postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
 
             if (StringUtils.isNotBlank(noteText)) {
@@ -4138,7 +4138,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loanCharge.markAsFullyPaid();
         this.loanChargeRepository.saveAndFlush(loanCharge);
 
-        recalculateLoanAfterInsurancePaymentEdit(loan);
+        recalculateLoanAfterInsurancePaymentEdit(loan, loanCharge);
 
         if (StringUtils.isNotBlank(noteText)) {
             final Note note = Note.loanTransactionNote(loan, originalTransaction, noteText);
@@ -4398,13 +4398,59 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         originalTransaction.updateRepaymentAtDisbursementComponents(feeCharges, penaltyCharges);
     }
 
-    private void recalculateLoanAfterInsurancePaymentEdit(final Loan loan) {
+    private void recalculateLoanAfterInsurancePaymentEdit(final Loan loan, final LoanCharge editedLoanCharge) {
         loan.refreshFeeChargesDueAtDisbursement();
+        refreshDisbursementNetDisbursalAmount(loan, editedLoanCharge);
         final LoanRepaymentScheduleProcessingWrapper wrapper = new LoanRepaymentScheduleProcessingWrapper();
         wrapper.reprocess(loan.getCurrency(), loan.getDisbursementDate(), loan.getRepaymentScheduleInstallments(), loan.charges());
         loan.updateLoanSummaryDerivedFields();
         saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
         this.loanAccountDomainService.recalculateAccruals(loan);
+    }
+
+    private void refreshDisbursementNetDisbursalAmount(final Loan loan, final LoanCharge editedLoanCharge) {
+        final List<LoanDisbursementDetails> disbursementDetails = loan.getDisbursementDetails();
+        if (disbursementDetails == null || disbursementDetails.isEmpty()) {
+            return;
+        }
+        if (editedLoanCharge != null && editedLoanCharge.getTrancheDisbursementCharge() != null
+                && editedLoanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails() != null) {
+            final LoanDisbursementDetails editedDisbursement = editedLoanCharge.getTrancheDisbursementCharge()
+                    .getloanDisbursementDetails();
+            editedDisbursement.setNetDisbursalAmount(deriveNetDisbursalAmountForDisbursement(loan, editedDisbursement));
+            return;
+        }
+        if (disbursementDetails.size() == 1) {
+            disbursementDetails.get(0).setNetDisbursalAmount(loan.getNetDisbursalAmount());
+        }
+    }
+
+    private BigDecimal deriveNetDisbursalAmountForDisbursement(final Loan loan,
+            final LoanDisbursementDetails targetDisbursement) {
+        BigDecimal chargesDueAtDisbursement = BigDecimal.ZERO;
+        for (final LoanCharge charge : loan.charges()) {
+            if (!charge.isDueAtDisbursement()) {
+                continue;
+            }
+            if (charge.getTrancheDisbursementCharge() == null) {
+                continue;
+            }
+            final LoanDisbursementDetails chargeDisbursement = charge.getTrancheDisbursementCharge().getloanDisbursementDetails();
+            if (chargeDisbursement != null && sameDisbursementDetail(chargeDisbursement, targetDisbursement)) {
+                chargesDueAtDisbursement = chargesDueAtDisbursement.add(charge.amount());
+            }
+        }
+        return targetDisbursement.principal().subtract(chargesDueAtDisbursement);
+    }
+
+    private boolean sameDisbursementDetail(final LoanDisbursementDetails first, final LoanDisbursementDetails second) {
+        if (first == null || second == null) {
+            return false;
+        }
+        if (first.getId() != null && second.getId() != null) {
+            return first.getId().equals(second.getId());
+        }
+        return first.equals(second);
     }
 
     @Override
