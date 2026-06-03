@@ -3891,12 +3891,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final BigDecimal previousLoanChargeAmount = loanCharge.getAmount(loan.getCurrency()).getAmount();
         boolean chargePaidByBackfilled = false;
         if (selectedChargePaidBy == null) {
-            selectedChargePaidBy = new LoanChargePaidBy(originalTransaction, loanCharge, previousLoanChargeAmount, null);
-            originalTransaction.getLoanChargesPaid().add(selectedChargePaidBy);
-            this.loanTransactionRepository.saveAndFlush(originalTransaction);
             chargePaidByBackfilled = true;
         }
-        final BigDecimal previousAmount = selectedChargePaidBy.getAmount();
+        final BigDecimal previousAmount = selectedChargePaidBy == null ? originalTransaction.getAmount(loan.getCurrency()).getAmount()
+                : selectedChargePaidBy.getAmount();
         final LocalDate originalTransactionDate = originalTransaction.getTransactionDate();
         final PaymentDetail previousPaymentDetail = originalTransaction.getPaymentDetail();
         final Long previousPaymentDetailId = previousPaymentDetail == null ? null : previousPaymentDetail.getId();
@@ -3942,8 +3940,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final GLAccount requestedInsuranceIncomeGlAccount = incomeGlChangeRequested
                 ? findGlAccountById(command.longValueOfParameterNamed("glAccountId"))
                 : null;
+        final GLAccount replacementIncomeGlAccount = configuredInsuranceIncomeGlAccount == null ? previousIncomeGlAccount
+                : configuredInsuranceIncomeGlAccount;
         final GLAccount newIncomeGlAccount = requestedInsuranceIncomeGlAccount != null ? requestedInsuranceIncomeGlAccount
-                : configuredInsuranceIncomeGlAccount == null ? previousIncomeGlAccount : configuredInsuranceIncomeGlAccount;
+                : replacementIncomeGlAccount;
         final GLAccount previousFundSourceGlAccount = latestInsuranceEditAudit
                 .map(LoanInsurancePaymentEditAudit::getNewFundSourceGlAccountId).map(this::findGlAccountById)
                 .orElse(findPreviousFundSourceGlAccount(loan, originalTransaction, previousPaymentTypeId));
@@ -3953,7 +3953,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final boolean fundSourceReclassificationNeeded = paymentTypeValueChanged && newAmount.compareTo(BigDecimal.ZERO) > 0
                 && !sameGlAccount(previousFundSourceGlAccount, requestedFundSourceGlAccount);
         final boolean incomeGlReclassificationNeeded = newAmount.compareTo(BigDecimal.ZERO) > 0
-                && !sameGlAccount(previousIncomeGlAccount, newIncomeGlAccount);
+                && !sameGlAccount(replacementIncomeGlAccount, newIncomeGlAccount);
         final boolean externalIdChanged = StringUtils.isNotBlank(txnExternalId)
                 && !txnExternalId.equals(originalTransaction.getExternalId());
         final boolean transactionDateChangeCountsAsAdjustment = transactionDateChanged;
@@ -3993,23 +3993,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         changes.put("changedByUsername", currentUser.getUsername());
         changes.put("changedOnDateTime", DateUtils.getOffsetDateTimeOfTenant().toString());
 
-        if (transactionDateChanged) {
-            originalTransaction.updateTransactionDate(newTransactionDate);
-            final List<JournalEntry> originalJournalEntries = this.journalEntryRepository
-                    .findActiveByLoanTransactionId(originalTransaction.getId());
-            for (final JournalEntry journalEntry : originalJournalEntries) {
-                journalEntry.setTransactionDate(newTransactionDate);
-                this.journalEntryRepository.save(journalEntry);
-            }
-            this.loanTransactionRepository.saveAndFlush(originalTransaction);
-            changes.put("journalEntriesDateUpdated", originalJournalEntries.size());
-        }
-
-        if (StringUtils.isNotBlank(txnExternalId)) {
-            originalTransaction.updateExternalId(txnExternalId);
-            this.loanTransactionRepository.saveAndFlush(originalTransaction);
-        }
-
         PaymentDetail newPaymentDetail = previousPaymentDetail;
         Long newPaymentDetailId = previousPaymentDetailId;
         Long newPaymentTypeId = previousPaymentTypeId;
@@ -4031,7 +4014,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
 
             if (StringUtils.isNotBlank(noteText)) {
-                final Note note = Note.loanTransactionNote(loan, originalTransaction, noteText);
+                final Note note = Note.loanTransactionNote(loan, originalTransaction,
+                        buildInsurancePaymentEditNote(previousAmount, BigDecimal.ZERO, originalTransactionDate, newTransactionDate,
+                                previousPaymentTypeName, previousPaymentTypeName, noteText));
                 this.noteRepository.save(note);
             }
 
@@ -4057,6 +4042,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId())
                     .withLoanId(loanId).with(changes).build();
         }
+
+        final List<Long> existingTransactionIds = new ArrayList<>(loan.findExistingTransactionIds());
+        final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
+
         if (paymentDetailChangeRequested) {
             if (!paymentTypeChangeRequested) {
                 throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.payment.type.required",
@@ -4077,60 +4066,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             changes.put("newFundSourceGlAccountId", glAccountId(newFundSourceGlAccount));
         }
 
-        if (amountChanged) {
-            final BigDecimal absDelta = amountDelta.abs();
-            final boolean amountReduced = amountDelta.compareTo(BigDecimal.ZERO) < 0;
-            if (previousIncomeGlAccount == null) {
-                throw new GeneralPlatformDomainRuleException("error.msg.loan.insurance.adjustment.no.credit.entry",
-                        "No active insurance income journal entry found for repayment-at-disbursement transaction: "
-                                + originalTransaction.getId(),
-                        originalTransaction.getId());
-            }
-            if (previousFundSourceGlAccount == null) {
-                throw new GeneralPlatformDomainRuleException(
-                        "error.msg.loan.disbursement.insurance.edit.previous.fund.source.gl.not.found",
-                        "No active fund source journal entry or payment type mapping found for repayment-at-disbursement transaction: "
-                                + originalTransaction.getId(),
-                        originalTransaction.getId());
-            }
-
-            if (amountReduced) {
-                this.journalEntryRepository.save(buildManualJournalEntry(loan, previousIncomeGlAccount, JournalEntryType.DEBIT,
-                        absDelta, "Insurance payment amount reduction - adjust income", originalTransaction, newTransactionDate));
-                this.journalEntryRepository.save(buildManualJournalEntry(loan, previousFundSourceGlAccount, JournalEntryType.CREDIT,
-                        absDelta, "Insurance payment amount reduction - adjust fund source", originalTransaction, newTransactionDate,
-                        previousPaymentDetail));
-            } else {
-                this.journalEntryRepository.save(buildManualJournalEntry(loan, previousFundSourceGlAccount, JournalEntryType.DEBIT,
-                        absDelta, "Insurance payment amount increase - adjust fund source", originalTransaction, newTransactionDate,
-                        previousPaymentDetail));
-                this.journalEntryRepository.save(buildManualJournalEntry(loan, previousIncomeGlAccount, JournalEntryType.CREDIT,
-                        absDelta, "Insurance payment amount increase - adjust income", originalTransaction, newTransactionDate));
-            }
-
-            changes.put("accountingAdjustmentAmount", absDelta);
-            changes.put("adjustmentType", amountReduced ? "REDUCTION" : "INCREASE");
-        }
-
-        if (paymentDetailChangeRequested) {
-            if (paymentTypeValueChanged && newAmount.compareTo(BigDecimal.ZERO) > 0 && previousFundSourceGlAccount == null) {
-                throw new GeneralPlatformDomainRuleException(
-                        "error.msg.loan.disbursement.insurance.edit.previous.fund.source.gl.not.found",
-                        "No active fund source journal entry or payment type mapping found for repayment-at-disbursement transaction: "
-                                + originalTransaction.getId(),
-                        originalTransaction.getId());
-            }
-            if (newAmount.compareTo(BigDecimal.ZERO) > 0 && !sameGlAccount(previousFundSourceGlAccount, newFundSourceGlAccount)) {
-                this.journalEntryRepository.save(buildManualJournalEntry(loan, previousFundSourceGlAccount, JournalEntryType.CREDIT,
-                        newAmount, "Insurance payment reclassification - reduce previous fund source", originalTransaction,
-                        newTransactionDate, previousPaymentDetail));
-                this.journalEntryRepository.save(buildManualJournalEntry(loan, newFundSourceGlAccount, JournalEntryType.DEBIT,
-                        newAmount, "Insurance payment reclassification - apply new fund source", originalTransaction, newTransactionDate,
-                        newPaymentDetail));
-                changes.put("fundSourceReclassifiedAmount", newAmount);
-            }
-            originalTransaction.updatePaymentDetail(newPaymentDetail);
-            this.loanTransactionRepository.saveAndFlush(originalTransaction);
+        if (paymentTypeValueChanged && newAmount.compareTo(BigDecimal.ZERO) > 0 && previousFundSourceGlAccount == null) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.disbursement.insurance.edit.previous.fund.source.gl.not.found",
+                    "No active fund source journal entry or payment type mapping found for repayment-at-disbursement transaction: "
+                            + originalTransaction.getId(),
+                    originalTransaction.getId());
         }
 
         if (incomeGlReclassificationNeeded && (originalDateClosed || newDateClosed)) {
@@ -4139,43 +4080,65 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     "transactionDate", newTransactionDate);
         }
         if (incomeGlReclassificationNeeded) {
-            if (previousIncomeGlAccount == null || newIncomeGlAccount == null) {
+            if (replacementIncomeGlAccount == null || newIncomeGlAccount == null) {
                 throw new GeneralPlatformDomainRuleException(
                         "error.msg.loan.disbursement.insurance.edit.income.gl.not.found",
                         "Insurance income GL account mapping could not be resolved for loan product: " + loan.productId(),
                         loan.productId());
             }
-            this.journalEntryRepository.save(buildManualJournalEntry(loan, previousIncomeGlAccount, JournalEntryType.DEBIT,
-                    newAmount, "Insurance payment reclassification - reduce previous income GL", originalTransaction,
-                    newTransactionDate));
-            this.journalEntryRepository.save(buildManualJournalEntry(loan, newIncomeGlAccount, JournalEntryType.CREDIT,
-                    newAmount, "Insurance payment reclassification - apply insurance income GL", originalTransaction,
-                    newTransactionDate));
-            changes.put("previousIncomeGlAccountId", previousIncomeGlAccount.getId());
-            changes.put("newIncomeGlAccountId", newIncomeGlAccount.getId());
-            changes.put("incomeGlReclassifiedAmount", newAmount);
         }
 
-        selectedChargePaidBy.setAmount(newAmount);
-        updateRepaymentAtDisbursementTransactionAmount(loan, originalTransaction);
+        originalTransaction.reverse();
+        originalTransaction.manuallyAdjustedOrReversed();
         this.loanTransactionRepository.saveAndFlush(originalTransaction);
+
+        final Money adjustedPaymentAmount = Money.of(loan.getCurrency(), newAmount);
+        final LoanTransaction replacementTransaction = LoanTransaction.repaymentAtDisbursement(loan.getOffice(), adjustedPaymentAmount,
+                newPaymentDetail, newTransactionDate, txnExternalId);
+        replacementTransaction.updateLoan(loan);
+        replacementTransaction.setOriginalTransactionId(originalTransaction.getId());
+        replacementTransaction.setCorrectionDate(DateUtils.getBusinessLocalDate());
+        final Integer installmentNumber = selectedChargePaidBy == null ? null : selectedChargePaidBy.getInstallmentNumber();
+        replacementTransaction.getLoanChargesPaid().add(new LoanChargePaidBy(replacementTransaction, loanCharge, newAmount,
+                installmentNumber));
+        updateRepaymentAtDisbursementTransactionAmount(loan, replacementTransaction);
+        loan.addLoanTransaction(replacementTransaction);
+        this.loanTransactionRepository.saveAndFlush(replacementTransaction);
 
         loanCharge.updateAmount(newAmount);
         loanCharge.markAsFullyPaid();
         this.loanChargeRepository.saveAndFlush(loanCharge);
 
         recalculateLoanAfterInsurancePaymentEdit(loan, loanCharge);
+        postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+
+        if (incomeGlReclassificationNeeded) {
+            this.journalEntryRepository.save(buildManualJournalEntry(loan, replacementIncomeGlAccount, JournalEntryType.DEBIT,
+                    newAmount, "Insurance payment reclassification - reduce replacement income GL", replacementTransaction,
+                    newTransactionDate));
+            this.journalEntryRepository.save(buildManualJournalEntry(loan, newIncomeGlAccount, JournalEntryType.CREDIT,
+                    newAmount, "Insurance payment reclassification - apply insurance income GL", replacementTransaction,
+                    newTransactionDate));
+            changes.put("previousIncomeGlAccountId", glAccountId(previousIncomeGlAccount));
+            changes.put("newIncomeGlAccountId", newIncomeGlAccount.getId());
+            changes.put("replacementIncomeGlAccountId", replacementIncomeGlAccount.getId());
+            changes.put("incomeGlReclassifiedAmount", newAmount);
+        }
 
         if (StringUtils.isNotBlank(noteText)) {
-            final Note note = Note.loanTransactionNote(loan, originalTransaction, noteText);
+            final Note note = Note.loanTransactionNote(loan, replacementTransaction,
+                    buildInsurancePaymentEditNote(previousAmount, newAmount, originalTransactionDate, newTransactionDate,
+                            previousPaymentTypeName, newPaymentTypeName, noteText));
             this.noteRepository.save(note);
         }
 
         changes.put("originalTransactionId", originalTransaction.getId());
+        changes.put("adjustmentTransactionId", replacementTransaction.getId());
+        changes.put("originalTransactionReversed", true);
 
         final LoanInsurancePaymentEditAudit audit = LoanInsurancePaymentEditAudit.create(loan.getId(), loan.getClientId(),
                 loan.productId(), loan.getOfficeId(), loanChargeId, loanCharge.getCharge().getId(), originalTransaction.getId(),
-                null, previousAmount, newAmount,
+                replacementTransaction.getId(), previousAmount, newAmount,
                 amountDelta, previousPaymentTypeId, previousPaymentTypeName, newPaymentTypeId, newPaymentTypeName,
                 previousPaymentDetailId, newPaymentDetailId, glAccountId(previousFundSourceGlAccount),
                 glAccountId(newFundSourceGlAccount), glAccountId(previousIncomeGlAccount), glAccountId(newIncomeGlAccount),
@@ -4185,10 +4148,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         changes.put("insurancePaymentEditAuditId", audit.getId());
 
         final LoanAdjustTransactionBusinessEvent.Data eventData = new LoanAdjustTransactionBusinessEvent.Data(originalTransaction);
-        eventData.setNewTransactionDetail(originalTransaction);
+        eventData.setNewTransactionDetail(replacementTransaction);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanAdjustTransactionBusinessEvent(eventData));
 
-        final Long entityId = returnLoanChargeAsEntity ? loanChargeId : originalTransaction.getId();
+        final Long entityId = returnLoanChargeAsEntity ? loanChargeId : replacementTransaction.getId();
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(entityId)
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
                 .with(changes).build();
@@ -4330,6 +4293,23 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             return command.stringValueOfParameterNamed("note");
         }
         return command.stringValueOfParameterNamed("notes");
+    }
+
+    private String buildInsurancePaymentEditNote(final BigDecimal previousAmount, final BigDecimal newAmount,
+            final LocalDate previousDate, final LocalDate newDate, final String previousPaymentTypeName,
+            final String newPaymentTypeName, final String reason) {
+        final List<String> noteParts = new ArrayList<>();
+        noteParts.add("Insurance payment adjustment");
+        noteParts.add("Amount: " + previousAmount + " -> " + newAmount);
+        if (!previousDate.isEqual(newDate)) {
+            noteParts.add("Date: " + previousDate + " -> " + newDate);
+        }
+        if (!Objects.equals(previousPaymentTypeName, newPaymentTypeName)) {
+            noteParts.add("Payment type: " + StringUtils.defaultString(previousPaymentTypeName, "None") + " -> "
+                    + StringUtils.defaultString(newPaymentTypeName, "None"));
+        }
+        noteParts.add("Reason: " + reason);
+        return StringUtils.abbreviate(String.join("; ", noteParts), 500);
     }
 
     private Long paymentTypeId(final PaymentDetail paymentDetail) {
