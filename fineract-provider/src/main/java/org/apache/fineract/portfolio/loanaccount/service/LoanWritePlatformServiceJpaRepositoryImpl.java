@@ -3879,6 +3879,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final LoanCharge loanCharge = retrieveLoanChargeBy(loanId, loanChargeId);
         validateEditableDisbursementInsuranceCharge(loanCharge);
+        validateDisbursementInsuranceAmountDoesNotExceedPrincipal(loan, loanCharge, newAmount);
 
         final LoanTransaction originalTransaction = findActiveDisbursementInsuranceTransaction(loan, loanCharge, transactionId);
         final boolean zeroedInsuranceReferenceTransaction = originalTransaction.isReversed();
@@ -4205,6 +4206,24 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.not.insurance.charge",
                     "Only insurance-related charges can be edited with this command.", loanCharge.getId());
         }
+    }
+
+    private void validateDisbursementInsuranceAmountDoesNotExceedPrincipal(final Loan loan, final LoanCharge loanCharge,
+            final BigDecimal newAmount) {
+        final BigDecimal principalAmount = derivePrincipalAmountForInsuranceCharge(loan, loanCharge);
+        if (principalAmount != null && newAmount.compareTo(principalAmount) > 0) {
+            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.amount.exceeds.principal",
+                    "Insurance amount cannot be greater than the principal amount from which it is netted.",
+                    "amount", newAmount, principalAmount);
+        }
+    }
+
+    private BigDecimal derivePrincipalAmountForInsuranceCharge(final Loan loan, final LoanCharge loanCharge) {
+        if (loanCharge.getTrancheDisbursementCharge() != null
+                && loanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails() != null) {
+            return loanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails().principal();
+        }
+        return loan.getApprovedPrincipal();
     }
 
     private LoanTransaction findActiveDisbursementInsuranceTransaction(final Loan loan, final LoanCharge loanCharge,
