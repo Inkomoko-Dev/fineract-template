@@ -35,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
@@ -3880,8 +3881,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         validateEditableDisbursementInsuranceCharge(loanCharge);
 
         final LoanTransaction originalTransaction = findActiveDisbursementInsuranceTransaction(loan, loanCharge, transactionId);
-        businessEventNotifierService.notifyPreBusinessEvent(
-                new LoanAdjustTransactionBusinessEvent(new LoanAdjustTransactionBusinessEvent.Data(originalTransaction)));
 
         if (this.accountTransfersReadPlatformService.isAccountTransfer(originalTransaction.getId(), PortfolioAccountType.LOAN)) {
             throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
@@ -3932,6 +3931,44 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     "transactionDate", newTransactionDate);
         }
 
+        final Optional<LoanInsurancePaymentEditAudit> latestInsuranceEditAudit = this.loanInsurancePaymentEditAuditRepository
+                .findTopByOriginalTransactionIdOrderByAdjustedOnDateDescIdDesc(originalTransaction.getId());
+        final JournalEntry activeCreditEntry = findActiveCreditEntry(loan, originalTransaction, null);
+        final GLAccount previousIncomeGlAccount = latestInsuranceEditAudit.map(LoanInsurancePaymentEditAudit::getNewIncomeGlAccountId)
+                .map(this::findGlAccountById).orElse(activeCreditEntry == null ? null : activeCreditEntry.getGlAccount());
+        final GLAccount configuredInsuranceIncomeGlAccount = findConfiguredInsuranceIncomeGlAccount(loan, loanCharge);
+        final GLAccount requestedInsuranceIncomeGlAccount = incomeGlChangeRequested
+                ? findGlAccountById(command.longValueOfParameterNamed("glAccountId"))
+                : null;
+        final GLAccount newIncomeGlAccount = requestedInsuranceIncomeGlAccount != null ? requestedInsuranceIncomeGlAccount
+                : configuredInsuranceIncomeGlAccount == null ? previousIncomeGlAccount : configuredInsuranceIncomeGlAccount;
+        final GLAccount previousFundSourceGlAccount = latestInsuranceEditAudit
+                .map(LoanInsurancePaymentEditAudit::getNewFundSourceGlAccountId).map(this::findGlAccountById)
+                .orElse(findPreviousFundSourceGlAccount(loan, originalTransaction, previousPaymentTypeId));
+        final Long requestedPaymentTypeId = paymentTypeChangeRequested ? command.longValueOfParameterNamed("paymentTypeId") : null;
+        final boolean paymentTypeValueChanged = paymentTypeChangeRequested
+                && !Objects.equals(requestedPaymentTypeId, previousPaymentTypeId);
+        final boolean paymentDetailFieldsChangeRequested = paymentDetailFieldsChangeRequested(command);
+        final GLAccount requestedFundSourceGlAccount = paymentTypeChangeRequested && newAmount.compareTo(BigDecimal.ZERO) > 0
+                ? findFundSourceGlAccountForPaymentType(loan, requestedPaymentTypeId)
+                : previousFundSourceGlAccount;
+        final boolean fundSourceReclassificationNeeded = paymentTypeChangeRequested && newAmount.compareTo(BigDecimal.ZERO) > 0
+                && !sameGlAccount(previousFundSourceGlAccount, requestedFundSourceGlAccount);
+        final boolean incomeGlReclassificationNeeded = newAmount.compareTo(BigDecimal.ZERO) > 0
+                && !sameGlAccount(previousIncomeGlAccount, newIncomeGlAccount);
+        final boolean externalIdChanged = StringUtils.isNotBlank(txnExternalId)
+                && !txnExternalId.equals(originalTransaction.getExternalId());
+        final boolean transactionDateChangeCountsAsAdjustment = transactionDateChanged && !returnLoanChargeAsEntity;
+        if (!amountChanged && !fundSourceReclassificationNeeded && !incomeGlReclassificationNeeded && !paymentTypeValueChanged
+                && !paymentDetailFieldsChangeRequested && !externalIdChanged && !transactionDateChangeCountsAsAdjustment) {
+            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.no.changes",
+                    "No insurance adjustment was made. Change the amount, payment type/account, GL account, date, or reference before submitting.",
+                    "amount", newAmount);
+        }
+
+        businessEventNotifierService.notifyPreBusinessEvent(
+                new LoanAdjustTransactionBusinessEvent(new LoanAdjustTransactionBusinessEvent.Data(originalTransaction)));
+
         final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put("loanChargeId", loanChargeId);
         changes.put("previousAmount", previousAmount);
@@ -3975,20 +4012,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             this.loanTransactionRepository.saveAndFlush(originalTransaction);
         }
 
-        final Optional<LoanInsurancePaymentEditAudit> latestInsuranceEditAudit = this.loanInsurancePaymentEditAuditRepository
-                .findTopByOriginalTransactionIdOrderByAdjustedOnDateDescIdDesc(originalTransaction.getId());
-        final JournalEntry activeCreditEntry = findActiveCreditEntry(loan, originalTransaction, null);
-        final GLAccount previousIncomeGlAccount = latestInsuranceEditAudit.map(LoanInsurancePaymentEditAudit::getNewIncomeGlAccountId)
-                .map(this::findGlAccountById).orElse(activeCreditEntry == null ? null : activeCreditEntry.getGlAccount());
-        final GLAccount configuredInsuranceIncomeGlAccount = findConfiguredInsuranceIncomeGlAccount(loan, loanCharge);
-        final GLAccount requestedInsuranceIncomeGlAccount = incomeGlChangeRequested
-                ? findGlAccountById(command.longValueOfParameterNamed("glAccountId"))
-                : null;
-        final GLAccount newIncomeGlAccount = requestedInsuranceIncomeGlAccount != null ? requestedInsuranceIncomeGlAccount
-                : configuredInsuranceIncomeGlAccount == null ? previousIncomeGlAccount : configuredInsuranceIncomeGlAccount;
-        final GLAccount previousFundSourceGlAccount = latestInsuranceEditAudit
-                .map(LoanInsurancePaymentEditAudit::getNewFundSourceGlAccountId).map(this::findGlAccountById)
-                .orElse(findPreviousFundSourceGlAccount(loan, originalTransaction, previousPaymentTypeId));
         PaymentDetail newPaymentDetail = previousPaymentDetail;
         Long newPaymentDetailId = previousPaymentDetailId;
         Long newPaymentTypeId = previousPaymentTypeId;
@@ -4045,7 +4068,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             newPaymentDetailId = newPaymentDetail.getId();
             newPaymentTypeId = newPaymentDetail.getPaymentType().getId();
             newPaymentTypeName = newPaymentDetail.getPaymentType().getPaymentName();
-            newFundSourceGlAccount = findFundSourceGlAccountForPaymentType(loan, newPaymentTypeId);
+            newFundSourceGlAccount = requestedFundSourceGlAccount;
             changes.put("paymentTypeId", newPaymentTypeId);
             changes.put("paymentTypeName", newPaymentTypeName);
             changes.put("previousFundSourceGlAccountId", glAccountId(previousFundSourceGlAccount));
@@ -4108,8 +4131,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             this.loanTransactionRepository.saveAndFlush(originalTransaction);
         }
 
-        final boolean incomeGlReclassificationNeeded = newAmount.compareTo(BigDecimal.ZERO) > 0
-                && !sameGlAccount(previousIncomeGlAccount, newIncomeGlAccount);
         if (incomeGlReclassificationNeeded && (originalDateClosed || newDateClosed)) {
             throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.gl.closed.period",
                     "Insurance payment GL reclassification cannot be posted for a transaction in a closed accounting period.",
@@ -4321,6 +4342,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             return null;
         }
         return paymentDetail.getPaymentType().getPaymentName();
+    }
+
+    private boolean paymentDetailFieldsChangeRequested(final JsonCommand command) {
+        return isNonBlankParameter(command, "accountNumber") || isNonBlankParameter(command, "checkNumber")
+                || isNonBlankParameter(command, "routingCode") || isNonBlankParameter(command, "receiptNumber")
+                || isNonBlankParameter(command, "bankNumber");
+    }
+
+    private boolean isNonBlankParameter(final JsonCommand command, final String parameterName) {
+        return command.parameterExists(parameterName)
+                && StringUtils.isNotBlank(command.stringValueOfParameterNamedAllowingNull(parameterName));
     }
 
     private GLAccount findPreviousFundSourceGlAccount(final Loan loan, final LoanTransaction originalTransaction,
