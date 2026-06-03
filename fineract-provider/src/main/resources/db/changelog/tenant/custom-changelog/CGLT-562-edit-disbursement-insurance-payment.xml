@@ -23,7 +23,7 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
-    <changeSet id="CGLT-562-add-insurance-adjustment-transaction-enum" author="codex">
+    <changeSet id="CGLT-562-add-insurance-adjustment-transaction-enum" author="Wilfred">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM r_enum_value
@@ -40,7 +40,7 @@
         </insert>
     </changeSet>
 
-    <changeSet id="CGLT-562-create-insurance-payment-edit-audit" author="codex">
+    <changeSet id="CGLT-562-create-insurance-payment-edit-audit" author="Wilfred">
         <preConditions onFail="MARK_RAN">
             <not>
                 <tableExists tableName="m_loan_insurance_payment_edit_audit"/>
@@ -117,7 +117,7 @@
         </createIndex>
     </changeSet>
 
-    <changeSet id="CGLT-562-add-insurance-payment-edit-report" author="codex" context="mysql">
+    <changeSet id="CGLT-562-add-insurance-payment-edit-report" author="Wilfred" context="mysql">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Edited Insurance Payments'
