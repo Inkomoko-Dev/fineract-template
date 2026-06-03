@@ -3906,6 +3906,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final Long previousPaymentTypeId = paymentTypeId(previousPaymentDetail);
         final String previousPaymentTypeName = paymentTypeName(previousPaymentDetail);
         final boolean paymentTypeChangeRequested = command.parameterExists("paymentTypeId");
+        final Long requestedPaymentTypeId = paymentTypeChangeRequested ? command.longValueOfParameterNamed("paymentTypeId") : null;
+        final boolean paymentTypeValueChanged = paymentTypeChangeRequested
+                && !Objects.equals(requestedPaymentTypeId, previousPaymentTypeId);
+        final boolean paymentDetailFieldsChangeRequested = paymentDetailFieldsChangeRequested(command);
+        final boolean paymentDetailChangeRequested = paymentTypeValueChanged || paymentDetailFieldsChangeRequested;
         final boolean incomeGlChangeRequested = command.parameterExists("glAccountId");
 
         if (StringUtils.isNotBlank(txnExternalId) && txnExternalId.equals(originalTransaction.getExternalId())) {
@@ -3925,7 +3930,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final BigDecimal amountDelta = newAmount.subtract(previousAmount);
         final boolean amountChanged = amountDelta.compareTo(BigDecimal.ZERO) != 0;
-        if ((amountChanged || paymentTypeChangeRequested || incomeGlChangeRequested) && (originalDateClosed || newDateClosed)) {
+        if ((amountChanged || paymentDetailChangeRequested || incomeGlChangeRequested) && (originalDateClosed || newDateClosed)) {
             throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.amount.closed.period",
                     "Insurance payment adjustments cannot be posted for a transaction in a closed accounting period.",
                     "transactionDate", newTransactionDate);
@@ -3945,20 +3950,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final GLAccount previousFundSourceGlAccount = latestInsuranceEditAudit
                 .map(LoanInsurancePaymentEditAudit::getNewFundSourceGlAccountId).map(this::findGlAccountById)
                 .orElse(findPreviousFundSourceGlAccount(loan, originalTransaction, previousPaymentTypeId));
-        final Long requestedPaymentTypeId = paymentTypeChangeRequested ? command.longValueOfParameterNamed("paymentTypeId") : null;
-        final boolean paymentTypeValueChanged = paymentTypeChangeRequested
-                && !Objects.equals(requestedPaymentTypeId, previousPaymentTypeId);
-        final boolean paymentDetailFieldsChangeRequested = paymentDetailFieldsChangeRequested(command);
-        final GLAccount requestedFundSourceGlAccount = paymentTypeChangeRequested && newAmount.compareTo(BigDecimal.ZERO) > 0
+        final GLAccount requestedFundSourceGlAccount = paymentTypeValueChanged && newAmount.compareTo(BigDecimal.ZERO) > 0
                 ? findFundSourceGlAccountForPaymentType(loan, requestedPaymentTypeId)
                 : previousFundSourceGlAccount;
-        final boolean fundSourceReclassificationNeeded = paymentTypeChangeRequested && newAmount.compareTo(BigDecimal.ZERO) > 0
+        final boolean fundSourceReclassificationNeeded = paymentTypeValueChanged && newAmount.compareTo(BigDecimal.ZERO) > 0
                 && !sameGlAccount(previousFundSourceGlAccount, requestedFundSourceGlAccount);
         final boolean incomeGlReclassificationNeeded = newAmount.compareTo(BigDecimal.ZERO) > 0
                 && !sameGlAccount(previousIncomeGlAccount, newIncomeGlAccount);
         final boolean externalIdChanged = StringUtils.isNotBlank(txnExternalId)
                 && !txnExternalId.equals(originalTransaction.getExternalId());
-        final boolean transactionDateChangeCountsAsAdjustment = transactionDateChanged && !returnLoanChargeAsEntity;
+        final boolean transactionDateChangeCountsAsAdjustment = transactionDateChanged;
         if (!amountChanged && !fundSourceReclassificationNeeded && !incomeGlReclassificationNeeded && !paymentTypeValueChanged
                 && !paymentDetailFieldsChangeRequested && !externalIdChanged && !transactionDateChangeCountsAsAdjustment) {
             throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.no.changes",
@@ -4059,7 +4060,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId())
                     .withLoanId(loanId).with(changes).build();
         }
-        if (paymentTypeChangeRequested) {
+        if (paymentDetailChangeRequested) {
+            if (!paymentTypeChangeRequested) {
+                throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.payment.type.required",
+                        "A valid payment type is required when changing the insurance payment details.", "paymentTypeId");
+            }
             newPaymentDetail = this.paymentDetailWritePlatformService.createAndPersistPaymentDetail(command, changes);
             if (newPaymentDetail == null || newPaymentDetail.getPaymentType() == null) {
                 throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.payment.type.required",
@@ -4110,8 +4115,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             changes.put("adjustmentType", amountReduced ? "REDUCTION" : "INCREASE");
         }
 
-        if (paymentTypeChangeRequested) {
-            if (newAmount.compareTo(BigDecimal.ZERO) > 0 && previousFundSourceGlAccount == null) {
+        if (paymentDetailChangeRequested) {
+            if (paymentTypeValueChanged && newAmount.compareTo(BigDecimal.ZERO) > 0 && previousFundSourceGlAccount == null) {
                 throw new GeneralPlatformDomainRuleException(
                         "error.msg.loan.disbursement.insurance.edit.previous.fund.source.gl.not.found",
                         "No active fund source journal entry or payment type mapping found for repayment-at-disbursement transaction: "
