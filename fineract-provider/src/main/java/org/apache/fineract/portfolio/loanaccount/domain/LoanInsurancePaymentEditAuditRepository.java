@@ -18,8 +18,12 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
 public interface LoanInsurancePaymentEditAuditRepository
-        extends JpaRepository<LoanInsurancePaymentEditAudit, Long>, JpaSpecificationExecutor<LoanInsurancePaymentEditAudit> {}
+        extends JpaRepository<LoanInsurancePaymentEditAudit, Long>, JpaSpecificationExecutor<LoanInsurancePaymentEditAudit> {
+
+    Optional<LoanInsurancePaymentEditAudit> findTopByOriginalTransactionIdOrderByAdjustedOnDateDescIdDesc(Long originalTransactionId);
+}

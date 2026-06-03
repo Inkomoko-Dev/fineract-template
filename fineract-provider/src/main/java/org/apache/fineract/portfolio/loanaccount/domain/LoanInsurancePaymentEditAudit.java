@@ -165,4 +165,12 @@ public class LoanInsurancePaymentEditAudit extends AbstractPersistableCustom {
                 previousFundSourceGlAccountId, newFundSourceGlAccountId, previousIncomeGlAccountId, newIncomeGlAccountId,
                 reason, adjustedByUserId, adjustedByUsername, adjustedByRoles, adjustedOnDate, chargePaidByBackfilled);
     }
+
+    public Long getNewFundSourceGlAccountId() {
+        return this.newFundSourceGlAccountId;
+    }
+
+    public Long getNewIncomeGlAccountId() {
+        return this.newIncomeGlAccountId;
+    }
 }
