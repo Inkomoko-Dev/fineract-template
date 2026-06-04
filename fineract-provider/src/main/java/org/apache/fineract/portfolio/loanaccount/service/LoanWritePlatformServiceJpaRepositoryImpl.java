@@ -4543,7 +4543,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
         if (!loan.isMultiDisburmentLoan() && disbursementDetails.size() == 1) {
             final LoanDisbursementDetails singleDisbursement = disbursementDetails.get(0);
-            singleDisbursement.updatePrincipal(loan.getApprovedPrincipal());
+            singleDisbursement.updatePrincipal(loan.getNetDisbursalAmount());
             singleDisbursement.setNetDisbursalAmount(loan.getNetDisbursalAmount());
             return;
         }
