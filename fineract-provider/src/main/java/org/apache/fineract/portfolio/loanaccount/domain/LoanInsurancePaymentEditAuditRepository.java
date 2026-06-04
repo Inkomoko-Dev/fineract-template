@@ -26,4 +26,6 @@ public interface LoanInsurancePaymentEditAuditRepository
         extends JpaRepository<LoanInsurancePaymentEditAudit, Long>, JpaSpecificationExecutor<LoanInsurancePaymentEditAudit> {
 
     Optional<LoanInsurancePaymentEditAudit> findTopByOriginalTransactionIdOrderByAdjustedOnDateDescIdDesc(Long originalTransactionId);
+
+    Optional<LoanInsurancePaymentEditAudit> findTopByLoanChargeIdOrderByAdjustedOnDateDescIdDesc(Long loanChargeId);
 }
