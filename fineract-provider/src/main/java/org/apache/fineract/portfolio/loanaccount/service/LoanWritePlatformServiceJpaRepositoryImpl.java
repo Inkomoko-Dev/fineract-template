@@ -4007,9 +4007,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         if (newAmount.compareTo(BigDecimal.ZERO) == 0) {
             final List<Long> existingTransactionIds = new ArrayList<>(loan.findExistingTransactionIds());
             final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
-            final LoanTransaction replacementDisbursementTransaction = amountChanged
-                    ? reverseAndReplaceDisbursementTransactionForInsuranceAmountChange(loan, loanCharge, changes)
-                    : null;
 
             originalTransaction.reverse();
             originalTransaction.manuallyAdjustedOrReversed();
@@ -4031,9 +4028,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
             changes.put("originalTransactionId", originalTransaction.getId());
             changes.put("zeroedTransactionReversed", true);
-            if (replacementDisbursementTransaction != null) {
-                changes.put("adjustmentDisbursementTransactionId", replacementDisbursementTransaction.getId());
-            }
 
             final LoanInsurancePaymentEditAudit audit = LoanInsurancePaymentEditAudit.create(loan.getId(), loan.getClientId(),
                     loan.productId(), loan.getOfficeId(), loanChargeId, loanCharge.getCharge().getId(),
@@ -4100,10 +4094,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
         }
 
-        final LoanTransaction replacementDisbursementTransaction = amountChanged
-                ? reverseAndReplaceDisbursementTransactionForInsuranceAmountChange(loan, loanCharge, changes)
-                : null;
-
         if (originalTransaction.isNotReversed()) {
             originalTransaction.reverse();
         }
@@ -4153,9 +4143,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         changes.put("originalTransactionId", originalTransaction.getId());
         changes.put("adjustmentTransactionId", replacementTransaction.getId());
         changes.put("originalTransactionReversed", true);
-        if (replacementDisbursementTransaction != null) {
-            changes.put("adjustmentDisbursementTransactionId", replacementDisbursementTransaction.getId());
-        }
 
         final LoanInsurancePaymentEditAudit audit = LoanInsurancePaymentEditAudit.create(loan.getId(), loan.getClientId(),
                 loan.productId(), loan.getOfficeId(), loanChargeId, loanCharge.getCharge().getId(), originalTransaction.getId(),
@@ -4299,57 +4286,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
         throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.no.active.transaction",
                 "No active repayment-at-disbursement transaction found for the specified insurance charge.", loanChargeId);
-    }
-
-    private LoanTransaction reverseAndReplaceDisbursementTransactionForInsuranceAmountChange(final Loan loan,
-            final LoanCharge loanCharge, final Map<String, Object> changes) {
-        final LoanTransaction originalDisbursementTransaction = findActiveDisbursementTransactionForInsuranceEdit(loan, loanCharge);
-        if (this.accountTransfersReadPlatformService.isAccountTransfer(originalDisbursementTransaction.getId(), PortfolioAccountType.LOAN)) {
-            throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
-                    "Loan transaction:" + originalDisbursementTransaction.getId()
-                            + " update not allowed as it involves in account transfer",
-                    originalDisbursementTransaction.getId());
-        }
-
-        originalDisbursementTransaction.reverse();
-        originalDisbursementTransaction.manuallyAdjustedOrReversed();
-        this.loanTransactionRepository.saveAndFlush(originalDisbursementTransaction);
-
-        final LoanTransaction replacementDisbursementTransaction = LoanTransaction.disbursement(loan.getOffice(),
-                originalDisbursementTransaction.getAmount(loan.getCurrency()), originalDisbursementTransaction.getPaymentDetail(),
-                originalDisbursementTransaction.getTransactionDate(), null);
-        replacementDisbursementTransaction.updateLoan(loan);
-        replacementDisbursementTransaction.setOriginalTransactionId(originalDisbursementTransaction.getId());
-        replacementDisbursementTransaction.setCorrectionDate(DateUtils.getBusinessLocalDate());
-        loan.addLoanTransaction(replacementDisbursementTransaction);
-        this.loanTransactionRepository.saveAndFlush(replacementDisbursementTransaction);
-
-        changes.put("originalDisbursementTransactionId", originalDisbursementTransaction.getId());
-        changes.put("originalDisbursementTransactionReversed", true);
-        return replacementDisbursementTransaction;
-    }
-
-    private LoanTransaction findActiveDisbursementTransactionForInsuranceEdit(final Loan loan, final LoanCharge loanCharge) {
-        final LocalDate actualDisbursementDate = getActualDisbursementDateForCharge(loan, loanCharge);
-        final List<LoanTransaction> activeDisbursementTransactions = new ArrayList<>();
-        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
-            if (transaction.isNotReversed() && transaction.isDisbursement()
-                    && (actualDisbursementDate == null || actualDisbursementDate.isEqual(transaction.getTransactionDate()))) {
-                activeDisbursementTransactions.add(transaction);
-            }
-        }
-        if (activeDisbursementTransactions.size() == 1) {
-            return activeDisbursementTransactions.get(0);
-        }
-        if (activeDisbursementTransactions.isEmpty()) {
-            throw new GeneralPlatformDomainRuleException(
-                    "error.msg.loan.disbursement.insurance.edit.no.active.disbursement.transaction",
-                    "No active disbursement transaction found for the specified insurance charge.", loanCharge.getId());
-        }
-        throw new GeneralPlatformDomainRuleException(
-                "error.msg.loan.disbursement.insurance.edit.multiple.active.disbursement.transactions",
-                "Multiple active disbursement transactions match the specified insurance charge. Select a loan with a unique disbursement transaction.",
-                loanCharge.getId());
     }
 
     private boolean isUnlinkedInsuranceTransactionCandidate(final Loan loan, final LoanCharge loanCharge,
