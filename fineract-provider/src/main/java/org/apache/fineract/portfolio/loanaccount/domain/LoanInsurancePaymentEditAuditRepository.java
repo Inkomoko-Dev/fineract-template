@@ -27,5 +27,7 @@ public interface LoanInsurancePaymentEditAuditRepository
 
     Optional<LoanInsurancePaymentEditAudit> findTopByOriginalTransactionIdOrderByAdjustedOnDateDescIdDesc(Long originalTransactionId);
 
+    Optional<LoanInsurancePaymentEditAudit> findTopByAdjustmentTransactionIdOrderByAdjustedOnDateDescIdDesc(Long adjustmentTransactionId);
+
     Optional<LoanInsurancePaymentEditAudit> findTopByLoanChargeIdOrderByAdjustedOnDateDescIdDesc(Long loanChargeId);
 }

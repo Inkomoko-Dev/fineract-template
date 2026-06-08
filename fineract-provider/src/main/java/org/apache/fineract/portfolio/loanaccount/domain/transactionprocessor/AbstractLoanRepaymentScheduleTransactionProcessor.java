@@ -183,6 +183,13 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     }
                 }
 
+            } else if (loanTransaction.isRepaymentAtDisbursement()
+                    && loanTransaction.getOverPaymentPortion(currency).isGreaterThanZero()) {
+                final Money overpaymentToProcess = loanTransaction.getOverPaymentPortion(currency);
+                loanTransaction.replaceOverPaymentPortion(Money.zero(currency));
+                final Money unprocessed = handleTransactionAndCharges(loanTransaction, currency, installments, charges,
+                        overpaymentToProcess, false);
+                loanTransaction.replaceOverPaymentPortion(unprocessed);
             } else if (loanTransaction.isWriteOff()) {
                 loanTransaction.resetDerivedComponents();
                 handleWriteOff(loanTransaction, currency, installments);
