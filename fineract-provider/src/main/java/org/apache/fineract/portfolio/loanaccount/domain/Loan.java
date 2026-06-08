@@ -2791,7 +2791,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             } else {
                 for (LoanDisbursementDetails disbursementDetails : details) {
                     disbursementDetails.updateActualDisbursementDate(actualDisbursementDate);
-                    disbursementDetails.updatePrincipal(principalDisbursed);
+                    if (this.loanProduct().isMultiDisburseLoan()) {
+                        disbursementDetails.updatePrincipal(principalDisbursed);
+                    } else {
+                        disbursementDetails.updatePrincipal(this.approvedPrincipal);
+                    }
                 }
             }
             if (this.loanProduct().isMultiDisburseLoan()) {
@@ -3960,7 +3964,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     private Money calculateTotalOverpayment() {
 
-        Money totalPaidInRepayments = getTotalPaidInRepayments();
+        Money totalPaidInRepayments = getTotalPaidInRepayments().plus(getTotalRepaymentAtDisbursementRepaymentValue());
 
         final MonetaryCurrency currency = loanCurrency();
         Money cumulativeTotalPaidOnInstallments = Money.zero(currency);
@@ -3984,7 +3988,31 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
         // if total paid in transactions doesnt match repayment schedule then
         // theres an overpayment.
-        return totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
+        final Money totalOverpayment = totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
+        return totalOverpayment.isGreaterThanZero() ? totalOverpayment : Money.zero(currency);
+    }
+
+    private Money getTotalRepaymentAtDisbursementRepaymentValue() {
+        Money cumulativeRepaymentValue = Money.zero(loanCurrency());
+
+        for (final LoanTransaction repayment : this.loanTransactions) {
+            if (repayment.isRepaymentAtDisbursement()) {
+                if (repayment.getLoanChargesPaid().isEmpty()) {
+                    cumulativeRepaymentValue = cumulativeRepaymentValue.plus(repayment.getOverPaymentPortion(loanCurrency()));
+                } else {
+                    Money paidTowardsDisbursementCharges = Money.zero(loanCurrency());
+                    for (final LoanChargePaidBy chargePaidBy : repayment.getLoanChargesPaid()) {
+                        paidTowardsDisbursementCharges = paidTowardsDisbursementCharges.plus(chargePaidBy.getAmount());
+                    }
+                    final Money repaymentValue = repayment.getAmount(loanCurrency()).minus(paidTowardsDisbursementCharges);
+                    if (repaymentValue.isGreaterThanZero()) {
+                        cumulativeRepaymentValue = cumulativeRepaymentValue.plus(repaymentValue);
+                    }
+                }
+            }
+        }
+
+        return cumulativeRepaymentValue;
     }
 
     public Money calculateTotalRecoveredPayments() {
