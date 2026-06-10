@@ -4126,7 +4126,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         recalculateLoanAfterInsurancePaymentEdit(loan, loanCharge);
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
-        postInsuranceReceivableAdjustmentJournalEntries(loan, amountAdjustmentTransaction, previousFeeOutstandingPortion,
+        postInsuranceCustomerBalanceAdjustmentJournalEntries(loan, amountAdjustmentTransaction, previousFeeOutstandingPortion,
                 feeOutstandingPortion, previousIncomeGlAccount, newIncomeGlAccount, newTransactionDate, changes);
 
         if (paidIncomeGlReclassificationNeeded) {
@@ -4523,44 +4523,44 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return user.getRoles().stream().map(role -> role.getName()).sorted().collect(Collectors.joining(","));
     }
 
-    private void postInsuranceReceivableAdjustmentJournalEntries(final Loan loan,
+    private void postInsuranceCustomerBalanceAdjustmentJournalEntries(final Loan loan,
             final LoanTransaction amountAdjustmentTransaction, final BigDecimal previousFeeOutstandingPortion,
             final BigDecimal feeOutstandingPortion, final GLAccount previousIncomeGlAccount, final GLAccount newIncomeGlAccount,
             final LocalDate transactionDate, final Map<String, Object> changes) {
         if (amountAdjustmentTransaction == null) {
             return;
         }
-        final BigDecimal receivableIncrease = positiveDifference(feeOutstandingPortion, previousFeeOutstandingPortion);
-        final BigDecimal receivableDecrease = positiveDifference(previousFeeOutstandingPortion, feeOutstandingPortion);
-        if (receivableIncrease.compareTo(BigDecimal.ZERO) == 0 && receivableDecrease.compareTo(BigDecimal.ZERO) == 0) {
+        final BigDecimal customerBalanceIncrease = positiveDifference(feeOutstandingPortion, previousFeeOutstandingPortion);
+        final BigDecimal customerBalanceDecrease = positiveDifference(previousFeeOutstandingPortion, feeOutstandingPortion);
+        if (customerBalanceIncrease.compareTo(BigDecimal.ZERO) == 0 && customerBalanceDecrease.compareTo(BigDecimal.ZERO) == 0) {
             return;
         }
 
-        final GLAccount receivableGlAccount = findInsuranceAdjustmentReceivableGlAccount(loan);
-        if (receivableGlAccount == null) {
+        final GLAccount loanPortfolioGlAccount = findInsuranceAdjustmentLoanPortfolioGlAccount(loan);
+        if (loanPortfolioGlAccount == null) {
             throw new GeneralPlatformDomainRuleException(
-                    "error.msg.loan.disbursement.insurance.edit.receivable.gl.not.found",
-                    "Insurance adjustment receivable GL account mapping could not be resolved for loan product: "
+                    "error.msg.loan.disbursement.insurance.edit.loan.portfolio.gl.not.found",
+                    "Insurance adjustment loan portfolio GL account mapping could not be resolved for loan product: "
                             + loan.productId(),
                     loan.productId());
         }
 
-        if (receivableIncrease.compareTo(BigDecimal.ZERO) > 0) {
+        if (customerBalanceIncrease.compareTo(BigDecimal.ZERO) > 0) {
             if (newIncomeGlAccount == null) {
                 throw new GeneralPlatformDomainRuleException(
                         "error.msg.loan.disbursement.insurance.edit.income.gl.not.found",
                         "Insurance income GL account mapping could not be resolved for loan product: " + loan.productId(),
                         loan.productId());
             }
-            saveManualJournalEntryIfPositive(loan, receivableGlAccount, JournalEntryType.DEBIT, receivableIncrease,
-                    "Insurance amount adjustment - increase receivable", amountAdjustmentTransaction, transactionDate);
-            saveManualJournalEntryIfPositive(loan, newIncomeGlAccount, JournalEntryType.CREDIT, receivableIncrease,
+            saveManualJournalEntryIfPositive(loan, loanPortfolioGlAccount, JournalEntryType.DEBIT, customerBalanceIncrease,
+                    "Insurance amount adjustment - increase customer balance", amountAdjustmentTransaction, transactionDate);
+            saveManualJournalEntryIfPositive(loan, newIncomeGlAccount, JournalEntryType.CREDIT, customerBalanceIncrease,
                     "Insurance amount adjustment - recognize insurance income", amountAdjustmentTransaction, transactionDate);
-            changes.put("insuranceReceivableIncrease", receivableIncrease);
-            changes.put("insuranceReceivableGlAccountId", receivableGlAccount.getId());
+            changes.put("insuranceCustomerBalanceIncrease", customerBalanceIncrease);
+            changes.put("insuranceLoanPortfolioGlAccountId", loanPortfolioGlAccount.getId());
         }
 
-        if (receivableDecrease.compareTo(BigDecimal.ZERO) > 0) {
+        if (customerBalanceDecrease.compareTo(BigDecimal.ZERO) > 0) {
             final GLAccount incomeGlAccount = previousIncomeGlAccount == null ? newIncomeGlAccount : previousIncomeGlAccount;
             if (incomeGlAccount == null) {
                 throw new GeneralPlatformDomainRuleException(
@@ -4568,12 +4568,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                         "Insurance income GL account mapping could not be resolved for loan product: " + loan.productId(),
                         loan.productId());
             }
-            saveManualJournalEntryIfPositive(loan, incomeGlAccount, JournalEntryType.DEBIT, receivableDecrease,
+            saveManualJournalEntryIfPositive(loan, incomeGlAccount, JournalEntryType.DEBIT, customerBalanceDecrease,
                     "Insurance amount adjustment - reduce insurance income", amountAdjustmentTransaction, transactionDate);
-            saveManualJournalEntryIfPositive(loan, receivableGlAccount, JournalEntryType.CREDIT, receivableDecrease,
-                    "Insurance amount adjustment - reduce receivable", amountAdjustmentTransaction, transactionDate);
-            changes.put("insuranceReceivableDecrease", receivableDecrease);
-            changes.put("insuranceReceivableGlAccountId", receivableGlAccount.getId());
+            saveManualJournalEntryIfPositive(loan, loanPortfolioGlAccount, JournalEntryType.CREDIT, customerBalanceDecrease,
+                    "Insurance amount adjustment - reduce customer balance", amountAdjustmentTransaction, transactionDate);
+            changes.put("insuranceCustomerBalanceDecrease", customerBalanceDecrease);
+            changes.put("insuranceLoanPortfolioGlAccountId", loanPortfolioGlAccount.getId());
         }
     }
 
@@ -4591,14 +4591,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return difference.compareTo(BigDecimal.ZERO) > 0 ? difference : BigDecimal.ZERO;
     }
 
-    private GLAccount findInsuranceAdjustmentReceivableGlAccount(final Loan loan) {
-        GLAccount receivableGlAccount = findCoreLoanProductGlAccount(loan,
-                AccountingConstants.AccrualAccountsForLoan.FEES_RECEIVABLE.getValue());
-        if (receivableGlAccount == null) {
-            receivableGlAccount = findCoreLoanProductGlAccount(loan,
-                    AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue());
-        }
-        return receivableGlAccount;
+    private GLAccount findInsuranceAdjustmentLoanPortfolioGlAccount(final Loan loan) {
+        return findCoreLoanProductGlAccount(loan, AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue());
     }
 
     private GLAccount findCoreLoanProductGlAccount(final Loan loan, final int financialAccountType) {
