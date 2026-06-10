@@ -48,6 +48,7 @@ class LoanSchedulePeriodDataTest {
         assertEquals(0, new BigDecimal("1200.00").compareTo(period.feeChargesDue()));
         assertEquals(0, new BigDecimal("800.00").compareTo(period.feeChargesPaid()));
         assertEquals(0, new BigDecimal("400.00").compareTo(period.feeChargesOutstanding()));
+        assertEquals(0, new BigDecimal("400.00").compareTo(period.totalDueForPeriod()));
         assertEquals(0, new BigDecimal("800.00").compareTo(period.totalPaidForPeriod()));
         assertEquals(0, new BigDecimal("400.00").compareTo(period.totalOutstandingForPeriod()));
     }
