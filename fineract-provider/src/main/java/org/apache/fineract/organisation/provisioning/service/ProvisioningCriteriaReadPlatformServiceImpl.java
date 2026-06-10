@@ -143,18 +143,82 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
     @Override
     public ProvisioningCriteriaData retrieveProvisioningCriteria(Long criteriaId) {
         try {
-            CriteriaHeaderData criteriaHeader = retrieveCriteriaHeader(criteriaId);
+            LocalDate businessDate = DateUtils.getBusinessLocalDate();
+            CriteriaHeaderData publishedHeader = retrievePublishedCriteriaHeader(criteriaId);
+            CriteriaHeaderData effectiveHeader = retrieveEffectiveCriteriaHeader(criteriaId, businessDate);
+            if (publishedHeader == null) {
+                throw new ProvisioningCriteriaNotFoundException(criteriaId);
+            }
+            if (effectiveHeader == null) {
+                effectiveHeader = publishedHeader;
+            }
             Collection<LoanProductData> loanProducts = loanProductReaPlatformService.retrieveAllLoanProductsForLookup(
                     "select product_id from m_loanproduct_provisioning_mapping where m_loanproduct_provisioning_mapping.criteria_id="
                             + criteriaId);
-            List<ProvisioningCriteriaDefinitionData> definitions = retrieveProvisioningDefinitions(criteriaHeader.activeVersionId);
-            return ProvisioningCriteriaData.toLookup(criteriaHeader.criteriaId, criteriaHeader.criteriaName, loanProducts, definitions,
-                    criteriaHeader.activeVersionId, criteriaHeader.versionNo, criteriaHeader.effectiveFrom,
-                    criteriaHeader.policyChangeReason);
+            List<ProvisioningCriteriaDefinitionData> publishedDefinitions = retrieveProvisioningDefinitions(publishedHeader.activeVersionId);
+            List<ProvisioningCriteriaDefinitionData> effectiveDefinitions = retrieveProvisioningDefinitions(effectiveHeader.activeVersionId);
+            String versionDisplayStatus = resolveVersionDisplayStatus(publishedHeader.effectiveFrom, businessDate);
+            return ProvisioningCriteriaData.toLookup(criteriaId, publishedHeader.criteriaName, loanProducts, publishedDefinitions,
+                    publishedHeader.activeVersionId, publishedHeader.versionNo, publishedHeader.effectiveFrom,
+                    publishedHeader.policyChangeReason, effectiveHeader.activeVersionId, effectiveHeader.versionNo,
+                    effectiveHeader.effectiveFrom, versionDisplayStatus, effectiveDefinitions);
         } catch (EmptyResultDataAccessException e) {
             throw new ProvisioningCriteriaNotFoundException(criteriaId, e);
         }
 
+    }
+
+    @Override
+    public List<ProvisioningCriteriaVersionData> retrieveAllCriteriaVersions(final Long criteriaId) {
+        if (retrievePublishedCriteriaHeader(criteriaId) == null) {
+            throw new ProvisioningCriteriaNotFoundException(criteriaId);
+        }
+        VersionRowMapper rowMapper = new VersionRowMapper();
+        final String sql = "select " + rowMapper.schema()
+                + " where pc.id = ? order by pcv.version_no desc";
+        return this.jdbcTemplate.query(sql, rowMapper, criteriaId); // NOSONAR
+    }
+
+    @Override
+    public ProvisioningCriteriaVersionData retrieveCriteriaVersion(final Long criteriaId, final Long versionId) {
+        CriteriaHeaderData publishedHeader = retrievePublishedCriteriaHeader(criteriaId);
+        if (publishedHeader == null) {
+            throw new ProvisioningCriteriaNotFoundException(criteriaId);
+        }
+        VersionRowMapper rowMapper = new VersionRowMapper();
+        final String sql = "select " + rowMapper.schema() + " where pc.id = ? and pcv.id = ?";
+        ProvisioningCriteriaVersionData version;
+        try {
+            version = this.jdbcTemplate.queryForObject(sql, rowMapper, criteriaId, versionId); // NOSONAR
+        } catch (EmptyResultDataAccessException e) {
+            throw new ProvisioningCriteriaNotFoundException(criteriaId, e);
+        }
+        List<ProvisioningCriteriaDefinitionData> definitions = retrieveProvisioningDefinitions(versionId);
+        ProvisioningCriteriaVersionData previousVersion = null;
+        if (version.getVersionNo() != null && version.getVersionNo() > 1) {
+            final String previousSql = "select " + rowMapper.schema() + " where pc.id = ? and pcv.version_no = ?";
+            try {
+                ProvisioningCriteriaVersionData previousHeader = this.jdbcTemplate.queryForObject(previousSql, rowMapper, criteriaId,
+                        version.getVersionNo() - 1); // NOSONAR
+                List<ProvisioningCriteriaDefinitionData> previousDefinitions = retrieveProvisioningDefinitions(previousHeader.getId());
+                previousVersion = new ProvisioningCriteriaVersionData(previousHeader.getId(), previousHeader.getCriteriaId(),
+                        previousHeader.getCriteriaName(), previousHeader.getVersionNo(), previousHeader.getEffectiveFrom(),
+                        previousHeader.getRetiredOn(), previousHeader.getPolicyChangeReason(), previousHeader.getCreatedBy(),
+                        previousHeader.getCreatedDate(), previousDefinitions, null);
+            } catch (EmptyResultDataAccessException ignored) {
+                previousVersion = null;
+            }
+        }
+        return new ProvisioningCriteriaVersionData(version.getId(), version.getCriteriaId(), version.getCriteriaName(),
+                version.getVersionNo(), version.getEffectiveFrom(), version.getRetiredOn(), version.getPolicyChangeReason(),
+                version.getCreatedBy(), version.getCreatedDate(), definitions, previousVersion);
+    }
+
+    private String resolveVersionDisplayStatus(final LocalDate publishedEffectiveFrom, final LocalDate businessDate) {
+        if (publishedEffectiveFrom == null || businessDate == null) {
+            return "ACTIVE";
+        }
+        return publishedEffectiveFrom.isAfter(businessDate) ? "SCHEDULED" : "ACTIVE";
     }
 
     private List<ProvisioningCriteriaDefinitionData> retrieveProvisioningDefinitions(Long criteriaVersionId) {
@@ -200,11 +264,48 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
         }
     }
 
-    private CriteriaHeaderData retrieveCriteriaHeader(Long criteriaId) {
+    private CriteriaHeaderData retrievePublishedCriteriaHeader(Long criteriaId) {
+        CriteriaHeaderRowMapper rowMapper = new CriteriaHeaderRowMapper();
+        final String sql = "select " + rowMapper.schema() + " where pc.id = ? order by pcv.version_no desc limit 1";
+        try {
+            return this.jdbcTemplate.queryForObject(sql, rowMapper, criteriaId); // NOSONAR
+        } catch (EmptyResultDataAccessException e) {
+            return null;
+        }
+    }
+
+    private CriteriaHeaderData retrieveEffectiveCriteriaHeader(Long criteriaId, LocalDate businessDate) {
         CriteriaHeaderRowMapper rowMapper = new CriteriaHeaderRowMapper();
         final String sql = "select " + rowMapper.schema()
-                + " where pc.id = ? order by pcv.version_no desc limit 1";
-        return this.jdbcTemplate.queryForObject(sql, rowMapper, new Object[] { criteriaId }); // NOSONAR
+                + " where pc.id = ? and pcv.effective_from <= ? and (pcv.retired_on is null or pcv.retired_on >= ?)"
+                + " order by pcv.version_no desc limit 1";
+        try {
+            return this.jdbcTemplate.queryForObject(sql, rowMapper, criteriaId, businessDate, businessDate); // NOSONAR
+        } catch (EmptyResultDataAccessException e) {
+            return null;
+        }
+    }
+
+    private static final class VersionRowMapper implements RowMapper<ProvisioningCriteriaVersionData> {
+
+        @Override
+        public ProvisioningCriteriaVersionData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum)
+                throws SQLException {
+            LocalDateTime createdDate = rs.getTimestamp("createdDate") == null ? null : rs.getTimestamp("createdDate").toLocalDateTime();
+            return new ProvisioningCriteriaVersionData(rs.getLong("versionId"), rs.getLong("criteriaId"), rs.getString("criteriaName"),
+                    rs.getInt("versionNo"),
+                    rs.getDate("effectiveFrom") == null ? null : rs.getDate("effectiveFrom").toLocalDate(),
+                    rs.getDate("retiredOn") == null ? null : rs.getDate("retiredOn").toLocalDate(), rs.getString("policyChangeReason"),
+                    rs.getString("createdBy"), createdDate);
+        }
+
+        public String schema() {
+            return "pc.id as criteriaId, pc.criteria_name as criteriaName, pcv.id as versionId, pcv.version_no as versionNo, "
+                    + "pcv.effective_from as effectiveFrom, pcv.retired_on as retiredOn, pcv.policy_change_reason as policyChangeReason, "
+                    + "appu.username as createdBy, COALESCE(pcv.created_date, pcv.lastmodified_date) as createdDate from m_provisioning_criteria pc "
+                    + "join m_provisioning_criteria_version pcv on pcv.criteria_id = pc.id "
+                    + "left join m_appuser appu on appu.id = pcv.createdby_id";
+        }
     }
 
     private static final class CriteriaHeaderRowMapper implements RowMapper<CriteriaHeaderData> {
