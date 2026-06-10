@@ -2058,6 +2058,38 @@ public class ReadWriteNonCoreDataServiceImpl implements ReadWriteNonCoreDataServ
     }
 
     @Override
+    public BigDecimal getFxRateForDate(final String datatableName, final Long appTableId, final LocalDate rateDate) {
+        if (rateDate == null) {
+            return getFxLatestRate(datatableName, appTableId);
+        }
+        try {
+            final String sqlString = "SELECT " + sqlGenerator.escape("Rate") + " FROM " + sqlGenerator.escape(datatableName) + " WHERE "
+                    + sqlGenerator.escape("office_id") + " = ? AND DATE(" + sqlGenerator.escape("updated_at") + ") = DATE(?) ORDER BY "
+                    + sqlGenerator.escape("updated_at") + " DESC LIMIT 1";
+            return this.jdbcTemplate.queryForObject(sqlString, BigDecimal.class, appTableId, rateDate); // NOSONAR
+        } catch (EmptyResultDataAccessException e) {
+            LOG.info("no fx rate found for date {}", rateDate);
+            return null;
+        }
+    }
+
+    @Override
+    public LocalDateTime getFxTimestampForDate(final String datatableName, final Long appTableId, final LocalDate rateDate) {
+        if (rateDate == null) {
+            return getFxLatestTimestamp(datatableName, appTableId);
+        }
+        try {
+            final String sqlString = "SELECT " + sqlGenerator.escape("updated_at") + " FROM " + sqlGenerator.escape(datatableName)
+                    + " WHERE " + sqlGenerator.escape("office_id") + " = ? AND DATE(" + sqlGenerator.escape("updated_at")
+                    + ") = DATE(?) ORDER BY " + sqlGenerator.escape("updated_at") + " DESC LIMIT 1";
+            return this.jdbcTemplate.queryForObject(sqlString, LocalDateTime.class, appTableId, rateDate); // NOSONAR
+        } catch (EmptyResultDataAccessException e) {
+            LOG.info("no fx timestamp found for date {}", rateDate);
+            return null;
+        }
+    }
+
+    @Override
     public DatatableData checkDatatableExists(final String datatable) {
 
         // PERMITTED datatables

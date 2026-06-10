@@ -27,6 +27,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import lombok.RequiredArgsConstructor;
 import okhttp3.Credentials;
@@ -39,10 +42,13 @@ import org.apache.fineract.accounting.glaccount.data.GLAccountData;
 import org.apache.fineract.accounting.producttoaccountmapping.data.PaymentTypeToGLAccountMapper;
 import org.apache.fineract.accounting.producttoaccountmapping.service.ProductToGLAccountMappingReadPlatformService;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.dataqueries.service.ReadWriteNonCoreDataService;
 import org.apache.fineract.portfolio.client.domain.ClientAddressRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.ClientOtherInfo;
 import org.apache.fineract.portfolio.client.domain.ClientOtherInfoRepository;
 import org.apache.fineract.portfolio.client.exception.ClientOtherInfoNotFoundException;
+import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementRequestData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
@@ -77,6 +83,8 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
     private final LoanProductReadPlatformService loanProductReadPlatformService;
 
     final ProductToGLAccountMappingReadPlatformService accountMappingReadPlatformService;
+
+    private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
 
     private OkHttpClient client = new OkHttpClient();
     private Gson gson = new Gson();
@@ -185,6 +193,9 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
             throw new LoanDisbursementRequestException("Missing disbursement details for this loan",
                     "integration.disbursementRequest.missingDisbursementDetails");
         }
+
+        refreshVendorFxForDisbursementDate(loan, disbursementDetail, command);
+
         DisbursementRequestData disbursementRequestData = new DisbursementRequestData(requestId, loan.getAccountNumber(),
                 totalPrincipalToBeDisbursed, loan.getPrincpal().getCurrencyCode(), paymentTypes.getName(), paymentTypes.getId(), disbursementDetail.getClientPhoneNumber(),
                 disbursementDetail.getClientAccountNumber(), disbursementDetail.getClientBankName(), "CBS", paymentTypeId);
@@ -233,6 +244,68 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         } catch (IOException e) {
             throw new LoanDisbursementRequestException("Unexpected response received  from  inkomoko ", "loan", e);
         }
+    }
+
+    private void refreshVendorFxForDisbursementDate(final Loan loan, final LoanDisbursementDetails disbursementDetail,
+            final JsonCommand command) {
+        if (!LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementDetail.getDisbursementType())) {
+            return;
+        }
+
+        final LocalDate disbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        if (disbursementDate == null) {
+            return;
+        }
+
+        final BigDecimal manualFxRate = command.bigDecimalValueOfParameterNamed(LoanApiConstants.fxRateParameterName);
+        final BigDecimal fxRate;
+        final LocalDateTime fxTimestamp;
+        final String fxSource;
+
+        if (manualFxRate != null) {
+            fxRate = manualFxRate;
+            fxTimestamp = DateUtils.getLocalDateTimeOfTenant();
+            fxSource = "MANUAL_ENTRY";
+        } else {
+            fxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(), disbursementDate);
+            fxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(), disbursementDate);
+            fxSource = "CBS_DAILY_RATE";
+        }
+
+        if (fxRate == null || fxRate.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new LoanDisbursementRequestException("FX rate is required for vendor disbursement on " + disbursementDate,
+                    "validation.msg.loanapproval.fxRate.required");
+        }
+
+        disbursementDetail.setFxRate(fxRate);
+        disbursementDetail.setFxTimestamp(fxTimestamp);
+        disbursementDetail.setFxSource(fxSource);
+        disbursementDetail.setUsdAmount(loan.getPrincpal().getAmount().divide(fxRate, 6, RoundingMode.HALF_UP));
+    }
+
+    private void logDisbursementRequestPayload(Loan loan, String requestId, LoanDisbursementDetails disbursementDetail,
+            DisbursementRequestData disbursementRequestData) {
+        Object sourceFxTimestamp = disbursementDetail.getFxTimestamp();
+        LOG.info("Preparing Inkomoko disbursement payload loanId={}, requestId={}, disbursementDetailId={}, sourceFxTimestampType={}, "
+                + "sourceFxTimestampValue={}, payloadFxTimestampType={}, payloadFxTimestampValue={}", loan.getId(), requestId,
+                disbursementDetail.getId(), typeName(sourceFxTimestamp), sourceFxTimestamp, typeName(disbursementRequestData.getFxTimestamp()),
+                disbursementRequestData.getFxTimestamp());
+
+        for (Field field : DisbursementRequestData.class.getDeclaredFields()) {
+            try {
+                field.setAccessible(true);
+                Object value = field.get(disbursementRequestData);
+                LOG.info("Inkomoko disbursement payload field loanId={}, requestId={}, field={}, declaredType={}, valueType={}, value={}",
+                        loan.getId(), requestId, field.getName(), field.getType().getName(), typeName(value), value);
+            } catch (IllegalAccessException e) {
+                LOG.warn("Unable to inspect Inkomoko disbursement payload field loanId={}, requestId={}, field={}", loan.getId(), requestId,
+                        field.getName(), e);
+            }
+        }
+    }
+
+    private String typeName(Object value) {
+        return value == null ? "null" : value.getClass().getName();
     }
 
     public static BigDecimal getDisbursementChargeAmount(Loan loan) {
