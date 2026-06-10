@@ -452,17 +452,26 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public void updateRepaymentAtDisbursementComponents(final Money feeCharges, final Money penaltyCharges) {
+        updateRepaymentAtDisbursementComponents(feeCharges, penaltyCharges, Money.zero(feeCharges.getCurrency()));
+    }
+
+    public void updateRepaymentAtDisbursementComponents(final Money feeCharges, final Money penaltyCharges,
+            final Money overPayment) {
         this.principalPortion = null;
         this.interestPortion = null;
         this.feeChargesPortion = feeCharges.getAmountDefaultedToNullIfZero();
         this.penaltyChargesPortion = penaltyCharges.getAmountDefaultedToNullIfZero();
-        this.overPaymentPortion = null;
-        this.amount = feeCharges.plus(penaltyCharges).getAmount();
+        this.overPaymentPortion = overPayment.getAmountDefaultedToNullIfZero();
+        this.amount = feeCharges.plus(penaltyCharges).plus(overPayment).getAmount();
     }
 
     public void updateOverPayments(final Money overPayment) {
         final MonetaryCurrency currency = overPayment.getCurrency();
         this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(overPayment).getAmount());
+    }
+
+    public void replaceOverPaymentPortion(final Money overPayment) {
+        this.overPaymentPortion = overPayment.getAmountDefaultedToNullIfZero();
     }
 
     public Money getPrincipalPortion(final MonetaryCurrency currency) {
@@ -758,7 +767,8 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return isNotReversed() && (LoanTransactionType.CONTRA.equals(getTypeOf())
                 || LoanTransactionType.MARKED_FOR_RESCHEDULING.equals(getTypeOf())
                 || LoanTransactionType.APPROVE_TRANSFER.equals(getTypeOf()) || LoanTransactionType.INITIATE_TRANSFER.equals(getTypeOf())
-                || LoanTransactionType.REJECT_TRANSFER.equals(getTypeOf()) || LoanTransactionType.WITHDRAW_TRANSFER.equals(getTypeOf()));
+                || LoanTransactionType.REJECT_TRANSFER.equals(getTypeOf()) || LoanTransactionType.WITHDRAW_TRANSFER.equals(getTypeOf())
+                || LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(getTypeOf()));
     }
 
     public void updateOutstandingLoanBalance(BigDecimal outstandingLoanBalance) {
@@ -920,8 +930,9 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         loanTransaction.penaltyChargesPortion = BigDecimal.ZERO;
         loanTransaction.dateOf = transactionDate;
         loanTransaction.submittedOnDate = DateUtils.getBusinessLocalDate();
-        loanTransaction.amount = amount.getAmount();
-        loanTransaction.feeChargesPortion = amount.getAmount();
+        final BigDecimal adjustmentAmount = amount.getAmount().abs();
+        loanTransaction.amount = adjustmentAmount;
+        loanTransaction.feeChargesPortion = isCredit ? adjustmentAmount.negate() : adjustmentAmount;
         loanTransaction.reversed = false;
         loanTransaction.manuallyAdjustedOrReversed = false;
         loanTransaction.reversalTransaction = false;
