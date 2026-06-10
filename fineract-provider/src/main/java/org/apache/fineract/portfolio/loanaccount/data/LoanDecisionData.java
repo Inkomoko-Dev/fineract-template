@@ -70,4 +70,24 @@ public final class LoanDecisionData {
     public void setDecisionLevels(List<LoanDecisionLevelData> decisionLevels) {
         this.decisionLevels = decisionLevels;
     }
+
+    public BigDecimal getIcReviewDecisionLevelOneRecommendedAmount() {
+        return icReviewDecisionLevelOneRecommendedAmount;
+    }
+
+    public BigDecimal getIcReviewDecisionLevelTwoRecommendedAmount() {
+        return icReviewDecisionLevelTwoRecommendedAmount;
+    }
+
+    public BigDecimal getIcReviewDecisionLevelThreeRecommendedAmount() {
+        return icReviewDecisionLevelThreeRecommendedAmount;
+    }
+
+    public BigDecimal getIcReviewDecisionLevelFourRecommendedAmount() {
+        return icReviewDecisionLevelFourRecommendedAmount;
+    }
+
+    public BigDecimal getIcReviewDecisionLevelFiveRecommendedAmount() {
+        return icReviewDecisionLevelFiveRecommendedAmount;
+    }
 }
