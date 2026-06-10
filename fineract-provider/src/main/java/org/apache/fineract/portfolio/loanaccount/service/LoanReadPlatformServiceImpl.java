@@ -126,6 +126,10 @@ import org.apache.fineract.portfolio.loanaccount.data.PaidInAdvanceData;
 import org.apache.fineract.portfolio.loanaccount.data.RepaymentScheduleRelatedLoanData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrix;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrixRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
@@ -166,6 +170,7 @@ import org.apache.fineract.useradministration.data.AppUserData;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.service.AppUserReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -214,6 +219,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final LoanTransactionRepository loanTransactionRepository;
     private final AppUserReadPlatformService appUserReadPlatformService;
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
+    private final LoanDecisionStateUtilService loanDecisionStateUtilService;
+    private final LoanApprovalMatrixRepository loanApprovalMatrixRepository;
+    private final LoanDecisionRepository loanDecisionRepository;
 
     @Autowired
     public LoanReadPlatformServiceImpl(final PlatformSecurityContext context,
@@ -235,7 +243,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                        SearchReadPlatformService searchReadPlatformService, final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository,
                                        final ConfigurationReadPlatformService configurationReadPlatformService,
                                        final CurrencyReadPlatformService currencyReadPlatformService, final LoanTransactionRepository loanTransactionRepository,
-                                       AppUserReadPlatformService appUserReadPlatformService, final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper) {
+                                       AppUserReadPlatformService appUserReadPlatformService, final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper,
+                                       @Lazy final LoanDecisionStateUtilService loanDecisionStateUtilService,
+                                       final LoanApprovalMatrixRepository loanApprovalMatrixRepository,
+                                       final LoanDecisionRepository loanDecisionRepository) {
         this.context = context;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
         this.applicationCurrencyRepository = applicationCurrencyRepository;
@@ -270,6 +281,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.loanTransactionRepository = loanTransactionRepository;
         this.appUserReadPlatformService = appUserReadPlatformService;
         this.dynamicIcReviewLevelHelper = dynamicIcReviewLevelHelper;
+        this.loanDecisionStateUtilService = loanDecisionStateUtilService;
+        this.loanApprovalMatrixRepository = loanApprovalMatrixRepository;
+        this.loanDecisionRepository = loanDecisionRepository;
     }
 
     @Override
@@ -749,15 +763,83 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public LoanApprovalData retrieveICReviewTemplate(final Long loanId) {
+        return retrieveICReviewTemplate(loanId, null);
+    }
+
+    @Override
+    public LoanApprovalData retrieveICReviewTemplate(final Long loanId, final Integer approvingLevelNumber) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final String currencyCode = loan.getCurrencyCode();
         final CurrencyData currency = currencyReadPlatformService.retrieveCurrency(currencyCode);
         final Collection<EnumOptionData> termFrequencyTypeOptions = this.loanDropdownReadPlatformService
                 .retrieveLoanTermFrequencyTypeOptions();
         final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
-        Collection<AppUserData> approverOptions = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(), getNextStageApproverPermission(loanDecisionData.getLoanDecisionState()));
-        return new LoanApprovalData(loan.getProposedPrincipal(), DateUtils.getBusinessLocalDate(), loan.getNetDisbursalAmount(),
-                termFrequencyTypeOptions, currency, loanDecisionData, approverOptions);
+
+        Collection<AppUserData> approverOptions = Collections.emptyList();
+        boolean nextApproverRequired = false;
+        Integer predictedNextStage = null;
+
+        if (approvingLevelNumber != null) {
+            final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+            final LoanApprovalMatrix approvalMatrix = this.loanApprovalMatrixRepository
+                    .findLoanApprovalMatrixByCurrency(loan.getCurrencyCode());
+
+            if (loanDecision != null && approvalMatrix != null) {
+                final List<Loan> loanIndividualCounter = loanDecisionStateUtilService.getLoanCounter(loan);
+                final Boolean isLoanFirstCycle = loanDecisionStateUtilService.isLoanFirstCycle(loanIndividualCounter);
+                final Boolean isLoanUnsecure = loanDecisionStateUtilService.isLoanUnSecure(loan);
+                final BigDecimal dueDiligenceRecommendedAmount = loanDecision.getDueDiligenceRecommendedAmount();
+                final Integer originalNextStage = loanDecision.getNextLoanIcReviewDecisionState();
+
+                loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle,
+                        isLoanUnsecure, approvingLevelNumber, dueDiligenceRecommendedAmount);
+
+                predictedNextStage = loanDecision.getNextLoanIcReviewDecisionState();
+                loanDecision.setNextLoanIcReviewDecisionState(originalNextStage);
+                if (predictedNextStage != null
+                        && predictedNextStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+                    nextApproverRequired = false;
+                    approverOptions = Collections.emptyList();
+                } else if (predictedNextStage != null && dynamicIcReviewLevelHelper.isIcReviewLevel(predictedNextStage)) {
+                    nextApproverRequired = true;
+                    final Integer nextLevelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(predictedNextStage);
+                    final String permission = nextLevelNumber != null
+                            ? dynamicIcReviewLevelHelper.getAcceptPermissionForLevel(nextLevelNumber)
+                            : null;
+                    if (permission != null) {
+                        approverOptions = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(),
+                                permission);
+                    } else {
+                        approverOptions = Collections.emptyList();
+                    }
+                }
+            }
+        } else {
+            final String nextStagePermission = getNextStageApproverPermission(loanDecisionData.getLoanDecisionState());
+            if (nextStagePermission != null) {
+                approverOptions = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(),
+                        nextStagePermission);
+                nextApproverRequired = true;
+            }
+        }
+
+        final LoanApprovalData template = new LoanApprovalData(loan.getProposedPrincipal(), DateUtils.getBusinessLocalDate(),
+                loan.getNetDisbursalAmount(), termFrequencyTypeOptions, currency, loanDecisionData, approverOptions);
+        template.setNextApproverRequired(nextApproverRequired);
+        template.setPredictedNextStage(predictedNextStage);
+
+        final LoanDecision loanDecisionEntity = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+        if (loanDecisionEntity != null) {
+            template.setDueDiligenceRecommendedAmount(loanDecisionEntity.getDueDiligenceRecommendedAmount());
+            template.setDueDiligenceTermFrequency(loanDecisionEntity.getDueDiligenceTermFrequency());
+            template.setDueDiligenceTermFrequencyType(loanDecisionEntity.getDueDiligenceTermFrequencyType());
+            template.setIdeaClient(loanDecisionEntity.getIdeaClient());
+            if (!Boolean.TRUE.equals(loanDecisionEntity.getIdeaClient())) {
+                template.setMaxRecommendedAmount(loanDecisionStateUtilService.getMaxLoanAmountFromCashFlow(loan));
+            }
+        }
+
+        return template;
     }
 
     /**

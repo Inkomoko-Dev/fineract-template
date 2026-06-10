@@ -378,6 +378,7 @@ public class LoansApiResource {
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveApprovalTemplate(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
             @QueryParam("templateType") @Parameter(description = "templateType") final String templateType,
+            @QueryParam("approvingLevelNumber") @Parameter(description = "approvingLevelNumber") final Integer approvingLevelNumber,
             @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -390,7 +391,7 @@ public class LoansApiResource {
         } else if (templateType.equals("approval")) {
             loanApprovalTemplate = this.loanReadPlatformService.retrieveApprovalTemplate(loanId, true);
         } else if (templateType.equals("icreview")) {
-            loanApprovalTemplate = this.loanReadPlatformService.retrieveICReviewTemplate(loanId);
+            loanApprovalTemplate = this.loanReadPlatformService.retrieveICReviewTemplate(loanId, approvingLevelNumber);
         }
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());

@@ -83,6 +83,8 @@ public interface LoanReadPlatformService {
 
     LoanApprovalData retrieveICReviewTemplate(Long loanId);
 
+    LoanApprovalData retrieveICReviewTemplate(Long loanId, Integer approvingLevelNumber);
+
     LoanAccountData retrieveTemplateWithCompleteGroupAndProductDetails(Long groupId, Long productId);
 
     LoanAccountData retrieveLoanProductDetailsTemplate(Long productId, Long clientId, Long groupId);
