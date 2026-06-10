@@ -868,7 +868,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         loanDecisionObj.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
         Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
-        final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
+        final AppUser nextApprover = getNextApprover(command, nextStage);
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecisionObj);
@@ -1087,7 +1087,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 icReviewOn, recommendedAmount, termFrequency, termPeriodFrequencyEnum);
 
         Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
-        final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
+        final AppUser nextApprover = getNextApprover(command, nextStage);
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecisionObj);
@@ -1225,7 +1225,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 Boolean.FALSE, icReviewOn, recommendedAmount, termFrequency, termPeriodFrequencyEnum);
 
         Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
-        final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
+        final AppUser nextApprover = getNextApprover(command, nextStage);
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecisionObj);
@@ -1363,7 +1363,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 Boolean.FALSE, icReviewOn, recommendedAmount, termFrequency, termPeriodFrequencyEnum);
 
         Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
-        final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
+        final AppUser nextApprover = getNextApprover(command, nextStage);
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecisionObj);
@@ -1501,7 +1501,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 Boolean.FALSE, icReviewOn, recommendedAmount, termFrequency, termPeriodFrequencyEnum);
 
         Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
-        final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
+        final AppUser nextApprover = getNextApprover(command, nextStage);
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecisionObj);
@@ -1641,7 +1641,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         // Use the next stage determined dynamically (may be Level 6+ or PREPARE_AND_SIGN_CONTRACT)
         Integer nextStage = nextDecisionStage;
-        final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
+        final AppUser nextApprover = getNextApprover(command, nextStage);
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecisionObj);
@@ -1902,21 +1902,31 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         return user;
     }
 
-    private AppUser getNextApprover(JsonCommand command, LoanDecisionState nextStage) {
+    private AppUser getNextApprover(JsonCommand command, Integer nextStageValue) {
         final Long nextApproverUserId = command.longValueOfParameterNamed("nextApproverUserId");
-        if (nextApproverUserId != null && !nextStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT)) {
+        final boolean isPrepareAndSignContract = nextStageValue != null
+                && nextStageValue.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+
+        if (nextApproverUserId != null && !isPrepareAndSignContract) {
             return appUserRepository.findById(nextApproverUserId)
                     .orElseThrow(() -> new GeneralPlatformDomainRuleException("validation.msg.next.approver.user.id.invalid",
                             "Next approver user not found for ID: " + nextApproverUserId));
-        } else if (nextApproverUserId == null && !nextStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT) ){
+        } else if (nextApproverUserId == null && !isPrepareAndSignContract) {
+            final String nextStageDisplayName = dynamicIcReviewLevelHelper.getLevelDisplayName(nextStageValue);
+            final Integer nextLevelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(nextStageValue);
+            final String requiredPermission = nextLevelNumber != null
+                    ? dynamicIcReviewLevelHelper.getAcceptPermissionForLevel(nextLevelNumber)
+                    : null;
+            final String permissionHint = requiredPermission != null ? " Required permission: " + requiredPermission + "." : "";
             throw new GeneralPlatformDomainRuleException("error.msg.loan.next.approver.user.id.required",
-                    "The field 'nextApproverUserId' is required.");
-        }else {
+                    "The field 'nextApproverUserId' is required for the next stage [" + nextStageDisplayName + "]." + permissionHint);
+        } else if (isPrepareAndSignContract) {
             final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(command.getLoanId(), true);
-            Staff loanOfficer =loan.getLoanOfficer();
-            if (loanOfficer == null)
+            Staff loanOfficer = loan.getLoanOfficer();
+            if (loanOfficer == null) {
                 throw new GeneralPlatformDomainRuleException("error.msg.loan.does.not.have.officer",
                         "The loan is missing a loan officer");
+            }
         }
         return null;
     }
@@ -2094,7 +2104,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         }
 
         Integer nextStage = loanDecision.getNextLoanIcReviewDecisionState();
-        final AppUser nextApprover = getNextApprover(command, LoanDecisionState.fromInt(nextStage));
+        final AppUser nextApprover = getNextApprover(command, nextStage);
         setNextApproverDynamic(loanDecision, nextStage, nextApprover);
 
         // Update loanDecision state to keep in sync with loan state
