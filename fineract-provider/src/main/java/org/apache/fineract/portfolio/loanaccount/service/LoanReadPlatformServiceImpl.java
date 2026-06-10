@@ -1679,7 +1679,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             totalFeeChargesCharged = totalFeeChargesCharged.plus(disbursementPeriod.feeChargesDue());
             totalWaived = totalWaived.plus(disbursementPeriod.feeChargesWaived());
             totalWrittenOff = totalWrittenOff.plus(disbursementPeriod.feeChargesWrittenOff());
-            totalRepaymentExpected = totalRepaymentExpected.plus(disbursementPeriod.feeChargesDue());
+            totalRepaymentExpected = totalRepaymentExpected.plus(disbursementPeriod.totalDueForPeriod());
             totalRepayment = totalRepayment.plus(disbursementPeriod.feeChargesPaid());
             totalOutstanding = totalOutstanding.plus(disbursementPeriod.feeChargesOutstanding());
 

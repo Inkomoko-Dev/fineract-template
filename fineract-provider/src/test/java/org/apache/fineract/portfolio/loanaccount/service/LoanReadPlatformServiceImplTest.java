@@ -104,8 +104,10 @@ class LoanReadPlatformServiceImplTest {
         assertAmount("1200.00", disbursementPeriod.feeChargesDue());
         assertAmount("800.00", disbursementPeriod.feeChargesPaid());
         assertAmount("400.00", disbursementPeriod.feeChargesOutstanding());
+        assertAmount("400.00", disbursementPeriod.totalDueForPeriod());
         assertAmount("800.00", disbursementPeriod.totalPaidForPeriod());
         assertAmount("400.00", disbursementPeriod.totalOutstandingForPeriod());
+        assertAmount("5650.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalRepaymentExpected"));
         assertAmount("800.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalRepayment"));
         assertAmount("5650.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalOutstanding"));
     }
