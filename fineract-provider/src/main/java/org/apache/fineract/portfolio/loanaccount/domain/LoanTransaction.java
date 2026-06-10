@@ -282,11 +282,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         LoanTransaction reversal = new LoanTransaction(originalTransaction.loan, originalTransaction.office, originalTransaction.typeOf,
                 reversalDate, originalTransaction.amount, originalTransaction.principalPortion, originalTransaction.interestPortion,
                 originalTransaction.feeChargesPortion, originalTransaction.penaltyChargesPortion,
-                originalTransaction.overPaymentPortion, true, originalTransaction.paymentDetail, null);
+                originalTransaction.overPaymentPortion, false, originalTransaction.paymentDetail, null);
         reversal.originalTxnId = originalTransaction.getId();
         reversal.reversalTransaction = true;
         reversal.correctionDate = correctionDate;
-        reversal.manuallyAdjustedOrReversed = true;
         return reversal;
     }
 
@@ -452,6 +451,15 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
                 .plus(getPenaltyChargesPortion(currency)).getAmount();
     }
 
+    public void updateRepaymentAtDisbursementComponents(final Money feeCharges, final Money penaltyCharges) {
+        this.principalPortion = null;
+        this.interestPortion = null;
+        this.feeChargesPortion = feeCharges.getAmountDefaultedToNullIfZero();
+        this.penaltyChargesPortion = penaltyCharges.getAmountDefaultedToNullIfZero();
+        this.overPaymentPortion = null;
+        this.amount = feeCharges.plus(penaltyCharges).getAmount();
+    }
+
     public void updateOverPayments(final Money overPayment) {
         final MonetaryCurrency currency = overPayment.getCurrency();
         this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(overPayment).getAmount());
@@ -562,7 +570,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public boolean isRecoveryRepayment() {
-        return LoanTransactionType.RECOVERY_REPAYMENT.equals(getTypeOf()) && isNotReversed();
+        return LoanTransactionType.RECOVERY_REPAYMENT.equals(getTypeOf()) && isNotReversed() && !isReversalTransaction();
     }
 
     public boolean isRecoveryRepaymentType() {
@@ -681,7 +689,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         thisTransactionData.put("id", getId());
         thisTransactionData.put("officeId", this.office.getId());
         thisTransactionData.put("type", transactionType);
-        thisTransactionData.put("reversed", Boolean.valueOf(isReversed()));
+        thisTransactionData.put("reversed", Boolean.valueOf(isReversed() || isReversalTransaction()));
         thisTransactionData.put("date", getTransactionDate());
         thisTransactionData.put("currency", currencyData);
         thisTransactionData.put("amount", this.amount);
@@ -851,6 +859,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return this.paymentDetail;
     }
 
+    public void updatePaymentDetail(final PaymentDetail paymentDetail) {
+        this.paymentDetail = paymentDetail;
+    }
+
     public Long getOriginalTransactionId() {
         return this.originalTxnId;
     }
@@ -888,6 +900,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return submittedOnDate;
     }
 
+    public void updateTransactionDate(final LocalDate transactionDate) {
+        this.dateOf = transactionDate;
+    }
+
 
     public static LoanTransaction insuranceChargeAdjustment(
             final Loan loan,
@@ -906,6 +922,9 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         loanTransaction.submittedOnDate = DateUtils.getBusinessLocalDate();
         loanTransaction.amount = amount.getAmount();
         loanTransaction.feeChargesPortion = amount.getAmount();
+        loanTransaction.reversed = false;
+        loanTransaction.manuallyAdjustedOrReversed = false;
+        loanTransaction.reversalTransaction = false;
         return loanTransaction;
     }
 

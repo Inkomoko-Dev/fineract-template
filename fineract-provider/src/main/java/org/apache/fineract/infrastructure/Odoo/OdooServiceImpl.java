@@ -64,7 +64,6 @@ import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
-import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
@@ -647,7 +646,7 @@ public class OdooServiceImpl implements OdooService {
         if (isOdooEnabled) {
             // get loan accounts with transactions not posted to Odoo
             List<LoanTransactionNotPostedToOdooInstanceData> loanTransactionNotPostedToOdooInstanceData = loanReadPlatformService
-                    .retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(DateUtils.getStartOfCurrentMonth(), DateUtils.getBusinessLocalDate(), null, null);
+                    .retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo();
             LOG.trace("Loan Transaction Not Posted to Odoo " + loanTransactionNotPostedToOdooInstanceData.toString());
             if (!CollectionUtils.isEmpty(loanTransactionNotPostedToOdooInstanceData)) {
                 getTransactions(loanTransactionNotPostedToOdooInstanceData, errors, 0);

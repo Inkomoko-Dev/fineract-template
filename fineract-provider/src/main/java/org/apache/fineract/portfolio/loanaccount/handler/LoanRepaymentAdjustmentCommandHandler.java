@@ -23,6 +23,7 @@ import org.apache.fineract.commands.annotation.CommandType;
 import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.portfolio.loanaccount.serialization.EditDisbursementInsuranceCommandFromApiJsonDeserializer;
 import org.apache.fineract.portfolio.loanaccount.service.LoanWritePlatformService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,11 +34,20 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoanRepaymentAdjustmentCommandHandler implements NewCommandSourceHandler {
 
     private final LoanWritePlatformService writePlatformService;
+    private final EditDisbursementInsuranceCommandFromApiJsonDeserializer editDisbursementInsuranceDeserializer;
 
     @Transactional
     @Override
     public CommandProcessingResult processCommand(final JsonCommand command) {
+        if (isEditDisbursementInsuranceCommand(command)) {
+            this.editDisbursementInsuranceDeserializer.validateForEdit(command.json());
+            return this.writePlatformService.editDisbursementInsurance(command.getLoanId(), command.entityId(), command);
+        }
 
         return this.writePlatformService.adjustLoanTransaction(command.getLoanId(), command.entityId(), command, Boolean.FALSE);
+    }
+
+    private boolean isEditDisbursementInsuranceCommand(final JsonCommand command) {
+        return command.getUrl() != null && command.getUrl().contains("command=editDisbursementInsurance");
     }
 }

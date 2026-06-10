@@ -367,7 +367,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
              * TODO Vishwas: Remove references to "Contra" from the codebase
              ***/
             final String sql = "select " + rm.loanPaymentsSchema()
-                    + " where tr.loan_id = ? and tr.transaction_type_enum not in (0, 3) and  (tr.is_reversed=false or tr.manually_adjusted_or_reversed = true) order by tr.transaction_date ASC,id ";
+                    + " where tr.loan_id = ? and tr.transaction_type_enum not in (0, 3) order by tr.transaction_date ASC,id ";
             return this.jdbcTemplate.query(sql, rm, loanId); // NOSONAR
         } catch (final EmptyResultDataAccessException e) {
             return null;
@@ -2305,7 +2305,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     public LoanTransactionData retrieveRecoveryPaymentTemplate(Long loanId, Long originalTransactionId) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.RECOVERY_REPAYMENT);
-        final List<LoanTransaction> transaction = loanTransactionRepository.findWriteOffLoanTransaction(loanId);
+        final List<LoanTransaction> transaction = loanTransactionRepository.findTransactionsByLoanAndType(loanId,
+                LoanTransactionType.RECOVERY_REPAYMENT);
         final LocalDate writeOffOnDate = loan.getWrittenOffDate();
 
         BigDecimal totalWrittenOff = loan.getTotalWrittenOff();
@@ -2958,7 +2959,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             List<Object> params = new ArrayList<>();
             final LoanTransactionsMapper transactionsMapper = new LoanTransactionsMapper(sqlGenerator);
             StringBuilder queryBuilder = new StringBuilder("select " + transactionsMapper.loanPaymentsSchema()
-                    + " where tr.transaction_type_enum not in (0, 3) and  (tr.is_reversed=false or tr.manually_adjusted_or_reversed = true) ");
+                    + " where tr.transaction_type_enum not in (0, 3) ");
             FilterConstraint[] filterConstraints = mapper.readValue(filterConstraintJson, FilterConstraint[].class);
             final String extraCriteria = searchReadPlatformService.buildSqlStringFromFilterConstraints(filterConstraints, params,
                     FilterSelection.LOAN_SEARCH_REQUEST_MAP);
@@ -3926,19 +3927,30 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final LoanTransactionNotPostedToOdooInstanceMapper rm = new LoanTransactionNotPostedToOdooInstanceMapper(sqlGenerator);
 
         String sql = "select " + rm.loanTransactionNotPostedToOdoo();
+        List<Object> params = new ArrayList<>();
 
-        if (fromDate != null)
-            sql = sql + "AND (mlt.transaction_date >= '" + fromDate + "' OR gl.correction_date >= '" + fromDate + "') ";
-        if (fromDate != null)
-            sql = sql + "AND (mlt.transaction_date <= '" + toDate + "' OR gl.correction_date <= '" + toDate + "') ";
-        if (officeId != null)
-            sql =  sql + "AND mc.office_id = " + officeId + " ";
-        if (currency != null)
-            sql =  sql + "AND ml.currency_code = '" + currency + "' ";
+        if (fromDate != null) {
+            sql = sql + "AND (mlt.transaction_date >= ? OR gl.correction_date >= ?) ";
+            params.add(fromDate);
+            params.add(fromDate);
+        }
+        if (toDate != null) {
+            sql = sql + "AND (mlt.transaction_date <= ? OR gl.correction_date <= ?) ";
+            params.add(toDate);
+            params.add(toDate);
+        }
+        if (officeId != null) {
+            sql = sql + "AND mc.office_id = ? ";
+            params.add(officeId);
+        }
+        if (currency != null) {
+            sql = sql + "AND ml.currency_code = ? ";
+            params.add(currency);
+        }
 
         sql = sql + "order by mlt.transaction_date DESC ";
 
-        return this.jdbcTemplate.query(sql, rm);
+        return this.jdbcTemplate.query(sql, rm, params.toArray());
     }
 
     @Override

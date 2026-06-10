@@ -41,7 +41,6 @@ import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
-import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.dataqueries.service.ReadWriteNonCoreDataService;
 import org.apache.fineract.portfolio.account.PortfolioAccountType;
 import org.apache.fineract.portfolio.account.data.AccountTransferDTO;
@@ -62,7 +61,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidPaidInAdvanceAmountException;
-import org.apache.fineract.portfolio.loanaccount.service.LoanDailyLateFeeService;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAssembler;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
@@ -103,7 +101,6 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
     private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
     private final LoanTransactionRepository loanTransactionRepository;
     private final AccountAssociationsReadPlatformService accountAssociationsReadPlatformService;
-    private final LoanDailyLateFeeService loanDailyLateFeeService;
 
     @Autowired
     public AccountTransfersWritePlatformServiceImpl(final AccountTransfersDataValidator accountTransfersDataValidator,
@@ -116,8 +113,7 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
             final ReadWriteNonCoreDataService readWriteNonCoreDataService, final SavingsProductRepository savingsProductRepository,
             final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService,
             final LoanTransactionRepository loanTransactionRepository,
-            final AccountAssociationsReadPlatformService accountAssociationsReadPlatformService,
-            final LoanDailyLateFeeService loanDailyLateFeeService) {
+            final AccountAssociationsReadPlatformService accountAssociationsReadPlatformService) {
         this.accountTransfersDataValidator = accountTransfersDataValidator;
         this.accountTransferAssembler = accountTransferAssembler;
         this.accountTransferRepository = accountTransferRepository;
@@ -135,7 +131,6 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
         this.loanScheduleHistoryWritePlatformService = loanScheduleHistoryWritePlatformService;
         this.loanTransactionRepository = loanTransactionRepository;
         this.accountAssociationsReadPlatformService = accountAssociationsReadPlatformService;
-        this.loanDailyLateFeeService = loanDailyLateFeeService;
     }
 
     @Transactional
@@ -226,14 +221,14 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
 
                             chargeAmount = charge.getAmount(toLoanAccount.getCurrency()).getAmount();
 
-                            loanRepaymentTransaction = makeRepaymentWithDailyLateFees(LoanTransactionType.REPAYMENT, toLoanAccount,
+                            loanRepaymentTransaction = makeRepayment(LoanTransactionType.REPAYMENT, toLoanAccount,
                                     new CommandProcessingResultBuilder(), transactionDate, chargeAmount, paymentDetail, null, null,
                                     isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
                         }
                     }
                 }
             } else {
-                loanRepaymentTransaction = makeRepaymentWithDailyLateFees(LoanTransactionType.REPAYMENT, toLoanAccount,
+                loanRepaymentTransaction = makeRepayment(LoanTransactionType.REPAYMENT, toLoanAccount,
                         new CommandProcessingResultBuilder(), transactionDate, transactionAmount, paymentDetail, null, null,
                         isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
             }
@@ -419,7 +414,7 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
                 final boolean isRecoveryRepayment = false;
                 final Boolean isHolidayValidationDone = false;
                 final HolidayDetailDTO holidayDetailDto = null;
-                loanTransaction = makeRepaymentWithDailyLateFees(LoanTransactionType.REPAYMENT, toLoanAccount,
+                loanTransaction = makeRepayment(LoanTransactionType.REPAYMENT, toLoanAccount,
                         new CommandProcessingResultBuilder(), accountTransferDTO.getTransactionDate(),
                         accountTransferDTO.getTransactionAmount(), accountTransferDTO.getPaymentDetail(), null, null,
                         isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
@@ -580,7 +575,7 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
                 accountTransferDTO.getTransactionDate(), accountTransferDTO.getTransactionAmount(), accountTransferDTO.getPaymentDetail(),
                 accountTransferDTO.getNoteText(), accountTransferDTO.getTxnExternalId(), true);
 
-        LoanTransaction repayTransaction = makeRepaymentWithDailyLateFees(
+        LoanTransaction repayTransaction = makeRepayment(
                 LoanTransactionType.REPAYMENT,
                 toLoanAccount,
                 new CommandProcessingResultBuilder(), // required by 1.8.2
@@ -621,29 +616,23 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
         return fromAccountType.isSavingsAccount() && toAccountType.isLoanAccount();
     }
 
-    private LoanTransaction makeRepaymentWithDailyLateFees(final LoanTransactionType repaymentTransactionType, final Loan loan,
+    private LoanTransaction makeRepayment(final LoanTransactionType repaymentTransactionType, final Loan loan,
             final CommandProcessingResultBuilder builderResult, final LocalDate transactionDate, final BigDecimal transactionAmount,
             final PaymentDetail paymentDetail, final String noteText, final String txnExternalId, final boolean isRecoveryRepayment,
             final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto, final Boolean isHolidayValidationDone) {
-        return makeRepaymentWithDailyLateFees(repaymentTransactionType, loan, builderResult, transactionDate, transactionAmount,
+        return makeRepayment(repaymentTransactionType, loan, builderResult, transactionDate, transactionAmount,
                 paymentDetail, noteText, txnExternalId, isRecoveryRepayment, isAccountTransfer, holidayDetailDto,
                 isHolidayValidationDone, false);
     }
 
-    private LoanTransaction makeRepaymentWithDailyLateFees(final LoanTransactionType repaymentTransactionType, final Loan loan,
+    private LoanTransaction makeRepayment(final LoanTransactionType repaymentTransactionType, final Loan loan,
             final CommandProcessingResultBuilder builderResult, final LocalDate transactionDate, final BigDecimal transactionAmount,
             final PaymentDetail paymentDetail, final String noteText, final String txnExternalId, final boolean isRecoveryRepayment,
             final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto, final Boolean isHolidayValidationDone,
             final boolean isLoanToLoanTransfer) {
-        this.loanDailyLateFeeService.syncDailyLateFeesForLoan(loan.getId(), transactionDate);
-        LoanTransaction loanTransaction = this.loanAccountDomainService.makeRepayment(repaymentTransactionType, loan, builderResult,
+        return this.loanAccountDomainService.makeRepayment(repaymentTransactionType, loan, builderResult,
                 transactionDate, transactionAmount, paymentDetail, noteText, txnExternalId, isRecoveryRepayment, isAccountTransfer,
                 holidayDetailDto, isHolidayValidationDone, isLoanToLoanTransfer);
-        if (transactionDate.isBefore(DateUtils.getBusinessLocalDate())) {
-            this.loanDailyLateFeeService.rebuildAndSyncDailyLateFeesForLoan(loan.getId(), transactionDate.plusDays(1),
-                    DateUtils.getBusinessLocalDate());
-        }
-        return loanTransaction;
     }
 
     private boolean isSavingsToSavingsAccountTransfer(final PortfolioAccountType fromAccountType,

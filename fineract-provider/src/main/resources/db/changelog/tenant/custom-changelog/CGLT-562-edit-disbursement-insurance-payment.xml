@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-562-add-insurance-adjustment-transaction-enum" author="Wilfred">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM r_enum_value
+                 WHERE enum_name = 'loan_transaction_type_enum'
+                   AND enum_id = 29
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="r_enum_value">
+            <column name="enum_name" value="loan_transaction_type_enum"/>
+            <column name="enum_id" valueNumeric="29"/>
+            <column name="enum_message_property" value="loanTransactionType.insuranceChargeAdjustment"/>
+            <column name="enum_value" value="INSURANCE_CHARGE_ADJUSTMENT"/>
+            <column name="enum_type" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-562-create-insurance-payment-edit-audit" author="Wilfred">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_insurance_payment_edit_audit"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_insurance_payment_edit_audit">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="client_id" type="BIGINT"/>
+            <column name="product_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="office_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_charge_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="charge_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="original_transaction_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="adjustment_transaction_id" type="BIGINT"/>
+            <column name="previous_amount" type="DECIMAL(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="new_amount" type="DECIMAL(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="amount_delta" type="DECIMAL(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="previous_payment_type_id" type="BIGINT"/>
+            <column name="previous_payment_type_name" type="VARCHAR(100)"/>
+            <column name="new_payment_type_id" type="BIGINT"/>
+            <column name="new_payment_type_name" type="VARCHAR(100)"/>
+            <column name="previous_payment_detail_id" type="BIGINT"/>
+            <column name="new_payment_detail_id" type="BIGINT"/>
+            <column name="previous_fund_source_gl_account_id" type="BIGINT"/>
+            <column name="new_fund_source_gl_account_id" type="BIGINT"/>
+            <column name="previous_income_gl_account_id" type="BIGINT"/>
+            <column name="new_income_gl_account_id" type="BIGINT"/>
+            <column name="reason" type="VARCHAR(1000)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="adjustedby_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="adjustedby_username" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="adjustedby_roles" type="VARCHAR(1000)"/>
+            <column name="adjusted_on_date" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+            <column name="charge_paid_by_backfilled" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="m_loan_insurance_payment_edit_audit" indexName="idx_lip_edit_audit_loan">
+            <column name="loan_id"/>
+        </createIndex>
+        <createIndex tableName="m_loan_insurance_payment_edit_audit" indexName="idx_lip_edit_audit_transaction">
+            <column name="original_transaction_id"/>
+        </createIndex>
+        <createIndex tableName="m_loan_insurance_payment_edit_audit" indexName="idx_lip_edit_audit_adjusted_on">
+            <column name="adjusted_on_date"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-562-add-insurance-payment-edit-report" author="Wilfred" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Edited Insurance Payments'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report">
+            <column name="report_name" value="Edited Insurance Payments"/>
+            <column name="report_type" value="Table"/>
+            <column name="report_subtype"/>
+            <column name="report_category" value="Loan"/>
+            <column name="report_sql">
+                <![CDATA[SELECT a.id AS auditId,
+       a.adjusted_on_date AS adjustedOnDate,
+       a.adjustedby_username AS adjustedBy,
+       a.adjustedby_roles AS adjustedByRoles,
+       o.name AS office,
+       l.id AS loanId,
+       l.account_no AS loanAccountNo,
+       c.id AS clientId,
+       c.display_name AS clientName,
+       lp.name AS productName,
+       ch.name AS chargeName,
+       a.original_transaction_id AS originalTransactionId,
+       a.adjustment_transaction_id AS adjustmentTransactionId,
+       a.previous_amount AS previousAmount,
+       a.new_amount AS newAmount,
+       a.amount_delta AS amountDelta,
+       a.previous_payment_type_name AS previousPaymentType,
+       a.new_payment_type_name AS newPaymentType,
+       oldfund.gl_code AS previousFundSourceGlCode,
+       newfund.gl_code AS newFundSourceGlCode,
+       oldinc.gl_code AS previousIncomeGlCode,
+       newinc.gl_code AS newIncomeGlCode,
+       a.reason
+FROM m_loan_insurance_payment_edit_audit a
+JOIN m_loan l ON l.id = a.loan_id
+LEFT JOIN m_client c ON c.id = a.client_id
+JOIN m_product_loan lp ON lp.id = a.product_id
+JOIN m_office o ON o.id = a.office_id
+JOIN m_charge ch ON ch.id = a.charge_id
+LEFT JOIN acc_gl_account oldfund ON oldfund.id = a.previous_fund_source_gl_account_id
+LEFT JOIN acc_gl_account newfund ON newfund.id = a.new_fund_source_gl_account_id
+LEFT JOIN acc_gl_account oldinc ON oldinc.id = a.previous_income_gl_account_id
+LEFT JOIN acc_gl_account newinc ON newinc.id = a.new_income_gl_account_id
+ORDER BY a.adjusted_on_date DESC, a.id DESC]]>
+            </column>
+            <column name="description" value="Audit trail for insurance repayment-at-disbursement edits including amount, payment type and GL movement."/>
+            <column name="core_report" valueBoolean="false"/>
+            <column name="use_report" valueBoolean="true"/>
+            <column name="self_service_user_report" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+</databaseChangeLog>

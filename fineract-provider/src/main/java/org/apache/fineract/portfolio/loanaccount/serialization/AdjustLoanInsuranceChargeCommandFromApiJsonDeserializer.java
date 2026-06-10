@@ -45,7 +45,8 @@ import org.springframework.stereotype.Component;
 public class AdjustLoanInsuranceChargeCommandFromApiJsonDeserializer {
 
     private static final Set<String> SUPPORTED_PARAMS = new HashSet<>(
-            Arrays.asList("amount", "transactionDate", "notes", "locale", "dateFormat", "glAccountId"));
+            Arrays.asList("amount", "transactionDate", "notes", "locale", "dateFormat", "glAccountId", "paymentTypeId",
+                    "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber"));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -73,10 +74,25 @@ public class AdjustLoanInsuranceChargeCommandFromApiJsonDeserializer {
 
         final String notes = this.fromApiJsonHelper.extractStringNamed("notes", element);
         validator.reset().parameter("notes").value(notes).ignoreIfNull().notExceedingLengthOf(500);
+        if (StringUtils.isBlank(notes)) {
+            errors.add(ApiParameterError.parameterError("validation.msg.loan.insurance.adjustment.notes.required",
+                    "Reason is mandatory for insurance payment adjustments.", "notes"));
+        }
 
         if (this.fromApiJsonHelper.parameterExists("glAccountId", element)) {
             final Long newGlAccountId = this.fromApiJsonHelper.extractLongNamed("glAccountId", element);
             validator.reset().parameter("glAccountId").value(newGlAccountId).notNull().longGreaterThanZero();
+        }
+
+        final Integer paymentTypeId = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("paymentTypeId", element);
+        validator.reset().parameter("paymentTypeId").value(paymentTypeId).ignoreIfNull().integerGreaterThanZero();
+
+        final Set<String> paymentDetailParameters = new HashSet<>(
+                Arrays.asList("accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber"));
+        for (final String paymentDetailParameterName : paymentDetailParameters) {
+            final String paymentDetailParameterValue = this.fromApiJsonHelper.extractStringNamed(paymentDetailParameterName, element);
+            validator.reset().parameter(paymentDetailParameterName).value(paymentDetailParameterValue).ignoreIfNull()
+                    .notExceedingLengthOf(50);
         }
 
         if (!errors.isEmpty()) {

@@ -23,6 +23,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,7 +71,19 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
         final Collection<LoanProductData> allLoanProducts = this.loanProductReadPlatformService
                 .retrieveAllLoanProductsForLookup(onlyActive);
         final Collection<GLAccountData> glAccounts = this.glAccountReadPlatformService.retrieveAllEnabledDetailGLAccounts();
-        return ProvisioningCriteriaData.toTemplate(categories, new ArrayList<>(), allLoanProducts, glAccounts);
+        return ProvisioningCriteriaData.toTemplate(categories, buildDefinitionStubsFromCategories(categories), allLoanProducts, glAccounts);
+    }
+
+    /** One editable row per active category for provisioning criteria wizard (min/max percentages still user-entered). */
+    private List<ProvisioningCriteriaDefinitionData> buildDefinitionStubsFromCategories(Collection<ProvisioningCategoryData> categories) {
+        List<ProvisioningCategoryData> sorted = new ArrayList<>(categories);
+        sorted.sort(Comparator.comparing((ProvisioningCategoryData c) -> c.getDisplayOrder() == null ? Integer.MAX_VALUE : c.getDisplayOrder())
+                .thenComparingLong(ProvisioningCategoryData::getId));
+        List<ProvisioningCriteriaDefinitionData> stubs = new ArrayList<>();
+        for (ProvisioningCategoryData cat : sorted) {
+            stubs.add(ProvisioningCriteriaDefinitionData.template(cat.getId(), cat.getCategoryCode(), cat.getCategoryName(), cat.getDisplayOrder()));
+        }
+        return stubs;
     }
 
     @Override
@@ -132,7 +145,8 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
                             + criteriaId);
             List<ProvisioningCriteriaDefinitionData> definitions = retrieveProvisioningDefinitions(criteriaHeader.activeVersionId);
             return ProvisioningCriteriaData.toLookup(criteriaHeader.criteriaId, criteriaHeader.criteriaName, loanProducts, definitions,
-                    criteriaHeader.activeVersionId, criteriaHeader.versionNo, criteriaHeader.effectiveFrom);
+                    criteriaHeader.activeVersionId, criteriaHeader.versionNo, criteriaHeader.effectiveFrom,
+                    criteriaHeader.policyChangeReason);
         } catch (EmptyResultDataAccessException e) {
             throw new ProvisioningCriteriaNotFoundException(criteriaId, e);
         }
@@ -194,12 +208,12 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
         @Override
         public CriteriaHeaderData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
             return new CriteriaHeaderData(rs.getLong("criteriaId"), rs.getString("criteriaName"), rs.getLong("activeVersionId"),
-                    rs.getInt("versionNo"), rs.getDate("effectiveFrom").toLocalDate());
+                    rs.getInt("versionNo"), rs.getDate("effectiveFrom").toLocalDate(), rs.getString("policyChangeReason"));
         }
 
         public String schema() {
             return "pc.id as criteriaId, pc.criteria_name as criteriaName, pcv.id as activeVersionId, pcv.version_no as versionNo, "
-                    + "pcv.effective_from as effectiveFrom from m_provisioning_criteria pc "
+                    + "pcv.effective_from as effectiveFrom, pcv.policy_change_reason as policyChangeReason from m_provisioning_criteria pc "
                     + "join m_provisioning_criteria_version pcv on pcv.criteria_id = pc.id";
         }
     }
@@ -211,14 +225,16 @@ public class ProvisioningCriteriaReadPlatformServiceImpl implements Provisioning
         private final Long activeVersionId;
         private final Integer versionNo;
         private final java.time.LocalDate effectiveFrom;
+        private final String policyChangeReason;
 
         private CriteriaHeaderData(Long criteriaId, String criteriaName, Long activeVersionId, Integer versionNo,
-                java.time.LocalDate effectiveFrom) {
+                java.time.LocalDate effectiveFrom, String policyChangeReason) {
             this.criteriaId = criteriaId;
             this.criteriaName = criteriaName;
             this.activeVersionId = activeVersionId;
             this.versionNo = versionNo;
             this.effectiveFrom = effectiveFrom;
+            this.policyChangeReason = policyChangeReason;
         }
     }
 }

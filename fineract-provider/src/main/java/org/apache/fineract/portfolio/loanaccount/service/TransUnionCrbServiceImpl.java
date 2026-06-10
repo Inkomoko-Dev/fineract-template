@@ -50,6 +50,7 @@ import org.apache.fineract.infrastructure.core.exception.CrbLocalValidationExcep
 import org.apache.fineract.infrastructure.core.exception.CrbPreSubmissionValidationException;
 import org.apache.fineract.infrastructure.core.exception.CrbSystemException;
 import org.apache.fineract.infrastructure.core.exception.CrbValidationException;
+import org.apache.fineract.infrastructure.core.service.IntegrationHttpRetryService;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
@@ -71,6 +72,7 @@ import org.apache.fineract.useradministration.domain.AppUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -92,6 +94,11 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
     private final TransunionCrbCorporateLoggerRepository crbCorporateLoggerRepository;
     private  final CRBPostingLoggerRepository crbPostingLoggerRepository;
     private final PlatformSecurityContext context;
+    @Autowired
+    @Qualifier("transUnionCrbHttpClient")
+    private OkHttpClient transUnionCrbHttpClient;
+    @Autowired
+    private IntegrationHttpRetryService integrationHttpRetryService;
     @Autowired
     private Environment env;
 
@@ -428,15 +435,13 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
         Gson gson = new GsonBuilder().create();
         RequestBody formBody = RequestBody.create(MediaType.parse(FORM_URL_CONTENT_TYPE), gson.toJson(transUnionAuthenticationData));
 
-        OkHttpClient client = new OkHttpClient();
-        Response response = null;
         Request request = new Request.Builder().url(url).post(formBody).build();
 
         List<Throwable> exceptions = new ArrayList<>();
 
-        try {
-            response = client.newCall(request).execute();
-            String resObject = response.body().string();
+        try (Response response = integrationHttpRetryService.execute("TransUnion CRB", "authenticate", transUnionCrbHttpClient,
+                request)) {
+            String resObject = response.body() != null ? response.body().string() : "";
             if (response.isSuccessful()) {
 
                 JsonObject jsonResponse = JsonParser.parseString(resObject).getAsJsonObject();
@@ -633,7 +638,6 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                 .newBuilder();
 
         String url = urlBuilder.build().toString();
-        OkHttpClient client = new OkHttpClient();
 
         RequestBody body = RequestBody.create(
                 MediaType.parse("application/json"),
@@ -646,11 +650,10 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                 .post(body)
                 .build();
 
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = integrationHttpRetryService.execute("TransUnion CRB", "post consumer credit",
+                transUnionCrbHttpClient, request)) {
 
-            assert response.body() != null;
-
-            String resObject = response.body().string();
+            String resObject = response.body() != null ? response.body().string() : "";
 
             log.info("Consumer Credit Response from TransUnion :=> {}", resObject);
 
@@ -678,7 +681,7 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
         } catch (IOException e) {
             // Infrastructure failure — FAIL JOB
             log.error("IO failure posting to TransUnion", e);
-            throw new RuntimeException(e);
+            throw new CrbSystemException("IO failure posting to TransUnion: " + e.getMessage(), null);
 
         } catch (CrbSystemException e) {
             // System failure — FAIL JOB
@@ -696,8 +699,6 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                 getConfigProperty("fineract.integrations.transUnion.crb.rest.postCorporateCredit")
         );
 
-        OkHttpClient client = new OkHttpClient();
-
         RequestBody requestBody = RequestBody.create(
                 MediaType.parse("application/json"),
                 corporateCreditData
@@ -709,7 +710,8 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
                 .post(requestBody)
                 .build();
 
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = integrationHttpRetryService.execute("TransUnion CRB", "post corporate credit",
+                transUnionCrbHttpClient, request)) {
 
             String responseBody = response.body() != null ? response.body().string() : "";
 
@@ -743,7 +745,7 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
         }catch (IOException e) {
             // Infrastructure failure — FAIL JOB
             log.error("IO failure posting to TransUnion", e);
-            throw new RuntimeException(e);
+            throw new CrbSystemException("IO failure posting to TransUnion: " + e.getMessage(), null);
 
         }
         catch (CrbSystemException e) {

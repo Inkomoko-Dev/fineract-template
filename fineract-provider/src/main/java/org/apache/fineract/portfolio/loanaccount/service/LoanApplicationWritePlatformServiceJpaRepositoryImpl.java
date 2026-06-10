@@ -2738,13 +2738,18 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         final Loan loan = retrieveLoanBy(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
-        // Validate that loan is in Due Diligence stage - cashflows can only be generated/regenerated in this stage
-        if (loan.getLoanDecisionState() == null || !loan.status().isSubmittedAndPendingApproval()
-                || !loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue())) {
-            LOG.warn("Cashflow generation/regeneration blocked for loan {} - Loan is not in Due Diligence stage. Current state: {}, User: {}",
+        // Validate that loan is in Review Application or Due Diligence stage.
+        // Cashflows must be generated BEFORE accepting Due Diligence (loan is in REVIEW_APPLICATION at that point),
+        // and can also be regenerated WHILE the loan is still in Due Diligence (before advancing to IC Review).
+        final boolean isInReviewApplication = loan.getLoanDecisionState() != null
+                && loan.getLoanDecisionState().equals(LoanDecisionState.REVIEW_APPLICATION.getValue());
+        final boolean isInDueDiligence = loan.getLoanDecisionState() != null
+                && loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue());
+        if (!loan.status().isSubmittedAndPendingApproval() || (!isInReviewApplication && !isInDueDiligence)) {
+            LOG.warn("Cashflow generation/regeneration blocked for loan {} - Loan must be in Review Application or Due Diligence stage. Current state: {}, User: {}",
                     loanId, loan.getLoanDecisionState(), currentUser != null ? currentUser.getUsername() : "unknown");
             throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.cashflow.cannot.be.generated",
-                    "Cashflows can only be generated or regenerated while the loan is in Due Diligence stage.");
+                    "Cashflows can only be generated or regenerated while the loan is in Due diligence stage.");
         }
         List<LoanCashFlowData> loanCashFlowDataList = this.loanReadPlatformService.retrieveCashFlow(loanId);
         if (CollectionUtils.isEmpty(loanCashFlowDataList)) {
@@ -2865,12 +2870,17 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             // incomeProjectionRate = projectionRate;
             // expenseProjectionRate = projectionRate;
         }
-        // Create audit note for cashflow generation/regeneration
+        // Create audit note for cashflow generation/regeneration (satisfies §4.4 Audit/Logging requirement)
         final String actionType = isRegeneration ? "REGENERATION" : "GENERATION";
-        final String noteText = String.format("Cashflow %s completed successfully. User: %s",
-                actionType, currentUser != null ? currentUser.getUsername() : "unknown");
+        final String noteText = String.format("Cashflow %s completed successfully. User: %s, Date/Time: %s",
+                actionType, currentUser != null ? currentUser.getUsername() : "unknown",
+                java.time.LocalDateTime.now(ZoneId.systemDefault()));
         final Note note = Note.loanNote(loan, noteText);
         this.noteRepository.save(note);
+
+        LOG.info("Cashflow {} completed successfully for loan {} by user {} at {}",
+                actionType, loanId, currentUser != null ? currentUser.getUsername() : "unknown",
+                java.time.LocalDateTime.now(ZoneId.systemDefault()));
 
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -2886,10 +2896,14 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         final Loan loan = retrieveLoanBy(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
-        // Validate that loan is in Due Diligence stage - financial ratios can only be generated in this stage
-        if (loan.getLoanDecisionState() == null || !loan.status().isSubmittedAndPendingApproval()
-                || !loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue())) {
-            LOG.warn("Financial ratio generation blocked for loan {} - Loan is not in Due Diligence stage. Current state: {}, User: {}",
+        // Validate that loan is in Review Application or Due Diligence stage
+        // (Financial ratios are generated as part of Due Diligence work, same as cashflows)
+        final boolean isFinRatioInReviewApp = loan.getLoanDecisionState() != null
+                && loan.getLoanDecisionState().equals(LoanDecisionState.REVIEW_APPLICATION.getValue());
+        final boolean isFinRatioInDueDiligence = loan.getLoanDecisionState() != null
+                && loan.getLoanDecisionState().equals(LoanDecisionState.DUE_DILIGENCE.getValue());
+        if (!loan.status().isSubmittedAndPendingApproval() || (!isFinRatioInReviewApp && !isFinRatioInDueDiligence)) {
+            LOG.warn("Financial ratio generation blocked for loan {} - Loan must be in Review Application or Due Diligence stage. Current state: {}, User: {}",
                     loanId, loan.getLoanDecisionState(), currentUser != null ? currentUser.getUsername() : "unknown");
             throw new GeneralPlatformDomainRuleException("error.msg.loan.not.in.due.diligence.stage.so.financial.ratios.cannot.be.generated",
                     "Financial ratios can only be generated while the loan is in Due Diligence stage.");

@@ -89,19 +89,18 @@ public final class ProvisioningHelper {
 
     public static ArrayList<HashMap<String, Object>> addProvisioningCategories(ArrayList categories, Account liability, Account expense) {
         ArrayList<HashMap<String, Object>> list = new ArrayList<>();
-        int minStart = 0;
-        int maxStart = 30;
 
+        final int bucketWidth = 30;
         for (int i = 0; i < categories.size(); i++) {
             HashMap<String, Object> map = new HashMap<>();
             HashMap category = (HashMap) categories.get(i);
             map.put("categoryId", category.get("id"));
             map.put("categoryName", category.get("categoryName"));
-            map.put("minAge", (i * 30) + 1);
+            map.put("minAge", Long.valueOf(i * bucketWidth));
             if (i == categories.size() - 1) {
-                map.put("maxAge", 90000);
+                map.put("maxAge", null);
             } else {
-                map.put("maxAge", (i + 1) * 30);
+                map.put("maxAge", Long.valueOf((i + 1) * bucketWidth - 1));
             }
             map.put("provisioningPercentage", Float.valueOf((float) ((i + 1) * 5.5)));
             map.put("liabilityAccount", liability.getAccountID());

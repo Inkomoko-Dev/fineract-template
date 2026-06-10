@@ -44,6 +44,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
 
+/**
+ * Provisioning criteria saves are prospective: changing bucket definitions publishes a new
+ * {@link org.apache.fineract.organisation.provisioning.domain.ProvisioningCriteriaVersion} with a strictly later
+ * {@code effectiveFrom}; existing {@code m_loanproduct_provisioning_entry} rows retain their snapshots until a new run date
+ * resolves a later version unless staff explicitly recreate entries preserving prior version ids.
+ */
 @Service
 public class ProvisioningCriteriaWritePlatformServiceJpaRepositoryImpl implements ProvisioningCriteriaWritePlatformService {
 
@@ -106,6 +112,10 @@ public class ProvisioningCriteriaWritePlatformServiceJpaRepositoryImpl implement
             final Map<String, Object> changes = provisioningCriteria.update(command, products);
             boolean definitionsPresent = command.parsedJson().getAsJsonObject()
                     .has(ProvisioningCriteriaConstants.JSON_PROVISIONING_DEFINITIONS_PARAM);
+            if (definitionsPresent && !command.parameterExists(ProvisioningCriteriaConstants.JSON_EFFECTIVE_FROM_PARAM)) {
+                throw new PlatformDataIntegrityException("error.msg.provisioningcriteria.effective.from.required.when.definitions.change",
+                        "effectiveFrom is required when provisioning bucket definitions are updated");
+            }
             if (definitionsPresent) {
                 createNextCriteriaVersion(provisioningCriteria, command);
             }

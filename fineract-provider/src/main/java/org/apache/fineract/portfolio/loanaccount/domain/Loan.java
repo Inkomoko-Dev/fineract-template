@@ -455,6 +455,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     @Column(name = "generic_loan_counter", nullable = true)
     private Integer genericLoanCounter;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "office_id",nullable = true)
+    private Office office;
+
     public static Loan newIndividualLoanApplication(final String accountNo, final Client client, final Integer loanType,
             final LoanProduct loanProduct, final Fund fund, final Staff officer, final CodeValue loanPurpose,
             final LoanTransactionProcessingStrategy transactionProcessingStrategy,
@@ -470,7 +474,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return new Loan(accountNo, client, group, loanType, fund, officer, loanPurpose, transactionProcessingStrategy, loanProduct,
                 loanRepaymentScheduleDetail, status, loanCharges, collateral, syncDisbursementWithMeeting, fixedEmiAmount,
                 disbursementDetails, maxOutstandingLoanBalance, createStandingInstructionAtDisbursement, isFloatingInterestRate,
-                interestRateDifferential, rates, fixedPrincipalPercentagePerInstallment, department);
+                interestRateDifferential, rates, fixedPrincipalPercentagePerInstallment, department,null);
     }
 
     public static Loan newGroupLoanApplication(final String accountNo, final Group group, final Integer loanType,
@@ -487,7 +491,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return new Loan(accountNo, client, group, loanType, fund, officer, loanPurpose, transactionProcessingStrategy, loanProduct,
                 loanRepaymentScheduleDetail, status, loanCharges, collateral, syncDisbursementWithMeeting, fixedEmiAmount,
                 disbursementDetails, maxOutstandingLoanBalance, createStandingInstructionAtDisbursement, isFloatingInterestRate,
-                interestRateDifferential, rates, fixedPrincipalPercentagePerInstallment, department);
+                interestRateDifferential, rates, fixedPrincipalPercentagePerInstallment, department,null);
     }
 
     public static Loan newIndividualLoanApplicationFromGroup(final String accountNo, final Client client, final Group group,
@@ -503,7 +507,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return new Loan(accountNo, client, group, loanType, fund, officer, loanPurpose, transactionProcessingStrategy, loanProduct,
                 loanRepaymentScheduleDetail, status, loanCharges, collateral, syncDisbursementWithMeeting, fixedEmiAmount,
                 disbursementDetails, maxOutstandingLoanBalance, createStandingInstructionAtDisbursement, isFloatingInterestRate,
-                interestRateDifferential, rates, fixedPrincipalPercentagePerInstallment, department);
+                interestRateDifferential, rates, fixedPrincipalPercentagePerInstallment, department,null);
     }
 
     protected Loan() {
@@ -517,7 +521,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             final BigDecimal fixedEmiAmount, final List<LoanDisbursementDetails> disbursementDetails,
             final BigDecimal maxOutstandingLoanBalance, final Boolean createStandingInstructionAtDisbursement,
             final Boolean isFloatingInterestRate, final BigDecimal interestRateDifferential, final List<Rate> rates,
-            final BigDecimal fixedPrincipalPercentagePerInstallment, final CodeValue department) {
+            final BigDecimal fixedPrincipalPercentagePerInstallment, final CodeValue department,final Office office) {
 
         this.loanRepaymentScheduleDetail = loanRepaymentScheduleDetail;
         this.loanRepaymentScheduleDetail.validateRepaymentPeriodWithGraceSettings();
@@ -582,6 +586,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         // Add net get net disbursal amount from charges and principal
         this.netDisbursalAmount = this.approvedPrincipal.subtract(deriveSumTotalOfChargesDueAtDisbursement());
         this.department = department;
+
+        this.office = office;
 
     }
 
@@ -3331,6 +3337,18 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
     }
 
+    private void validateRecoveryRepaymentDoesNotExceedRemainingWrittenOffAmount(final LoanTransaction loanTransaction) {
+        final Money totalWrittenOff = Money.of(loanCurrency(), getSummary().getTotalWrittenOff());
+        final Money totalRecovered = calculateTotalRecoveredPayments();
+        final Money remainingWrittenOffAmount = totalWrittenOff.minus(totalRecovered);
+
+        if (remainingWrittenOffAmount.isLessThanZero()
+                || loanTransaction.getAmount(loanCurrency()).isGreaterThan(remainingWrittenOffAmount)) {
+            final String errorMessage = "The transaction amount cannot be greater than the remaining written off amount.";
+            throw new InvalidLoanStateTransitionException("transaction", "cannot.be.greater.than.total.written.off", errorMessage);
+        }
+    }
+
     private void validateRepaymentTypeAccountStatus(LoanTransaction repaymentTransaction, LoanEvent event) {
         if (repaymentTransaction.isGoodwillCredit() || repaymentTransaction.isMerchantIssuedRefund()
                 || repaymentTransaction.isPayoutRefund()) {
@@ -3430,10 +3448,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             statusEnum = loanLifecycleStateMachine.transition(LoanEvent.LOAN_REPAYMENT_OR_WAIVER, LoanStatus.fromInt(this.loanStatus));
         }
 
-        if (loanTransaction.isRecoveryRepayment()
-                && loanTransaction.getAmount(loanCurrency()).getAmount().compareTo(getSummary().getTotalWrittenOff()) > 0) {
-            final String errorMessage = "The transaction amount cannot greater than the remaining written off amount.";
-            throw new InvalidLoanStateTransitionException("transaction", "cannot.be.greater.than.total.written.off", errorMessage);
+        if (loanTransaction.isRecoveryRepayment()) {
+            validateRecoveryRepaymentDoesNotExceedRemainingWrittenOffAmount(loanTransaction);
         }
 
         this.loanStatus = statusEnum.getValue();
@@ -4614,24 +4630,45 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return glimId;
     }
 
+//    public Long getOfficeId() {
+//        Long officeId = null;
+//        if (this.client != null) {
+//            officeId = this.client.officeId();
+//        } else {
+//            officeId = this.group.officeId();
+//        }
+//        return officeId;
+//    }
+
     public Long getOfficeId() {
-        Long officeId = null;
-        if (this.client != null) {
-            officeId = this.client.officeId();
-        } else {
-            officeId = this.group.officeId();
+        if (this.office != null) {
+            return this.office.getId();
         }
-        return officeId;
+        if (this.client != null) {
+            return this.client.officeId();
+        }
+        return this.group.officeId();
     }
 
+//    public Office getOffice() {
+//        Office office = null;
+//        if (this.client != null) {
+//            office = this.client.getOffice();
+//        } else {
+//            office = this.group.getOffice();
+//        }
+//        return office;
+//    }
+
     public Office getOffice() {
-        Office office = null;
-        if (this.client != null) {
-            office = this.client.getOffice();
-        } else {
-            office = this.group.getOffice();
+        LOG.info("Get office here : {} ",this.office);
+        if (this.office != null) {
+            return this.office;
         }
-        return office;
+        if (this.client != null) {
+            return this.client.getOffice();
+        }
+        return this.group.getOffice();
     }
 
     private Boolean isCashBasedAccountingEnabledOnLoanProduct() {
