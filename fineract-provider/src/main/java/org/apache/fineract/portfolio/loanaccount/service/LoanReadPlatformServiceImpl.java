@@ -701,6 +701,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public LoanApprovalData retrieveApprovalTemplate(final Long loanId, boolean paymentDetailsRequired) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        return retrieveApprovalTemplate(loanId, paymentDetailsRequired, loan.getExpectedDisbursedOnLocalDate());
+    }
+
+    @Override
+    public LoanApprovalData retrieveApprovalTemplate(final Long loanId, boolean paymentDetailsRequired, final LocalDate disbursementDate) {
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
         BigDecimal approvedAmount;
         if (loanDecisionData != null
@@ -722,8 +728,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         LocalDateTime fxTimestamp = null;
         String fxSource = null;
         if ("SSP".equalsIgnoreCase(loan.getCurrencyCode())) {
-            fxRate = this.readWriteNonCoreDataService.getFxLatestRate("Fx_rate", loan.getOfficeId());
-            fxTimestamp = this.readWriteNonCoreDataService.getFxLatestTimestamp("Fx_rate", loan.getOfficeId());
+            final LocalDate fxLookupDate = disbursementDate != null ? disbursementDate : loan.getExpectedDisbursedOnLocalDate();
+            fxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(), fxLookupDate);
+            fxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(), fxLookupDate);
             fxSource = "CBS_DAILY_RATE";
         }
 

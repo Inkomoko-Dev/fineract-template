@@ -1720,8 +1720,10 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 if (isSouthSudanSsp && LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)) {
                     normalizedPaymentTo = LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue();
                     
-                    BigDecimal fetchedFxRate = this.readWriteNonCoreDataService.getFxLatestRate("Fx_rate", loan.getOfficeId());
-                    LocalDateTime fetchedFxTimestamp = this.readWriteNonCoreDataService.getFxLatestTimestamp("Fx_rate", loan.getOfficeId());
+                    BigDecimal fetchedFxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(),
+                            expectedDisbursementDate);
+                    LocalDateTime fetchedFxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(),
+                            expectedDisbursementDate);
                     
                     // FX Rate Handling: Prefer backend fetched rate, but allow manual override from API
                     final BigDecimal manualFxRate = command.bigDecimalValueOfParameterNamed(LoanApiConstants.fxRateParameterName);
@@ -1739,7 +1741,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                         usdAmount = loan.getPrincpal().getAmount().divide(fxRate, 6, RoundingMode.HALF_UP);
                     } else {
                         validationErrors.add(ApiParameterError.parameterError("validation.msg.loanapproval.fxRate.required",
-                                "FX rate is required for South Sudan vendor disbursement. Please ensure a rate is recorded or provided manually.",
+                                "FX rate is required for South Sudan vendor disbursement on " + expectedDisbursementDate
+                                        + ". Please ensure a CBS daily rate exists for that date or provide it manually.",
                                 LoanApiConstants.fxRateParameterName, fxRate));
                     }
                     if (fxTimestamp == null) {
