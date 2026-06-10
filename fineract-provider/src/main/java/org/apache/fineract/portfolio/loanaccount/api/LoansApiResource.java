@@ -58,6 +58,8 @@ import javax.ws.rs.core.UriInfo;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import java.time.LocalDate;
+import org.apache.fineract.accounting.journalentry.api.DateParam;
 import org.apache.fineract.commands.domain.CommandWrapper;
 import org.apache.fineract.commands.service.CommandWrapperBuilder;
 import org.apache.fineract.commands.service.PortfolioCommandSourceWritePlatformService;
@@ -378,20 +380,26 @@ public class LoansApiResource {
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveApprovalTemplate(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
             @QueryParam("templateType") @Parameter(description = "templateType") final String templateType,
-            @QueryParam("approvingLevelNumber") @Parameter(description = "approvingLevelNumber") final Integer approvingLevelNumber,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat,
+            @QueryParam("disbursementDate") @Parameter(description = "disbursementDate") final DateParam disbursementDateParam,
+            @QueryParam("locale") @Parameter(description = "locale") final String locale,
             @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
         LoanApprovalData loanApprovalTemplate = null;
+        LocalDate disbursementDate = null;
+        if (disbursementDateParam != null) {
+            disbursementDate = disbursementDateParam.getDate("disbursementDate", dateFormat, locale);
+        }
 
         if (templateType == null) {
             final String errorMsg = "Loan template type must be provided";
             throw new LoanTemplateTypeRequiredException(errorMsg);
         } else if (templateType.equals("approval")) {
-            loanApprovalTemplate = this.loanReadPlatformService.retrieveApprovalTemplate(loanId, true);
+            loanApprovalTemplate = this.loanReadPlatformService.retrieveApprovalTemplate(loanId, true, disbursementDate);
         } else if (templateType.equals("icreview")) {
-            loanApprovalTemplate = this.loanReadPlatformService.retrieveICReviewTemplate(loanId, approvingLevelNumber);
+            loanApprovalTemplate = this.loanReadPlatformService.retrieveICReviewTemplate(loanId);
         }
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
