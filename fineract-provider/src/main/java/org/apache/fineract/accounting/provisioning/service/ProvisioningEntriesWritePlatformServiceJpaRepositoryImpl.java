@@ -213,7 +213,8 @@ public class ProvisioningEntriesWritePlatformServiceJpaRepositoryImpl implements
         AppUser lastModifiedBy = null;
         LocalDate lastModifiedDate = null;
         Set<LoanProductProvisioningEntry> nullEntries = null;
-        ProvisioningEntry requestedEntry = new ProvisioningEntry(currentUser, date, lastModifiedBy, lastModifiedDate, nullEntries);
+        ProvisioningEntry requestedEntry = new ProvisioningEntry(currentUser, date, lastModifiedBy, lastModifiedDate, nullEntries,
+                DateUtils.getLocalDateTimeOfSystem());
         Collection<LoanProductProvisioningEntry> entries = generateLoanProvisioningEntry(requestedEntry, date);
         requestedEntry.setProvisioningEntries(entries);
         if (addJournalEntries) {

@@ -19,7 +19,9 @@
 package org.apache.fineract.organisation.provisioning.service;
 
 import java.util.Collection;
+import java.util.List;
 import org.apache.fineract.organisation.provisioning.data.ProvisioningCriteriaData;
+import org.apache.fineract.organisation.provisioning.data.ProvisioningCriteriaVersionData;
 
 public interface ProvisioningCriteriaReadPlatformService {
 
@@ -30,4 +32,8 @@ public interface ProvisioningCriteriaReadPlatformService {
     Collection<ProvisioningCriteriaData> retrieveAllProvisioningCriterias();
 
     ProvisioningCriteriaData retrievePrivisiongCriteriaTemplate(ProvisioningCriteriaData data);
+
+    List<ProvisioningCriteriaVersionData> retrieveAllCriteriaVersions(Long criteriaId);
+
+    ProvisioningCriteriaVersionData retrieveCriteriaVersion(Long criteriaId, Long versionId);
 }
