@@ -150,8 +150,14 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
     @Override
     public ProvisioningEntryData retrieveProvisioningEntryData(Long entryId) {
         ProvisioningEntryDataMapperWithSumReserved mapper1 = new ProvisioningEntryDataMapperWithSumReserved();
-        final String sql = "select" + mapper1.getSchema() + " where entry.id = ? group by entry.id, created.username, modified.username, entry.executed_at";
-        ProvisioningEntryData data = this.jdbcTemplate.queryForObject(sql, mapper1, entryId);
+        final String sql = "select" + mapper1.getSchema() + " where entry.id = ? group by entry.id, entry.journal_entry_created, entry.createdby_id, "
+                + "entry.created_date, entry.executed_at, entry.lastmodifiedby_id, entry.lastmodified_date, created.username, modified.username";
+        ProvisioningEntryData data;
+        try {
+            data = this.jdbcTemplate.queryForObject(sql, mapper1, entryId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new ProvisioningEntryNotfoundException(entryId);
+        }
         data = enrichProvisioningEntryMetadata(data);
         return data;
     }
@@ -283,8 +289,8 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
     private static final class ProvisioningEntryDataMapperWithSumReserved implements RowMapper<ProvisioningEntryData> {
 
         private final StringBuilder sqlQuery = new StringBuilder()
-                .append(" entry.id, journal_entry_created, createdby_id, created_date, entry.executed_at, created.username as createduser,")
-                .append("lastmodifiedby_id, modified.username as modifieduser, lastmodified_date, SUM(reserved.reseve_amount) as totalreserved ")
+                .append(" entry.id, entry.journal_entry_created, entry.createdby_id, entry.created_date, entry.executed_at, created.username as createduser,")
+                .append("entry.lastmodifiedby_id, modified.username as modifieduser, entry.lastmodified_date, SUM(reserved.reseve_amount) as totalreserved ")
                 .append("from m_provisioning_history entry ")
                 .append("LEFT JOIN m_loanproduct_provisioning_entry reserved on entry.id = reserved.history_id ")
                 .append("left JOIN m_appuser created ON created.id = entry.createdby_id ")
