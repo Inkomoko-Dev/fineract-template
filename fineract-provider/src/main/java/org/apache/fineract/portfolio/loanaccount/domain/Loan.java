@@ -5959,26 +5959,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public LoanRepaymentScheduleInstallment fetchPrepaymentDetail(final ScheduleGeneratorDTO scheduleGeneratorDTO, final LocalDate onDate) {
-        LoanRepaymentScheduleInstallment installment = null;
-
-        if (this.loanRepaymentScheduleDetail.isInterestRecalculationEnabled()) {
-            final RoundingMode roundingMode = MoneyHelper.getRoundingMode();
-            final MathContext mc = new MathContext(8, roundingMode);
-
-            final InterestMethod interestMethod = this.loanRepaymentScheduleDetail.getInterestMethod();
-            final LoanApplicationTerms loanApplicationTerms = constructLoanApplicationTerms(scheduleGeneratorDTO);
-
-            final LoanScheduleGenerator loanScheduleGenerator = scheduleGeneratorDTO.getLoanScheduleFactory().create(interestMethod);
-            final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
-                    .determineProcessor(this.transactionProcessingStrategy);
-            installment = loanScheduleGenerator.calculatePrepaymentAmount(getCurrency(), onDate, loanApplicationTerms, mc, this,
-                    scheduleGeneratorDTO.getHolidayDetailDTO(), loanRepaymentScheduleTransactionProcessor);
-        } else {
-            // For loans without interest recalculation, calculate pro-rata accrued interest
-            // up to the prepayment date instead of charging all scheduled interest
-            installment = this.getTotalOutstandingOnLoanAsOfDate(onDate);
-        }
-        return installment;
+        // Use persisted schedule with pro-rata accrued interest for all loans so the prepayment
+        // template matches what transaction processors apply on the live repayment schedule.
+        return this.getTotalOutstandingOnLoanAsOfDate(onDate);
     }
 
     public LoanApplicationTerms constructLoanApplicationTerms(final ScheduleGeneratorDTO scheduleGeneratorDTO) {

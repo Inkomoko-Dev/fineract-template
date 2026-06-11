@@ -659,7 +659,11 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
                 currentPeriodParams.minusInterestForThisPeriod(interestDiff);
                 currentPeriodParams.minusFeeChargesForInstallment(chargeDiff);
                 currentPeriodParams.minusPenaltyChargesForInstallment(penaltyDiff);
-                currentPeriodParams.plusPrincipalForThisPeriod(diff);
+                // Do not inflate principal when the adjustment is only from reducing unearned interest on prepayment
+                final Money nonInterestDiff = chargeDiff.plus(penaltyDiff);
+                if (nonInterestDiff.isGreaterThanZero() || interestDiff.isLessThanZero()) {
+                    currentPeriodParams.plusPrincipalForThisPeriod(diff);
+                }
 
                 // create and replaces repayment period
                 // from parts
