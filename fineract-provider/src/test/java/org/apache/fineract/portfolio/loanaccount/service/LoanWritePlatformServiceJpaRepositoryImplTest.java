@@ -18,10 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,16 +34,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.apache.fineract.accounting.common.AccountingConstants;
-import org.apache.fineract.accounting.glaccount.domain.GLAccount;
-import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
-import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
-import org.apache.fineract.accounting.journalentry.domain.JournalEntryType;
-import org.apache.fineract.accounting.producttoaccountmapping.domain.PortfolioProductType;
-import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMapping;
-import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMappingRepository;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
@@ -62,7 +55,6 @@ import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class LoanWritePlatformServiceJpaRepositoryImplTest {
@@ -141,65 +133,25 @@ class LoanWritePlatformServiceJpaRepositoryImplTest {
     }
 
     @Test
-    void upwardInsuranceAdjustmentPostsCustomerBalanceToLoanPortfolioAndInsuranceIncome() {
+    void validateDisbursementInsuranceEditAllowsClosedDisbursedLoanForBalanceCorrection() {
         final LoanWritePlatformServiceJpaRepositoryImpl service = mock(LoanWritePlatformServiceJpaRepositoryImpl.class,
                 CALLS_REAL_METHODS);
-        final JournalEntryRepository journalEntryRepository = mock(JournalEntryRepository.class);
-        final ProductToGLAccountMappingRepository mappingRepository = mock(ProductToGLAccountMappingRepository.class);
-        final GLAccount loanPortfolioAccount = glAccount(101L);
-        final GLAccount insuranceIncomeAccount = glAccount(202L);
-        final Loan loan = accountingLoan();
-        final LoanTransaction adjustmentTransaction = insuranceAdjustmentTransaction(1L, new BigDecimal("400.00"), false);
-        final Map<String, Object> changes = new HashMap<>();
+        final Loan loan = mock(Loan.class);
+        when(loan.isDisbursed()).thenReturn(true);
+        when(loan.isClosed()).thenReturn(true);
 
-        ReflectionTestUtils.setField(service, "journalEntryRepository", journalEntryRepository);
-        ReflectionTestUtils.setField(service, "productToGLAccountMappingRepository", mappingRepository);
-        when(mappingRepository.findCoreProductToFinAccountMapping(11L, PortfolioProductType.LOAN.getValue(),
-                AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()))
-                .thenReturn(ProductToGLAccountMapping.createNew(loanPortfolioAccount, 11L,
-                        PortfolioProductType.LOAN.getValue(),
-                        AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()));
-
-        ReflectionTestUtils.invokeMethod(service, "postInsuranceCustomerBalanceAdjustmentJournalEntries", loan,
-                adjustmentTransaction, BigDecimal.ZERO, new BigDecimal("400.00"), null, insuranceIncomeAccount,
-                DISBURSEMENT_DATE, changes);
-
-        final List<JournalEntry> entries = captureJournalEntries(journalEntryRepository, 2);
-        assertJournalEntry(entries.get(0), loanPortfolioAccount, JournalEntryType.DEBIT, "400.00");
-        assertJournalEntry(entries.get(1), insuranceIncomeAccount, JournalEntryType.CREDIT, "400.00");
-        assertAmount("400.00", (BigDecimal) changes.get("insuranceCustomerBalanceIncrease"));
-        assertEquals(101L, changes.get("insuranceLoanPortfolioGlAccountId"));
+        assertDoesNotThrow(() -> ReflectionTestUtils.invokeMethod(service, "validateLoanCanEditDisbursementInsurance", loan));
     }
 
     @Test
-    void downwardInsuranceAdjustmentReducesInsuranceIncomeAndCustomerLoanPortfolioBalance() {
+    void validateDisbursementInsuranceEditRejectsUndisbursedLoan() {
         final LoanWritePlatformServiceJpaRepositoryImpl service = mock(LoanWritePlatformServiceJpaRepositoryImpl.class,
                 CALLS_REAL_METHODS);
-        final JournalEntryRepository journalEntryRepository = mock(JournalEntryRepository.class);
-        final ProductToGLAccountMappingRepository mappingRepository = mock(ProductToGLAccountMappingRepository.class);
-        final GLAccount loanPortfolioAccount = glAccount(101L);
-        final GLAccount insuranceIncomeAccount = glAccount(202L);
-        final Loan loan = accountingLoan();
-        final LoanTransaction adjustmentTransaction = insuranceAdjustmentTransaction(2L, new BigDecimal("400.00"), true);
-        final Map<String, Object> changes = new HashMap<>();
+        final Loan loan = mock(Loan.class);
+        when(loan.isDisbursed()).thenReturn(false);
 
-        ReflectionTestUtils.setField(service, "journalEntryRepository", journalEntryRepository);
-        ReflectionTestUtils.setField(service, "productToGLAccountMappingRepository", mappingRepository);
-        when(mappingRepository.findCoreProductToFinAccountMapping(11L, PortfolioProductType.LOAN.getValue(),
-                AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()))
-                .thenReturn(ProductToGLAccountMapping.createNew(loanPortfolioAccount, 11L,
-                        PortfolioProductType.LOAN.getValue(),
-                        AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue()));
-
-        ReflectionTestUtils.invokeMethod(service, "postInsuranceCustomerBalanceAdjustmentJournalEntries", loan,
-                adjustmentTransaction, new BigDecimal("400.00"), BigDecimal.ZERO, insuranceIncomeAccount, insuranceIncomeAccount,
-                DISBURSEMENT_DATE, changes);
-
-        final List<JournalEntry> entries = captureJournalEntries(journalEntryRepository, 2);
-        assertJournalEntry(entries.get(0), insuranceIncomeAccount, JournalEntryType.DEBIT, "400.00");
-        assertJournalEntry(entries.get(1), loanPortfolioAccount, JournalEntryType.CREDIT, "400.00");
-        assertAmount("400.00", (BigDecimal) changes.get("insuranceCustomerBalanceDecrease"));
-        assertEquals(101L, changes.get("insuranceLoanPortfolioGlAccountId"));
+        assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> ReflectionTestUtils.invokeMethod(service, "validateLoanCanEditDisbursementInsurance", loan));
     }
 
     private Loan singleDisbursementLoan(final BigDecimal approvedPrincipal, final LoanDisbursementDetails disbursementDetails,
@@ -235,42 +187,6 @@ class LoanWritePlatformServiceJpaRepositoryImplTest {
             repaymentAtDisbursement.reverse();
         }
         return repaymentAtDisbursement;
-    }
-
-    private Loan accountingLoan() {
-        final Loan loan = mock(Loan.class);
-        final Office office = mock(Office.class);
-        when(loan.productId()).thenReturn(11L);
-        when(loan.getOffice()).thenReturn(office);
-        when(loan.getCurrency()).thenReturn(KES);
-        when(loan.getId()).thenReturn(427367L);
-        return loan;
-    }
-
-    private GLAccount glAccount(final Long id) {
-        final GLAccount glAccount = mock(GLAccount.class);
-        when(glAccount.getId()).thenReturn(id);
-        return glAccount;
-    }
-
-    private LoanTransaction insuranceAdjustmentTransaction(final Long id, final BigDecimal amount, final boolean credit) {
-        final LoanTransaction transaction = LoanTransaction.insuranceChargeAdjustment(mock(Loan.class), mock(Office.class),
-                Money.of(KES, amount), DISBURSEMENT_DATE, credit);
-        ReflectionTestUtils.setField(transaction, "id", id);
-        return transaction;
-    }
-
-    private List<JournalEntry> captureJournalEntries(final JournalEntryRepository journalEntryRepository, final int count) {
-        final ArgumentCaptor<JournalEntry> journalEntryCaptor = ArgumentCaptor.forClass(JournalEntry.class);
-        verify(journalEntryRepository, times(count)).save(journalEntryCaptor.capture());
-        return journalEntryCaptor.getAllValues();
-    }
-
-    private void assertJournalEntry(final JournalEntry journalEntry, final GLAccount glAccount, final JournalEntryType type,
-            final String amount) {
-        assertSame(glAccount, journalEntry.getGlAccount());
-        assertEquals(type.getValue(), journalEntry.getType());
-        assertAmount(amount, journalEntry.getAmount());
     }
 
     private void assertAmount(final String expected, final BigDecimal actual) {

@@ -352,7 +352,7 @@ public class LoanTransactionData {
         this.netDisbursalAmount = netDisbursalAmount;
         this.principalPortion = principalPortion;
         this.interestPortion = interestPortion;
-        this.feeChargesPortion = feeChargesPortion;
+        this.feeChargesPortion = displayFeeChargesPortion(transactionType, feeChargesPortion);
         this.penaltyChargesPortion = penaltyChargesPortion;
         this.unrecognizedIncomePortion = unrecognizedIncomePortion;
         this.paymentTypeOptions = paymentTypeOptions;
@@ -420,7 +420,7 @@ public class LoanTransactionData {
         this.netDisbursalAmount = netDisbursalAmount;
         this.principalPortion = principalPortion;
         this.interestPortion = interestPortion;
-        this.feeChargesPortion = feeChargesPortion;
+        this.feeChargesPortion = displayFeeChargesPortion(transactionType, feeChargesPortion);
         this.penaltyChargesPortion = penaltyChargesPortion;
         this.unrecognizedIncomePortion = unrecognizedIncomePortion;
         this.paymentTypeOptions = paymentOptions;
@@ -433,6 +433,14 @@ public class LoanTransactionData {
         this.manuallyReversed = manuallyReversed;
         this.possibleNextRepaymentDate = possibleNextRepaymentDate;
         this.createdDate = createdDate;
+    }
+
+    private static BigDecimal displayFeeChargesPortion(final LoanTransactionEnumData transactionType,
+            final BigDecimal feeChargesPortion) {
+        if (transactionType != null && transactionType.isInsuranceChargeAdjustment() && feeChargesPortion != null) {
+            return feeChargesPortion.abs();
+        }
+        return feeChargesPortion;
     }
 
     public LocalDate dateOf() {
