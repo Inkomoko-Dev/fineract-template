@@ -83,13 +83,13 @@ class LoanWritePlatformServiceJpaRepositoryImplTest {
     }
 
     @Test
-    void refreshInsuranceDisbursementNetDisbursalAmountRepairsCorruptedSingleDisbursementPrincipal() {
+    void refreshDisbursementChargeNetDisbursalAmountRepairsCorruptedSingleDisbursementPrincipal() {
         final LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(DISBURSEMENT_DATE, DISBURSEMENT_DATE,
                 new BigDecimal("4200.00"), new BigDecimal("4200.00"));
         final Loan loan = singleDisbursementLoan(new BigDecimal("5000.00"), disbursementDetails,
                 disbursement(new BigDecimal("5000.00")), repaymentAtDisbursement(new BigDecimal("800.00"), false));
 
-        LoanWritePlatformServiceJpaRepositoryImpl.refreshInsuranceDisbursementNetDisbursalAmount(loan, null);
+        LoanWritePlatformServiceJpaRepositoryImpl.refreshDisbursementChargeNetDisbursalAmount(loan, null);
 
         assertAmount("5000.00", disbursementDetails.principal());
         assertAmount("4200.00", disbursementDetails.getNetDisbursalAmount());
@@ -97,14 +97,14 @@ class LoanWritePlatformServiceJpaRepositoryImplTest {
     }
 
     @Test
-    void refreshInsuranceDisbursementNetDisbursalAmountUsesOnlyActiveRepaymentAtDisbursementTransactions() {
+    void refreshDisbursementChargeNetDisbursalAmountUsesOnlyActiveRepaymentAtDisbursementTransactions() {
         final LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(DISBURSEMENT_DATE, DISBURSEMENT_DATE,
                 new BigDecimal("5000.00"), new BigDecimal("4600.00"));
         final Loan loan = singleDisbursementLoan(new BigDecimal("5000.00"), disbursementDetails,
                 disbursement(new BigDecimal("5000.00")), repaymentAtDisbursement(new BigDecimal("400.00"), true),
                 repaymentAtDisbursement(new BigDecimal("800.00"), false));
 
-        LoanWritePlatformServiceJpaRepositoryImpl.refreshInsuranceDisbursementNetDisbursalAmount(loan, null);
+        LoanWritePlatformServiceJpaRepositoryImpl.refreshDisbursementChargeNetDisbursalAmount(loan, null);
 
         assertAmount("5000.00", disbursementDetails.principal());
         assertAmount("4200.00", disbursementDetails.getNetDisbursalAmount());
@@ -112,7 +112,7 @@ class LoanWritePlatformServiceJpaRepositoryImplTest {
     }
 
     @Test
-    void insurancePaymentEditRecomputesLoanStatusAfterReprocessingTransactions() {
+    void chargePaymentEditRecomputesLoanStatusAfterReprocessingTransactions() {
         final LoanWritePlatformServiceJpaRepositoryImpl service = mock(LoanWritePlatformServiceJpaRepositoryImpl.class,
                 CALLS_REAL_METHODS);
         final LoanRepositoryWrapper loanRepositoryWrapper = mock(LoanRepositoryWrapper.class);
@@ -123,7 +123,7 @@ class LoanWritePlatformServiceJpaRepositoryImplTest {
         ReflectionTestUtils.setField(service, "accountTransfersWritePlatformService", mock(AccountTransfersWritePlatformService.class));
         final Loan loan = mock(Loan.class);
 
-        ReflectionTestUtils.invokeMethod(service, "recalculateLoanAfterInsurancePaymentEdit", loan, (LoanCharge) null);
+        ReflectionTestUtils.invokeMethod(service, "recalculateLoanAfterChargePaymentEdit", loan, (LoanCharge) null);
 
         verify(loan).refreshFeeChargesDueAtDisbursement();
         verify(loan).reprocessTransactions();
@@ -133,25 +133,58 @@ class LoanWritePlatformServiceJpaRepositoryImplTest {
     }
 
     @Test
-    void validateDisbursementInsuranceEditAllowsClosedDisbursedLoanForBalanceCorrection() {
+    void chargeAdjustmentAllocationSplitsUpwardRestoreFromFeeReceivableIncrease() {
+        final DisbursementChargeAdjustmentAllocation allocation = DisbursementChargeAdjustmentAllocation
+                .from(new BigDecimal("500.00"), new BigDecimal("1500.00"), new BigDecimal("1000.00"));
+
+        assertAmount("1000.00", allocation.chargeIncomeIncrease());
+        assertAmount("500.00", allocation.customerBalanceIncrease());
+        assertAmount("500.00", allocation.feeReceivableIncrease());
+        assertAmount("1000.00", allocation.amountAdjustmentTransactionAmount());
+    }
+
+    @Test
+    void chargeAdjustmentAllocationSplitsDownwardCreditFromFeeReceivableDecrease() {
+        final DisbursementChargeAdjustmentAllocation allocation = DisbursementChargeAdjustmentAllocation
+                .from(new BigDecimal("1500.00"), new BigDecimal("500.00"), new BigDecimal("1000.00"));
+
+        assertAmount("1000.00", allocation.chargeIncomeDecrease());
+        assertAmount("500.00", allocation.customerBalanceDecrease());
+        assertAmount("500.00", allocation.feeReceivableDecrease());
+        assertAmount("500.00", allocation.amountAdjustmentTransactionAmount());
+    }
+
+    @Test
+    void chargeAdjustmentAllocationDoesNotCreateCustomerTransactionForUnpaidOnlyDecrease() {
+        final DisbursementChargeAdjustmentAllocation allocation = DisbursementChargeAdjustmentAllocation
+                .from(new BigDecimal("1500.00"), new BigDecimal("1000.00"), new BigDecimal("500.00"));
+
+        assertAmount("500.00", allocation.chargeIncomeDecrease());
+        assertAmount("0.00", allocation.customerBalanceDecrease());
+        assertAmount("500.00", allocation.feeReceivableDecrease());
+        assertEquals(false, allocation.requiresAmountAdjustmentTransaction());
+    }
+
+    @Test
+    void validateDisbursementChargeAdjustmentAllowsClosedDisbursedLoanForBalanceCorrection() {
         final LoanWritePlatformServiceJpaRepositoryImpl service = mock(LoanWritePlatformServiceJpaRepositoryImpl.class,
                 CALLS_REAL_METHODS);
         final Loan loan = mock(Loan.class);
         when(loan.isDisbursed()).thenReturn(true);
         when(loan.isClosed()).thenReturn(true);
 
-        assertDoesNotThrow(() -> ReflectionTestUtils.invokeMethod(service, "validateLoanCanEditDisbursementInsurance", loan));
+        assertDoesNotThrow(() -> ReflectionTestUtils.invokeMethod(service, "validateLoanCanEditDisbursementChargeAdjustment", loan));
     }
 
     @Test
-    void validateDisbursementInsuranceEditRejectsUndisbursedLoan() {
+    void validateDisbursementChargeAdjustmentRejectsUndisbursedLoan() {
         final LoanWritePlatformServiceJpaRepositoryImpl service = mock(LoanWritePlatformServiceJpaRepositoryImpl.class,
                 CALLS_REAL_METHODS);
         final Loan loan = mock(Loan.class);
         when(loan.isDisbursed()).thenReturn(false);
 
         assertThrows(GeneralPlatformDomainRuleException.class,
-                () -> ReflectionTestUtils.invokeMethod(service, "validateLoanCanEditDisbursementInsurance", loan));
+                () -> ReflectionTestUtils.invokeMethod(service, "validateLoanCanEditDisbursementChargeAdjustment", loan));
     }
 
     private Loan singleDisbursementLoan(final BigDecimal approvedPrincipal, final LoanDisbursementDetails disbursementDetails,

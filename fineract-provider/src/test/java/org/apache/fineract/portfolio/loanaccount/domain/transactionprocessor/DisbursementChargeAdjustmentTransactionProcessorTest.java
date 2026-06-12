@@ -47,7 +47,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-class InsuranceAdjustmentTransactionProcessorTest {
+class DisbursementChargeAdjustmentTransactionProcessorTest {
 
     private static final MonetaryCurrency KES = new MonetaryCurrency("KES", 2, 0);
     private static final LocalDate DISBURSEMENT_DATE = LocalDate.of(2026, 6, 11);
@@ -74,10 +74,10 @@ class InsuranceAdjustmentTransactionProcessorTest {
     }
 
     @Test
-    void downwardInsuranceAdjustmentReducesPrincipalBalanceWithoutAdvancePaymentOrInterestWriteOff() {
+    void downwardDisbursementChargeAdjustmentReducesPrincipalBalanceWithoutAdvancePaymentOrInterestWriteOff() {
         final LoanRepaymentScheduleInstallment installment = installment(1, new BigDecimal("833.33"),
                 new BigDecimal("41.67"));
-        final LoanTransaction adjustment = insuranceDecrease(new BigDecimal("300.00"));
+        final LoanTransaction adjustment = chargeDecrease(new BigDecimal("300.00"));
 
         final ChangedTransactionDetail changedTransactionDetail = processor().handleTransaction(DISBURSEMENT_DATE,
                 new ArrayList<>(List.of(adjustment)), KES, new ArrayList<>(List.of(installment)), Set.of());
@@ -95,9 +95,9 @@ class InsuranceAdjustmentTransactionProcessorTest {
     }
 
     @Test
-    void downwardInsuranceAdjustmentKeepsExcessAsOverpaymentAfterPrincipalBalanceIsCleared() {
+    void downwardDisbursementChargeAdjustmentKeepsExcessAsOverpaymentAfterPrincipalBalanceIsCleared() {
         final LoanRepaymentScheduleInstallment installment = installment(1, new BigDecimal("200.00"), new BigDecimal("50.00"));
-        final LoanTransaction adjustment = insuranceDecrease(new BigDecimal("300.00"));
+        final LoanTransaction adjustment = chargeDecrease(new BigDecimal("300.00"));
 
         processor().handleTransaction(DISBURSEMENT_DATE, new ArrayList<>(List.of(adjustment)), KES,
                 new ArrayList<>(List.of(installment)), Set.of());
@@ -113,7 +113,7 @@ class InsuranceAdjustmentTransactionProcessorTest {
     }
 
     @Test
-    void downwardInsuranceAdjustmentDoesNotForceExistingRepaymentToBeRecreated() {
+    void downwardDisbursementChargeAdjustmentDoesNotForceExistingRepaymentToBeRecreated() {
         final LoanRepaymentScheduleInstallment installment = installment(1, new BigDecimal("833.33"),
                 new BigDecimal("41.67"));
         final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("100.00")),
@@ -121,7 +121,7 @@ class InsuranceAdjustmentTransactionProcessorTest {
         ReflectionTestUtils.setField(repayment, "id", 10L);
         repayment.updateComponents(Money.of(KES, new BigDecimal("100.00")), Money.zero(KES), Money.zero(KES),
                 Money.zero(KES));
-        final LoanTransaction adjustment = insuranceDecrease(new BigDecimal("300.00"));
+        final LoanTransaction adjustment = chargeDecrease(new BigDecimal("300.00"));
 
         final ChangedTransactionDetail changedTransactionDetail = processor().handleTransaction(DISBURSEMENT_DATE,
                 new ArrayList<>(List.of(repayment, adjustment)), KES, new ArrayList<>(List.of(installment)), Set.of());
@@ -178,12 +178,12 @@ class InsuranceAdjustmentTransactionProcessorTest {
     }
 
     @Test
-    void downwardInsuranceAdjustmentAfterInstallmentIsClearedBecomesCustomerOverpayment() {
+    void downwardDisbursementChargeAdjustmentAfterInstallmentIsClearedBecomesCustomerOverpayment() {
         final LoanRepaymentScheduleInstallment installment = installment(1, new BigDecimal("833.33"),
                 new BigDecimal("41.67"));
         final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("875.00")),
                 null, FIRST_DUE_DATE, null);
-        final LoanTransaction adjustment = insuranceDecrease(new BigDecimal("300.00"), FIRST_DUE_DATE.plusDays(1));
+        final LoanTransaction adjustment = chargeDecrease(new BigDecimal("300.00"), FIRST_DUE_DATE.plusDays(1));
 
         processor().handleTransaction(DISBURSEMENT_DATE, new ArrayList<>(List.of(repayment, adjustment)), KES,
                 new ArrayList<>(List.of(installment)), Set.of());
@@ -197,6 +197,37 @@ class InsuranceAdjustmentTransactionProcessorTest {
         assertAmount("0.00", installment.getInterestWrittenOff(KES).getAmount());
     }
 
+    @Test
+    void upwardDisbursementChargeAdjustmentRestoresPriorDownwardCreditDuringReplay() {
+        final LoanRepaymentScheduleInstallment installment = installment(1, new BigDecimal("833.33"),
+                new BigDecimal("41.67"));
+        final LoanTransaction decrease = chargeDecrease(new BigDecimal("500.00"));
+        final LoanTransaction increase = chargeIncrease(new BigDecimal("1000.00"));
+
+        processor().handleTransaction(DISBURSEMENT_DATE, new ArrayList<>(List.of(decrease, increase)), KES,
+                new ArrayList<>(List.of(installment)), Set.of());
+
+        assertAmount("833.33", installment.getPrincipalOutstanding(KES).getAmount());
+        assertAmount("41.67", installment.getInterestOutstanding(KES).getAmount());
+        assertAmount("0.00", installment.getTotalPaidInAdvance(KES).getAmount());
+        assertAmount("0.00", installment.getInterestWrittenOff(KES).getAmount());
+    }
+
+    @Test
+    void upwardDisbursementChargeAdjustmentConsumesPriorChargeOverpaymentBeforeInstallmentCredit() {
+        final LoanRepaymentScheduleInstallment installment = installment(1, new BigDecimal("300.00"), BigDecimal.ZERO);
+        final LoanTransaction decrease = chargeDecrease(new BigDecimal("800.00"));
+        final LoanTransaction increase = chargeIncrease(new BigDecimal("700.00"));
+
+        processor().handleTransaction(DISBURSEMENT_DATE, new ArrayList<>(List.of(decrease, increase)), KES,
+                new ArrayList<>(List.of(installment)), Set.of());
+
+        assertAmount("500.00", increase.getOverPaymentPortion(KES).getAmount());
+        assertAmount("200.00", increase.getPrincipalPortion(KES).getAmount());
+        assertAmount("200.00", installment.getPrincipalOutstanding(KES).getAmount());
+        assertAmount("0.00", installment.getTotalPaidInAdvance(KES).getAmount());
+    }
+
     private PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor processor() {
         return new PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor();
     }
@@ -207,12 +238,16 @@ class InsuranceAdjustmentTransactionProcessorTest {
                 interest, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
     }
 
-    private LoanTransaction insuranceDecrease(final BigDecimal amount) {
-        return insuranceDecrease(amount, DISBURSEMENT_DATE);
+    private LoanTransaction chargeDecrease(final BigDecimal amount) {
+        return chargeDecrease(amount, DISBURSEMENT_DATE);
     }
 
-    private LoanTransaction insuranceDecrease(final BigDecimal amount, final LocalDate transactionDate) {
-        return LoanTransaction.insuranceChargeAdjustment(null, mock(Office.class), Money.of(KES, amount), transactionDate, true);
+    private LoanTransaction chargeDecrease(final BigDecimal amount, final LocalDate transactionDate) {
+        return LoanTransaction.disbursementChargeAdjustment(null, mock(Office.class), Money.of(KES, amount), transactionDate, true);
+    }
+
+    private LoanTransaction chargeIncrease(final BigDecimal amount) {
+        return LoanTransaction.disbursementChargeAdjustment(null, mock(Office.class), Money.of(KES, amount), DISBURSEMENT_DATE, false);
     }
 
     private void assertAmount(final String expected, final BigDecimal actual) {

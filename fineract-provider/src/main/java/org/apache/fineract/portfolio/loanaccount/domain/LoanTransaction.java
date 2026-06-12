@@ -588,8 +588,8 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.equals(getTypeOf()) && isNotReversed();
     }
 
-    public boolean isInsuranceChargeAdjustment() {
-        return LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(getTypeOf()) && isNotReversed();
+    public boolean isDisbursementChargeAdjustment() {
+        return LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.equals(getTypeOf()) && isNotReversed();
     }
 
     public boolean isNotRecoveryRepayment() {
@@ -750,7 +750,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     private BigDecimal displayFeeChargesPortion(final LoanTransactionEnumData transactionType) {
-        if (transactionType != null && transactionType.isInsuranceChargeAdjustment() && this.feeChargesPortion != null) {
+        if (transactionType != null && transactionType.isDisbursementChargeAdjustment() && this.feeChargesPortion != null) {
             return this.feeChargesPortion.abs();
         }
         return this.feeChargesPortion;
@@ -792,8 +792,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return isNotReversed() && (LoanTransactionType.CONTRA.equals(getTypeOf())
                 || LoanTransactionType.MARKED_FOR_RESCHEDULING.equals(getTypeOf())
                 || LoanTransactionType.APPROVE_TRANSFER.equals(getTypeOf()) || LoanTransactionType.INITIATE_TRANSFER.equals(getTypeOf())
-                || LoanTransactionType.REJECT_TRANSFER.equals(getTypeOf()) || LoanTransactionType.WITHDRAW_TRANSFER.equals(getTypeOf())
-                || LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(getTypeOf()));
+                || LoanTransactionType.REJECT_TRANSFER.equals(getTypeOf()) || LoanTransactionType.WITHDRAW_TRANSFER.equals(getTypeOf()));
     }
 
     public void updateOutstandingLoanBalance(BigDecimal outstandingLoanBalance) {
@@ -924,7 +923,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
 
     public boolean isPaymentTransaction() {
         return this.isNotReversed() && !(this.isDisbursement() || this.isAccrual() || this.isRepaymentAtDisbursement()
-                || this.isNonMonetaryTransaction() || this.isIncomePosting());
+                || this.isDisbursementChargeAdjustment() || this.isNonMonetaryTransaction() || this.isIncomePosting());
     }
 
     public Set<LoanCollateralManagement> getLoanCollateralManagementSet() {
@@ -940,7 +939,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
 
-    public static LoanTransaction insuranceChargeAdjustment(
+    public static LoanTransaction disbursementChargeAdjustment(
             final Loan loan,
             final Office office,
             final Money amount,
@@ -949,7 +948,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         final LoanTransaction loanTransaction = new LoanTransaction();
         loanTransaction.loan = loan;
         loanTransaction.office = office;
-        loanTransaction.typeOf = LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getValue();
+        loanTransaction.typeOf = LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue();
         loanTransaction.principalPortion = BigDecimal.ZERO;
         loanTransaction.interestPortion = BigDecimal.ZERO;
         loanTransaction.penaltyChargesPortion = BigDecimal.ZERO;

@@ -189,8 +189,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanInsurancePaymentEditAudit;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanInsurancePaymentEditAuditRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementChargeAdjustmentAudit;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementChargeAdjustmentAuditRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanOverdueInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminder;
@@ -312,7 +312,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final JournalEntryRepository journalEntryRepository;
     private final GLAccountRepository glAccountRepository;
     private final ProductToGLAccountMappingRepository productToGLAccountMappingRepository;
-    private final LoanInsurancePaymentEditAuditRepository loanInsurancePaymentEditAuditRepository;
+    private final LoanDisbursementChargeAdjustmentAuditRepository loanDisbursementChargeAdjustmentAuditRepository;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -3852,32 +3852,32 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     @Override
     @Transactional
-    public CommandProcessingResult editDisbursementInsurance(final Long loanId, final Long transactionId, final JsonCommand command) {
+    public CommandProcessingResult editDisbursementCharge(final Long loanId, final Long transactionId, final JsonCommand command) {
         final Long loanChargeId = command.longValueOfParameterNamed("loanChargeId");
-        return editDisbursementInsuranceAtDisbursement(loanId, transactionId, loanChargeId, command, false);
+        return editDisbursementChargeAtDisbursement(loanId, transactionId, loanChargeId, command, false);
     }
 
-    private CommandProcessingResult editDisbursementInsuranceAtDisbursement(final Long loanId, final Long transactionId,
+    private CommandProcessingResult editDisbursementChargeAtDisbursement(final Long loanId, final Long transactionId,
             final Long loanChargeId, final JsonCommand command, final boolean returnLoanChargeAsEntity) {
         final AppUser currentUser = getAppUserIfPresent();
         final BigDecimal newAmount = command.bigDecimalValueOfParameterNamed("amount");
         final LocalDate newTransactionDate = command.localDateValueOfParameterNamed("transactionDate");
-        final String noteText = getInsuranceEditNote(command);
+        final String noteText = getDisbursementChargeAdjustmentNote(command);
         final String txnExternalId = StringUtils.trimToNull(command.stringValueOfParameterNamedAllowingNull("externalId"));
         if (loanChargeId == null) {
-            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.loan.charge.id.required",
-                    "The loanChargeId is required to edit insurance payment at disbursement.", "loanChargeId");
+            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.loan.charge.id.required",
+                    "The loanChargeId is required to edit disbursement charge payment at disbursement.", "loanChargeId");
         }
 
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
         checkClientOrGroupActive(loan);
-        validateLoanCanEditDisbursementInsurance(loan);
+        validateLoanCanEditDisbursementChargeAdjustment(loan);
 
         final LoanCharge loanCharge = retrieveLoanChargeBy(loanId, loanChargeId);
-        validateEditableDisbursementInsuranceCharge(loanCharge);
-        validateDisbursementInsuranceAmountDoesNotExceedPrincipal(loan, loanCharge, newAmount);
+        validateEditableDisbursementCharge(loanCharge);
+        validateDisbursementChargeAdjustmentAmountDoesNotExceedPrincipal(loan, loanCharge, newAmount);
 
-        final LoanTransaction originalTransaction = findActiveDisbursementInsuranceTransaction(loan, loanCharge, transactionId);
+        final LoanTransaction originalTransaction = findActiveDisbursementChargeTransaction(loan, loanCharge, transactionId);
 
         if (this.accountTransfersReadPlatformService.isAccountTransfer(originalTransaction.getId(), PortfolioAccountType.LOAN)) {
             throw new PlatformServiceUnavailableException("error.msg.loan.transfer.transaction.update.not.allowed",
@@ -3885,7 +3885,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     originalTransaction.getId());
         }
 
-        validateDisbursementInsuranceEditDate(loan, loanCharge, newTransactionDate);
+        validateDisbursementChargeAdjustmentDate(loan, loanCharge, newTransactionDate);
 
         LoanChargePaidBy selectedChargePaidBy = findChargePaidBy(originalTransaction, loanChargeId);
         final BigDecimal previousLoanChargeAmount = loanCharge.getAmount(loan.getCurrency()).getAmount();
@@ -3893,13 +3893,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final BigDecimal customerOutstandingBeforeCorrection = loan.getSummary() == null ? null
                 : loan.getSummary().getTotalOutstanding();
         final BigDecimal paidAtDisbursementAmount = derivePaidAtDisbursementAmount(loan, originalTransaction);
-        final BigDecimal previousFeePaidPortion = previousAmount.min(paidAtDisbursementAmount);
-        final BigDecimal previousFeeOutstandingPortion = previousAmount.subtract(previousFeePaidPortion);
-        final BigDecimal previousOverpaymentPortion = paidAtDisbursementAmount.subtract(previousFeePaidPortion);
-        final BigDecimal feePaidPortion = newAmount.min(paidAtDisbursementAmount);
-        final BigDecimal feeOutstandingPortion = newAmount.subtract(feePaidPortion);
-        final BigDecimal insuranceAmountDecrease = positiveDifference(previousAmount, newAmount);
-        final BigDecimal insuranceCustomerCreditPortion = deriveInsuranceCustomerCreditPortion(insuranceAmountDecrease,
+        final DisbursementChargeAdjustmentAllocation allocation = DisbursementChargeAdjustmentAllocation.from(previousAmount,
+                newAmount, paidAtDisbursementAmount);
+        final BigDecimal previousFeePaidPortion = allocation.previousFeePaidPortion();
+        final BigDecimal previousFeeOutstandingPortion = allocation.previousFeeOutstandingPortion();
+        final BigDecimal previousOverpaymentPortion = allocation.previousOverpaymentPortion();
+        final BigDecimal feePaidPortion = allocation.feePaidPortion();
+        final BigDecimal feeOutstandingPortion = allocation.feeOutstandingPortion();
+        final BigDecimal chargeCustomerBalanceIncrease = allocation.customerBalanceIncrease();
+        final BigDecimal chargeCustomerBalanceDecrease = allocation.customerBalanceDecrease();
+        final BigDecimal chargeCustomerCreditPortion = deriveDisbursementChargeCustomerCreditPortion(chargeCustomerBalanceDecrease,
                 customerOutstandingBeforeCorrection);
         final BigDecimal repaymentAtDisbursementOverpaymentPortion = BigDecimal.ZERO;
         final BigDecimal currentFeePaidPortion = selectedChargePaidBy == null ? BigDecimal.ZERO : selectedChargePaidBy.getAmount();
@@ -3931,34 +3934,34 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final boolean newDateClosed = isDateInClosedAccountingPeriod(loan, newTransactionDate);
         final boolean transactionDateChanged = !newTransactionDate.isEqual(originalTransactionDate);
         if (transactionDateChanged && (originalDateClosed || newDateClosed)) {
-            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.date.closed.period",
-                    "Insurance payment date correction cannot update a transaction in a closed accounting period.",
+            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.date.closed.period",
+                    "Disbursement charge payment date correction cannot update a transaction in a closed accounting period.",
                     "transactionDate", newTransactionDate);
         }
 
         final BigDecimal amountDelta = newAmount.subtract(previousAmount);
         final boolean amountChanged = amountDelta.compareTo(BigDecimal.ZERO) != 0;
         if ((amountChanged || paymentDetailChangeRequested || incomeGlChangeRequested) && (originalDateClosed || newDateClosed)) {
-            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.amount.closed.period",
-                    "Insurance payment adjustments cannot be posted for a transaction in a closed accounting period.",
+            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.amount.closed.period",
+                    "Disbursement charge adjustments cannot be posted for a transaction in a closed accounting period.",
                     "transactionDate", newTransactionDate);
         }
 
-        final Optional<LoanInsurancePaymentEditAudit> latestInsuranceEditAudit = this.loanInsurancePaymentEditAuditRepository
+        final Optional<LoanDisbursementChargeAdjustmentAudit> latestChargeEditAudit = this.loanDisbursementChargeAdjustmentAuditRepository
                 .findTopByLoanChargeIdOrderByAdjustedOnDateDescIdDesc(loanChargeId);
         final JournalEntry activeCreditEntry = findActiveCreditEntry(loan, originalTransaction, null);
-        final GLAccount previousIncomeGlAccount = latestInsuranceEditAudit.map(LoanInsurancePaymentEditAudit::getNewIncomeGlAccountId)
+        final GLAccount previousIncomeGlAccount = latestChargeEditAudit.map(LoanDisbursementChargeAdjustmentAudit::getNewIncomeGlAccountId)
                 .map(this::findGlAccountById).orElse(activeCreditEntry == null ? null : activeCreditEntry.getGlAccount());
-        final GLAccount configuredInsuranceIncomeGlAccount = findConfiguredInsuranceIncomeGlAccount(loan, loanCharge);
-        final GLAccount requestedInsuranceIncomeGlAccount = incomeGlChangeRequested
+        final GLAccount configuredChargeIncomeGlAccount = findConfiguredChargeIncomeGlAccount(loan, loanCharge);
+        final GLAccount requestedChargeIncomeGlAccount = incomeGlChangeRequested
                 ? findGlAccountById(command.longValueOfParameterNamed("glAccountId"))
                 : null;
-        final GLAccount replacementIncomeGlAccount = configuredInsuranceIncomeGlAccount == null ? previousIncomeGlAccount
-                : configuredInsuranceIncomeGlAccount;
-        final GLAccount newIncomeGlAccount = requestedInsuranceIncomeGlAccount != null ? requestedInsuranceIncomeGlAccount
+        final GLAccount replacementIncomeGlAccount = configuredChargeIncomeGlAccount == null ? previousIncomeGlAccount
+                : configuredChargeIncomeGlAccount;
+        final GLAccount newIncomeGlAccount = requestedChargeIncomeGlAccount != null ? requestedChargeIncomeGlAccount
                 : replacementIncomeGlAccount;
-        final GLAccount previousFundSourceGlAccount = latestInsuranceEditAudit
-                .map(LoanInsurancePaymentEditAudit::getNewFundSourceGlAccountId).map(this::findGlAccountById)
+        final GLAccount previousFundSourceGlAccount = latestChargeEditAudit
+                .map(LoanDisbursementChargeAdjustmentAudit::getNewFundSourceGlAccountId).map(this::findGlAccountById)
                 .orElse(findPreviousFundSourceGlAccount(loan, originalTransaction, previousPaymentTypeId));
         final boolean paidAtDisbursementAmountPresent = paidAtDisbursementAmount.compareTo(BigDecimal.ZERO) > 0;
         final GLAccount requestedFundSourceGlAccount = paymentTypeValueChanged && paidAtDisbursementAmountPresent
@@ -3970,17 +3973,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 && !txnExternalId.equals(originalTransaction.getExternalId());
         final boolean transactionDateChangeCountsAsAdjustment = transactionDateChanged;
         final boolean disbursementPaymentMetadataChanged = paymentDetailChangeRequested || transactionDateChanged || externalIdChanged;
-        final boolean amountOnlyInsuranceAdjustment = amountChanged && !disbursementPaymentMetadataChanged;
-        final boolean allocationChangeNeeded = paidAtDisbursementAmountPresent && !amountOnlyInsuranceAdjustment
+        final boolean amountOnlyChargeAdjustment = amountChanged && !disbursementPaymentMetadataChanged;
+        final boolean allocationChangeNeeded = paidAtDisbursementAmountPresent && !amountOnlyChargeAdjustment
                 && (selectedChargePaidBy == null || originalTransaction.isReversed()
                         || !sameMonetaryAmount(currentFeePaidPortion, feePaidPortion)
                         || !sameMonetaryAmount(currentOverpaymentPortion, repaymentAtDisbursementOverpaymentPortion));
         final boolean paymentTransactionCorrectionNeeded = paidAtDisbursementAmountPresent
                 && (paymentDetailChangeRequested || transactionDateChanged || externalIdChanged || allocationChangeNeeded);
-        final BigDecimal outstandingIncomeReclassificationPortion = previousFeeOutstandingPortion.min(feeOutstandingPortion);
+        final BigDecimal paidIncomeReclassificationPortion = allocation.paidIncomeReclassificationPortion();
+        final BigDecimal outstandingIncomeReclassificationPortion = allocation.outstandingIncomeReclassificationPortion();
         final GLAccount paidIncomeReclassificationSourceGlAccount = paymentTransactionCorrectionNeeded ? replacementIncomeGlAccount
                 : previousIncomeGlAccount == null ? replacementIncomeGlAccount : previousIncomeGlAccount;
-        final boolean paidIncomeGlReclassificationNeeded = feePaidPortion.compareTo(BigDecimal.ZERO) > 0
+        final boolean paidIncomeGlReclassificationNeeded = paidIncomeReclassificationPortion.compareTo(BigDecimal.ZERO) > 0
                 && !sameGlAccount(paidIncomeReclassificationSourceGlAccount, newIncomeGlAccount);
         final boolean outstandingIncomeGlReclassificationNeeded = outstandingIncomeReclassificationPortion.compareTo(BigDecimal.ZERO) > 0
                 && !sameGlAccount(previousIncomeGlAccount, newIncomeGlAccount);
@@ -3988,8 +3992,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 || outstandingIncomeGlReclassificationNeeded;
         if (!amountChanged && !fundSourceReclassificationNeeded && !incomeGlReclassificationNeeded && !paymentTypeValueChanged
                 && !paymentDetailFieldsChangeRequested && !externalIdChanged && !transactionDateChangeCountsAsAdjustment) {
-            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.no.changes",
-                    "No insurance adjustment was made. Change the amount, payment type/account, GL account, date, or reference before submitting.",
+            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.no.changes",
+                    "No disbursement charge adjustment was made. Change the amount, payment type/account, GL account, date, or reference before submitting.",
                     "amount", newAmount);
         }
 
@@ -4008,7 +4012,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         changes.put("previousOverpaymentPortion", previousOverpaymentPortion);
         changes.put("feePaidPortion", feePaidPortion);
         changes.put("feeOutstandingPortion", feeOutstandingPortion);
-        changes.put("overpaymentPortion", insuranceCustomerCreditPortion);
+        changes.put("chargeFeeReceivableIncrease", allocation.feeReceivableIncrease());
+        changes.put("chargeFeeReceivableDecrease", allocation.feeReceivableDecrease());
+        changes.put("overpaymentPortion", chargeCustomerCreditPortion);
         changes.put("paymentTransactionCorrectionNeeded", paymentTransactionCorrectionNeeded);
         changes.put("previousTransactionDate", originalTransactionDate);
         changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
@@ -4040,19 +4046,19 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
 
         if (paymentDetailChangeRequested && !paidAtDisbursementAmountPresent) {
-            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.payment.type.no.paid.amount",
+            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.payment.type.no.paid.amount",
                     "Payment type/account can only be changed when an amount was paid at disbursement.", "paymentTypeId");
         }
 
         if (paymentDetailChangeRequested) {
             if (!paymentTypeChangeRequested) {
-                throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.payment.type.required",
-                        "A valid payment type is required when changing the insurance payment details.", "paymentTypeId");
+                throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.payment.type.required",
+                        "A valid payment type is required when changing the disbursement charge payment details.", "paymentTypeId");
             }
             newPaymentDetail = this.paymentDetailWritePlatformService.createAndPersistPaymentDetail(command, changes);
             if (newPaymentDetail == null || newPaymentDetail.getPaymentType() == null) {
-                throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.payment.type.required",
-                        "A valid payment type is required when changing the insurance payment account.", "paymentTypeId");
+                throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.payment.type.required",
+                        "A valid payment type is required when changing the disbursement charge payment account.", "paymentTypeId");
             }
             newPaymentDetailId = newPaymentDetail.getId();
             newPaymentTypeId = newPaymentDetail.getPaymentType().getId();
@@ -4066,15 +4072,15 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         if (paymentTypeValueChanged && paidAtDisbursementAmountPresent && previousFundSourceGlAccount == null) {
             throw new GeneralPlatformDomainRuleException(
-                    "error.msg.loan.disbursement.insurance.edit.previous.fund.source.gl.not.found",
+                    "error.msg.loan.disbursement.charge.adjustment.previous.fund.source.gl.not.found",
                     "No active fund source journal entry or payment type mapping found for repayment-at-disbursement transaction: "
                             + originalTransaction.getId(),
                     originalTransaction.getId());
         }
 
         if (incomeGlReclassificationNeeded && (originalDateClosed || newDateClosed)) {
-            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.gl.closed.period",
-                    "Insurance payment GL reclassification cannot be posted for a transaction in a closed accounting period.",
+            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.gl.closed.period",
+                    "Disbursement charge GL reclassification cannot be posted for a transaction in a closed accounting period.",
                     "transactionDate", newTransactionDate);
         }
         if (incomeGlReclassificationNeeded) {
@@ -4082,22 +4088,24 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     || (outstandingIncomeGlReclassificationNeeded && previousIncomeGlAccount == null)
                     || newIncomeGlAccount == null) {
                 throw new GeneralPlatformDomainRuleException(
-                        "error.msg.loan.disbursement.insurance.edit.income.gl.not.found",
-                        "Insurance income GL account mapping could not be resolved for loan product: " + loan.productId(),
+                        "error.msg.loan.disbursement.charge.adjustment.income.gl.not.found",
+                        "Charge income GL account mapping could not be resolved for loan product: " + loan.productId(),
                         loan.productId());
             }
         }
 
         LoanTransaction amountAdjustmentTransaction = null;
-        if (amountChanged) {
-            amountAdjustmentTransaction = LoanTransaction.insuranceChargeAdjustment(loan, loan.getOffice(),
-                    Money.of(loan.getCurrency(), amountDelta.abs()), newTransactionDate, amountDelta.compareTo(BigDecimal.ZERO) < 0);
+        if (amountChanged && allocation.requiresAmountAdjustmentTransaction()) {
+            final BigDecimal customerBalanceAdjustmentAmount = allocation.amountAdjustmentTransactionAmount();
+            amountAdjustmentTransaction = LoanTransaction.disbursementChargeAdjustment(loan, loan.getOffice(),
+                    Money.of(loan.getCurrency(), customerBalanceAdjustmentAmount), newTransactionDate,
+                    amountDelta.compareTo(BigDecimal.ZERO) < 0);
             amountAdjustmentTransaction.updateLoan(loan);
             amountAdjustmentTransaction.setOriginalTransactionId(originalTransaction.getId());
             amountAdjustmentTransaction.setCorrectionDate(DateUtils.getBusinessLocalDate());
             loan.addLoanTransaction(amountAdjustmentTransaction);
             this.loanTransactionRepository.saveAndFlush(amountAdjustmentTransaction);
-            changes.put("insuranceAmountAdjustmentTransactionId", amountAdjustmentTransaction.getId());
+            changes.put("chargeAmountAdjustmentTransactionId", amountAdjustmentTransaction.getId());
         }
 
         boolean originalTransactionReversed = false;
@@ -4125,39 +4133,41 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             changes.put("paymentAdjustmentTransactionId", replacementTransaction.getId());
         }
 
-        loanCharge.updateAmountPaidForDisbursementInsuranceAdjustment(newAmount, feePaidPortion);
+        loanCharge.updateAmountPaidForDisbursementChargeAdjustment(newAmount, feePaidPortion);
         this.loanChargeRepository.saveAndFlush(loanCharge);
 
-        recalculateLoanAfterInsurancePaymentEdit(loan, loanCharge);
+        recalculateLoanAfterChargePaymentEdit(loan, loanCharge);
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
-        postInsuranceCustomerBalanceAdjustmentJournalEntries(loan, amountAdjustmentTransaction, previousAmount, newAmount,
-                customerOutstandingBeforeCorrection, previousIncomeGlAccount, newIncomeGlAccount, newTransactionDate, changes);
+        final LoanTransaction chargeAdjustmentJournalTransaction = amountAdjustmentTransaction != null ? amountAdjustmentTransaction
+                : replacementTransaction == null ? originalTransaction : replacementTransaction;
+        postChargeCustomerBalanceAdjustmentJournalEntries(loan, chargeAdjustmentJournalTransaction, allocation,
+                previousIncomeGlAccount, newIncomeGlAccount, newTransactionDate, changes);
 
         if (paidIncomeGlReclassificationNeeded) {
             final LoanTransaction reclassificationTransaction = replacementTransaction != null ? replacementTransaction
                     : amountAdjustmentTransaction != null ? amountAdjustmentTransaction : originalTransaction;
             this.journalEntryRepository.save(buildManualJournalEntry(loan, paidIncomeReclassificationSourceGlAccount, JournalEntryType.DEBIT,
-                    feePaidPortion, "Insurance paid portion reclassification - reduce previous income GL", reclassificationTransaction,
-                    newTransactionDate));
+                    paidIncomeReclassificationPortion, "Disbursement charge paid portion reclassification - reduce previous income GL",
+                    reclassificationTransaction, newTransactionDate));
             this.journalEntryRepository.save(buildManualJournalEntry(loan, newIncomeGlAccount, JournalEntryType.CREDIT,
-                    feePaidPortion, "Insurance paid portion reclassification - apply insurance income GL", reclassificationTransaction,
-                    newTransactionDate));
+                    paidIncomeReclassificationPortion, "Disbursement charge paid portion reclassification - apply charge income GL",
+                    reclassificationTransaction, newTransactionDate));
             changes.put("previousIncomeGlAccountId", glAccountId(previousIncomeGlAccount));
             changes.put("newIncomeGlAccountId", newIncomeGlAccount.getId());
             changes.put("replacementIncomeGlAccountId", glAccountId(replacementIncomeGlAccount));
             changes.put("paidIncomeSourceGlAccountId", glAccountId(paidIncomeReclassificationSourceGlAccount));
-            changes.put("paidIncomeGlReclassifiedAmount", feePaidPortion);
+            changes.put("paidIncomeGlReclassifiedAmount", paidIncomeReclassificationPortion);
         }
         if (outstandingIncomeGlReclassificationNeeded) {
             final LoanTransaction reclassificationTransaction = amountAdjustmentTransaction != null ? amountAdjustmentTransaction
                     : replacementTransaction != null ? replacementTransaction : originalTransaction;
             this.journalEntryRepository.save(buildManualJournalEntry(loan, previousIncomeGlAccount, JournalEntryType.DEBIT,
                     outstandingIncomeReclassificationPortion,
-                    "Insurance outstanding portion reclassification - reduce previous income GL", reclassificationTransaction,
+                    "Disbursement charge outstanding portion reclassification - reduce previous income GL", reclassificationTransaction,
                     newTransactionDate));
             this.journalEntryRepository.save(buildManualJournalEntry(loan, newIncomeGlAccount, JournalEntryType.CREDIT,
                     outstandingIncomeReclassificationPortion,
-                    "Insurance outstanding portion reclassification - apply insurance income GL", reclassificationTransaction,
+                    "Disbursement charge outstanding portion reclassification - apply charge income GL", reclassificationTransaction,
                     newTransactionDate));
             changes.put("previousIncomeGlAccountId", glAccountId(previousIncomeGlAccount));
             changes.put("newIncomeGlAccountId", newIncomeGlAccount.getId());
@@ -4168,9 +4178,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final LoanTransaction noteTransaction = amountAdjustmentTransaction != null ? amountAdjustmentTransaction
                     : replacementTransaction == null ? originalTransaction : replacementTransaction;
             final Note note = Note.loanTransactionNote(loan, noteTransaction,
-                    buildInsurancePaymentEditNote(previousAmount, newAmount, originalTransactionDate, newTransactionDate,
+                    buildDisbursementChargeAdjustmentNote(previousAmount, newAmount, originalTransactionDate, newTransactionDate,
                             previousPaymentTypeName, newPaymentTypeName, paidAtDisbursementAmount, feePaidPortion,
-                            feeOutstandingPortion, insuranceCustomerCreditPortion, noteText));
+                            feeOutstandingPortion, chargeCustomerCreditPortion, noteText));
             this.noteRepository.save(note);
         }
 
@@ -4183,15 +4193,15 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
         changes.put("originalTransactionReversed", originalTransactionReversed);
 
-        final LoanInsurancePaymentEditAudit audit = LoanInsurancePaymentEditAudit.create(loan.getId(), loan.getClientId(),
+        final LoanDisbursementChargeAdjustmentAudit audit = LoanDisbursementChargeAdjustmentAudit.create(loan.getId(), loan.getClientId(),
                 loan.productId(), loan.getOfficeId(), loanChargeId, loanCharge.getCharge().getId(), originalTransaction.getId(),
                 auditAdjustmentTransactionId, previousAmount, newAmount, amountDelta, previousPaymentTypeId, previousPaymentTypeName,
                 newPaymentTypeId, newPaymentTypeName, previousPaymentDetailId, newPaymentDetailId,
                 glAccountId(previousFundSourceGlAccount), glAccountId(newFundSourceGlAccount),
                 glAccountId(previousIncomeGlAccount), glAccountId(newIncomeGlAccount), noteText, currentUser.getId(), currentUser.getUsername(), roleNames(currentUser),
                 DateUtils.getOffsetDateTimeOfTenant(), chargePaidByBackfilled);
-        this.loanInsurancePaymentEditAuditRepository.saveAndFlush(audit);
-        changes.put("insurancePaymentEditAuditId", audit.getId());
+        this.loanDisbursementChargeAdjustmentAuditRepository.saveAndFlush(audit);
+        changes.put("chargeAdjustmentAuditId", audit.getId());
 
         final LoanAdjustTransactionBusinessEvent.Data eventData = new LoanAdjustTransactionBusinessEvent.Data(originalTransaction);
         eventData.setNewTransactionDetail(amountAdjustmentTransaction != null ? amountAdjustmentTransaction
@@ -4205,43 +4215,39 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .with(changes).build();
     }
 
-    private void validateLoanCanEditDisbursementInsurance(final Loan loan) {
+    private void validateLoanCanEditDisbursementChargeAdjustment(final Loan loan) {
         if (!loan.isDisbursed()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.loan.not.disbursed",
-                    "Insurance payment at disbursement can only be edited after loan disbursement.", loan.getId());
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.charge.adjustment.loan.not.disbursed",
+                    "Disbursement charge payment can only be edited after loan disbursement.", loan.getId());
         }
     }
 
-    private void validateEditableDisbursementInsuranceCharge(final LoanCharge loanCharge) {
+    private void validateEditableDisbursementCharge(final LoanCharge loanCharge) {
         if (!loanCharge.isActive()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.charge.inactive",
-                    "Only active loan charges can be edited as disbursement insurance.", loanCharge.getId());
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.charge.adjustment.charge.inactive",
+                    "Only active loan charges can be edited as disbursement charges.", loanCharge.getId());
         }
         if (!loanCharge.isDueAtDisbursement()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.not.disbursement.charge",
-                    "Only charges due at disbursement can be edited as disbursement insurance.", loanCharge.getId());
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.charge.adjustment.not.disbursement.charge",
+                    "Only charges due at disbursement can be edited with this command.", loanCharge.getId());
         }
         if (loanCharge.isPenaltyCharge()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.penalty.charge.not.allowed",
-                    "Penalty charges cannot be edited as disbursement insurance.", loanCharge.getId());
-        }
-        if (!StringUtils.containsIgnoreCase(loanCharge.name(), "insurance")) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.not.insurance.charge",
-                    "Only insurance-related charges can be edited with this command.", loanCharge.getId());
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.charge.adjustment.penalty.charge.not.allowed",
+                    "Penalty charges cannot be edited as disbursement charges.", loanCharge.getId());
         }
     }
 
-    private void validateDisbursementInsuranceAmountDoesNotExceedPrincipal(final Loan loan, final LoanCharge loanCharge,
+    private void validateDisbursementChargeAdjustmentAmountDoesNotExceedPrincipal(final Loan loan, final LoanCharge loanCharge,
             final BigDecimal newAmount) {
-        final BigDecimal principalAmount = derivePrincipalAmountForInsuranceCharge(loan, loanCharge);
+        final BigDecimal principalAmount = derivePrincipalAmountForDisbursementCharge(loan, loanCharge);
         if (principalAmount != null && newAmount.compareTo(principalAmount) > 0) {
-            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.amount.exceeds.principal",
-                    "Insurance amount cannot be greater than the principal amount from which it is netted.",
+            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.amount.exceeds.principal",
+                    "Disbursement charge amount cannot be greater than the principal amount from which it is netted.",
                     "amount", newAmount, principalAmount);
         }
     }
 
-    private BigDecimal derivePrincipalAmountForInsuranceCharge(final Loan loan, final LoanCharge loanCharge) {
+    private BigDecimal derivePrincipalAmountForDisbursementCharge(final Loan loan, final LoanCharge loanCharge) {
         if (loanCharge.getTrancheDisbursementCharge() != null
                 && loanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails() != null) {
             return loanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails().principal();
@@ -4249,7 +4255,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return loan.getApprovedPrincipal();
     }
 
-    private LoanTransaction findActiveDisbursementInsuranceTransaction(final Loan loan, final LoanCharge loanCharge,
+    private LoanTransaction findActiveDisbursementChargeTransaction(final Loan loan, final LoanCharge loanCharge,
             final Long transactionId) {
         final Long loanChargeId = loanCharge.getId();
         if (transactionId != null) {
@@ -4260,18 +4266,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                         "The selected transaction does not belong to the specified loan.");
             }
             if (transaction.isReversed()) {
-                throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.transaction.reversed",
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.charge.adjustment.transaction.reversed",
                         "The selected repayment-at-disbursement transaction has already been reversed.", transactionId);
             }
             if (!LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.equals(transaction.getTypeOf())) {
                 throw new InvalidLoanTransactionTypeException("transaction",
-                        "edit.disbursement.insurance.is.only.allowed.for.repayment.at.disbursement",
+                        "edit.disbursement.charge.is.only.allowed.for.repayment.at.disbursement",
                         "Only repayment-at-disbursement transactions can be edited with this command.");
             }
             if (findChargePaidBy(transaction, loanChargeId) == null) {
-                if (!isUnlinkedInsuranceTransactionCandidate(loan, loanCharge, transaction)) {
-                    throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.charge.not.linked",
-                            "The selected repayment-at-disbursement transaction is not linked to the specified insurance loan charge.",
+                if (!isUnlinkedDisbursementChargeTransactionCandidate(loan, loanCharge, transaction)) {
+                    throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.charge.adjustment.charge.not.linked",
+                            "The selected repayment-at-disbursement transaction is not linked to the specified loan charge.",
                             loanChargeId);
                 }
             }
@@ -4286,7 +4292,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
         final List<LoanTransaction> fallbackCandidates = new ArrayList<>();
         for (final LoanTransaction transaction : loan.getLoanTransactions()) {
-            if (isUnlinkedInsuranceTransactionCandidate(loan, loanCharge, transaction)) {
+            if (isUnlinkedDisbursementChargeTransactionCandidate(loan, loanCharge, transaction)) {
                 fallbackCandidates.add(transaction);
             }
         }
@@ -4295,15 +4301,15 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
         if (fallbackCandidates.size() > 1) {
             throw new GeneralPlatformDomainRuleException(
-                    "error.msg.loan.disbursement.insurance.edit.multiple.active.transactions",
-                    "Multiple unlinked repayment-at-disbursement transactions match the specified insurance charge. Select the transaction explicitly.",
+                    "error.msg.loan.disbursement.charge.adjustment.multiple.active.transactions",
+                    "Multiple unlinked repayment-at-disbursement transactions match the specified disbursement charge. Select the transaction explicitly.",
                     loanChargeId);
         }
-        final Optional<LoanInsurancePaymentEditAudit> latestInsuranceEditAudit = this.loanInsurancePaymentEditAuditRepository
+        final Optional<LoanDisbursementChargeAdjustmentAudit> latestChargeEditAudit = this.loanDisbursementChargeAdjustmentAuditRepository
                 .findTopByLoanChargeIdOrderByAdjustedOnDateDescIdDesc(loanChargeId);
-        if (latestInsuranceEditAudit.isPresent()
-                && latestInsuranceEditAudit.get().getNewAmount().compareTo(BigDecimal.ZERO) == 0) {
-            final LoanInsurancePaymentEditAudit zeroedAudit = latestInsuranceEditAudit.get();
+        if (latestChargeEditAudit.isPresent()
+                && latestChargeEditAudit.get().getNewAmount().compareTo(BigDecimal.ZERO) == 0) {
+            final LoanDisbursementChargeAdjustmentAudit zeroedAudit = latestChargeEditAudit.get();
             final Long zeroedTransactionId = zeroedAudit.getAdjustmentTransactionId() == null
                     ? zeroedAudit.getOriginalTransactionId()
                     : zeroedAudit.getAdjustmentTransactionId();
@@ -4315,16 +4321,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
             if (!LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.equals(zeroedTransaction.getTypeOf())) {
                 throw new InvalidLoanTransactionTypeException("transaction",
-                        "edit.disbursement.insurance.is.only.allowed.for.repayment.at.disbursement",
+                        "edit.disbursement.charge.is.only.allowed.for.repayment.at.disbursement",
                         "Only repayment-at-disbursement transactions can be edited with this command.");
             }
             return zeroedTransaction;
         }
-        throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.no.active.transaction",
-                "No active repayment-at-disbursement transaction found for the specified insurance charge.", loanChargeId);
+        throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.charge.adjustment.no.active.transaction",
+                "No active repayment-at-disbursement transaction found for the specified disbursement charge.", loanChargeId);
     }
 
-    private boolean isUnlinkedInsuranceTransactionCandidate(final Loan loan, final LoanCharge loanCharge,
+    private boolean isUnlinkedDisbursementChargeTransactionCandidate(final Loan loan, final LoanCharge loanCharge,
             final LoanTransaction transaction) {
         if (!transaction.isRepaymentAtDisbursement() || !transaction.getLoanChargesPaid().isEmpty()) {
             return false;
@@ -4346,7 +4352,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         LoanTransaction paidPoolTransaction = transaction;
         final Set<Long> visitedTransactionIds = new HashSet<>();
         while (paidPoolTransaction.getId() != null && visitedTransactionIds.add(paidPoolTransaction.getId())) {
-            final Optional<LoanInsurancePaymentEditAudit> audit = this.loanInsurancePaymentEditAuditRepository
+            final Optional<LoanDisbursementChargeAdjustmentAudit> audit = this.loanDisbursementChargeAdjustmentAuditRepository
                     .findTopByAdjustmentTransactionIdOrderByAdjustedOnDateDescIdDesc(paidPoolTransaction.getId());
             if (audit.isEmpty() || audit.get().getOriginalTransactionId() == null) {
                 break;
@@ -4361,16 +4367,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return paidPoolTransaction.getAmount(loan.getCurrency()).getAmount();
     }
 
-    private void validateDisbursementInsuranceEditDate(final Loan loan, final LoanCharge loanCharge,
+    private void validateDisbursementChargeAdjustmentDate(final Loan loan, final LoanCharge loanCharge,
             final LocalDate newTransactionDate) {
         if (newTransactionDate.isAfter(DateUtils.getBusinessLocalDate())) {
-            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.date.future",
-                    "The insurance payment transaction date cannot be in the future.", "transactionDate", newTransactionDate);
+            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.date.future",
+                    "The disbursement charge payment transaction date cannot be in the future.", "transactionDate", newTransactionDate);
         }
         final LocalDate disbursementDate = getActualDisbursementDateForCharge(loan, loanCharge);
         if (disbursementDate != null && newTransactionDate.isBefore(disbursementDate)) {
-            throwTransactionValidationError("error.msg.loan.disbursement.insurance.edit.date.before.disbursement",
-                    "The insurance payment transaction date cannot be before the related disbursement date.", "transactionDate",
+            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.date.before.disbursement",
+                    "The disbursement charge payment transaction date cannot be before the related disbursement date.", "transactionDate",
                     newTransactionDate, disbursementDate);
         }
     }
@@ -4390,19 +4396,19 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return latestGLClosure != null && !transactionDate.isAfter(latestGLClosure.getClosingDate());
     }
 
-    private String getInsuranceEditNote(final JsonCommand command) {
+    private String getDisbursementChargeAdjustmentNote(final JsonCommand command) {
         if (command.parameterExists("note")) {
             return command.stringValueOfParameterNamed("note");
         }
         return command.stringValueOfParameterNamed("notes");
     }
 
-    private String buildInsurancePaymentEditNote(final BigDecimal previousAmount, final BigDecimal newAmount,
+    private String buildDisbursementChargeAdjustmentNote(final BigDecimal previousAmount, final BigDecimal newAmount,
             final LocalDate previousDate, final LocalDate newDate, final String previousPaymentTypeName,
             final String newPaymentTypeName, final BigDecimal paidAtDisbursementAmount, final BigDecimal feePaidPortion,
             final BigDecimal feeOutstandingPortion, final BigDecimal overpaymentPortion, final String reason) {
         final List<String> noteParts = new ArrayList<>();
-        noteParts.add("Insurance payment adjustment");
+        noteParts.add("Disbursement charge adjustment");
         noteParts.add("Amount: " + previousAmount + " -> " + newAmount);
         if (paidAtDisbursementAmount != null) {
             noteParts.add("Paid at disbursement: " + paidAtDisbursementAmount);
@@ -4466,7 +4472,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final ProductToGLAccountMapping mapping = findFundSourceMapping(loan, paymentTypeId);
         if (mapping == null || mapping.getGlAccount() == null) {
             throw new GeneralPlatformDomainRuleException(
-                    "error.msg.loan.disbursement.insurance.edit.payment.type.fund.source.mapping.not.found",
+                    "error.msg.loan.disbursement.charge.adjustment.payment.type.fund.source.mapping.not.found",
                     "Fund source GL account mapping not found for loan product: " + loan.productId()
                             + " and payment type: " + paymentTypeId,
                     loan.productId(), paymentTypeId);
@@ -4483,7 +4489,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 AccountingConstants.CashAccountsForLoan.FUND_SOURCE.getValue(), paymentTypeId);
     }
 
-    private GLAccount findConfiguredInsuranceIncomeGlAccount(final Loan loan, final LoanCharge loanCharge) {
+    private GLAccount findConfiguredChargeIncomeGlAccount(final Loan loan, final LoanCharge loanCharge) {
         final ProductToGLAccountMapping mapping = this.productToGLAccountMappingRepository
                 .findProductIdAndProductTypeAndFinancialAccountTypeAndChargeId(loan.productId(),
                         PortfolioProductType.LOAN.getValue(), AccountingConstants.CashAccountsForLoan.INCOME_FROM_FEES.getValue(),
@@ -4515,7 +4521,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
         return this.glAccountRepository.findById(glAccountId)
                 .orElseThrow(() -> new GeneralPlatformDomainRuleException(
-                        "error.msg.loan.disbursement.insurance.edit.gl.account.not.found",
+                        "error.msg.loan.disbursement.charge.adjustment.gl.account.not.found",
                         "GL account not found for id: " + glAccountId, glAccountId));
     }
 
@@ -4523,77 +4529,109 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return user.getRoles().stream().map(role -> role.getName()).sorted().collect(Collectors.joining(","));
     }
 
-    private void postInsuranceCustomerBalanceAdjustmentJournalEntries(final Loan loan,
-            final LoanTransaction amountAdjustmentTransaction, final BigDecimal previousInsuranceAmount,
-            final BigDecimal newInsuranceAmount, final BigDecimal customerOutstandingBeforeCorrection,
-            final GLAccount previousIncomeGlAccount, final GLAccount newIncomeGlAccount, final LocalDate transactionDate,
-            final Map<String, Object> changes) {
-        if (amountAdjustmentTransaction == null) {
+    private void postChargeCustomerBalanceAdjustmentJournalEntries(final Loan loan, final LoanTransaction journalTransaction,
+            final DisbursementChargeAdjustmentAllocation allocation, final GLAccount previousIncomeGlAccount,
+            final GLAccount newIncomeGlAccount, final LocalDate transactionDate, final Map<String, Object> changes) {
+        if (journalTransaction == null) {
             return;
         }
-        final BigDecimal customerBalanceIncrease = positiveDifference(newInsuranceAmount, previousInsuranceAmount);
-        final BigDecimal customerBalanceDecrease = positiveDifference(previousInsuranceAmount, newInsuranceAmount);
-        if (customerBalanceIncrease.compareTo(BigDecimal.ZERO) == 0 && customerBalanceDecrease.compareTo(BigDecimal.ZERO) == 0) {
+        final BigDecimal chargeIncomeIncrease = allocation.chargeIncomeIncrease();
+        final BigDecimal chargeIncomeDecrease = allocation.chargeIncomeDecrease();
+        if (chargeIncomeIncrease.compareTo(BigDecimal.ZERO) == 0 && chargeIncomeDecrease.compareTo(BigDecimal.ZERO) == 0) {
             return;
         }
 
-        final GLAccount loanPortfolioGlAccount = findInsuranceAdjustmentLoanPortfolioGlAccount(loan);
-        if (loanPortfolioGlAccount == null) {
-            throw new GeneralPlatformDomainRuleException(
-                    "error.msg.loan.disbursement.insurance.edit.loan.portfolio.gl.not.found",
-                    "Insurance adjustment loan portfolio GL account mapping could not be resolved for loan product: "
-                            + loan.productId(),
-                    loan.productId());
-        }
+        GLAccount loanPortfolioGlAccount = null;
 
-        if (customerBalanceIncrease.compareTo(BigDecimal.ZERO) > 0) {
+        if (chargeIncomeIncrease.compareTo(BigDecimal.ZERO) > 0) {
             if (newIncomeGlAccount == null) {
                 throw new GeneralPlatformDomainRuleException(
-                        "error.msg.loan.disbursement.insurance.edit.income.gl.not.found",
-                        "Insurance income GL account mapping could not be resolved for loan product: " + loan.productId(),
+                        "error.msg.loan.disbursement.charge.adjustment.income.gl.not.found",
+                        "Charge income GL account mapping could not be resolved for loan product: " + loan.productId(),
                         loan.productId());
             }
-            saveManualJournalEntryIfPositive(loan, loanPortfolioGlAccount, JournalEntryType.DEBIT, customerBalanceIncrease,
-                    "Insurance amount adjustment - increase customer balance", amountAdjustmentTransaction, transactionDate);
-            saveManualJournalEntryIfPositive(loan, newIncomeGlAccount, JournalEntryType.CREDIT, customerBalanceIncrease,
-                    "Insurance amount adjustment - recognize insurance income", amountAdjustmentTransaction, transactionDate);
-            changes.put("insuranceCustomerBalanceIncrease", customerBalanceIncrease);
-            changes.put("insuranceLoanPortfolioGlAccountId", loanPortfolioGlAccount.getId());
+            final BigDecimal loanPortfolioBalanceIncrease = deriveProcessedDisbursementChargeLoanBalanceDecrease(loan,
+                    journalTransaction);
+            final BigDecimal customerOverpaymentDecrease = journalTransaction.getOverPaymentPortion(loan.getCurrency()).getAmount();
+            if (loanPortfolioBalanceIncrease.compareTo(BigDecimal.ZERO) > 0) {
+                loanPortfolioGlAccount = requireDisbursementChargeAdjustmentLoanPortfolioGlAccount(loan);
+                saveManualJournalEntryIfPositive(loan, loanPortfolioGlAccount, JournalEntryType.DEBIT,
+                        loanPortfolioBalanceIncrease, "Disbursement charge adjustment - restore customer balance",
+                        journalTransaction, transactionDate);
+                changes.put("chargeLoanPortfolioBalanceIncrease", loanPortfolioBalanceIncrease);
+                changes.put("chargeLoanPortfolioGlAccountId", loanPortfolioGlAccount.getId());
+            }
+            if (customerOverpaymentDecrease.compareTo(BigDecimal.ZERO) > 0) {
+                final GLAccount overpaymentGlAccount = findDisbursementChargeAdjustmentOverpaymentGlAccount(loan);
+                if (overpaymentGlAccount == null) {
+                    throw new GeneralPlatformDomainRuleException(
+                            "error.msg.loan.disbursement.charge.adjustment.overpayment.gl.not.found",
+                            "Disbursement charge adjustment overpayment GL account mapping could not be resolved for loan product: "
+                                    + loan.productId(),
+                            loan.productId());
+                }
+                saveManualJournalEntryIfPositive(loan, overpaymentGlAccount, JournalEntryType.DEBIT, customerOverpaymentDecrease,
+                        "Disbursement charge adjustment - reduce customer credit", journalTransaction, transactionDate);
+                changes.put("chargeCustomerCreditDecrease", customerOverpaymentDecrease);
+                changes.put("chargeOverpaymentGlAccountId", overpaymentGlAccount.getId());
+            }
+            if (allocation.feeReceivableIncrease().compareTo(BigDecimal.ZERO) > 0) {
+                if (loanPortfolioGlAccount == null) {
+                    loanPortfolioGlAccount = requireDisbursementChargeAdjustmentLoanPortfolioGlAccount(loan);
+                }
+                final GLAccount receivableGlAccount = findDisbursementChargeAdjustmentReceivableGlAccount(loan, loanPortfolioGlAccount);
+                saveManualJournalEntryIfPositive(loan, receivableGlAccount, JournalEntryType.DEBIT,
+                        allocation.feeReceivableIncrease(), "Disbursement charge adjustment - increase fee receivable",
+                        journalTransaction, transactionDate);
+                changes.put("chargeFeeReceivableIncrease", allocation.feeReceivableIncrease());
+                changes.put("chargeFeeReceivableGlAccountId", receivableGlAccount.getId());
+            }
+            saveManualJournalEntryIfPositive(loan, newIncomeGlAccount, JournalEntryType.CREDIT, chargeIncomeIncrease,
+                    "Disbursement charge adjustment - recognize charge income", journalTransaction, transactionDate);
+            changes.put("chargeCustomerBalanceIncrease", allocation.customerBalanceIncrease());
         }
 
-        if (customerBalanceDecrease.compareTo(BigDecimal.ZERO) > 0) {
+        if (chargeIncomeDecrease.compareTo(BigDecimal.ZERO) > 0) {
+            loanPortfolioGlAccount = requireDisbursementChargeAdjustmentLoanPortfolioGlAccount(loan);
             final GLAccount incomeGlAccount = previousIncomeGlAccount == null ? newIncomeGlAccount : previousIncomeGlAccount;
             if (incomeGlAccount == null) {
                 throw new GeneralPlatformDomainRuleException(
-                        "error.msg.loan.disbursement.insurance.edit.income.gl.not.found",
-                        "Insurance income GL account mapping could not be resolved for loan product: " + loan.productId(),
+                        "error.msg.loan.disbursement.charge.adjustment.income.gl.not.found",
+                        "Charge income GL account mapping could not be resolved for loan product: " + loan.productId(),
                         loan.productId());
             }
-            final BigDecimal availableCustomerOutstanding = customerOutstandingBeforeCorrection == null ? customerBalanceDecrease
-                    : defaultToZeroIfNull(customerOutstandingBeforeCorrection).max(BigDecimal.ZERO);
-            final BigDecimal loanPortfolioBalanceDecrease = customerBalanceDecrease.min(availableCustomerOutstanding);
-            final BigDecimal customerCredit = customerBalanceDecrease.subtract(loanPortfolioBalanceDecrease);
-            saveManualJournalEntryIfPositive(loan, incomeGlAccount, JournalEntryType.DEBIT, customerBalanceDecrease,
-                    "Insurance amount adjustment - reduce insurance income", amountAdjustmentTransaction, transactionDate);
+            final BigDecimal loanPortfolioBalanceDecrease = deriveProcessedDisbursementChargeLoanBalanceDecrease(loan,
+                    journalTransaction);
+            final BigDecimal customerCredit = journalTransaction.getOverPaymentPortion(loan.getCurrency()).getAmount();
+            final BigDecimal receivableBalanceDecrease = allocation.feeReceivableDecrease();
+            saveManualJournalEntryIfPositive(loan, incomeGlAccount, JournalEntryType.DEBIT, chargeIncomeDecrease,
+                    "Disbursement charge adjustment - reduce charge income", journalTransaction, transactionDate);
             saveManualJournalEntryIfPositive(loan, loanPortfolioGlAccount, JournalEntryType.CREDIT, loanPortfolioBalanceDecrease,
-                    "Insurance amount adjustment - reduce customer balance", amountAdjustmentTransaction, transactionDate);
+                    "Disbursement charge adjustment - reduce customer balance", journalTransaction, transactionDate);
+            if (receivableBalanceDecrease.compareTo(BigDecimal.ZERO) > 0) {
+                final GLAccount receivableGlAccount = findDisbursementChargeAdjustmentReceivableGlAccount(loan, loanPortfolioGlAccount);
+                saveManualJournalEntryIfPositive(loan, receivableGlAccount, JournalEntryType.CREDIT, receivableBalanceDecrease,
+                        "Disbursement charge adjustment - reduce fee receivable", journalTransaction, transactionDate);
+                changes.put("chargeFeeReceivableDecrease", receivableBalanceDecrease);
+                changes.put("chargeFeeReceivableGlAccountId", receivableGlAccount.getId());
+            }
             if (customerCredit.compareTo(BigDecimal.ZERO) > 0) {
-                final GLAccount overpaymentGlAccount = findInsuranceAdjustmentOverpaymentGlAccount(loan);
+                final GLAccount overpaymentGlAccount = findDisbursementChargeAdjustmentOverpaymentGlAccount(loan);
                 if (overpaymentGlAccount == null) {
                     throw new GeneralPlatformDomainRuleException(
-                            "error.msg.loan.disbursement.insurance.edit.overpayment.gl.not.found",
-                            "Insurance adjustment overpayment GL account mapping could not be resolved for loan product: "
+                            "error.msg.loan.disbursement.charge.adjustment.overpayment.gl.not.found",
+                            "Disbursement charge adjustment overpayment GL account mapping could not be resolved for loan product: "
                                     + loan.productId(),
                             loan.productId());
                 }
                 saveManualJournalEntryIfPositive(loan, overpaymentGlAccount, JournalEntryType.CREDIT, customerCredit,
-                        "Insurance amount adjustment - customer credit", amountAdjustmentTransaction, transactionDate);
-                changes.put("insuranceCustomerCredit", customerCredit);
-                changes.put("insuranceOverpaymentGlAccountId", overpaymentGlAccount.getId());
+                        "Disbursement charge adjustment - customer credit", journalTransaction, transactionDate);
+                changes.put("chargeCustomerCredit", customerCredit);
+                changes.put("chargeOverpaymentGlAccountId", overpaymentGlAccount.getId());
             }
-            changes.put("insuranceCustomerBalanceDecrease", customerBalanceDecrease);
-            changes.put("insuranceLoanPortfolioBalanceDecrease", loanPortfolioBalanceDecrease);
-            changes.put("insuranceLoanPortfolioGlAccountId", loanPortfolioGlAccount.getId());
+            changes.put("chargeCustomerBalanceDecrease", allocation.customerBalanceDecrease());
+            changes.put("chargeLoanPortfolioBalanceDecrease", loanPortfolioBalanceDecrease);
+            changes.put("chargeLoanPortfolioGlAccountId", loanPortfolioGlAccount.getId());
         }
     }
 
@@ -4606,16 +4644,38 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 loanTransaction, entryDate));
     }
 
-    private BigDecimal positiveDifference(final BigDecimal left, final BigDecimal right) {
-        final BigDecimal difference = defaultToZeroIfNull(left).subtract(defaultToZeroIfNull(right));
-        return difference.compareTo(BigDecimal.ZERO) > 0 ? difference : BigDecimal.ZERO;
+    private GLAccount requireDisbursementChargeAdjustmentLoanPortfolioGlAccount(final Loan loan) {
+        final GLAccount loanPortfolioGlAccount = findDisbursementChargeAdjustmentLoanPortfolioGlAccount(loan);
+        if (loanPortfolioGlAccount == null) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.disbursement.charge.adjustment.loan.portfolio.gl.not.found",
+                    "Disbursement charge adjustment loan portfolio GL account mapping could not be resolved for loan product: "
+                            + loan.productId(),
+                    loan.productId());
+        }
+        return loanPortfolioGlAccount;
+    }
+
+    private BigDecimal deriveProcessedDisbursementChargeLoanBalanceDecrease(final Loan loan,
+            final LoanTransaction amountAdjustmentTransaction) {
+        final Money principalPortion = amountAdjustmentTransaction.getPrincipalPortion(loan.getCurrency());
+        final Money interestPortion = amountAdjustmentTransaction.getInterestPortion(loan.getCurrency());
+        final Money penaltyChargesPortion = amountAdjustmentTransaction.getPenaltyChargesPortion(loan.getCurrency());
+        return principalPortion.plus(interestPortion).plus(penaltyChargesPortion).getAmount();
+    }
+
+    private GLAccount findDisbursementChargeAdjustmentReceivableGlAccount(final Loan loan, final GLAccount fallbackGlAccount) {
+        final ProductToGLAccountMapping mapping = this.productToGLAccountMappingRepository.findCoreProductToFinAccountMapping(
+                loan.productId(), PortfolioProductType.LOAN.getValue(),
+                AccountingConstants.AccrualAccountsForLoan.FEES_RECEIVABLE.getValue());
+        return mapping == null ? fallbackGlAccount : mapping.getGlAccount();
     }
 
     private BigDecimal defaultToZeroIfNull(final BigDecimal amount) {
         return amount == null ? BigDecimal.ZERO : amount;
     }
 
-    private BigDecimal deriveInsuranceCustomerCreditPortion(final BigDecimal customerBalanceDecrease,
+    private BigDecimal deriveDisbursementChargeCustomerCreditPortion(final BigDecimal customerBalanceDecrease,
             final BigDecimal customerOutstandingBeforeCorrection) {
         if (customerBalanceDecrease == null || customerBalanceDecrease.compareTo(BigDecimal.ZERO) <= 0) {
             return BigDecimal.ZERO;
@@ -4627,11 +4687,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return customerBalanceDecrease.subtract(customerBalanceDecrease.min(availableCustomerOutstanding));
     }
 
-    private GLAccount findInsuranceAdjustmentLoanPortfolioGlAccount(final Loan loan) {
+    private GLAccount findDisbursementChargeAdjustmentLoanPortfolioGlAccount(final Loan loan) {
         return findCoreLoanProductGlAccount(loan, AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue());
     }
 
-    private GLAccount findInsuranceAdjustmentOverpaymentGlAccount(final Loan loan) {
+    private GLAccount findDisbursementChargeAdjustmentOverpaymentGlAccount(final Loan loan) {
         return findCoreLoanProductGlAccount(loan, AccountingConstants.CashAccountsForLoan.OVERPAYMENT.getValue());
     }
 
@@ -4656,9 +4716,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         originalTransaction.updateRepaymentAtDisbursementComponents(feeCharges, penaltyCharges, overpaymentAmount);
     }
 
-    private void recalculateLoanAfterInsurancePaymentEdit(final Loan loan, final LoanCharge editedLoanCharge) {
+    private void recalculateLoanAfterChargePaymentEdit(final Loan loan, final LoanCharge editedLoanCharge) {
         loan.refreshFeeChargesDueAtDisbursement();
-        refreshInsuranceDisbursementNetDisbursalAmount(loan, editedLoanCharge);
+        refreshDisbursementChargeNetDisbursalAmount(loan, editedLoanCharge);
         final ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
         if (changedTransactionDetail != null) {
             for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
@@ -4672,7 +4732,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         this.loanAccountDomainService.recalculateAccruals(loan);
     }
 
-    static void refreshInsuranceDisbursementNetDisbursalAmount(final Loan loan, final LoanCharge editedLoanCharge) {
+    static void refreshDisbursementChargeNetDisbursalAmount(final Loan loan, final LoanCharge editedLoanCharge) {
         final List<LoanDisbursementDetails> disbursementDetails = loan.getDisbursementDetails();
         if (disbursementDetails == null || disbursementDetails.isEmpty()) {
             return;
@@ -4774,16 +4834,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     @Override
     @Transactional
-    public CommandProcessingResult adjustLoanInsuranceCharge(final Long loanId, final Long loanChargeId,
+    public CommandProcessingResult adjustLoanDisbursementCharge(final Long loanId, final Long loanChargeId,
                                                              final JsonCommand command) {
         final String notes = command.stringValueOfParameterNamed("notes");
         if (StringUtils.isBlank(notes)) {
             throw new PlatformApiDataValidationException(List.of(ApiParameterError.parameterError(
-                    "validation.msg.loan.insurance.adjustment.notes.required",
-                    "Reason is mandatory for insurance payment adjustments.",
+                    "validation.msg.loan.disbursement.charge.adjustment.notes.required",
+                    "Reason is mandatory for disbursement charge adjustments.",
                     "notes")));
         }
-        return editDisbursementInsuranceAtDisbursement(loanId, null, loanChargeId, command, true);
+        return editDisbursementChargeAtDisbursement(loanId, null, loanChargeId, command, true);
     }
 
     private void validateIsMultiDisbursalLoanAndDisbursedMoreThanOneTranche(Loan loan) {
@@ -4901,7 +4961,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         if (creditEntry == null) {
             for (final LoanTransaction lt : loan.getLoanTransactions()) {
                 if (lt.isReversed()) continue;
-                if (!LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.equals(lt.getTypeOf())) continue;
+                if (!LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.equals(lt.getTypeOf())) continue;
                 if (currentAdjustmentTransaction != null && lt.getId().equals(currentAdjustmentTransaction.getId())) continue;
                 final List<JournalEntry> adjEntries = journalEntryRepository
                         .findAllByLoanTransactionId(lt.getId());

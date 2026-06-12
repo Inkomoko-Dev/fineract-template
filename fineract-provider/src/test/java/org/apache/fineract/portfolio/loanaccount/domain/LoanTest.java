@@ -153,35 +153,35 @@ public class LoanTest {
     }
 
     @Test
-    public void insuranceChargeAdjustmentKeepsAmountPositiveAndStoresDirectionOnFeePortion() {
+    public void disbursementChargeAdjustmentKeepsAmountPositiveAndStoresDirectionOnFeePortion() {
         final Office office = mock(Office.class);
         final Loan loan = mock(Loan.class);
 
-        final LoanTransaction increaseAdjustment = LoanTransaction.insuranceChargeAdjustment(loan, office,
+        final LoanTransaction increaseAdjustment = LoanTransaction.disbursementChargeAdjustment(loan, office,
                 Money.of(KES, new BigDecimal("50.00")), LocalDate.of(2026, 5, 25), false);
-        final LoanTransaction decreaseAdjustment = LoanTransaction.insuranceChargeAdjustment(loan, office,
+        final LoanTransaction decreaseAdjustment = LoanTransaction.disbursementChargeAdjustment(loan, office,
                 Money.of(KES, new BigDecimal("50.00")), LocalDate.of(2026, 5, 25), true);
 
-        assertEquals(LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT, increaseAdjustment.getTypeOf());
-        assertTrue(increaseAdjustment.isNonMonetaryTransaction());
+        assertEquals(LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT, increaseAdjustment.getTypeOf());
+        assertFalse(increaseAdjustment.isNonMonetaryTransaction());
         assertFalse(increaseAdjustment.isPaymentTransaction());
         assertEquals(0, new BigDecimal("50.00").compareTo(increaseAdjustment.getAmount(KES).getAmount()));
         assertEquals(0, new BigDecimal("50.00").compareTo(increaseAdjustment.getFeeChargesPortion(KES).getAmount()));
 
-        assertEquals(LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT, decreaseAdjustment.getTypeOf());
-        assertTrue(decreaseAdjustment.isNonMonetaryTransaction());
+        assertEquals(LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT, decreaseAdjustment.getTypeOf());
+        assertFalse(decreaseAdjustment.isNonMonetaryTransaction());
         assertFalse(decreaseAdjustment.isPaymentTransaction());
         assertEquals(0, new BigDecimal("50.00").compareTo(decreaseAdjustment.getAmount(KES).getAmount()));
         assertEquals(0, new BigDecimal("-50.00").compareTo(decreaseAdjustment.getFeeChargesPortion(KES).getAmount()));
     }
 
     @Test
-    public void insuranceChargeAdjustmentMapDataDisplaysAbsoluteFeePortion() {
+    public void disbursementChargeAdjustmentMapDataDisplaysAbsoluteFeePortion() {
         final Office office = mock(Office.class);
         final Loan loan = mock(Loan.class);
         when(office.getId()).thenReturn(1L);
         when(loan.getNetDisbursalAmount()).thenReturn(BigDecimal.ZERO);
-        final LoanTransaction decreaseAdjustment = LoanTransaction.insuranceChargeAdjustment(loan, office,
+        final LoanTransaction decreaseAdjustment = LoanTransaction.disbursementChargeAdjustment(loan, office,
                 Money.of(KES, new BigDecimal("600.00")), LocalDate.of(2026, 5, 25), true);
 
         final Map<String, Object> transactionData = decreaseAdjustment.toMapData(new CurrencyData("KES", "Kenyan Shilling", 2, 1, "KSh",
@@ -192,9 +192,9 @@ public class LoanTest {
     }
 
     @Test
-    public void insuranceChargeAdjustmentDataDisplaysAbsoluteFeePortion() {
+    public void disbursementChargeAdjustmentDataDisplaysAbsoluteFeePortion() {
         final LoanTransactionData transactionData = new LoanTransactionData(1L,
-                LoanEnumerations.transactionType(LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT),
+                LoanEnumerations.transactionType(LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT),
                 LocalDate.of(2026, 5, 25), new BigDecimal("600.00"), null, BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("-600.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
 
@@ -204,7 +204,7 @@ public class LoanTest {
     }
 
     @Test
-    public void repaymentAtDisbursementCanSeparateInsuranceFeePaidFromOverpaymentWithoutChangingPaidPool() {
+    public void repaymentAtDisbursementCanSeparateChargeFeePaidFromOverpaymentWithoutChangingPaidPool() {
         final Office office = mock(Office.class);
         final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(office,
                 Money.of(KES, new BigDecimal("100.00")), null, LocalDate.of(2026, 5, 25), null);
@@ -240,10 +240,10 @@ public class LoanTest {
         final Loan loan = new Loan();
         final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
         when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
-        final LoanCharge insuranceCharge = buildDisbursementLoanCharge(loan, new BigDecimal("1000.00"));
+        final LoanCharge disbursementCharge = buildDisbursementLoanCharge(loan, new BigDecimal("1000.00"));
         final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(mock(Office.class),
                 Money.of(KES, new BigDecimal("2000.00")), null, LocalDate.of(2026, 5, 8), null);
-        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, insuranceCharge,
+        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, disbursementCharge,
                 new BigDecimal("1000.00"), null));
         repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("1000.00")),
                 Money.zero(KES), Money.zero(KES));
@@ -266,10 +266,10 @@ public class LoanTest {
                 LocalDate.of(2026, 5, 8), LocalDate.of(2026, 6, 8), new BigDecimal("300.00"), BigDecimal.ZERO,
                 BigDecimal.ZERO, BigDecimal.ZERO, false, null);
         installment.payPrincipalComponent(LocalDate.of(2026, 5, 8), Money.of(KES, new BigDecimal("300.00")));
-        final LoanCharge insuranceCharge = buildDisbursementLoanCharge(loan, new BigDecimal("500.00"));
+        final LoanCharge disbursementCharge = buildDisbursementLoanCharge(loan, new BigDecimal("500.00"));
         final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(mock(Office.class),
                 Money.of(KES, new BigDecimal("800.00")), null, LocalDate.of(2026, 5, 8), null);
-        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, insuranceCharge,
+        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, disbursementCharge,
                 new BigDecimal("500.00"), null));
         repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("500.00")),
                 Money.zero(KES));
@@ -289,10 +289,10 @@ public class LoanTest {
         final Loan loan = new Loan();
         final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
         when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
-        final LoanCharge insuranceCharge = buildDisbursementLoanCharge(loan, new BigDecimal("500.00"));
+        final LoanCharge disbursementCharge = buildDisbursementLoanCharge(loan, new BigDecimal("500.00"));
         final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(mock(Office.class),
                 Money.of(KES, new BigDecimal("800.00")), null, LocalDate.of(2026, 5, 8), null);
-        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, insuranceCharge,
+        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, disbursementCharge,
                 new BigDecimal("500.00"), null));
         repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("500.00")),
                 Money.zero(KES), Money.of(KES, new BigDecimal("300.00")));
@@ -349,24 +349,24 @@ public class LoanTest {
     }
 
     @Test
-    public void disbursementInsuranceChargeAdjustmentRecomputesPaidAndOutstandingAmounts() {
+    public void disbursementChargeAdjustmentRecomputesPaidAndOutstandingAmounts() {
         final LoanCharge loanCharge = buildLoanCharge();
 
-        loanCharge.updateAmountPaidForDisbursementInsuranceAdjustment(new BigDecimal("100.00"), new BigDecimal("50.00"));
+        loanCharge.updateAmountPaidForDisbursementChargeAdjustment(new BigDecimal("100.00"), new BigDecimal("50.00"));
 
         assertFalse(loanCharge.isPaid());
         assertEquals(0, new BigDecimal("100.00").compareTo(loanCharge.getAmount(KES).getAmount()));
         assertEquals(0, new BigDecimal("50.00").compareTo(loanCharge.getAmountPaid(KES).getAmount()));
         assertEquals(0, new BigDecimal("50.00").compareTo(loanCharge.getAmountOutstanding(KES).getAmount()));
 
-        loanCharge.updateAmountPaidForDisbursementInsuranceAdjustment(new BigDecimal("50.00"), new BigDecimal("50.00"));
+        loanCharge.updateAmountPaidForDisbursementChargeAdjustment(new BigDecimal("50.00"), new BigDecimal("50.00"));
 
         assertTrue(loanCharge.isPaid());
         assertEquals(0, new BigDecimal("50.00").compareTo(loanCharge.getAmount(KES).getAmount()));
         assertEquals(0, new BigDecimal("50.00").compareTo(loanCharge.getAmountPaid(KES).getAmount()));
         assertEquals(0, BigDecimal.ZERO.compareTo(loanCharge.getAmountOutstanding(KES).getAmount()));
 
-        loanCharge.updateAmountPaidForDisbursementInsuranceAdjustment(BigDecimal.ZERO, BigDecimal.ZERO);
+        loanCharge.updateAmountPaidForDisbursementChargeAdjustment(BigDecimal.ZERO, BigDecimal.ZERO);
 
         assertTrue(loanCharge.isPaid());
         assertEquals(0, BigDecimal.ZERO.compareTo(loanCharge.getAmount(KES).getAmount()));
@@ -381,7 +381,7 @@ public class LoanTest {
         final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("5000.00"));
         final LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(LocalDate.of(2026, 6, 8), null,
                 new BigDecimal("5000.00"), new BigDecimal("4200.00"));
-        final LoanCharge insuranceCharge = buildDisbursementLoanCharge(loan, new BigDecimal("800.00"));
+        final LoanCharge disbursementCharge = buildDisbursementLoanCharge(loan, new BigDecimal("800.00"));
         final JsonCommand command = jsonCommand("{\"transactionAmount\":4200,\"netDisbursalAmount\":4200,\"locale\":\"en\"}");
 
         when(loanProduct.isMultiDisburseLoan()).thenReturn(false);
@@ -389,7 +389,7 @@ public class LoanTest {
         ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
         ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
         ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("5000.00"));
-        ReflectionTestUtils.setField(loan, "charges", Set.of(insuranceCharge));
+        ReflectionTestUtils.setField(loan, "charges", Set.of(disbursementCharge));
         ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Collections.singletonList(disbursementDetails)));
         disbursementDetails.updateLoan(loan);
 

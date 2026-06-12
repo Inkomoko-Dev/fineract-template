@@ -140,6 +140,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             }
         }
 
+        final DisbursementChargeBalanceReplayLedger chargeBalanceReplayLedger = new DisbursementChargeBalanceReplayLedger();
+
         for (final LoanTransaction loanTransaction : transactionstoBeProcessed) {
 
             if (!loanTransaction.getTypeOf().equals(LoanTransactionType.REFUND_FOR_ACTIVE_LOAN)) {
@@ -192,9 +194,12 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                             overpaymentToProcess, false);
                     loanTransaction.replaceOverPaymentPortion(unprocessed);
                 }
-            } else if (loanTransaction.isInsuranceChargeAdjustment()
-                    && loanTransaction.getFeeChargesPortion(currency).isLessThanZero()) {
-                handleInsuranceCustomerBalanceCredit(loanTransaction, currency, installments);
+            } else if (loanTransaction.isDisbursementChargeAdjustment()) {
+                if (loanTransaction.getFeeChargesPortion(currency).isLessThanZero()) {
+                    handleDisbursementChargeBalanceCredit(loanTransaction, currency, installments, chargeBalanceReplayLedger);
+                } else if (loanTransaction.getFeeChargesPortion(currency).isGreaterThanZero()) {
+                    handleDisbursementChargeBalanceRestore(loanTransaction, currency, chargeBalanceReplayLedger);
+                }
             } else if (loanTransaction.isWriteOff()) {
                 loanTransaction.resetDerivedComponents();
                 handleWriteOff(loanTransaction, currency, installments);
@@ -207,8 +212,9 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         return changedTransactionDetail;
     }
 
-    private void handleInsuranceCustomerBalanceCredit(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
-            final List<LoanRepaymentScheduleInstallment> installments) {
+    private void handleDisbursementChargeBalanceCredit(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
+            final List<LoanRepaymentScheduleInstallment> installments,
+            final DisbursementChargeBalanceReplayLedger chargeBalanceReplayLedger) {
         loanTransaction.resetDerivedComponentsPreservingFeeCharges(currency);
 
         Money amountUnprocessed = loanTransaction.getAmount(currency);
@@ -246,6 +252,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             if (installmentPrincipalPortion.plus(installmentInterestPortion).plus(installmentPenaltyChargesPortion).isGreaterThanZero()) {
                 transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, installment,
                         installmentPrincipalPortion, installmentInterestPortion, Money.zero(currency), installmentPenaltyChargesPortion));
+                chargeBalanceReplayLedger.recordInstallmentCredit(installment, installmentPrincipalPortion,
+                        installmentInterestPortion, installmentPenaltyChargesPortion);
             }
         }
 
@@ -253,7 +261,24 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             loanTransaction.updateComponents(principalPortion, interestPortion, Money.zero(currency), penaltyChargesPortion);
         }
         loanTransaction.replaceOverPaymentPortion(amountUnprocessed.isGreaterThanZero() ? amountUnprocessed : Money.zero(currency));
+        if (amountUnprocessed.isGreaterThanZero()) {
+            chargeBalanceReplayLedger.recordOverpaymentCredit(amountUnprocessed);
+        }
         loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+    }
+
+    private void handleDisbursementChargeBalanceRestore(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
+            final DisbursementChargeBalanceReplayLedger chargeBalanceReplayLedger) {
+        loanTransaction.resetDerivedComponentsPreservingFeeCharges(currency);
+
+        final DisbursementChargeBalanceReplayLedger.ChargeBalanceRestore restore = chargeBalanceReplayLedger.restore(loanTransaction,
+                loanTransaction.getAmount(currency));
+        if (restore.totalInstallmentPortion().isGreaterThanZero()) {
+            loanTransaction.updateComponents(restore.principalPortion(), restore.interestPortion(), Money.zero(currency),
+                    restore.penaltyChargesPortion());
+        }
+        loanTransaction.replaceOverPaymentPortion(restore.overpaymentPortion());
+        loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(restore.transactionMappings());
     }
 
     /**
