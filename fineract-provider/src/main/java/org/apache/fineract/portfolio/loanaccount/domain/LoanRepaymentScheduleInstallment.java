@@ -498,6 +498,69 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return principalPortionOfTransaction;
     }
 
+    public Money applyPrincipalBalanceCredit(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money principalPortionOfTransaction = Money.zero(currency);
+
+        final Money principalDue = getPrincipalOutstanding(currency);
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(principalDue)) {
+            this.principalCompleted = getPrincipalCompleted(currency).plus(principalDue).getAmount();
+            principalPortionOfTransaction = principalPortionOfTransaction.plus(principalDue);
+        } else {
+            this.principalCompleted = getPrincipalCompleted(currency).plus(transactionAmountRemaining).getAmount();
+            principalPortionOfTransaction = principalPortionOfTransaction.plus(transactionAmountRemaining);
+        }
+
+        this.principalCompleted = defaultToNullIfZero(this.principalCompleted);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return principalPortionOfTransaction;
+    }
+
+    public Money applyInterestBalanceCredit(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money interestPortionOfTransaction = Money.zero(currency);
+
+        final Money interestDue = getInterestOutstanding(currency);
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(interestDue)) {
+            this.interestPaid = getInterestPaid(currency).plus(interestDue).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(interestDue);
+        } else {
+            this.interestPaid = getInterestPaid(currency).plus(transactionAmountRemaining).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(transactionAmountRemaining);
+        }
+
+        this.interestPaid = defaultToNullIfZero(this.interestPaid);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return interestPortionOfTransaction;
+    }
+
+    public Money applyPenaltyBalanceCredit(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money penaltyPortionOfTransaction = Money.zero(currency);
+
+        final Money penaltyChargesDue = getPenaltyChargesOutstanding(currency);
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(penaltyChargesDue)) {
+            this.penaltyChargesPaid = getPenaltyChargesPaid(currency).plus(penaltyChargesDue).getAmount();
+            penaltyPortionOfTransaction = penaltyPortionOfTransaction.plus(penaltyChargesDue);
+        } else {
+            this.penaltyChargesPaid = getPenaltyChargesPaid(currency).plus(transactionAmountRemaining).getAmount();
+            penaltyPortionOfTransaction = penaltyPortionOfTransaction.plus(transactionAmountRemaining);
+        }
+
+        this.penaltyChargesPaid = defaultToNullIfZero(this.penaltyChargesPaid);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return penaltyPortionOfTransaction;
+    }
+
     public Money waiveInterestComponent(final LocalDate transactionDate, final Money transactionAmountRemaining) {
         final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
         Money waivedInterestPortionOfTransaction = Money.zero(currency);

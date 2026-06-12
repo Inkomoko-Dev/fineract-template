@@ -3890,13 +3890,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         LoanChargePaidBy selectedChargePaidBy = findChargePaidBy(originalTransaction, loanChargeId);
         final BigDecimal previousLoanChargeAmount = loanCharge.getAmount(loan.getCurrency()).getAmount();
         final BigDecimal previousAmount = previousLoanChargeAmount;
+        final BigDecimal customerOutstandingBeforeCorrection = loan.getSummary() == null ? null
+                : loan.getSummary().getTotalOutstanding();
         final BigDecimal paidAtDisbursementAmount = derivePaidAtDisbursementAmount(loan, originalTransaction);
         final BigDecimal previousFeePaidPortion = previousAmount.min(paidAtDisbursementAmount);
         final BigDecimal previousFeeOutstandingPortion = previousAmount.subtract(previousFeePaidPortion);
         final BigDecimal previousOverpaymentPortion = paidAtDisbursementAmount.subtract(previousFeePaidPortion);
         final BigDecimal feePaidPortion = newAmount.min(paidAtDisbursementAmount);
         final BigDecimal feeOutstandingPortion = newAmount.subtract(feePaidPortion);
-        final BigDecimal overpaymentPortion = paidAtDisbursementAmount.subtract(feePaidPortion);
+        final BigDecimal insuranceAmountDecrease = positiveDifference(previousAmount, newAmount);
+        final BigDecimal insuranceCustomerCreditPortion = deriveInsuranceCustomerCreditPortion(insuranceAmountDecrease,
+                customerOutstandingBeforeCorrection);
+        final BigDecimal repaymentAtDisbursementOverpaymentPortion = BigDecimal.ZERO;
         final BigDecimal currentFeePaidPortion = selectedChargePaidBy == null ? BigDecimal.ZERO : selectedChargePaidBy.getAmount();
         final BigDecimal currentOverpaymentPortion = originalTransaction.getOverPaymentPortion(loan.getCurrency()).getAmount();
         boolean chargePaidByBackfilled = false;
@@ -3964,10 +3969,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final boolean externalIdChanged = StringUtils.isNotBlank(txnExternalId)
                 && !txnExternalId.equals(originalTransaction.getExternalId());
         final boolean transactionDateChangeCountsAsAdjustment = transactionDateChanged;
-        final boolean allocationChangeNeeded = paidAtDisbursementAmountPresent
+        final boolean disbursementPaymentMetadataChanged = paymentDetailChangeRequested || transactionDateChanged || externalIdChanged;
+        final boolean amountOnlyInsuranceAdjustment = amountChanged && !disbursementPaymentMetadataChanged;
+        final boolean allocationChangeNeeded = paidAtDisbursementAmountPresent && !amountOnlyInsuranceAdjustment
                 && (selectedChargePaidBy == null || originalTransaction.isReversed()
                         || !sameMonetaryAmount(currentFeePaidPortion, feePaidPortion)
-                        || !sameMonetaryAmount(currentOverpaymentPortion, overpaymentPortion));
+                        || !sameMonetaryAmount(currentOverpaymentPortion, repaymentAtDisbursementOverpaymentPortion));
         final boolean paymentTransactionCorrectionNeeded = paidAtDisbursementAmountPresent
                 && (paymentDetailChangeRequested || transactionDateChanged || externalIdChanged || allocationChangeNeeded);
         final BigDecimal outstandingIncomeReclassificationPortion = previousFeeOutstandingPortion.min(feeOutstandingPortion);
@@ -4001,7 +4008,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         changes.put("previousOverpaymentPortion", previousOverpaymentPortion);
         changes.put("feePaidPortion", feePaidPortion);
         changes.put("feeOutstandingPortion", feeOutstandingPortion);
-        changes.put("overpaymentPortion", overpaymentPortion);
+        changes.put("overpaymentPortion", insuranceCustomerCreditPortion);
         changes.put("paymentTransactionCorrectionNeeded", paymentTransactionCorrectionNeeded);
         changes.put("previousTransactionDate", originalTransactionDate);
         changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
@@ -4112,7 +4119,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             replacementTransaction.getLoanChargesPaid().add(new LoanChargePaidBy(replacementTransaction, loanCharge, feePaidPortion,
                     installmentNumber));
             updateRepaymentAtDisbursementTransactionAmount(loan, replacementTransaction,
-                    Money.of(loan.getCurrency(), overpaymentPortion));
+                    Money.of(loan.getCurrency(), repaymentAtDisbursementOverpaymentPortion));
             loan.addLoanTransaction(replacementTransaction);
             this.loanTransactionRepository.saveAndFlush(replacementTransaction);
             changes.put("paymentAdjustmentTransactionId", replacementTransaction.getId());
@@ -4123,8 +4130,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         recalculateLoanAfterInsurancePaymentEdit(loan, loanCharge);
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
-        postInsuranceCustomerBalanceAdjustmentJournalEntries(loan, amountAdjustmentTransaction, previousFeeOutstandingPortion,
-                feeOutstandingPortion, previousIncomeGlAccount, newIncomeGlAccount, newTransactionDate, changes);
+        postInsuranceCustomerBalanceAdjustmentJournalEntries(loan, amountAdjustmentTransaction, previousAmount, newAmount,
+                customerOutstandingBeforeCorrection, previousIncomeGlAccount, newIncomeGlAccount, newTransactionDate, changes);
 
         if (paidIncomeGlReclassificationNeeded) {
             final LoanTransaction reclassificationTransaction = replacementTransaction != null ? replacementTransaction
@@ -4163,7 +4170,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final Note note = Note.loanTransactionNote(loan, noteTransaction,
                     buildInsurancePaymentEditNote(previousAmount, newAmount, originalTransactionDate, newTransactionDate,
                             previousPaymentTypeName, newPaymentTypeName, paidAtDisbursementAmount, feePaidPortion,
-                            feeOutstandingPortion, overpaymentPortion, noteText));
+                            feeOutstandingPortion, insuranceCustomerCreditPortion, noteText));
             this.noteRepository.save(note);
         }
 
@@ -4202,10 +4209,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         if (!loan.isDisbursed()) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.loan.not.disbursed",
                     "Insurance payment at disbursement can only be edited after loan disbursement.", loan.getId());
-        }
-        if (loan.isClosed()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.disbursement.insurance.edit.loan.closed",
-                    "Insurance payment at disbursement cannot be edited on a closed loan.", loan.getId());
         }
     }
 
@@ -4521,14 +4524,15 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     }
 
     private void postInsuranceCustomerBalanceAdjustmentJournalEntries(final Loan loan,
-            final LoanTransaction amountAdjustmentTransaction, final BigDecimal previousFeeOutstandingPortion,
-            final BigDecimal feeOutstandingPortion, final GLAccount previousIncomeGlAccount, final GLAccount newIncomeGlAccount,
-            final LocalDate transactionDate, final Map<String, Object> changes) {
+            final LoanTransaction amountAdjustmentTransaction, final BigDecimal previousInsuranceAmount,
+            final BigDecimal newInsuranceAmount, final BigDecimal customerOutstandingBeforeCorrection,
+            final GLAccount previousIncomeGlAccount, final GLAccount newIncomeGlAccount, final LocalDate transactionDate,
+            final Map<String, Object> changes) {
         if (amountAdjustmentTransaction == null) {
             return;
         }
-        final BigDecimal customerBalanceIncrease = positiveDifference(feeOutstandingPortion, previousFeeOutstandingPortion);
-        final BigDecimal customerBalanceDecrease = positiveDifference(previousFeeOutstandingPortion, feeOutstandingPortion);
+        final BigDecimal customerBalanceIncrease = positiveDifference(newInsuranceAmount, previousInsuranceAmount);
+        final BigDecimal customerBalanceDecrease = positiveDifference(previousInsuranceAmount, newInsuranceAmount);
         if (customerBalanceIncrease.compareTo(BigDecimal.ZERO) == 0 && customerBalanceDecrease.compareTo(BigDecimal.ZERO) == 0) {
             return;
         }
@@ -4565,11 +4569,30 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                         "Insurance income GL account mapping could not be resolved for loan product: " + loan.productId(),
                         loan.productId());
             }
+            final BigDecimal availableCustomerOutstanding = customerOutstandingBeforeCorrection == null ? customerBalanceDecrease
+                    : defaultToZeroIfNull(customerOutstandingBeforeCorrection).max(BigDecimal.ZERO);
+            final BigDecimal loanPortfolioBalanceDecrease = customerBalanceDecrease.min(availableCustomerOutstanding);
+            final BigDecimal customerCredit = customerBalanceDecrease.subtract(loanPortfolioBalanceDecrease);
             saveManualJournalEntryIfPositive(loan, incomeGlAccount, JournalEntryType.DEBIT, customerBalanceDecrease,
                     "Insurance amount adjustment - reduce insurance income", amountAdjustmentTransaction, transactionDate);
-            saveManualJournalEntryIfPositive(loan, loanPortfolioGlAccount, JournalEntryType.CREDIT, customerBalanceDecrease,
+            saveManualJournalEntryIfPositive(loan, loanPortfolioGlAccount, JournalEntryType.CREDIT, loanPortfolioBalanceDecrease,
                     "Insurance amount adjustment - reduce customer balance", amountAdjustmentTransaction, transactionDate);
+            if (customerCredit.compareTo(BigDecimal.ZERO) > 0) {
+                final GLAccount overpaymentGlAccount = findInsuranceAdjustmentOverpaymentGlAccount(loan);
+                if (overpaymentGlAccount == null) {
+                    throw new GeneralPlatformDomainRuleException(
+                            "error.msg.loan.disbursement.insurance.edit.overpayment.gl.not.found",
+                            "Insurance adjustment overpayment GL account mapping could not be resolved for loan product: "
+                                    + loan.productId(),
+                            loan.productId());
+                }
+                saveManualJournalEntryIfPositive(loan, overpaymentGlAccount, JournalEntryType.CREDIT, customerCredit,
+                        "Insurance amount adjustment - customer credit", amountAdjustmentTransaction, transactionDate);
+                changes.put("insuranceCustomerCredit", customerCredit);
+                changes.put("insuranceOverpaymentGlAccountId", overpaymentGlAccount.getId());
+            }
             changes.put("insuranceCustomerBalanceDecrease", customerBalanceDecrease);
+            changes.put("insuranceLoanPortfolioBalanceDecrease", loanPortfolioBalanceDecrease);
             changes.put("insuranceLoanPortfolioGlAccountId", loanPortfolioGlAccount.getId());
         }
     }
@@ -4584,12 +4607,32 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     }
 
     private BigDecimal positiveDifference(final BigDecimal left, final BigDecimal right) {
-        final BigDecimal difference = left.subtract(right);
+        final BigDecimal difference = defaultToZeroIfNull(left).subtract(defaultToZeroIfNull(right));
         return difference.compareTo(BigDecimal.ZERO) > 0 ? difference : BigDecimal.ZERO;
+    }
+
+    private BigDecimal defaultToZeroIfNull(final BigDecimal amount) {
+        return amount == null ? BigDecimal.ZERO : amount;
+    }
+
+    private BigDecimal deriveInsuranceCustomerCreditPortion(final BigDecimal customerBalanceDecrease,
+            final BigDecimal customerOutstandingBeforeCorrection) {
+        if (customerBalanceDecrease == null || customerBalanceDecrease.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        if (customerOutstandingBeforeCorrection == null) {
+            return BigDecimal.ZERO;
+        }
+        final BigDecimal availableCustomerOutstanding = defaultToZeroIfNull(customerOutstandingBeforeCorrection).max(BigDecimal.ZERO);
+        return customerBalanceDecrease.subtract(customerBalanceDecrease.min(availableCustomerOutstanding));
     }
 
     private GLAccount findInsuranceAdjustmentLoanPortfolioGlAccount(final Loan loan) {
         return findCoreLoanProductGlAccount(loan, AccountingConstants.CashAccountsForLoan.LOAN_PORTFOLIO.getValue());
+    }
+
+    private GLAccount findInsuranceAdjustmentOverpaymentGlAccount(final Loan loan) {
+        return findCoreLoanProductGlAccount(loan, AccountingConstants.CashAccountsForLoan.OVERPAYMENT.getValue());
     }
 
     private GLAccount findCoreLoanProductGlAccount(final Loan loan, final int financialAccountType) {

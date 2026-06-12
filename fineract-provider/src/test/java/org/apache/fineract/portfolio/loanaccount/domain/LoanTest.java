@@ -53,8 +53,10 @@ import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
+import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
+import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -174,6 +176,34 @@ public class LoanTest {
     }
 
     @Test
+    public void insuranceChargeAdjustmentMapDataDisplaysAbsoluteFeePortion() {
+        final Office office = mock(Office.class);
+        final Loan loan = mock(Loan.class);
+        when(office.getId()).thenReturn(1L);
+        when(loan.getNetDisbursalAmount()).thenReturn(BigDecimal.ZERO);
+        final LoanTransaction decreaseAdjustment = LoanTransaction.insuranceChargeAdjustment(loan, office,
+                Money.of(KES, new BigDecimal("600.00")), LocalDate.of(2026, 5, 25), true);
+
+        final Map<String, Object> transactionData = decreaseAdjustment.toMapData(new CurrencyData("KES", "Kenyan Shilling", 2, 1, "KSh",
+                "currency.KES"));
+
+        assertEquals(0, new BigDecimal("-600.00").compareTo(decreaseAdjustment.getFeeChargesPortion(KES).getAmount()));
+        assertEquals(0, new BigDecimal("600.00").compareTo((BigDecimal) transactionData.get("feeChargesPortion")));
+    }
+
+    @Test
+    public void insuranceChargeAdjustmentDataDisplaysAbsoluteFeePortion() {
+        final LoanTransactionData transactionData = new LoanTransactionData(1L,
+                LoanEnumerations.transactionType(LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT),
+                LocalDate.of(2026, 5, 25), new BigDecimal("600.00"), null, BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("-600.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+
+        final BigDecimal feeChargesPortion = (BigDecimal) ReflectionTestUtils.getField(transactionData, "feeChargesPortion");
+
+        assertEquals(0, new BigDecimal("600.00").compareTo(feeChargesPortion));
+    }
+
+    @Test
     public void repaymentAtDisbursementCanSeparateInsuranceFeePaidFromOverpaymentWithoutChangingPaidPool() {
         final Office office = mock(Office.class);
         final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(office,
@@ -203,6 +233,28 @@ public class LoanTest {
         final Money totalOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
 
         assertEquals(0, new BigDecimal("50.00").compareTo(totalOverpayment.getAmount()));
+    }
+
+    @Test
+    public void linkedRepaymentAtDisbursementAmountDifferenceDoesNotImplyLoanTotalOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        final LoanCharge insuranceCharge = buildDisbursementLoanCharge(loan, new BigDecimal("1000.00"));
+        final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(mock(Office.class),
+                Money.of(KES, new BigDecimal("2000.00")), null, LocalDate.of(2026, 5, 8), null);
+        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, insuranceCharge,
+                new BigDecimal("1000.00"), null));
+        repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("1000.00")),
+                Money.zero(KES), Money.zero(KES));
+        ReflectionTestUtils.setField(repaymentAtDisbursement, "amount", new BigDecimal("2000.00"));
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "loanTransactions", Collections.singletonList(repaymentAtDisbursement));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.emptyList());
+
+        final Money totalOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(totalOverpayment.getAmount()));
     }
 
     @Test
