@@ -3996,19 +3996,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         Money cumulativeRepaymentValue = Money.zero(loanCurrency());
 
         for (final LoanTransaction repayment : this.loanTransactions) {
-            if (repayment.isRepaymentAtDisbursement()) {
-                if (repayment.getLoanChargesPaid().isEmpty()) {
-                    cumulativeRepaymentValue = cumulativeRepaymentValue.plus(repayment.getOverPaymentPortion(loanCurrency()));
-                } else {
-                    Money paidTowardsDisbursementCharges = Money.zero(loanCurrency());
-                    for (final LoanChargePaidBy chargePaidBy : repayment.getLoanChargesPaid()) {
-                        paidTowardsDisbursementCharges = paidTowardsDisbursementCharges.plus(chargePaidBy.getAmount());
-                    }
-                    final Money repaymentValue = repayment.getAmount(loanCurrency()).minus(paidTowardsDisbursementCharges);
-                    if (repaymentValue.isGreaterThanZero()) {
-                        cumulativeRepaymentValue = cumulativeRepaymentValue.plus(repaymentValue);
-                    }
-                }
+            if (repayment.isRepaymentAtDisbursement() && repayment.isNotReversed()) {
+                cumulativeRepaymentValue = cumulativeRepaymentValue.plus(repayment.getOverPaymentPortion(loanCurrency()));
             }
         }
 
