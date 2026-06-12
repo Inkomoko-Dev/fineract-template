@@ -437,7 +437,7 @@ public class LoanTransactionData {
 
     private static BigDecimal displayFeeChargesPortion(final LoanTransactionEnumData transactionType,
             final BigDecimal feeChargesPortion) {
-        if (transactionType != null && transactionType.isInsuranceChargeAdjustment() && feeChargesPortion != null) {
+        if (transactionType != null && transactionType.isDisbursementChargeAdjustment() && feeChargesPortion != null) {
             return feeChargesPortion.abs();
         }
         return feeChargesPortion;

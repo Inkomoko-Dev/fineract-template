@@ -54,7 +54,7 @@ import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.test.util.ReflectionTestUtils;
 
-class InsuranceAdjustmentScheduleTest {
+class DisbursementChargeAdjustmentScheduleTest {
 
     private static final LocalDate DISBURSEMENT_DATE = LocalDate.of(2026, 6, 8);
 
@@ -79,7 +79,7 @@ class InsuranceAdjustmentScheduleTest {
     }
 
     @Test
-    void repaymentScheduleUsesActualDisbursementFeePaymentStateAfterInsuranceAdjustment() throws Exception {
+    void repaymentScheduleUsesActualDisbursementFeePaymentStateAfterDisbursementChargeAdjustment() throws Exception {
         final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
         when(context.authenticatedUser()).thenReturn(null);
@@ -115,7 +115,7 @@ class InsuranceAdjustmentScheduleTest {
     }
 
     @Test
-    void repaymentScheduleDoesNotTreatDownwardInsuranceAdjustmentAsAdvanceRepaymentOrInterestWriteOff() throws Exception {
+    void repaymentScheduleDoesNotTreatDownwardDisbursementChargeAdjustmentAsAdvanceRepaymentOrInterestWriteOff() throws Exception {
         final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
         when(context.authenticatedUser()).thenReturn(null);
@@ -151,7 +151,7 @@ class InsuranceAdjustmentScheduleTest {
     }
 
     @Test
-    void repaymentScheduleFooterDueUsesOnlyUnpaidInsuranceAtDisbursement() throws Exception {
+    void repaymentScheduleFooterDueUsesOnlyUnpaidChargeAtDisbursement() throws Exception {
         final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
         when(context.authenticatedUser()).thenReturn(null);
@@ -182,6 +182,44 @@ class InsuranceAdjustmentScheduleTest {
         assertAmount("5550.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalRepaymentExpected"));
         assertAmount("500.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalRepayment"));
         assertAmount("5550.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalOutstanding"));
+    }
+
+    @Test
+    void repaymentScheduleForChainedDisbursementChargeAdjustmentUsesRestoredPrincipalState() throws Exception {
+        final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
+        when(context.authenticatedUser()).thenReturn(null);
+        stubDisbursementChargeAmounts(jdbcTemplate, new BigDecimal("1500.00"), new BigDecimal("1000.00"),
+                new BigDecimal("500.00"));
+        stubRepaymentSchedule(jdbcTemplate, new BigDecimal("5000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("250.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
+
+        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
+                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null);
+
+        final CurrencyData currency = new CurrencyData("KES", 2, 0);
+        final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
+                DISBURSEMENT_DATE, currency, new BigDecimal("5000.00"), BigDecimal.ZERO, new BigDecimal("1500.00"));
+        final Collection<DisbursementData> disbursements = List.of(new DisbursementData(546L, DISBURSEMENT_DATE,
+                DISBURSEMENT_DATE, new BigDecimal("5000.00"), new BigDecimal("4000.00"), null, null, null));
+
+        final LoanScheduleData schedule = service.retrieveRepaymentSchedule(427394L, relatedData, disbursements, false,
+                new BigDecimal("1000.00"));
+
+        final List<LoanSchedulePeriodData> periods = new ArrayList<>(schedule.getPeriods());
+        final LoanSchedulePeriodData disbursementPeriod = periods.get(0);
+        final LoanSchedulePeriodData repaymentPeriod = periods.get(1);
+        assertAmount("1500.00", disbursementPeriod.feeChargesDue());
+        assertAmount("1000.00", disbursementPeriod.feeChargesPaid());
+        assertAmount("500.00", disbursementPeriod.feeChargesOutstanding());
+        assertAmount("500.00", disbursementPeriod.totalDueForPeriod());
+        assertAmount("0.00", repaymentPeriod.principalPaid());
+        assertAmount("5000.00", repaymentPeriod.principalOutstanding());
+        assertAmount("5250.00", repaymentPeriod.totalOutstandingForPeriod());
+        assertAmount("5750.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalRepaymentExpected"));
+        assertAmount("1000.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalRepayment"));
+        assertAmount("5750.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalOutstanding"));
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })

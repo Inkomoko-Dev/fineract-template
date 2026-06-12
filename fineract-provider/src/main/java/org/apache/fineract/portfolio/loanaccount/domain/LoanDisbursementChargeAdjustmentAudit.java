@@ -26,8 +26,8 @@ import javax.persistence.Table;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 
 @Entity
-@Table(name = "m_loan_insurance_payment_edit_audit")
-public class LoanInsurancePaymentEditAudit extends AbstractPersistableCustom {
+@Table(name = "m_loan_disbursement_charge_adjustment_audit")
+public class LoanDisbursementChargeAdjustmentAudit extends AbstractPersistableCustom {
 
     @Column(name = "loan_id", nullable = false)
     private Long loanId;
@@ -110,9 +110,9 @@ public class LoanInsurancePaymentEditAudit extends AbstractPersistableCustom {
     @Column(name = "charge_paid_by_backfilled", nullable = false)
     private boolean chargePaidByBackfilled;
 
-    protected LoanInsurancePaymentEditAudit() {}
+    protected LoanDisbursementChargeAdjustmentAudit() {}
 
-    private LoanInsurancePaymentEditAudit(final Long loanId, final Long clientId, final Long productId, final Long officeId,
+    private LoanDisbursementChargeAdjustmentAudit(final Long loanId, final Long clientId, final Long productId, final Long officeId,
             final Long loanChargeId, final Long chargeId, final Long originalTransactionId, final Long adjustmentTransactionId,
             final BigDecimal previousAmount, final BigDecimal newAmount, final BigDecimal amountDelta,
             final Long previousPaymentTypeId, final String previousPaymentTypeName, final Long newPaymentTypeId,
@@ -150,7 +150,7 @@ public class LoanInsurancePaymentEditAudit extends AbstractPersistableCustom {
         this.chargePaidByBackfilled = chargePaidByBackfilled;
     }
 
-    public static LoanInsurancePaymentEditAudit create(final Long loanId, final Long clientId, final Long productId,
+    public static LoanDisbursementChargeAdjustmentAudit create(final Long loanId, final Long clientId, final Long productId,
             final Long officeId, final Long loanChargeId, final Long chargeId, final Long originalTransactionId,
             final Long adjustmentTransactionId, final BigDecimal previousAmount, final BigDecimal newAmount,
             final BigDecimal amountDelta, final Long previousPaymentTypeId, final String previousPaymentTypeName,
@@ -159,7 +159,7 @@ public class LoanInsurancePaymentEditAudit extends AbstractPersistableCustom {
             final Long previousIncomeGlAccountId, final Long newIncomeGlAccountId, final String reason,
             final Long adjustedByUserId, final String adjustedByUsername, final String adjustedByRoles,
             final OffsetDateTime adjustedOnDate, final boolean chargePaidByBackfilled) {
-        return new LoanInsurancePaymentEditAudit(loanId, clientId, productId, officeId, loanChargeId, chargeId,
+        return new LoanDisbursementChargeAdjustmentAudit(loanId, clientId, productId, officeId, loanChargeId, chargeId,
                 originalTransactionId, adjustmentTransactionId, previousAmount, newAmount, amountDelta, previousPaymentTypeId,
                 previousPaymentTypeName, newPaymentTypeId, newPaymentTypeName, previousPaymentDetailId, newPaymentDetailId,
                 previousFundSourceGlAccountId, newFundSourceGlAccountId, previousIncomeGlAccountId, newIncomeGlAccountId,

@@ -104,7 +104,7 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                 createJournalEntriesForRefundForActiveLoan(loanDTO, loanTransactionDTO, office);
             }
 
-            else if (loanTransactionDTO.getTransactionType().isInsuranceChargeAdjustment()) {
+            else if (loanTransactionDTO.getTransactionType().isDisbursementChargeAdjustment()) {
                 // journal entries are posted directly in LoanWritePlatformServiceJpaRepositoryImpl
             }
         }

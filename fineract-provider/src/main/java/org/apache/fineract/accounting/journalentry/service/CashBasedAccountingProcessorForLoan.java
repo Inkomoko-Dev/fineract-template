@@ -113,7 +113,7 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
                 createJournalEntriesForRefundForActiveLoan(loanDTO, loanTransactionDTO, office);
             }
 
-            else if (loanTransactionDTO.getTransactionType().isInsuranceChargeAdjustment()) {
+            else if (loanTransactionDTO.getTransactionType().isDisbursementChargeAdjustment()) {
                 // journal entries are posted directly in LoanWritePlatformServiceJpaRepositoryImpl
             }
 

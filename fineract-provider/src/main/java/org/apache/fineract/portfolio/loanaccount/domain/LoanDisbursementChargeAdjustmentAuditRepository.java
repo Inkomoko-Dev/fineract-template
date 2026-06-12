@@ -22,12 +22,12 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-public interface LoanInsurancePaymentEditAuditRepository
-        extends JpaRepository<LoanInsurancePaymentEditAudit, Long>, JpaSpecificationExecutor<LoanInsurancePaymentEditAudit> {
+public interface LoanDisbursementChargeAdjustmentAuditRepository
+        extends JpaRepository<LoanDisbursementChargeAdjustmentAudit, Long>, JpaSpecificationExecutor<LoanDisbursementChargeAdjustmentAudit> {
 
-    Optional<LoanInsurancePaymentEditAudit> findTopByOriginalTransactionIdOrderByAdjustedOnDateDescIdDesc(Long originalTransactionId);
+    Optional<LoanDisbursementChargeAdjustmentAudit> findTopByOriginalTransactionIdOrderByAdjustedOnDateDescIdDesc(Long originalTransactionId);
 
-    Optional<LoanInsurancePaymentEditAudit> findTopByAdjustmentTransactionIdOrderByAdjustedOnDateDescIdDesc(Long adjustmentTransactionId);
+    Optional<LoanDisbursementChargeAdjustmentAudit> findTopByAdjustmentTransactionIdOrderByAdjustedOnDateDescIdDesc(Long adjustmentTransactionId);
 
-    Optional<LoanInsurancePaymentEditAudit> findTopByLoanChargeIdOrderByAdjustedOnDateDescIdDesc(Long loanChargeId);
+    Optional<LoanDisbursementChargeAdjustmentAudit> findTopByLoanChargeIdOrderByAdjustedOnDateDescIdDesc(Long loanChargeId);
 }

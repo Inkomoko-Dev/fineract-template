@@ -23,7 +23,7 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
-    <changeSet id="CGLT-562-add-insurance-adjustment-transaction-enum" author="Wilfred">
+    <changeSet id="add-disbursement-charge-adjustment-transaction-enum" author="Wilfred">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM r_enum_value
@@ -34,19 +34,19 @@
         <insert tableName="r_enum_value">
             <column name="enum_name" value="loan_transaction_type_enum"/>
             <column name="enum_id" valueNumeric="29"/>
-            <column name="enum_message_property" value="loanTransactionType.insuranceChargeAdjustment"/>
-            <column name="enum_value" value="INSURANCE_CHARGE_ADJUSTMENT"/>
+            <column name="enum_message_property" value="loanTransactionType.disbursementChargeAdjustment"/>
+            <column name="enum_value" value="DISBURSEMENT_CHARGE_ADJUSTMENT"/>
             <column name="enum_type" valueBoolean="false"/>
         </insert>
     </changeSet>
 
-    <changeSet id="CGLT-562-create-insurance-payment-edit-audit" author="Wilfred">
+    <changeSet id="create-disbursement-charge-adjustment-audit" author="Wilfred">
         <preConditions onFail="MARK_RAN">
             <not>
-                <tableExists tableName="m_loan_insurance_payment_edit_audit"/>
+                <tableExists tableName="m_loan_disbursement_charge_adjustment_audit"/>
             </not>
         </preConditions>
-        <createTable tableName="m_loan_insurance_payment_edit_audit">
+        <createTable tableName="m_loan_disbursement_charge_adjustment_audit">
             <column name="id" type="BIGINT" autoIncrement="true">
                 <constraints primaryKey="true" nullable="false"/>
             </column>
@@ -106,25 +106,25 @@
                 <constraints nullable="false"/>
             </column>
         </createTable>
-        <createIndex tableName="m_loan_insurance_payment_edit_audit" indexName="idx_lip_edit_audit_loan">
+        <createIndex tableName="m_loan_disbursement_charge_adjustment_audit" indexName="idx_ldca_audit_loan">
             <column name="loan_id"/>
         </createIndex>
-        <createIndex tableName="m_loan_insurance_payment_edit_audit" indexName="idx_lip_edit_audit_transaction">
+        <createIndex tableName="m_loan_disbursement_charge_adjustment_audit" indexName="idx_ldca_audit_transaction">
             <column name="original_transaction_id"/>
         </createIndex>
-        <createIndex tableName="m_loan_insurance_payment_edit_audit" indexName="idx_lip_edit_audit_adjusted_on">
+        <createIndex tableName="m_loan_disbursement_charge_adjustment_audit" indexName="idx_ldca_audit_adjusted_on">
             <column name="adjusted_on_date"/>
         </createIndex>
     </changeSet>
 
-    <changeSet id="CGLT-562-add-insurance-payment-edit-report" author="Wilfred" context="mysql">
+    <changeSet id="add-disbursement-charge-adjustment-report" author="Wilfred" context="mysql">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
-                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Edited Insurance Payments'
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Edited Disbursement Charge Adjustments'
             </sqlCheck>
         </preConditions>
         <insert tableName="stretchy_report">
-            <column name="report_name" value="Edited Insurance Payments"/>
+            <column name="report_name" value="Edited Disbursement Charge Adjustments"/>
             <column name="report_type" value="Table"/>
             <column name="report_subtype"/>
             <column name="report_category" value="Loan"/>
@@ -152,7 +152,7 @@
        oldinc.gl_code AS previousIncomeGlCode,
        newinc.gl_code AS newIncomeGlCode,
        a.reason
-FROM m_loan_insurance_payment_edit_audit a
+FROM m_loan_disbursement_charge_adjustment_audit a
 JOIN m_loan l ON l.id = a.loan_id
 LEFT JOIN m_client c ON c.id = a.client_id
 JOIN m_product_loan lp ON lp.id = a.product_id
@@ -164,7 +164,7 @@ LEFT JOIN acc_gl_account oldinc ON oldinc.id = a.previous_income_gl_account_id
 LEFT JOIN acc_gl_account newinc ON newinc.id = a.new_income_gl_account_id
 ORDER BY a.adjusted_on_date DESC, a.id DESC]]>
             </column>
-            <column name="description" value="Audit trail for insurance repayment-at-disbursement edits including amount, payment type and GL movement."/>
+            <column name="description" value="Audit trail for disbursement charge repayment-at-disbursement edits including amount, payment type and GL movement."/>
             <column name="core_report" valueBoolean="false"/>
             <column name="use_report" valueBoolean="true"/>
             <column name="self_service_user_report" valueBoolean="false"/>
