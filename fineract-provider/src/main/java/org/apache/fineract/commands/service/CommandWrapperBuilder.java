@@ -795,8 +795,8 @@ public class CommandWrapperBuilder {
         return this;
     }
 
-    public CommandWrapperBuilder adjustLoanInsuranceCharge(final Long loanId, final Long loanChargeId) {
-        this.actionName = "ADJUSTINSURANCE";
+    public CommandWrapperBuilder adjustLoanDisbursementCharge(final Long loanId, final Long loanChargeId) {
+        this.actionName = "ADJUSTDISBURSEMENTCHARGE";
         this.entityName = "LOANCHARGE";
         this.loanId = loanId;
         this.entityId = loanChargeId;
@@ -921,12 +921,12 @@ public class CommandWrapperBuilder {
         return this;
     }
 
-    public CommandWrapperBuilder editDisbursementInsuranceTransaction(final Long loanId, final Long transactionId) {
+    public CommandWrapperBuilder editDisbursementChargeTransaction(final Long loanId, final Long transactionId) {
         this.actionName = "ADJUST";
         this.entityName = "LOAN";
         this.entityId = transactionId;
         this.loanId = loanId;
-        this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=editDisbursementInsurance";
+        this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=editDisbursementCharge";
         return this;
     }
 

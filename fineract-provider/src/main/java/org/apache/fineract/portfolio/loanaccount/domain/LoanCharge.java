@@ -339,7 +339,7 @@ public class LoanCharge extends AbstractPersistableCustom {
         this.paid = true;
     }
 
-    public void updateAmountPaidForDisbursementInsuranceAdjustment(final BigDecimal amount, final BigDecimal amountPaid) {
+    public void updateAmountPaidForDisbursementChargeAdjustment(final BigDecimal amount, final BigDecimal amountPaid) {
         this.amount = amount;
         this.amountPaid = amountPaid == null ? BigDecimal.ZERO : amountPaid;
         this.amountOutstanding = calculateOutstanding();

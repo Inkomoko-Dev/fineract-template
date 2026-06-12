@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
@@ -40,16 +41,17 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
-public class EditDisbursementInsuranceCommandFromApiJsonDeserializer {
+@Slf4j
+public class AdjustLoanDisbursementChargeCommandFromApiJsonDeserializer {
 
     private static final Set<String> SUPPORTED_PARAMS = new HashSet<>(
-            Arrays.asList("loanChargeId", "amount", "transactionDate", "externalId", "note", "notes", "locale", "dateFormat",
-                    "paymentTypeId", "glAccountId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
-                    "correctionDate"));
+            Arrays.asList("amount", "transactionDate", "notes", "locale", "dateFormat", "glAccountId", "paymentTypeId",
+                    "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber"));
 
     private final FromJsonHelper fromApiJsonHelper;
 
-    public void validateForEdit(final String json) {
+    public void validateForAdjust(final String json) {
+
         if (StringUtils.isBlank(json)) {
             throw new InvalidJsonException();
         }
@@ -58,36 +60,32 @@ public class EditDisbursementInsuranceCommandFromApiJsonDeserializer {
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, SUPPORTED_PARAMS);
 
         final List<ApiParameterError> errors = new ArrayList<>();
-        final DataValidatorBuilder validator = new DataValidatorBuilder(errors).resource("loan.transaction.editDisbursementInsurance");
-        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        final DataValidatorBuilder validator = new DataValidatorBuilder(errors)
+                .resource("loanCharge.adjustDisbursementCharge");
 
-        final Long loanChargeId = this.fromApiJsonHelper.extractLongNamed("loanChargeId", element);
-        validator.reset().parameter("loanChargeId").value(loanChargeId).notNull().longGreaterThanZero();
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
 
         final BigDecimal amount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed("amount", element);
         validator.reset().parameter("amount").value(amount).notNull().zeroOrPositiveAmount();
 
-        final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed("transactionDate", element);
+        final LocalDate transactionDate = this.fromApiJsonHelper
+                .extractLocalDateNamed("transactionDate", element);
         validator.reset().parameter("transactionDate").value(transactionDate).notNull();
 
-        final String externalId = this.fromApiJsonHelper.extractStringNamed("externalId", element);
-        validator.reset().parameter("externalId").value(externalId).ignoreIfNull().notExceedingLengthOf(100);
-
-        final String note = this.fromApiJsonHelper.extractStringNamed("note", element);
-        validator.reset().parameter("note").value(note).ignoreIfNull().notExceedingLengthOf(1000);
-
         final String notes = this.fromApiJsonHelper.extractStringNamed("notes", element);
-        validator.reset().parameter("notes").value(notes).ignoreIfNull().notExceedingLengthOf(1000);
-        if (StringUtils.isBlank(note) && StringUtils.isBlank(notes)) {
-            errors.add(ApiParameterError.parameterError("validation.msg.loan.transaction.edit.disbursement.insurance.reason.required",
-                    "Reason is mandatory when editing an insurance payment at disbursement.", "note"));
+        validator.reset().parameter("notes").value(notes).ignoreIfNull().notExceedingLengthOf(500);
+        if (StringUtils.isBlank(notes)) {
+            errors.add(ApiParameterError.parameterError("validation.msg.loan.disbursement.charge.adjustment.notes.required",
+                    "Reason is mandatory for disbursement charge payment adjustments.", "notes"));
+        }
+
+        if (this.fromApiJsonHelper.parameterExists("glAccountId", element)) {
+            final Long newGlAccountId = this.fromApiJsonHelper.extractLongNamed("glAccountId", element);
+            validator.reset().parameter("glAccountId").value(newGlAccountId).notNull().longGreaterThanZero();
         }
 
         final Integer paymentTypeId = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("paymentTypeId", element);
         validator.reset().parameter("paymentTypeId").value(paymentTypeId).ignoreIfNull().integerGreaterThanZero();
-
-        final Long glAccountId = this.fromApiJsonHelper.extractLongNamed("glAccountId", element);
-        validator.reset().parameter("glAccountId").value(glAccountId).ignoreIfNull().longGreaterThanZero();
 
         final Set<String> paymentDetailParameters = new HashSet<>(
                 Arrays.asList("accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber"));
