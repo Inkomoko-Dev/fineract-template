@@ -53,7 +53,7 @@ public class PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionPr
 
     /**
      * Handles advance payment by charging only accrued interest and writing off unearned interest.
-     * Payment allocation order: principal -> accrued interest (write off unearned) -> penalties -> fees
+     * Payment allocation order for prepayment: penalties -> fees -> accrued interest (write off unearned) -> principal
      */
     private Money handleAdvancePaymentWithAccruedInterest(final LoanRepaymentScheduleInstallment currentInstallment,
             final List<LoanRepaymentScheduleInstallment> installments, final LoanTransaction loanTransaction,
@@ -67,21 +67,17 @@ public class PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionPr
         Money feeChargesPortion = Money.zero(currency);
         Money penaltyChargesPortion = Money.zero(currency);
 
-        // Pay principal first (as per this processor's order)
-        principalPortion = currentInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
-        transactionAmountRemaining = transactionAmountRemaining.minus(principalPortion);
-
-        // Pay ONLY accrued interest and write off unearned interest for this installment
-        interestPortion = currentInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, transactionAmountRemaining);
-        transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
-
-        // Pay penalties
         penaltyChargesPortion = currentInstallment.payPenaltyChargesComponent(transactionDate, transactionAmountRemaining);
         transactionAmountRemaining = transactionAmountRemaining.minus(penaltyChargesPortion);
 
-        // Pay fees
         feeChargesPortion = currentInstallment.payFeeChargesComponent(transactionDate, transactionAmountRemaining);
         transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortion);
+
+        interestPortion = currentInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
+
+        principalPortion = currentInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(principalPortion);
 
         loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
 

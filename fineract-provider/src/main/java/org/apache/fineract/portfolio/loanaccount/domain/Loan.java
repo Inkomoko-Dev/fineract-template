@@ -6141,8 +6141,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public LoanRepaymentScheduleInstallment fetchPrepaymentDetail(final ScheduleGeneratorDTO scheduleGeneratorDTO, final LocalDate onDate) {
-        // Use the persisted schedule with pro-rata accrued interest so the prepayment
-        // template matches what is outstanding on the live repayment schedule.
+        // Use persisted schedule with pro-rata accrued interest for all loans so the prepayment
+        // template matches what transaction processors apply on the live repayment schedule.
         return this.getTotalOutstandingOnLoanAsOfDate(onDate);
     }
 
