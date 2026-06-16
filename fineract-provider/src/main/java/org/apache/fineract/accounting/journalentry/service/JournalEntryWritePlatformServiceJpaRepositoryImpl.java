@@ -519,6 +519,7 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
             final Office office = this.helper.getOfficeById(loanTransactionDTO.getOfficeId());
             final LoanTransactionEnumData paymentTypeId = loanTransactionDTO.getTransactionType();
             final Long loanId = loanDTO.getLoanId();
+            Long fundSource = loanDTO.getFundId();
 
 
             if(!Arrays.asList(new Long[]{1L, 2L, 4L, 5L, 6L, 8L, 9L, 10L, 19L, 26L, 27L}).contains(paymentTypeId.id()))
@@ -568,6 +569,10 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
             journalData.setJournalItems(journalItems);
             journalData.setLocation(location);
 
+            if (fundSource != null) {
+                journalData.setFundSource(fundSource);
+            }
+
             AppUser currentUser = this.context.authenticatedUser();
 
             JsonObject payload = convertJournalDataToJson(journalData, currentUser);
@@ -611,7 +616,7 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
         // Publish the event
         eventPublisher.publishEvent(hookEvent);
 
-        log.info("Posted transaction to odoo");
+        log.info("Posted transaction to odoo: {}",payload.toString());
     }
 
     @Transactional
