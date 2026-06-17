@@ -43,6 +43,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.EarlyPaymentLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.FineractStyleLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.HeavensFamilyLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -78,7 +79,8 @@ class PrepaymentAdvancePaymentTransactionProcessorTest {
     static List<AbstractLoanRepaymentScheduleTransactionProcessor> processors() {
         return List.of(new FineractStyleLoanRepaymentScheduleTransactionProcessor(),
                 new HeavensFamilyLoanRepaymentScheduleTransactionProcessor(),
-                new EarlyPaymentLoanRepaymentScheduleTransactionProcessor());
+                new EarlyPaymentLoanRepaymentScheduleTransactionProcessor(),
+                new PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor());
     }
 
     @ParameterizedTest
@@ -105,6 +107,27 @@ class PrepaymentAdvancePaymentTransactionProcessorTest {
         assertAmount("1000.00", repayment.getPrincipalPortion(KES).getAmount());
         assertAmount("0.00", currentInstallment.getTotalOutstanding(KES).getAmount());
         assertAmount("0.00", futureInstallment.getTotalOutstanding(KES).getAmount());
+    }
+
+    @ParameterizedTest
+    @MethodSource("processors")
+    void partialPrepaymentAcrossMultipleFutureInstallmentsDoesNotInflatePrincipalPortion(
+            final AbstractLoanRepaymentScheduleTransactionProcessor processor) {
+        final List<LoanRepaymentScheduleInstallment> installments = new ArrayList<>();
+        for (int installmentNumber = 1; installmentNumber <= 12; installmentNumber++) {
+            final LocalDate fromDate = FROM_DATE.plusMonths(installmentNumber - 1);
+            final LocalDate dueDate = fromDate.plusMonths(1);
+            installments.add(new LoanRepaymentScheduleInstallment(null, installmentNumber, fromDate, dueDate,
+                    new BigDecimal("1666.67"), new BigDecimal("166.67"), BigDecimal.ZERO, BigDecimal.ZERO, false, null));
+        }
+
+        final LoanTransaction repayment = LoanTransaction.repaymentType(null, mock(Office.class), Money.of(KES, new BigDecimal("10000.00")),
+                null, PREPAYMENT_DATE, null);
+
+        processor.handleTransaction(repayment, KES, installments, Set.of());
+
+        assertAmount("10000.00", repayment.getPrincipalPortion(KES).getAmount());
+        assertAmount("10000.00", repayment.getAmount(KES).getAmount());
     }
 
     private static BigDecimal defaultZero(final BigDecimal value) {

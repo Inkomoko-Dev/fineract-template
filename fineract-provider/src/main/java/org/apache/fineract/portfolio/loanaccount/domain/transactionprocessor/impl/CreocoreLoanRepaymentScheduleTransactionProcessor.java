@@ -124,7 +124,8 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
 
                     if (futurePrincipalPortion.isGreaterThanZero()) {
                         principalPortion = principalPortion.plus(futurePrincipalPortion);
-                        loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+                        loanTransaction.updateComponents(futurePrincipalPortion, Money.zero(currency), Money.zero(currency),
+                                Money.zero(currency));
                         transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, futureInstallment,
                                 futurePrincipalPortion, Money.zero(currency), Money.zero(currency), Money.zero(currency)));
                     }
