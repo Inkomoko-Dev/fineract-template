@@ -104,6 +104,7 @@ public class HeavensFamilyLoanRepaymentScheduleTransactionProcessor extends Abst
                 feeChargesPortion = currentInstallment.payFeeChargesComponent(transactionDate, transactionAmountRemaining);
                 transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortion);
             }
+            loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
         } else {
             penaltyChargesPortion = currentInstallment.payPenaltyChargesComponent(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(penaltyChargesPortion);
@@ -141,7 +142,8 @@ public class HeavensFamilyLoanRepaymentScheduleTransactionProcessor extends Abst
 
                         if (futurePrincipalPortion.isGreaterThanZero()) {
                             principalPortion = principalPortion.plus(futurePrincipalPortion);
-                            loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+                            loanTransaction.updateComponents(futurePrincipalPortion, Money.zero(currency), Money.zero(currency),
+                                    Money.zero(currency));
                             transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, futureInstallment,
                                     futurePrincipalPortion, Money.zero(currency), Money.zero(currency), Money.zero(currency)));
                         }
@@ -150,7 +152,6 @@ public class HeavensFamilyLoanRepaymentScheduleTransactionProcessor extends Abst
             }
         }
 
-        loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
         if (!currentInstallmentMapped
                 && principalPortion.plus(interestPortion).plus(feeChargesPortion).plus(penaltyChargesPortion).isGreaterThanZero()) {
             transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, currentInstallment,
