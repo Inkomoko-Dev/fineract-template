@@ -23,8 +23,8 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
-    <changeSet id="CGLT-537-7-allow-written-off-entries-without-definition" author="wilfred">
-        <dropNotNullConstraint tableName="m_loanproduct_provisioning_entry" columnName="criteria_definition_id"
-                               columnDataType="BIGINT"/>
-    </changeSet>
+<!--    <changeSet id="CGLT-537-7-allow-written-off-entries-without-definition" author="wilfred">-->
+<!--        <dropNotNullConstraint tableName="m_loanproduct_provisioning_entry" columnName="criteria_definition_id"-->
+<!--                               columnDataType="BIGINT"/>-->
+<!--    </changeSet>-->
 </databaseChangeLog>
