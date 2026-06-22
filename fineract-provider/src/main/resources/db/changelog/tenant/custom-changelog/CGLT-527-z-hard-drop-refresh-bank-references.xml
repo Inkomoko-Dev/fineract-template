@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-527-hard-drop-refresh-bank-references" author="willy@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="ref_banks"/>
+            <tableExists tableName="m_client_other_info"/>
+            <columnExists tableName="m_client_other_info" columnName="bank_id"/>
+        </preConditions>
+
+        <sql><![CDATA[
+            DROP TEMPORARY TABLE IF EXISTS tmp_cglt527_bank_master;
+
+            CREATE TEMPORARY TABLE tmp_cglt527_bank_master (
+                country VARCHAR(100) NOT NULL,
+                bank_code VARCHAR(20) NOT NULL,
+                bank_name VARCHAR(255) NOT NULL,
+                PRIMARY KEY (country, bank_code)
+            ) ENGINE=MEMORY;
+
+            INSERT INTO tmp_cglt527_bank_master (country, bank_code, bank_name) VALUES
+                ('Kenya', '03', 'Absa Bank Kenya Plc'),
+                ('Kenya', '26', 'Access Bank Kenya PLC'),
+                ('Kenya', '35', 'African Banking Corporation Limited'),
+                ('Kenya', '19', 'Bank of Africa Kenya Limited'),
+                ('Kenya', '06', 'Bank of Baroda(Kenya Ltd)'),
+                ('Kenya', '05', 'Bank of India'),
+                ('Kenya', '80', 'Caritas Microfinance Bank Ltd'),
+                ('Kenya', '09', 'Central Bank Of Kenya'),
+                ('Kenya', '16', 'CITI BANK N A'),
+                ('Kenya', '11', 'Co-operative Bank of Kenya Limited'),
+                ('Kenya', '23', 'Consolidated Bank of Kenya Ltd'),
+                ('Kenya', '25', 'Credit Bank PLC'),
+                ('Kenya', '59', 'Development Bank of Kenya Limited'),
+                ('Kenya', '63', 'Diamond Trust Bank Limited'),
+                ('Kenya', '75', 'DIB Bank Kenya Limited'),
+                ('Kenya', '43', 'ECO Bank Kenya LTD'),
+                ('Kenya', '68', 'Equity Bank Limited'),
+                ('Kenya', '70', 'Family Bank Ltd'),
+                ('Kenya', '79', 'Faulu Microfinance Bank Ltd'),
+                ('Kenya', '53', 'Guaranty Trust Bank ( Kenya) Ltd'),
+                ('Kenya', '55', 'Guardian Bank Limited'),
+                ('Kenya', '72', 'Gulf African Bank Ltd'),
+                ('Kenya', '17', 'Habib Bank AG Zurich'),
+                ('Kenya', '61', 'Housing Finance Bank'),
+                ('Kenya', '57', 'I&M BANK (KENYA) LTD'),
+                ('Kenya', '01', 'Kenya Commercial Bank Limited'),
+                ('Kenya', '62', 'Kenya Post Office Savings Bank'),
+                ('Kenya', '78', 'Kenya Women Microfinance Bank'),
+                ('Kenya', '51', 'Kingdom Bank Limited'),
+                ('Kenya', '14', 'M-Oriental Bank Limited'),
+                ('Kenya', '65', 'Mayfair CIB Bank'),
+                ('Kenya', '18', 'Middle East Bank Kenya Limited'),
+                ('Kenya', '12', 'National Bank Of Kenya'),
+                ('Kenya', '07', 'NCBA Bank Kenya Plc'),
+                ('Kenya', '50', 'Paramount Bank Limited'),
+                ('Kenya', '74', 'Premier Bank Kenya Limited'),
+                ('Kenya', '10', 'Prime Bank Limited'),
+                ('Kenya', '66', 'Sidian Bank Limited'),
+                ('Kenya', '49', 'Spire Bank'),
+                ('Kenya', '31', 'Stanbic Bank Plc'),
+                ('Kenya', '02', 'Standard Chartered Bank Kenya Ltd'),
+                ('Kenya', '60', 'State Bank of Mauritius Kenya'),
+                ('Kenya', '76', 'UBA Kenya Bank Ltd'),
+                ('Kenya', '54', 'Victoria Commercial Bank'),
+                ('Rwanda', '20', 'AB Bank'),
+                ('Rwanda', '15', 'Access Bank'),
+                ('Rwanda', '22', 'Antlantique Microfinance Plc'),
+                ('Rwanda', '76', 'Bank of Africa Group'),
+                ('Rwanda', '40', 'Bank of Kigali'),
+                ('Rwanda', '44', 'BPR Bank Rwanda Plc'),
+                ('Rwanda', '30', 'CogeBank'),
+                ('Rwanda', '25', 'Commercial Bank of Africa'),
+                ('Rwanda', '27', 'COPEDU Plc'),
+                ('Rwanda', '24', 'Duterimbere IMF Plc'),
+                ('Rwanda', '11', 'Ecobank Rwanda'),
+                ('Rwanda', '85', 'Equity Bank Limited'),
+                ('Rwanda', '29', 'Financial Safety Co Plc'),
+                ('Rwanda', '26', 'Goshen Finance Plc'),
+                ('Rwanda', '70', 'GT Bank Rwanda'),
+                ('Rwanda', '10', 'I&M Bank'),
+                ('Rwanda', '31', 'Inkunga Finance Plc'),
+                ('Rwanda', '60', 'KCB Rwanda'),
+                ('Rwanda', '21', 'Letshego Rwanda Plc'),
+                ('Rwanda', '33', 'MUGANGA SACCO'),
+                ('Rwanda', '00', 'National Bank of Rwanda'),
+                ('Rwanda', '32', 'RIM Ltd'),
+                ('Rwanda', '23', 'Umutanguha Finance Company Plc'),
+                ('Rwanda', '90', 'UMWALIMU Sacco'),
+                ('Rwanda', '80', 'Unguka Bank'),
+                ('Rwanda', '45', 'Urwego Bank plc'),
+                ('Rwanda', '28', 'Vision Fund Co Plc'),
+                ('Rwanda', '75', 'Zigama CSS'),
+                ('South Sudan', '16', 'AFRICAN NATIONAL BANK LIMITED'),
+                ('South Sudan', '15', 'AFRILAND FIRST BANK SOUTH SUDAN'),
+                ('South Sudan', '05', 'AGRICULTURAL BANK OF SUDAN'),
+                ('South Sudan', '27', 'ALPHA COMMERCIAL BANK'),
+                ('South Sudan', '02', 'BANK OF SOUTH SUDAN'),
+                ('South Sudan', '04', 'BUFFALO COMMERCIAL BANK PLC'),
+                ('South Sudan', '14', 'CFC STANBIC BANK LTD'),
+                ('South Sudan', '09', 'CHARTER ONE BANK SOUTH SUDAN'),
+                ('South Sudan', '06', 'COMMERCIAL BANK OF ETHOPIA'),
+                ('South Sudan', '26', 'COOPERATIVE BANK SOUTH SUDAN LTD'),
+                ('South Sudan', '29', 'EBONY NATIONAL BANK'),
+                ('South Sudan', '18', 'ECOBANK SOUTH SUDAN LIMITED'),
+                ('South Sudan', '17', 'EDEN COMMERCIAL BANK LTD'),
+                ('South Sudan', '11', 'INTERNATIONAL COMMERCIAL BANK LTD'),
+                ('South Sudan', '03', 'IVORY BANK PLC'),
+                ('South Sudan', '01', 'Kenya Commercial Bank Limited'),
+                ('South Sudan', '30', 'KUSH BANK'),
+                ('South Sudan', '13', 'LIBERTY COMMERCIAL BANK'),
+                ('South Sudan', '08', 'MOUNTAIN TRADE AND DEVELOPMENT BANK'),
+                ('South Sudan', '23', 'NATIONAL COMMERCIAL BANK'),
+                ('South Sudan', '22', 'NATIONAL CREDIT BANK'),
+                ('South Sudan', '07', 'NILECOMMERCIALBANK'),
+                ('South Sudan', '28', 'OPPORTUNITY BANK PLC'),
+                ('South Sudan', '25', 'ORBIT COMMERCIAL BANK'),
+                ('South Sudan', '19', 'PEOPLES BANK PLC'),
+                ('South Sudan', '20', 'PHOENIX COMMERCIAL BANK'),
+                ('South Sudan', '10', 'QATAR NATIONAL BANK'),
+                ('South Sudan', '21', 'REGENT AFRICAN BANK'),
+                ('South Sudan', '24', 'ROYAL EXPRESS BANK'),
+                ('South Sudan', '12', 'SOUTH SUDAN COMMERCIAL BANK'),
+                ('South Sudan', 'EQSS', 'Equity Bank South Sudan Limited');
+
+            INSERT INTO ref_banks (bank_code, bank_name, country, is_active)
+            SELECT bank_code, bank_name, country, 1
+            FROM tmp_cglt527_bank_master
+            ON DUPLICATE KEY UPDATE
+                bank_name = VALUES(bank_name),
+                is_active = 1;
+
+            UPDATE m_client_other_info coi
+            INNER JOIN ref_banks old_bank ON old_bank.id = coi.bank_id
+            INNER JOIN ref_banks new_bank
+                ON new_bank.country = 'Rwanda'
+                AND new_bank.bank_code = '44'
+            SET coi.bank_id = new_bank.id,
+                coi.bank_name = NULL
+            WHERE old_bank.country = 'Rwanda'
+              AND old_bank.bank_code = '50';
+
+            UPDATE m_client_other_info coi
+            INNER JOIN ref_banks old_bank ON old_bank.id = coi.bank_id
+            LEFT JOIN tmp_cglt527_bank_master master_bank
+                ON master_bank.country = old_bank.country
+                AND master_bank.bank_code = old_bank.bank_code
+            SET coi.bank_name = COALESCE(NULLIF(coi.bank_name, ''), old_bank.bank_name),
+                coi.bank_id = NULL
+            WHERE master_bank.bank_code IS NULL;
+
+            DELETE old_bank
+            FROM ref_banks old_bank
+            LEFT JOIN tmp_cglt527_bank_master master_bank
+                ON master_bank.country = old_bank.country
+                AND master_bank.bank_code = old_bank.bank_code
+            WHERE master_bank.bank_code IS NULL;
+
+            DROP TEMPORARY TABLE IF EXISTS tmp_cglt527_bank_master;
+        ]]></sql>
+    </changeSet>
+
+    <changeSet id="CGLT-527-add-ref-banks-country-name-unique" author="willy@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="ref_banks"/>
+            <not>
+                <indexExists tableName="ref_banks" indexName="uq_ref_banks_country_bank_name"/>
+            </not>
+        </preConditions>
+        <addUniqueConstraint tableName="ref_banks"
+                             columnNames="country, bank_name"
+                             constraintName="uq_ref_banks_country_bank_name"/>
+    </changeSet>
+
+    <changeSet id="CGLT-527-add-ref-banks-active-country-name-index" author="willy@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="ref_banks"/>
+            <not>
+                <indexExists tableName="ref_banks" indexName="idx_ref_banks_active_country_name"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="ref_banks" indexName="idx_ref_banks_active_country_name">
+            <column name="is_active"/>
+            <column name="country"/>
+            <column name="bank_name"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-527-add-ref-banks-active-name-index" author="willy@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="ref_banks"/>
+            <not>
+                <indexExists tableName="ref_banks" indexName="idx_ref_banks_active_name"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="ref_banks" indexName="idx_ref_banks_active_name">
+            <column name="is_active"/>
+            <column name="bank_name"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-527-add-client-other-info-bank-id-index" author="willy@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_client_other_info"/>
+            <columnExists tableName="m_client_other_info" columnName="bank_id"/>
+            <not>
+                <indexExists tableName="m_client_other_info" indexName="idx_client_other_info_bank_id"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_client_other_info" indexName="idx_client_other_info_bank_id">
+            <column name="bank_id"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
