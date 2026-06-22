@@ -236,4 +236,16 @@ public enum LoanTransactionType {
     public boolean isPayOff() {
         return this.value.equals(LoanTransactionType.PAY_OFF.getValue());
     }
+
+    public boolean isDisbursementChargeAdjustment() {
+        return this.value.equals(DISBURSEMENT_CHARGE_ADJUSTMENT.getValue());
+    }
+
+    public boolean isDepositRedraw() {
+        return this.value.equals(DEPOSIT_REDRAW.getValue());
+    }
+
+    public boolean isWithdrawalRedraw() {
+        return this.value.equals(WITHDRAWAL_REDRAW.getValue());
+    }
 }

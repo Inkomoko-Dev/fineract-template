@@ -177,6 +177,12 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         var loanRedrawAccount = loanRedrawAccountOptional.get();
         loanRedrawAccount.withdraw(transactionAmount, user, DateUtils.getLocalDateTimeOfTenant());
         loanRedrawAccountRepository.saveAndFlush(loanRedrawAccount);
+        
+        // Add the transaction to the loan
+        loan.addLoanTransaction(withdrawFromRedraw);
+        // Update loan summary and status
+        loan.updateLoanSummarAndStatus();
+        
         saveLoanTransactionWithDataIntegrityViolationChecks(withdrawFromRedraw);
         this.loanRepositoryWrapper.saveAndFlush(loan);
 
