@@ -72,7 +72,7 @@ public class CommandSource extends AbstractPersistableCustom {
     @Column(name = "subresource_id")
     private Long subresourceId;
 
-    @Column(name = "command_as_json", length = 1000)
+    @Column(name = "command_as_json", columnDefinition = "TEXT")
     private String commandAsJson;
 
     @ManyToOne
