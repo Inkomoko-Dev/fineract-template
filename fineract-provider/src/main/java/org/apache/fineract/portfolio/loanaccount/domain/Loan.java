@@ -2087,7 +2087,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                         disbursementPrincipal, this.netDisbursalAmount);
                 disbursementDetails.updateLoan(this);
                 if (!loanDisbursementDetail.equals(disbursementDetails)) {
-                    loanDisbursementDetail.copy(disbursementDetails);
+                    loanDisbursementDetail.updateExpectedDisbursementDateAndAmount(expectedDisbursementDate, disbursementPrincipal);
+                    loanDisbursementDetail.setNetDisbursalAmount(this.netDisbursalAmount);
                     actualChanges.put("disbursementDetailId", disbursementID);
                     actualChanges.put("recalculateLoanSchedule", true);
                 }
