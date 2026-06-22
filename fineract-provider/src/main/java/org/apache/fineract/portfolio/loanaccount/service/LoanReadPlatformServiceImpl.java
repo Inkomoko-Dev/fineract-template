@@ -931,7 +931,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
 
         loanTransactionData.setPaymentTypeId(paymentTypeId);
-        loanTransactionData.setClientAccountNumber(accountNumber);
+        loanTransactionData.setAccountNumber(accountNumber);
         loanTransactionData.setCheckNumber(checkNumber);
         loanTransactionData.setRoutingCode(routingCode);
         loanTransactionData.setReceiptNumber(receiptNumber);
