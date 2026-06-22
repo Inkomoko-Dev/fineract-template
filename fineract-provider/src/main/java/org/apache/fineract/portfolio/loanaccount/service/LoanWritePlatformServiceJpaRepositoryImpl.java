@@ -189,8 +189,10 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
 import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepositoryWrapper;
 import org.apache.fineract.infrastructure.dataqueries.service.ReadWriteNonCoreDataService;
+import java.time.LocalDateTime;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInsurancePaymentEditAudit;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInsurancePaymentEditAuditRepository;
@@ -3803,7 +3805,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
             final String disbursementTypeRaw = command.stringValueOfParameterNamed(LoanApiConstants.disbursementTypeParameterName);
             String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
-            final Long paymentTypeId = command.longValueOfParameterNamed(LoanApiConstants.paymentTypeIdParamName);
+            final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
             PaymentType paymentType = null;
             if (paymentTypeId != null) {
                 paymentType = this.paymentTypeRepositoryWrapper.findOneWithNotFoundDetection(paymentTypeId);
@@ -3894,7 +3896,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
             final String disbursementTypeRaw = command.stringValueOfParameterNamed(LoanApiConstants.disbursementTypeParameterName);
             String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
-            final Long paymentTypeId = command.longValueOfParameterNamed(LoanApiConstants.paymentTypeIdParamName);
+            final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
             PaymentType paymentType = null;
             if (paymentTypeId != null) {
                 paymentType = this.paymentTypeRepositoryWrapper.findOneWithNotFoundDetection(paymentTypeId);
