@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.persistence.PersistenceException;
@@ -32,6 +33,7 @@ import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
 import org.apache.fineract.infrastructure.configuration.service.ConfigurationReadPlatformService;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.audit.AuditChangeRecorder;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
@@ -223,6 +225,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         // Check if numberOfLevels is provided in the command
         Integer numberOfLevels = command.integerValueOfParameterNamed(LoanApprovalMatrixConstants.numberOfLevelsParameterName);
+        if (numberOfLevels != null && command.parameterExists(LoanApprovalMatrixConstants.numberOfLevelsParameterName)) {
+            final int oldLevelCount = activeLevels.size();
+            AuditChangeRecorder.recordChange(changes, LoanApprovalMatrixConstants.numberOfLevelsParameterName, oldLevelCount, numberOfLevels);
+        }
 
         // Ensure all existing IC levels have permissions (for levels created before this fix)
         ensurePermissionsForExistingLevels(activeLevels);
@@ -259,25 +265,27 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 if (currentMatrixLevel != null) {
                     // Remove from the current matrix's collection
                     approvalMatrix.getApprovalMatrixLevels().removeIf(aml -> aml.getId().equals(currentMatrixLevel.getId()));
-                    
+
+                    AuditChangeRecorder.recordChange(changes, "level" + getLevelName(levelNumber) + "RemovedFromMatrix",
+                            snapshotMatrixLevel(currentMatrixLevel), null);
+
                     // Delete the matrix level entry for this currency
                     loanApprovalMatrixLevelRepository.delete(currentMatrixLevel);
                     log.debug("Deleted matrix level entry for IC level {} for current currency", levelNumber);
-                    
-                    changes.put("level" + getLevelName(levelNumber) + "RemovedFromMatrix", true);
                 }
 
                 // If this was the ONLY currency using this IC level, we can delete the global config and permissions
                 if (!isUsedByOtherCurrencies) {
                     log.info("IC Review Level {} is not used by any other currency. Deleting global configuration.", levelNumber);
-                    
+
+                    AuditChangeRecorder.recordChange(changes, "icReviewLevel" + getLevelName(levelNumber) + "GlobalConfigDeleted",
+                            snapshotIcReviewLevelConfig(levelConfig), null);
+
                     // Delete the IC level config itself
                     icReviewLevelConfigRepository.delete(levelConfig);
 
                     // Delete associated permissions
                     deletePermissionsForIcLevel(levelConfig.getLevelCode());
-                    
-                    changes.put("level" + getLevelName(levelNumber) + "GlobalConfigDeleted", true);
                 } else {
                     log.info("IC Review Level {} is still used by other currencies. Keeping global configuration.", levelNumber);
                 }
@@ -297,8 +305,13 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 String levelPrefix = "level" + getLevelName(levelNumber);
                 // Check if any parameter for this level exists in the command
                 if (hasLevelParametersInCommand(command, levelPrefix)) {
+                    final boolean levelConfigExisted = icReviewLevelConfigRepository.findByLevelNumber(levelNumber) != null;
                     // Auto-create the IC review level config for this level
                     IcReviewLevelConfig newLevelConfig = createDynamicLevelConfig(levelNumber);
+                    if (!levelConfigExisted) {
+                        AuditChangeRecorder.recordChange(changes, "icReviewLevel" + getLevelName(levelNumber) + "Created", null,
+                                snapshotIcReviewLevelConfig(newLevelConfig));
+                    }
                     processLevelUpdate(command, approvalMatrix, newLevelConfig, levelNumber, changes);
                 }
             }
@@ -617,48 +630,97 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
             // Update fields that were provided
             if (unsecuredFirstCycleMaxAmount != null) {
+                AuditChangeRecorder.recordChange(changes, unsecuredFirstMaxParam, matrixLevel.getUnsecuredFirstCycleMaxAmount(),
+                        unsecuredFirstCycleMaxAmount);
                 matrixLevel.setUnsecuredFirstCycleMaxAmount(unsecuredFirstCycleMaxAmount);
             }
             if (unsecuredFirstCycleMinTerm != null) {
+                AuditChangeRecorder.recordChange(changes, unsecuredFirstMinTermParam, matrixLevel.getUnsecuredFirstCycleMinTerm(),
+                        unsecuredFirstCycleMinTerm);
                 matrixLevel.setUnsecuredFirstCycleMinTerm(unsecuredFirstCycleMinTerm);
             }
             if (unsecuredFirstCycleMaxTerm != null) {
+                AuditChangeRecorder.recordChange(changes, unsecuredFirstMaxTermParam, matrixLevel.getUnsecuredFirstCycleMaxTerm(),
+                        unsecuredFirstCycleMaxTerm);
                 matrixLevel.setUnsecuredFirstCycleMaxTerm(unsecuredFirstCycleMaxTerm);
             }
             if (unsecuredSecondCycleMaxAmount != null) {
+                AuditChangeRecorder.recordChange(changes, unsecuredSecondMaxParam, matrixLevel.getUnsecuredSecondCycleMaxAmount(),
+                        unsecuredSecondCycleMaxAmount);
                 matrixLevel.setUnsecuredSecondCycleMaxAmount(unsecuredSecondCycleMaxAmount);
             }
             if (unsecuredSecondCycleMinTerm != null) {
+                AuditChangeRecorder.recordChange(changes, unsecuredSecondMinTermParam, matrixLevel.getUnsecuredSecondCycleMinTerm(),
+                        unsecuredSecondCycleMinTerm);
                 matrixLevel.setUnsecuredSecondCycleMinTerm(unsecuredSecondCycleMinTerm);
             }
             if (unsecuredSecondCycleMaxTerm != null) {
+                AuditChangeRecorder.recordChange(changes, unsecuredSecondMaxTermParam, matrixLevel.getUnsecuredSecondCycleMaxTerm(),
+                        unsecuredSecondCycleMaxTerm);
                 matrixLevel.setUnsecuredSecondCycleMaxTerm(unsecuredSecondCycleMaxTerm);
             }
             if (securedFirstCycleMaxAmount != null) {
+                AuditChangeRecorder.recordChange(changes, securedFirstMaxParam, matrixLevel.getSecuredFirstCycleMaxAmount(),
+                        securedFirstCycleMaxAmount);
                 matrixLevel.setSecuredFirstCycleMaxAmount(securedFirstCycleMaxAmount);
             }
             if (securedFirstCycleMinTerm != null) {
+                AuditChangeRecorder.recordChange(changes, securedFirstMinTermParam, matrixLevel.getSecuredFirstCycleMinTerm(),
+                        securedFirstCycleMinTerm);
                 matrixLevel.setSecuredFirstCycleMinTerm(securedFirstCycleMinTerm);
             }
             if (securedFirstCycleMaxTerm != null) {
+                AuditChangeRecorder.recordChange(changes, securedFirstMaxTermParam, matrixLevel.getSecuredFirstCycleMaxTerm(),
+                        securedFirstCycleMaxTerm);
                 matrixLevel.setSecuredFirstCycleMaxTerm(securedFirstCycleMaxTerm);
             }
             if (securedSecondCycleMaxAmount != null) {
+                AuditChangeRecorder.recordChange(changes, securedSecondMaxParam, matrixLevel.getSecuredSecondCycleMaxAmount(),
+                        securedSecondCycleMaxAmount);
                 matrixLevel.setSecuredSecondCycleMaxAmount(securedSecondCycleMaxAmount);
             }
             if (securedSecondCycleMinTerm != null) {
+                AuditChangeRecorder.recordChange(changes, securedSecondMinTermParam, matrixLevel.getSecuredSecondCycleMinTerm(),
+                        securedSecondCycleMinTerm);
                 matrixLevel.setSecuredSecondCycleMinTerm(securedSecondCycleMinTerm);
             }
             if (securedSecondCycleMaxTerm != null) {
+                AuditChangeRecorder.recordChange(changes, securedSecondMaxTermParam, matrixLevel.getSecuredSecondCycleMaxTerm(),
+                        securedSecondCycleMaxTerm);
                 matrixLevel.setSecuredSecondCycleMaxTerm(securedSecondCycleMaxTerm);
             }
 
             loanApprovalMatrixLevelRepository.saveAndFlush(matrixLevel);
             log.info("Saved matrix level {} for approval matrix {}. ID: {}", levelNumber, approvalMatrix.getId(), matrixLevel.getId());
-            changes.put("dynamicLevel" + levelNumber, "updated");
         } else {
             log.info("No updates found for level {} in command parameters", levelNumber);
         }
+    }
+
+    private Map<String, Object> snapshotMatrixLevel(final LoanApprovalMatrixLevel matrixLevel) {
+        final Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("levelNumber", matrixLevel.getLevelNumber());
+        snapshot.put("unsecuredFirstCycleMaxAmount", matrixLevel.getUnsecuredFirstCycleMaxAmount());
+        snapshot.put("unsecuredFirstCycleMinTerm", matrixLevel.getUnsecuredFirstCycleMinTerm());
+        snapshot.put("unsecuredFirstCycleMaxTerm", matrixLevel.getUnsecuredFirstCycleMaxTerm());
+        snapshot.put("unsecuredSecondCycleMaxAmount", matrixLevel.getUnsecuredSecondCycleMaxAmount());
+        snapshot.put("unsecuredSecondCycleMinTerm", matrixLevel.getUnsecuredSecondCycleMinTerm());
+        snapshot.put("unsecuredSecondCycleMaxTerm", matrixLevel.getUnsecuredSecondCycleMaxTerm());
+        snapshot.put("securedFirstCycleMaxAmount", matrixLevel.getSecuredFirstCycleMaxAmount());
+        snapshot.put("securedFirstCycleMinTerm", matrixLevel.getSecuredFirstCycleMinTerm());
+        snapshot.put("securedFirstCycleMaxTerm", matrixLevel.getSecuredFirstCycleMaxTerm());
+        snapshot.put("securedSecondCycleMaxAmount", matrixLevel.getSecuredSecondCycleMaxAmount());
+        snapshot.put("securedSecondCycleMinTerm", matrixLevel.getSecuredSecondCycleMinTerm());
+        snapshot.put("securedSecondCycleMaxTerm", matrixLevel.getSecuredSecondCycleMaxTerm());
+        return snapshot;
+    }
+
+    private Map<String, Object> snapshotIcReviewLevelConfig(final IcReviewLevelConfig levelConfig) {
+        final Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("levelNumber", levelConfig.getLevelNumber());
+        snapshot.put("levelCode", levelConfig.getLevelCode());
+        snapshot.put("decisionState", levelConfig.getDecisionStateValue());
+        return snapshot;
     }
 
     /**

@@ -264,8 +264,9 @@ public class AppUser extends AbstractPersistableCustom implements PlatformUser {
 
         final String rolesParamName = "roles";
         if (command.isChangeInArrayParameterNamed(rolesParamName, getRolesAsIdStringArray())) {
+            final String[] beforeRoles = getRolesAsIdStringArray();
             final String[] newValue = command.arrayValueOfParameterNamed(rolesParamName);
-            actualChanges.put(rolesParamName, newValue);
+            actualChanges.put(rolesParamName, org.apache.fineract.infrastructure.core.audit.AuditChangeRecorder.beforeAfter(beforeRoles, newValue));
         }
 
         final String usernameParamName = "username";

@@ -20,12 +20,14 @@ package org.apache.fineract.useradministration.service;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.persistence.PersistenceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.audit.AuditChangeRecorder;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
@@ -155,14 +157,15 @@ public class RoleWritePlatformServiceJpaRepositoryImpl implements RoleWritePlatf
 
         final Map<String, Boolean> commandPermissions = permissionsCommand.getPermissions();
         final Map<String, Object> changes = new HashMap<>();
-        final Map<String, Boolean> changedPermissions = new HashMap<>();
+        final Map<String, Object> changedPermissions = new LinkedHashMap<>();
         for (final String permissionCode : commandPermissions.keySet()) {
             final boolean isSelected = commandPermissions.get(permissionCode).booleanValue();
 
             final Permission permission = findPermissionByCode(allPermissions, permissionCode);
+            final boolean wasSelected = role.hasPermissionTo(permissionCode);
             final boolean changed = role.updatePermission(permission, isSelected);
             if (changed) {
-                changedPermissions.put(permissionCode, isSelected);
+                changedPermissions.put(permissionCode, AuditChangeRecorder.beforeAfter(wasSelected, isSelected));
             }
         }
 
