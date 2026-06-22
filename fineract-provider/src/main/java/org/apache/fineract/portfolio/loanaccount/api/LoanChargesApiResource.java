@@ -237,7 +237,7 @@ public class LoanChargesApiResource {
             final CommandWrapper commandRequest = builder.payLoanCharge(loanId, loanChargeId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else if (is(commandParam, "adjust")) {
-            final CommandWrapper commandRequest = builder.adjustLoanInsuranceCharge(loanId, loanChargeId).build();
+            final CommandWrapper commandRequest = builder.adjustLoanDisbursementCharge(loanId, loanChargeId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else {
             throw new UnrecognizedQueryParamException("command", commandParam);

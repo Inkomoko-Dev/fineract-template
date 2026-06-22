@@ -2072,7 +2072,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             LocalDate expectedDisbursementDate, BigDecimal principal, List<Long> existingDisbursementList) {
 
         // For single disbursement loans, use approved principal instead of submitted principal
-        // (which might be net amount after insurance deductions)
+        // (which might be net amount after disbursement charge deductions)
         BigDecimal disbursementPrincipal = principal;
         if (!this.loanProduct().isMultiDisburseLoan()) {
             disbursementPrincipal = this.approvedPrincipal;
@@ -2789,7 +2789,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 disburseAmount = Money.of(getCurrency(), principalDisbursed);
             } else {
                 // For single disbursement loans, always use approved principal to ensure journal entries
-                // sent to Odoo use the gross principal amount instead of net amount after insurance deductions
+                // sent to Odoo use the gross principal amount instead of net amount after disbursement charge deductions
                 disburseAmount = Money.of(getCurrency(), this.approvedPrincipal);
             }
 
@@ -2819,7 +2819,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 compareDisbursedToApprovedOrProposedPrincipal(disburseAmount.getAmount(), totalAmount);
             } else {
                 // For single disbursement loans, always use approved principal to ensure repayment schedule
-                // is based on full approved amount, not the net disbursed amount after insurance deductions
+                // is based on full approved amount, not the net disbursed amount after disbursement charge deductions
                 this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
             }
             if (!this.loanProduct().isMultiDisburseLoan() && diff.compareTo(BigDecimal.ZERO) < 0) {
@@ -3971,7 +3971,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     private Money calculateTotalOverpayment() {
 
-        Money totalPaidInRepayments = getTotalPaidInRepayments().plus(getTotalRepaymentAtDisbursementRepaymentValue());
+        Money totalPaidInRepayments = getTotalPaidInRepayments().plus(getTotalRepaymentAtDisbursementRepaymentValue())
+                .plus(getNetDisbursementChargeAdjustmentCreditValue());
 
         final MonetaryCurrency currency = loanCurrency();
         Money cumulativeTotalPaidOnInstallments = Money.zero(currency);
@@ -4003,23 +4004,36 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         Money cumulativeRepaymentValue = Money.zero(loanCurrency());
 
         for (final LoanTransaction repayment : this.loanTransactions) {
-            if (repayment.isRepaymentAtDisbursement()) {
-                if (repayment.getLoanChargesPaid().isEmpty()) {
-                    cumulativeRepaymentValue = cumulativeRepaymentValue.plus(repayment.getOverPaymentPortion(loanCurrency()));
-                } else {
-                    Money paidTowardsDisbursementCharges = Money.zero(loanCurrency());
-                    for (final LoanChargePaidBy chargePaidBy : repayment.getLoanChargesPaid()) {
-                        paidTowardsDisbursementCharges = paidTowardsDisbursementCharges.plus(chargePaidBy.getAmount());
-                    }
-                    final Money repaymentValue = repayment.getAmount(loanCurrency()).minus(paidTowardsDisbursementCharges);
-                    if (repaymentValue.isGreaterThanZero()) {
-                        cumulativeRepaymentValue = cumulativeRepaymentValue.plus(repaymentValue);
-                    }
-                }
+            if (repayment.isRepaymentAtDisbursement() && repayment.isNotReversed()) {
+                cumulativeRepaymentValue = cumulativeRepaymentValue.plus(repayment.getOverPaymentPortion(loanCurrency()));
             }
         }
 
         return cumulativeRepaymentValue;
+    }
+
+    private Money getNetDisbursementChargeAdjustmentCreditValue() {
+        Money cumulativeCreditValue = Money.zero(loanCurrency());
+        final List<LoanTransaction> chargeAdjustmentTransactions = new ArrayList<>();
+
+        for (final LoanTransaction loanTransaction : this.loanTransactions) {
+            if (loanTransaction.isDisbursementChargeAdjustment() && loanTransaction.isNotReversed()) {
+                chargeAdjustmentTransactions.add(loanTransaction);
+            }
+        }
+        chargeAdjustmentTransactions.sort(new LoanTransactionComparator());
+        for (final LoanTransaction loanTransaction : chargeAdjustmentTransactions) {
+            if (loanTransaction.getFeeChargesPortion(loanCurrency()).isLessThanZero()) {
+                cumulativeCreditValue = cumulativeCreditValue.plus(loanTransaction.getAmount(loanCurrency()));
+            } else if (loanTransaction.getFeeChargesPortion(loanCurrency()).isGreaterThanZero()) {
+                cumulativeCreditValue = cumulativeCreditValue.minus(loanTransaction.getAmount(loanCurrency()));
+                if (!cumulativeCreditValue.isGreaterThanZero()) {
+                    cumulativeCreditValue = Money.zero(loanCurrency());
+                }
+            }
+        }
+
+        return cumulativeCreditValue;
     }
 
     public Money calculateTotalRecoveredPayments() {
@@ -4754,6 +4768,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         accountingBridgeData.put("upfrontAccrualBasedAccountingEnabled", isUpfrontAccrualAccountingEnabledOnLoanProduct());
         accountingBridgeData.put("periodicAccrualBasedAccountingEnabled", isPeriodicAccrualAccountingEnabledOnLoanProduct());
         accountingBridgeData.put("isAccountTransfer", isAccountTransfer);
+        accountingBridgeData.put("fundId",this.fund.getId());
 
         final List<Map<String, Object>> newLoanTransactions = new ArrayList<>();
         final Set<Long> reversedOriginalTransactionIds = this.loanTransactions.stream().filter(LoanTransaction::isReversalTransaction)
@@ -5960,26 +5975,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public LoanRepaymentScheduleInstallment fetchPrepaymentDetail(final ScheduleGeneratorDTO scheduleGeneratorDTO, final LocalDate onDate) {
-        LoanRepaymentScheduleInstallment installment = null;
-
-        if (this.loanRepaymentScheduleDetail.isInterestRecalculationEnabled()) {
-            final RoundingMode roundingMode = MoneyHelper.getRoundingMode();
-            final MathContext mc = new MathContext(8, roundingMode);
-
-            final InterestMethod interestMethod = this.loanRepaymentScheduleDetail.getInterestMethod();
-            final LoanApplicationTerms loanApplicationTerms = constructLoanApplicationTerms(scheduleGeneratorDTO);
-
-            final LoanScheduleGenerator loanScheduleGenerator = scheduleGeneratorDTO.getLoanScheduleFactory().create(interestMethod);
-            final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
-                    .determineProcessor(this.transactionProcessingStrategy);
-            installment = loanScheduleGenerator.calculatePrepaymentAmount(getCurrency(), onDate, loanApplicationTerms, mc, this,
-                    scheduleGeneratorDTO.getHolidayDetailDTO(), loanRepaymentScheduleTransactionProcessor);
-        } else {
-            // For loans without interest recalculation, calculate pro-rata accrued interest
-            // up to the prepayment date instead of charging all scheduled interest
-            installment = this.getTotalOutstandingOnLoanAsOfDate(onDate);
-        }
-        return installment;
+        // Use persisted schedule with pro-rata accrued interest for all loans so the prepayment
+        // template matches what transaction processors apply on the live repayment schedule.
+        return this.getTotalOutstandingOnLoanAsOfDate(onDate);
     }
 
     public LoanApplicationTerms constructLoanApplicationTerms(final ScheduleGeneratorDTO scheduleGeneratorDTO) {
@@ -6157,6 +6155,15 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         for (LoanTransaction loanTransaction : loanTransactions) {
             if (loanTransaction.isDisbursement() || loanTransaction.isIncomePosting()) {
                 outstanding = outstanding.plus(loanTransaction.getAmount(getCurrency()));
+                loanTransaction.updateOutstandingLoanBalance(outstanding.getAmount());
+            } else if (loanTransaction.isDisbursementChargeAdjustment()) {
+                final Money principalPortion = loanTransaction.getPrincipalPortion(getCurrency());
+                final Money feeChargesPortion = loanTransaction.getFeeChargesPortion(getCurrency());
+                if (feeChargesPortion.isLessThanZero()) {
+                    outstanding = outstanding.minus(principalPortion);
+                } else if (feeChargesPortion.isGreaterThanZero()) {
+                    outstanding = outstanding.plus(principalPortion);
+                }
                 loanTransaction.updateOutstandingLoanBalance(outstanding.getAmount());
             } else {
                 if (this.loanInterestRecalculationDetails != null

@@ -112,6 +112,7 @@ public class AccountingProcessorHelper {
         final CurrencyData currencyData = (CurrencyData) accountingBridgeData.get("currency");
         final List<LoanTransactionDTO> newLoanTransactions = new ArrayList<>();
         boolean isAccountTransfer = (Boolean) accountingBridgeData.get("isAccountTransfer");
+        final Long fundId = (Long) accountingBridgeData.get("fundId");
 
         @SuppressWarnings("unchecked")
         final List<Map<String, Object>> newTransactionsMap = (List<Map<String, Object>>) accountingBridgeData.get("newLoanTransactions");
@@ -170,7 +171,7 @@ public class AccountingProcessorHelper {
         }
 
         return new LoanDTO(loanId, loanProductId, officeId, currencyData.code(), cashBasedAccountingEnabled,
-                upfrontAccrualBasedAccountingEnabled, periodicAccrualBasedAccountingEnabled, newLoanTransactions);
+                upfrontAccrualBasedAccountingEnabled, periodicAccrualBasedAccountingEnabled, newLoanTransactions,fundId);
     }
 
     public SavingsDTO populateSavingsDtoFromMap(final Map<String, Object> accountingBridgeData, final boolean cashBasedAccountingEnabled,

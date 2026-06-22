@@ -226,7 +226,7 @@ public final class LoanSchedulePeriodData {
         this.penaltyChargesOutstanding = null;
 
         this.totalOriginalDueForPeriod = chargesDueAtTimeOfDisbursement;
-        this.totalDueForPeriod = chargesDueAtTimeOfDisbursement;
+        this.totalDueForPeriod = this.feeChargesOutstanding;
         this.totalPaidForPeriod = this.feeChargesPaid;
         this.totalPaidInAdvanceForPeriod = null;
         this.totalPaidLateForPeriod = null;
@@ -562,6 +562,10 @@ public final class LoanSchedulePeriodData {
 
     public BigDecimal totalPaidForPeriod() {
         return defaultToZeroIfNull(this.totalPaidForPeriod);
+    }
+
+    public BigDecimal totalDueForPeriod() {
+        return defaultToZeroIfNull(this.totalDueForPeriod);
     }
 
     public BigDecimal totalWaivedForPeriod() {

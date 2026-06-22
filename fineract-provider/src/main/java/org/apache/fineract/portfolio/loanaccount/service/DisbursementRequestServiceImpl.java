@@ -163,11 +163,8 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         final String loanOfficer = loan.getLoanOfficer().emailAddress();
         final String clientName = loan.getClient().getDisplayName();
         final String narration = "Loan Disbursement for Loan Account No: " + loan.getAccountNumber() + "  Client " + clientName;
-//        final String location = clientAddressRepositoryWrapper.findAddressesForClient(loan.getClient().getId()).stream().findFirst()
-//                .map(address -> address.getAddress().getLocation()).orElse("N/A");
-//
-        // intoduced office since location is no longer on the address form
-        final String location = loan.getOffice().getName();
+        final String location = clientAddressRepositoryWrapper.findAddressesForClient(loan.getClient().getId()).stream().findFirst()
+                .map(address -> address.getAddress().getLocation()).orElse("N/A");
 
         LoanProductData loanProductData=  this.loanProductReadPlatformService.retrieveLoanProduct(loan.getLoanProduct().getId());
 

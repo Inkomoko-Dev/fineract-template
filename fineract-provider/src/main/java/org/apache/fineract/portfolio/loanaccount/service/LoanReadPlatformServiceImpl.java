@@ -397,8 +397,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             /***
              * TODO Vishwas: Remove references to "Contra" from the codebase
              ***/
+            final String transactionDisplayOrder = " case tr.transaction_type_enum "
+                    + " when " + LoanTransactionType.DISBURSEMENT.getValue() + " then 0 "
+                    + " when " + LoanTransactionType.INCOME_POSTING.getValue() + " then 1 "
+                    + " when " + LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.getValue() + " then 2 "
+                    + " when " + LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue() + " then 3 "
+                    + " else 4 end ";
             final String sql = "select " + rm.loanPaymentsSchema()
-                    + " where tr.loan_id = ? and tr.transaction_type_enum not in (0, 3) order by tr.transaction_date ASC,id ";
+                    + " where tr.loan_id = ? and tr.transaction_type_enum not in (0, 3) order by tr.transaction_date ASC, "
+                    + transactionDisplayOrder + ", tr.created_on_utc ASC, tr.id ";
             return this.jdbcTemplate.query(sql, rm, loanId); // NOSONAR
         } catch (final EmptyResultDataAccessException e) {
             return null;
@@ -1679,7 +1686,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             totalFeeChargesCharged = totalFeeChargesCharged.plus(disbursementPeriod.feeChargesDue());
             totalWaived = totalWaived.plus(disbursementPeriod.feeChargesWaived());
             totalWrittenOff = totalWrittenOff.plus(disbursementPeriod.feeChargesWrittenOff());
-            totalRepaymentExpected = totalRepaymentExpected.plus(disbursementPeriod.feeChargesDue());
+            totalRepaymentExpected = totalRepaymentExpected.plus(disbursementPeriod.totalDueForPeriod());
             totalRepayment = totalRepayment.plus(disbursementPeriod.feeChargesPaid());
             totalOutstanding = totalOutstanding.plus(disbursementPeriod.feeChargesOutstanding());
 

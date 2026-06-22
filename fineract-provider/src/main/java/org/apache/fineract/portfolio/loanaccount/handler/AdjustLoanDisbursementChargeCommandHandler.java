@@ -23,24 +23,24 @@ import org.apache.fineract.commands.annotation.CommandType;
 import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
-import org.apache.fineract.portfolio.loanaccount.serialization.AdjustLoanInsuranceChargeCommandFromApiJsonDeserializer;
+import org.apache.fineract.portfolio.loanaccount.serialization.AdjustLoanDisbursementChargeCommandFromApiJsonDeserializer;
 import org.apache.fineract.portfolio.loanaccount.service.LoanWritePlatformService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
-@CommandType(entity = "LOANCHARGE", action = "ADJUSTINSURANCE")
-public class AdjustLoanInsuranceChargeCommandHandler implements NewCommandSourceHandler {
+@CommandType(entity = "LOANCHARGE", action = "ADJUSTDISBURSEMENTCHARGE")
+public class AdjustLoanDisbursementChargeCommandHandler implements NewCommandSourceHandler {
 
     private final LoanWritePlatformService loanChargeWritePlatformService;
-    private final AdjustLoanInsuranceChargeCommandFromApiJsonDeserializer deserializer;
+    private final AdjustLoanDisbursementChargeCommandFromApiJsonDeserializer deserializer;
 
     @Transactional
     @Override
     public CommandProcessingResult processCommand(final JsonCommand command) {
         this.deserializer.validateForAdjust(command.json());
-        return this.loanChargeWritePlatformService.adjustLoanInsuranceCharge(
+        return this.loanChargeWritePlatformService.adjustLoanDisbursementCharge(
                 command.getLoanId(), command.entityId(), command);
     }
 }
