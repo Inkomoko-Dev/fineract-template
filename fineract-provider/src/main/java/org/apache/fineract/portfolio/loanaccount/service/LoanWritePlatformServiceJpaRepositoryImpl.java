@@ -3983,17 +3983,37 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 if (paymentType != null) {
                     disbursementDetail.setPaymentType(paymentType);
                 }
-                disbursementDetail.setClientAccountNumber(clientAccountNumber);
-                disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
-                disbursementDetail.setClientBankName(clientBankName);
-                disbursementDetail.setBeneficiaryName(beneficiaryName);
-                disbursementDetail.setDisbursementType(StringUtils.isNotBlank(disbursementType) ? disbursementType
-                        : (isVendorDisbursement ? LoanDisbursementDetails.DisbursementType.VENDOR.name()
-                                : LoanDisbursementDetails.DisbursementType.CLIENT.name()));
-                disbursementDetail.setFxRate(fxRate);
-                disbursementDetail.setUsdAmount(usdAmount);
-                disbursementDetail.setFxSource(fxSource);
-                disbursementDetail.setFxTimestamp(fxTimestamp);
+                if (StringUtils.isNotBlank(clientAccountNumber)) {
+                    disbursementDetail.setClientAccountNumber(clientAccountNumber);
+                }
+                if (StringUtils.isNotBlank(clientPhoneNumber)) {
+                    disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
+                }
+                if (StringUtils.isNotBlank(clientBankName)) {
+                    disbursementDetail.setClientBankName(clientBankName);
+                }
+                if (StringUtils.isNotBlank(beneficiaryName)) {
+                    disbursementDetail.setBeneficiaryName(beneficiaryName);
+                }
+                if (StringUtils.isNotBlank(disbursementType)) {
+                    disbursementDetail.setDisbursementType(disbursementType);
+                } else if (isVendorDisbursement) {
+                    disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.VENDOR.name());
+                } else {
+                    disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.CLIENT.name());
+                }
+                if (fxRate != null) {
+                    disbursementDetail.setFxRate(fxRate);
+                }
+                if (usdAmount != null) {
+                    disbursementDetail.setUsdAmount(usdAmount);
+                }
+                if (StringUtils.isNotBlank(fxSource)) {
+                    disbursementDetail.setFxSource(fxSource);
+                }
+                if (fxTimestamp != null) {
+                    disbursementDetail.setFxTimestamp(fxTimestamp);
+                }
             }
         }
         
@@ -4074,17 +4094,37 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 if (paymentType != null) {
                     disbursementDetail.setPaymentType(paymentType);
                 }
-                disbursementDetail.setClientAccountNumber(clientAccountNumber);
-                disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
-                disbursementDetail.setClientBankName(clientBankName);
-                disbursementDetail.setBeneficiaryName(beneficiaryName);
-                disbursementDetail.setDisbursementType(StringUtils.isNotBlank(disbursementType) ? disbursementType
-                        : (isVendorDisbursement ? LoanDisbursementDetails.DisbursementType.VENDOR.name()
-                                : LoanDisbursementDetails.DisbursementType.CLIENT.name()));
-                disbursementDetail.setFxRate(fxRate);
-                disbursementDetail.setUsdAmount(usdAmount);
-                disbursementDetail.setFxSource(fxSource);
-                disbursementDetail.setFxTimestamp(fxTimestamp);
+                if (StringUtils.isNotBlank(clientAccountNumber)) {
+                    disbursementDetail.setClientAccountNumber(clientAccountNumber);
+                }
+                if (StringUtils.isNotBlank(clientPhoneNumber)) {
+                    disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
+                }
+                if (StringUtils.isNotBlank(clientBankName)) {
+                    disbursementDetail.setClientBankName(clientBankName);
+                }
+                if (StringUtils.isNotBlank(beneficiaryName)) {
+                    disbursementDetail.setBeneficiaryName(beneficiaryName);
+                }
+                if (StringUtils.isNotBlank(disbursementType)) {
+                    disbursementDetail.setDisbursementType(disbursementType);
+                } else if (isVendorDisbursement) {
+                    disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.VENDOR.name());
+                } else {
+                    disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.CLIENT.name());
+                }
+                if (fxRate != null) {
+                    disbursementDetail.setFxRate(fxRate);
+                }
+                if (usdAmount != null) {
+                    disbursementDetail.setUsdAmount(usdAmount);
+                }
+                if (StringUtils.isNotBlank(fxSource)) {
+                    disbursementDetail.setFxSource(fxSource);
+                }
+                if (fxTimestamp != null) {
+                    disbursementDetail.setFxTimestamp(fxTimestamp);
+                }
             }
 
             this.disbursementRequestService.disburseRequestLoan(loan, command);
