@@ -250,4 +250,8 @@ public enum LoanTransactionType {
     public boolean isDepositRedraw() {
         return this.value.equals(DEPOSIT_REDRAW.getValue());
     }
+
+    public boolean isWithdrawalRedraw() {
+        return this.value.equals(WITHDRAWAL_REDRAW.getValue());
+    }
 }

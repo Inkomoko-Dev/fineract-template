@@ -270,8 +270,16 @@ public class LoanRepositoryWrapper {
         final var loanTransaction = isDeposit
                 ? LoanTransaction.applyRedrawRepayment(loan.getOffice(), withdrawAmount, paymentDetail, transactionDate, null, loan)
                 : LoanTransaction.withdrawFromRedraw(loan.getOffice(), withdrawAmount, paymentDetail, transactionDate, null, loan);
+        
+        // Add the transaction to the loan
+        existingLoanApplication.addLoanTransaction(loanTransaction);
+        // Update loan summary and status
+        existingLoanApplication.updateLoanSummarAndStatus();
+        
         this.loanTransactionRepository.saveAndFlush(loanTransaction);
         loanRedrawAccountRepository.saveAndFlush(loanRedrawAccount);
+        // Save the updated loan
+        saveAndFlush(existingLoanApplication);
     }
 
     private LoanRedrawAccount getOrInstantiateLoanRedrawAccount(Optional<LoanRedrawAccount> loanRedrawAccountOptional,
