@@ -3623,6 +3623,22 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     private void doPostLoanTransactionChecks(final LocalDate transactionDate, final LoanLifecycleStateMachine loanLifecycleStateMachine) {
+        // Find the last non-reversed, non-accrual, non-income-posting transaction
+        LoanTransaction lastTransaction = null;
+        LocalDate currentTransactionDate = getDisbursementDate();
+        for (final LoanTransaction previousTransaction : this.loanTransactions) {
+            if (!(previousTransaction.isReversed() || previousTransaction.isAccrual() || previousTransaction.isIncomePosting())) {
+                if (currentTransactionDate.isBefore(previousTransaction.getTransactionDate())) {
+                    currentTransactionDate = previousTransaction.getTransactionDate();
+                    lastTransaction = previousTransaction;
+                }
+            }
+        }
+        
+        // Skip checks if last transaction is a redraw transaction
+        if (lastTransaction != null && (lastTransaction.isDepositRedraw() || lastTransaction.isWithdrawalRedraw())) {
+            return;
+        }
 
         if (isOverPaid()) {
             // FIXME - kw - update account balance to negative amount.
@@ -6097,6 +6113,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                     outstanding = outstanding.plus(principalPortion);
                 }
                 loanTransaction.updateOutstandingLoanBalance(outstanding.getAmount());
+            } else if (loanTransaction.isDepositRedraw() || loanTransaction.isWithdrawalRedraw()) {
+                // Skip redraw transactions - they don't affect the loan's outstanding balance
+                continue;
             } else {
                 if (this.loanInterestRecalculationDetails != null
                         && this.loanInterestRecalculationDetails.isCompoundingToBePostedAsTransaction()
