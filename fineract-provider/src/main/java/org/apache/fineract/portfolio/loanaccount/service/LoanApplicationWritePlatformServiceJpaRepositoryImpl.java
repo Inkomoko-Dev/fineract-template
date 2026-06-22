@@ -134,6 +134,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallmentRepository;
@@ -256,6 +258,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
     private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
+    private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
 
     private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
         final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
@@ -1696,7 +1699,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 BigDecimal fxRate = null;
                 BigDecimal usdAmount = null;
                 String fxSource = null;
-                final boolean isSouthSudanSsp = "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
+                final boolean isSouthSudanSsp = isSouthSudanLoan(loan) && "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
                 LocalDateTime fxTimestamp = null;
                 Integer normalizedPaymentTo = paymentTo;
                 final List<ApiParameterError> validationErrors = new ArrayList<>();
@@ -1886,6 +1889,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                     "Validation errors exist for payment type and related fields.",
                     dataValidationErrors);
         }
+    }
+
+    private boolean isSouthSudanLoan(final Loan loan) {
+        final LoanDueDiligenceInfo loanDueDiligenceInfo = this.loanDueDiligenceInfoRepository.findLoanDueDiligenceInfoByLoanId(loan.getId());
+        if (loanDueDiligenceInfo != null && loanDueDiligenceInfo.getCountry() != null
+                && StringUtils.isNotBlank(loanDueDiligenceInfo.getCountry().label())) {
+            return "SOUTH SUDAN".equalsIgnoreCase(StringUtils.normalizeSpace(loanDueDiligenceInfo.getCountry().label()));
+        }
+        return "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
     }
 
     private void validateActiveLoanCount(Long clientId) {
