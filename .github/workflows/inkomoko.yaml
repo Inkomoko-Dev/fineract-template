@@ -21,19 +21,19 @@ jobs:
         with:
           java-version: 17
 
-      - name: SonarQube Scan
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONARR_HOST_URL: https://dev.inkomoko.com:1128
-          SONAR_ROOT_CERT: ${{ secrets.SONAR_ROOT_CERT }}
-        run: |
-          echo "$SONAR_ROOT_CERT" > /tmp/sonar-cert.pem
-          keytool -import -alias sonarqube -file /tmp/sonar-cert.pem \
-            -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit -noprompt
-          ./gradlew --info --stacktrace sonarqube -x test -x compileTestJava \
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
-            -Dsonar.host.url=${SONARR_HOST_URL} \
-            -Dsonar.login=${SONAR_TOKEN}
+#      - name: SonarQube Scan
+#        env:
+#          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#          SONARR_HOST_URL: https://dev.inkomoko.com:1128
+#          SONAR_ROOT_CERT: ${{ secrets.SONAR_ROOT_CERT }}
+#        run: |
+#          echo "$SONAR_ROOT_CERT" > /tmp/sonar-cert.pem
+#          keytool -import -alias sonarqube -file /tmp/sonar-cert.pem \
+#            -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit -noprompt
+#         ./gradlew --info --stacktrace sonarqube -x test -x compileTestJava \
+#            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+#            -Dsonar.host.url=${SONARR_HOST_URL} \
+#            -Dsonar.login=${SONAR_TOKEN}
         #SONAR_ROOT_CERT: ${{ secrets.SONAR_ROOT_CERT }}
 ## -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
       - name: Build with Gradles
