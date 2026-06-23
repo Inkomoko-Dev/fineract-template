@@ -186,7 +186,13 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepositoryWrapper;
+import org.apache.fineract.infrastructure.dataqueries.service.ReadWriteNonCoreDataService;
+import java.time.LocalDateTime;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementChargeAdjustmentAudit;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementChargeAdjustmentAuditRepository;
@@ -312,6 +318,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final GLAccountRepository glAccountRepository;
     private final ProductToGLAccountMappingRepository productToGLAccountMappingRepository;
     private final LoanDisbursementChargeAdjustmentAuditRepository loanDisbursementChargeAdjustmentAuditRepository;
+    private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
+    private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
+    private final PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -3787,7 +3796,105 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     @Transactional
     public CommandProcessingResult disbursePreApproval(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
-        // TODO: validate for pre approval
+        
+        // Update disbursement details
+        if (!loan.loanProduct().isMultiDisburseLoan()) {
+            final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
+            final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
+            final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
+            final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
+            final String disbursementTypeRaw = command.stringValueOfParameterNamed(LoanApiConstants.disbursementTypeParameterName);
+            String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
+            final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
+            PaymentType paymentType = null;
+            if (paymentTypeId != null) {
+                paymentType = this.paymentTypeRepositoryWrapper.findOneWithNotFoundDetection(paymentTypeId);
+            }
+            BigDecimal fxRate = null;
+            BigDecimal usdAmount = null;
+            String fxSource = null;
+            final boolean isSouthSudanSsp = isSouthSudanLoan(loan) && "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
+            LocalDateTime fxTimestamp = null;
+
+            final boolean isVendorDisbursement = LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType);
+
+            if (isSouthSudanSsp && LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)) {
+                final LocalDate disbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+
+                BigDecimal fetchedFxRate = null;
+                LocalDateTime fetchedFxTimestamp = null;
+                if (disbursementDate != null) {
+                    fetchedFxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(), disbursementDate);
+                    fetchedFxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(), disbursementDate);
+                }
+
+                // FX Rate Handling: Prefer backend fetched rate, but allow manual override from API
+                final BigDecimal manualFxRate = command.bigDecimalValueOfParameterNamed(LoanApiConstants.fxRateParameterName);
+                if (manualFxRate != null) {
+                    fxRate = manualFxRate;
+                    fxTimestamp = DateUtils.getLocalDateTimeOfTenant(); // Use current time for manual override
+                    fxSource = "MANUAL_ENTRY";
+                } else {
+                    fxRate = fetchedFxRate;
+                    fxTimestamp = fetchedFxTimestamp;
+                    fxSource = "CBS_DAILY_RATE";
+                }
+
+                if (fxRate != null && fxRate.compareTo(BigDecimal.ZERO) > 0) {
+                    usdAmount = loan.getPrincpal().getAmount().divide(fxRate, 6, RoundingMode.HALF_UP);
+                }
+            }
+
+            // ------------------------------
+            // 1. FIND EXISTING DETAIL
+            // ------------------------------
+
+            LoanDisbursementDetails disbursementDetail = loan.getDisbursementDetails()
+                    .stream()
+                    .findFirst()
+                    .orElse(null);
+
+            // ------------------------------
+            // 2. UPDATE PROPERTIES (ALWAYS)
+            // ------------------------------
+            if (disbursementDetail != null) {
+                if (paymentType != null) {
+                    disbursementDetail.setPaymentType(paymentType);
+                }
+                if (StringUtils.isNotBlank(clientAccountNumber)) {
+                    disbursementDetail.setClientAccountNumber(clientAccountNumber);
+                }
+                if (StringUtils.isNotBlank(clientPhoneNumber)) {
+                    disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
+                }
+                if (StringUtils.isNotBlank(clientBankName)) {
+                    disbursementDetail.setClientBankName(clientBankName);
+                }
+                if (StringUtils.isNotBlank(beneficiaryName)) {
+                    disbursementDetail.setBeneficiaryName(beneficiaryName);
+                }
+                if (StringUtils.isNotBlank(disbursementType)) {
+                    disbursementDetail.setDisbursementType(disbursementType);
+                } else if (isVendorDisbursement) {
+                    disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.VENDOR.name());
+                } else {
+                    disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.CLIENT.name());
+                }
+                if (fxRate != null) {
+                    disbursementDetail.setFxRate(fxRate);
+                }
+                if (usdAmount != null) {
+                    disbursementDetail.setUsdAmount(usdAmount);
+                }
+                if (StringUtils.isNotBlank(fxSource)) {
+                    disbursementDetail.setFxSource(fxSource);
+                }
+                if (fxTimestamp != null) {
+                    disbursementDetail.setFxTimestamp(fxTimestamp);
+                }
+            }
+        }
+        
         loan.handleDisbursementPreApprovalRequest();
         this.saveLoanWithDataIntegrityViolationChecks(loan);
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
@@ -3802,6 +3909,102 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             if (loan.getDisbursementDetails().get(0).getPaymentType().isCashPayment())
                 return disburseLoan(loanId, command, false, false);
 
+            // Update disbursement details
+            final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
+            final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
+            final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
+            final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
+            final String disbursementTypeRaw = command.stringValueOfParameterNamed(LoanApiConstants.disbursementTypeParameterName);
+            String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
+            final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
+            PaymentType paymentType = null;
+            if (paymentTypeId != null) {
+                paymentType = this.paymentTypeRepositoryWrapper.findOneWithNotFoundDetection(paymentTypeId);
+            }
+            BigDecimal fxRate = null;
+            BigDecimal usdAmount = null;
+            String fxSource = null;
+            final boolean isSouthSudanSsp = isSouthSudanLoan(loan) && "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
+            LocalDateTime fxTimestamp = null;
+
+            final boolean isVendorDisbursement = LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType);
+
+            if (isSouthSudanSsp && LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)) {
+                final LocalDate disbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+
+                BigDecimal fetchedFxRate = null;
+                LocalDateTime fetchedFxTimestamp = null;
+                if (disbursementDate != null) {
+                    fetchedFxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(), disbursementDate);
+                    fetchedFxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(), disbursementDate);
+                }
+
+                // FX Rate Handling: Prefer backend fetched rate, but allow manual override from API
+                final BigDecimal manualFxRate = command.bigDecimalValueOfParameterNamed(LoanApiConstants.fxRateParameterName);
+                if (manualFxRate != null) {
+                    fxRate = manualFxRate;
+                    fxTimestamp = DateUtils.getLocalDateTimeOfTenant(); // Use current time for manual override
+                    fxSource = "MANUAL_ENTRY";
+                } else {
+                    fxRate = fetchedFxRate;
+                    fxTimestamp = fetchedFxTimestamp;
+                    fxSource = "CBS_DAILY_RATE";
+                }
+
+                if (fxRate != null && fxRate.compareTo(BigDecimal.ZERO) > 0) {
+                    usdAmount = loan.getPrincpal().getAmount().divide(fxRate, 6, RoundingMode.HALF_UP);
+                }
+            }
+
+            // ------------------------------
+            // 1. FIND EXISTING DETAIL
+            // ------------------------------
+
+            LoanDisbursementDetails disbursementDetail = loan.getDisbursementDetails()
+                    .stream()
+                    .findFirst()
+                    .orElse(null);
+
+            // ------------------------------
+            // 2. UPDATE PROPERTIES (ALWAYS)
+            // ------------------------------
+            if (disbursementDetail != null) {
+                if (paymentType != null) {
+                    disbursementDetail.setPaymentType(paymentType);
+                }
+                if (StringUtils.isNotBlank(clientAccountNumber)) {
+                    disbursementDetail.setClientAccountNumber(clientAccountNumber);
+                }
+                if (StringUtils.isNotBlank(clientPhoneNumber)) {
+                    disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
+                }
+                if (StringUtils.isNotBlank(clientBankName)) {
+                    disbursementDetail.setClientBankName(clientBankName);
+                }
+                if (StringUtils.isNotBlank(beneficiaryName)) {
+                    disbursementDetail.setBeneficiaryName(beneficiaryName);
+                }
+                if (StringUtils.isNotBlank(disbursementType)) {
+                    disbursementDetail.setDisbursementType(disbursementType);
+                } else if (isVendorDisbursement) {
+                    disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.VENDOR.name());
+                } else {
+                    disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.CLIENT.name());
+                }
+                if (fxRate != null) {
+                    disbursementDetail.setFxRate(fxRate);
+                }
+                if (usdAmount != null) {
+                    disbursementDetail.setUsdAmount(usdAmount);
+                }
+                if (StringUtils.isNotBlank(fxSource)) {
+                    disbursementDetail.setFxSource(fxSource);
+                }
+                if (fxTimestamp != null) {
+                    disbursementDetail.setFxTimestamp(fxTimestamp);
+                }
+            }
+
             this.disbursementRequestService.disburseRequestLoan(loan, command);
             loan.handleDisbursementRequest();
             this.saveLoanWithDataIntegrityViolationChecks(loan);
@@ -3815,6 +4018,15 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     loan.getApprovedPrincipal());
         }
 
+    }
+
+    private boolean isSouthSudanLoan(final Loan loan) {
+        final LoanDueDiligenceInfo loanDueDiligenceInfo = this.loanDueDiligenceInfoRepository.findLoanDueDiligenceInfoByLoanId(loan.getId());
+        if (loanDueDiligenceInfo != null && loanDueDiligenceInfo.getCountry() != null
+                && StringUtils.isNotBlank(loanDueDiligenceInfo.getCountry().label())) {
+            return "SOUTH SUDAN".equalsIgnoreCase(StringUtils.normalizeSpace(loanDueDiligenceInfo.getCountry().label()));
+        }
+        return "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
     }
 
     @Override
