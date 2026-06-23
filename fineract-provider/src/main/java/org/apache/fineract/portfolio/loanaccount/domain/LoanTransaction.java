@@ -636,6 +636,14 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return LoanTransactionType.PAY_OFF.equals(getTypeOf()) && isNotReversed();
     }
 
+    public boolean isDepositRedraw() {
+        return LoanTransactionType.DEPOSIT_REDRAW.equals(getTypeOf()) && isNotReversed();
+    }
+
+    public boolean isWithdrawalRedraw() {
+        return LoanTransactionType.WITHDRAWAL_REDRAW.equals(getTypeOf()) && isNotReversed();
+    }
+
     public boolean isPenaltyPayment() {
         boolean isPenalty = false;
         if (isChargePayment()) {
