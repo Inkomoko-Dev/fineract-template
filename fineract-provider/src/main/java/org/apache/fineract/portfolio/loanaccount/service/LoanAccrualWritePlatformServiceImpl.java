@@ -370,7 +370,10 @@ public class LoanAccrualWritePlatformServiceImpl implements LoanAccrualWritePlat
 
                         if (installmentChargeData.getInstallmentNumber().equals(accrualData.getInstallmentNumber())) {
                             BigDecimal accruableForInstallment = installmentChargeData.getAmount();
-                            if (installmentChargeData.getAmountUnrecognized() != null) {
+                            if (loanCharge.isPenalty()) {
+                                accruableForInstallment = subtractPenaltyWaivedAmount(accruableForInstallment,
+                                        installmentChargeData.getAmountWaived());
+                            } else if (installmentChargeData.getAmountUnrecognized() != null) {
                                 accruableForInstallment = accruableForInstallment.subtract(installmentChargeData.getAmountUnrecognized());
                             }
                             chargeAmount = accruableForInstallment;
@@ -381,20 +384,26 @@ public class LoanAccrualWritePlatformServiceImpl implements LoanAccrualWritePlat
                                 if (installmentChargeData.getAmountAccrued() != null) {
                                     amountForAccrual = chargeAmount.subtract(installmentChargeData.getAmountAccrued());
                                 }
-                                applicableCharges.put(loanCharge, amountForAccrual);
-                                BigDecimal amountAccrued = chargeAmount;
-                                if (loanCharge.getAmountAccrued() != null) {
-                                    amountAccrued = amountAccrued.add(loanCharge.getAmountAccrued());
+                                if (amountForAccrual.compareTo(BigDecimal.ZERO) > 0) {
+                                    applicableCharges.put(loanCharge, amountForAccrual);
+                                    BigDecimal amountAccrued = chargeAmount;
+                                    if (loanCharge.getAmountAccrued() != null) {
+                                        amountAccrued = amountAccrued.add(loanCharge.getAmountAccrued());
+                                    }
+                                    loanCharge.updateAmountAccrued(amountAccrued);
                                 }
-                                loanCharge.updateAmountAccrued(amountAccrued);
                             }
+                            chargeAmount = dueDateChargeIncomeAmount(loanCharge.isPenalty(), chargeAmount,
+                                    installmentChargeData.getAmountAccrued());
                             break;
                         }
                     }
                 }
             } else if (loanCharge.getDueDate().isAfter(startDate) && !loanCharge.getDueDate().isAfter(endDate)) {
                 chargeAmount = loanCharge.getAmount();
-                if (loanCharge.getAmountUnrecognized() != null) {
+                if (loanCharge.isPenalty()) {
+                    chargeAmount = subtractPenaltyWaivedAmount(chargeAmount, loanCharge.getAmountWaived());
+                } else if (loanCharge.getAmountUnrecognized() != null) {
                     chargeAmount = chargeAmount.subtract(loanCharge.getAmountUnrecognized());
                 }
                 boolean canAddCharge = chargeAmount.compareTo(BigDecimal.ZERO) > 0;
@@ -403,8 +412,11 @@ public class LoanAccrualWritePlatformServiceImpl implements LoanAccrualWritePlat
                     if (loanCharge.getAmountAccrued() != null) {
                         amountForAccrual = chargeAmount.subtract(loanCharge.getAmountAccrued());
                     }
-                    applicableCharges.put(loanCharge, amountForAccrual);
+                    if (amountForAccrual.compareTo(BigDecimal.ZERO) > 0) {
+                        applicableCharges.put(loanCharge, amountForAccrual);
+                    }
                 }
+                chargeAmount = dueDateChargeIncomeAmount(loanCharge.isPenalty(), chargeAmount, loanCharge.getAmountAccrued());
             }
 
             if (loanCharge.isPenalty()) {
@@ -423,6 +435,24 @@ public class LoanAccrualWritePlatformServiceImpl implements LoanAccrualWritePlat
         }
 
         accrualData.updateChargeDetails(applicableCharges, dueDateFeeIncome, dueDatePenaltyIncome);
+    }
+
+    private BigDecimal subtractPenaltyWaivedAmount(final BigDecimal amount, final BigDecimal amountWaived) {
+        BigDecimal chargeAmount = amount == null ? BigDecimal.ZERO : amount;
+        if (amountWaived != null) {
+            chargeAmount = chargeAmount.subtract(amountWaived);
+        }
+        if (chargeAmount.compareTo(BigDecimal.ZERO) < 0) {
+            chargeAmount = BigDecimal.ZERO;
+        }
+        return chargeAmount;
+    }
+
+    private BigDecimal dueDateChargeIncomeAmount(final boolean penalty, final BigDecimal chargeAmount, final BigDecimal amountAccrued) {
+        if (penalty && amountAccrued != null && amountAccrued.compareTo(chargeAmount) > 0) {
+            return amountAccrued;
+        }
+        return chargeAmount;
     }
 
     private void updateInterestIncome(final LoanScheduleAccrualData accrualData,

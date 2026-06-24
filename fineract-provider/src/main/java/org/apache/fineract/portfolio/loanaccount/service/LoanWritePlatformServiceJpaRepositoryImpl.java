@@ -2188,11 +2188,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             throw new LoanChargeCannotBeWaivedException(LoanChargeCannotBeWaivedReason.LOAN_INACTIVE, loanCharge.getId());
         }
 
+        final boolean residualPenaltyWaiver = isResidualPenaltyWaiver(loanCharge, loan.getCurrency());
+        final Money previousAmountWaived = loanCharge.getAmountWaived(loan.getCurrency());
+        final Money previousAmountOutstanding = loanCharge.getAmountOutstanding(loan.getCurrency());
         // validate loan charge is not already paid or waived
-        if (loanCharge.isWaived()) {
+        if (loanCharge.isWaived() && !residualPenaltyWaiver) {
             throw new LoanChargeCannotBeWaivedException(LoanChargeCannotBeWaivedReason.ALREADY_WAIVED, loanCharge.getId());
         } else if (loanCharge.isPaid()) {
             throw new LoanChargeCannotBeWaivedException(LoanChargeCannotBeWaivedReason.ALREADY_PAID, loanCharge.getId());
+        }
+        if (residualPenaltyWaiver) {
+            validateResidualPenaltyWaiver(command, previousAmountOutstanding);
         }
         businessEventNotifierService.notifyPreBusinessEvent(new LoanWaiveChargeBusinessEvent(loanCharge));
         Integer loanInstallmentNumber = null;
@@ -2239,6 +2245,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 existingTransactionIds, existingReversedTransactionIds, loanInstallmentNumber, scheduleGeneratorDTO, accruedCharge);
 
         this.loanTransactionRepository.saveAndFlush(waiveTransaction);
+        if (residualPenaltyWaiver) {
+            changes.put("residualPenaltyWaiver", true);
+            changes.put("previousAmountWaived", previousAmountWaived.getAmount());
+            changes.put("previousAmountOutstanding", previousAmountOutstanding.getAmount());
+            changes.put("newAmountWaived", loanCharge.getAmountWaived(loan.getCurrency()).getAmount());
+            changes.put("newAmountOutstanding", loanCharge.getAmountOutstanding(loan.getCurrency()).getAmount());
+            final String reason = residualPenaltyWaiverReason(command);
+            changes.put(LoanApiConstants.reasonParamName, reason);
+            final Note note = Note.loanTransactionNote(loan, waiveTransaction, reason);
+            this.noteRepository.save(note);
+        }
         saveLoanWithDataIntegrityViolationChecks(loan);
 
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
@@ -2254,6 +2271,47 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .withLoanId(loanId) //
                 .with(changes) //
                 .build();
+    }
+
+    private boolean isResidualPenaltyWaiver(final LoanCharge loanCharge, final MonetaryCurrency currency) {
+        return loanCharge.isPenaltyCharge() && loanCharge.isWaived() && loanCharge.getAmountOutstanding(currency).isGreaterThanZero();
+    }
+
+    private void validateResidualPenaltyWaiver(final JsonCommand command, final Money amountOutstanding) {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+
+        if (!command.parameterExists(LoanApiConstants.expectedResidualAmountParamName)) {
+            dataValidationErrors.add(ApiParameterError.parameterError(
+                    "validation.msg.loan.charge.waive.expectedResidualAmount.required",
+                    "Expected residual amount is mandatory when waiving a residual penalty balance.",
+                    LoanApiConstants.expectedResidualAmountParamName));
+        } else {
+            final BigDecimal expectedResidualAmount = command
+                    .bigDecimalValueOfParameterNamed(LoanApiConstants.expectedResidualAmountParamName);
+            if (Money.of(amountOutstanding.getCurrency(), expectedResidualAmount).isNotEqualTo(amountOutstanding)) {
+                dataValidationErrors.add(ApiParameterError.parameterError(
+                        "validation.msg.loan.charge.waive.expectedResidualAmount.not.equal.to.outstanding",
+                        "Expected residual amount does not match the current outstanding penalty balance.",
+                        LoanApiConstants.expectedResidualAmountParamName, expectedResidualAmount, amountOutstanding.getAmount()));
+            }
+        }
+
+        final String reason = residualPenaltyWaiverReason(command);
+        if (StringUtils.isBlank(reason)) {
+            dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.loan.charge.waive.reason.required",
+                    "Reason is mandatory when waiving a residual penalty balance.", LoanApiConstants.reasonParamName));
+        }
+
+        if (!dataValidationErrors.isEmpty()) {
+            throw new PlatformApiDataValidationException(dataValidationErrors);
+        }
+    }
+
+    private String residualPenaltyWaiverReason(final JsonCommand command) {
+        if (command.parameterExists(LoanApiConstants.reasonParamName)) {
+            return command.stringValueOfParameterNamed(LoanApiConstants.reasonParamName);
+        }
+        return command.stringValueOfParameterNamed(LoanApiConstants.noteParamName);
     }
 
     @Transactional
