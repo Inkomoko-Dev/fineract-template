@@ -1284,7 +1284,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public void updateLoanSchedule(final LoanScheduleModel modifiedLoanSchedule) {
-        this.repaymentScheduleInstallments.clear();
+        final List<LoanRepaymentScheduleInstallment> newInstallments = new ArrayList<>();
         for (final LoanScheduleModelPeriod scheduledLoanInstallment : modifiedLoanSchedule.getPeriods()) {
 
             if (scheduledLoanInstallment.isRepaymentPeriod()) {
@@ -1294,9 +1294,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                         scheduledLoanInstallment.interestDue(), scheduledLoanInstallment.feeChargesDue(),
                         scheduledLoanInstallment.penaltyChargesDue(), scheduledLoanInstallment.isRecalculatedInterestComponent(),
                         scheduledLoanInstallment.getLoanCompoundingDetails());
-                addLoanRepaymentScheduleInstallment(installment);
+                newInstallments.add(installment);
             }
         }
+        validateNoDuplicateInstallmentNumbers(newInstallments);
+        this.repaymentScheduleInstallments.clear();
+        newInstallments.forEach(this::addLoanRepaymentScheduleInstallment);
 
         updateLoanScheduleDependentDerivedFields();
         updateLoanSummaryDerivedFields();
@@ -1305,14 +1308,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public void updateLoanSchedule(final Collection<LoanRepaymentScheduleInstallment> newInstallments) {
-
+        validateNoDuplicateInstallmentNumbers(newInstallments);
         for (final LoanRepaymentScheduleInstallment installment : newInstallments) {
             LoanRepaymentScheduleInstallment existingInstallment = findByInstallmentNumber(getRepaymentScheduleInstallments(),
                     installment.getInstallmentNumber());
             if (existingInstallment != null) {
                 existingInstallment.copyFrom(installment);
             } else {
-              addLoanRepaymentScheduleInstallment(installment);
+                addLoanRepaymentScheduleInstallment(installment);
             }
         }
         // Review Installments removed
@@ -1325,6 +1328,29 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     private boolean existInstallment(final Collection<LoanRepaymentScheduleInstallment> installments, final Integer installmentNumber) {
         return installments.stream().anyMatch(i -> installmentNumber.compareTo(i.getInstallmentNumber()) == 0);
+    }
+
+    private void validateNoDuplicateInstallmentNumbers(final Collection<LoanRepaymentScheduleInstallment> installments) {
+        final Set<Integer> seenInstallments = new HashSet<>();
+        final Set<Integer> duplicateInstallments = new HashSet<>();
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            if (!seenInstallments.add(installment.getInstallmentNumber())) {
+                duplicateInstallments.add(installment.getInstallmentNumber());
+            }
+        }
+        if (!duplicateInstallments.isEmpty()) {
+            final List<Integer> sortedDuplicateInstallments = new ArrayList<>(duplicateInstallments);
+            Collections.sort(sortedDuplicateInstallments);
+            final String errorMessage = "Duplicate repayment schedule installment numbers are not allowed: "
+                    + sortedDuplicateInstallments;
+            final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+            final ApiParameterError error = ApiParameterError.parameterError(
+                    "error.msg.loan.repayment.schedule.duplicate.installment", errorMessage, "installment",
+                    sortedDuplicateInstallments);
+            dataValidationErrors.add(error);
+            throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                    dataValidationErrors);
+        }
     }
 
     private LoanRepaymentScheduleInstallment findByInstallmentNumber(Collection<LoanRepaymentScheduleInstallment> installments,
