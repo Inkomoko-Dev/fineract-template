@@ -4784,7 +4784,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         accountingBridgeData.put("upfrontAccrualBasedAccountingEnabled", isUpfrontAccrualAccountingEnabledOnLoanProduct());
         accountingBridgeData.put("periodicAccrualBasedAccountingEnabled", isPeriodicAccrualAccountingEnabledOnLoanProduct());
         accountingBridgeData.put("isAccountTransfer", isAccountTransfer);
-        accountingBridgeData.put("fundId",this.fund.getId());
+        accountingBridgeData.put("fundId",this.fund != null ? this.fund.getId() : null);
 
         final List<Map<String, Object>> newLoanTransactions = new ArrayList<>();
         final Set<Long> reversedOriginalTransactionIds = this.loanTransactions.stream().filter(LoanTransaction::isReversalTransaction)
