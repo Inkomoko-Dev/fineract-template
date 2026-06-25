@@ -490,7 +490,9 @@ public final class LoanEventApiJsonValidator {
         if (StringUtils.isBlank(json)) {
             return;
         }
-        Set<String> transactionParameters = new HashSet<>(Arrays.asList("dueDate", "locale", "dateFormat", "installmentNumber"));
+        Set<String> transactionParameters = new HashSet<>(
+                Arrays.asList("dueDate", "locale", "dateFormat", "installmentNumber", LoanApiConstants.expectedResidualAmountParamName,
+                        LoanApiConstants.reasonParamName, LoanApiConstants.noteParamName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, transactionParameters);
@@ -503,6 +505,17 @@ public final class LoanEventApiJsonValidator {
 
         final Integer installmentNumber = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("installmentNumber", element);
         baseDataValidator.reset().parameter("installmentNumber").value(installmentNumber).ignoreIfNull().integerGreaterThanZero();
+
+        final BigDecimal expectedResidualAmount = this.fromApiJsonHelper
+                .extractBigDecimalWithLocaleNamed(LoanApiConstants.expectedResidualAmountParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.expectedResidualAmountParamName).value(expectedResidualAmount).ignoreIfNull()
+                .zeroOrPositiveAmount();
+
+        final String reason = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.reasonParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.reasonParamName).value(reason).ignoreIfNull().notExceedingLengthOf(1000);
+
+        final String note = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.noteParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.noteParamName).value(note).ignoreIfNull().notExceedingLengthOf(1000);
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
 

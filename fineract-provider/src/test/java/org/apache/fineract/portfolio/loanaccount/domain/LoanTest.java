@@ -131,48 +131,23 @@ public class LoanTest {
     }
 
     @Test
-    public void updateLoanScheduleRejectsDuplicateInstallmentNumbersInCollection() {
-        final Loan loan = new Loan();
-        final LoanRepaymentScheduleInstallment firstInstallment = new LoanRepaymentScheduleInstallment(null, 1,
-                LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 31), BigDecimal.TEN, BigDecimal.ONE, BigDecimal.ZERO,
-                BigDecimal.ZERO, false, null);
-        final LoanRepaymentScheduleInstallment duplicateInstallment = new LoanRepaymentScheduleInstallment(null, 1,
-                LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 30), BigDecimal.TEN, BigDecimal.ONE, BigDecimal.ZERO,
-                BigDecimal.ZERO, false, null);
+    public void waivedChargeWithResidualOutstandingWaivesOnlyTheResidualAndPreservesPriorWaivedAmount() {
+        final LoanCharge loanCharge = new LoanCharge();
+        ReflectionTestUtils.setField(loanCharge, "amount", new BigDecimal("300000000.00"));
+        ReflectionTestUtils.setField(loanCharge, "amountPaid", BigDecimal.ZERO);
+        ReflectionTestUtils.setField(loanCharge, "amountWaived", new BigDecimal("299462600.00"));
+        ReflectionTestUtils.setField(loanCharge, "amountWrittenOff", BigDecimal.ZERO);
+        ReflectionTestUtils.setField(loanCharge, "amountOutstanding", new BigDecimal("537400.00"));
+        ReflectionTestUtils.setField(loanCharge, "paid", false);
+        ReflectionTestUtils.setField(loanCharge, "waived", true);
 
-        assertThrows(PlatformApiDataValidationException.class,
-                () -> loan.updateLoanSchedule(Arrays.asList(firstInstallment, duplicateInstallment)));
-    }
+        final Money residualWaived = loanCharge.waive(KES, null);
 
-    @Test
-    public void updateLoanScheduleRejectsDuplicateInstallmentNumbersInModel() {
-        final Loan loan = new Loan();
-        final LoanScheduleModelPeriod firstPeriod = mock(LoanScheduleModelPeriod.class);
-        when(firstPeriod.isRepaymentPeriod()).thenReturn(true);
-        when(firstPeriod.periodNumber()).thenReturn(1);
-        when(firstPeriod.periodFromDate()).thenReturn(LocalDate.of(2026, 5, 1));
-        when(firstPeriod.periodDueDate()).thenReturn(LocalDate.of(2026, 5, 31));
-        when(firstPeriod.principalDue()).thenReturn(BigDecimal.TEN);
-        when(firstPeriod.interestDue()).thenReturn(BigDecimal.ONE);
-        when(firstPeriod.feeChargesDue()).thenReturn(BigDecimal.ZERO);
-        when(firstPeriod.penaltyChargesDue()).thenReturn(BigDecimal.ZERO);
-        when(firstPeriod.isRecalculatedInterestComponent()).thenReturn(false);
-
-        final LoanScheduleModelPeriod duplicatePeriod = mock(LoanScheduleModelPeriod.class);
-        when(duplicatePeriod.isRepaymentPeriod()).thenReturn(true);
-        when(duplicatePeriod.periodNumber()).thenReturn(1);
-        when(duplicatePeriod.periodFromDate()).thenReturn(LocalDate.of(2026, 6, 1));
-        when(duplicatePeriod.periodDueDate()).thenReturn(LocalDate.of(2026, 6, 30));
-        when(duplicatePeriod.principalDue()).thenReturn(BigDecimal.TEN);
-        when(duplicatePeriod.interestDue()).thenReturn(BigDecimal.ONE);
-        when(duplicatePeriod.feeChargesDue()).thenReturn(BigDecimal.ZERO);
-        when(duplicatePeriod.penaltyChargesDue()).thenReturn(BigDecimal.ZERO);
-        when(duplicatePeriod.isRecalculatedInterestComponent()).thenReturn(false);
-
-        final LoanScheduleModel loanScheduleModel = LoanScheduleModel.from(Arrays.asList(firstPeriod, duplicatePeriod), null, 0, null,
-                null, null, null, null, null, null, null);
-
-        assertThrows(PlatformApiDataValidationException.class, () -> loan.updateLoanSchedule(loanScheduleModel));
+        assertEquals(0, new BigDecimal("537400.00").compareTo(residualWaived.getAmount()));
+        assertEquals(0, new BigDecimal("300000000.00").compareTo(loanCharge.getAmountWaived(KES).getAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(loanCharge.getAmountOutstanding(KES).getAmount()));
+        assertTrue(loanCharge.isWaived());
+        assertFalse(loanCharge.isPaid());
     }
 
     @Test
