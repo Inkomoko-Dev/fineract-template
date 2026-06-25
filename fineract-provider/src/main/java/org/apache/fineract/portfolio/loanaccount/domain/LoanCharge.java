@@ -390,11 +390,12 @@ public class LoanCharge extends AbstractPersistableCustom {
             }
             return amountWaived;
         }
-        this.amountWaived = this.amountOutstanding;
+        final Money amountWaived = getAmountOutstanding(currency);
+        this.amountWaived = getAmountWaived(currency).plus(amountWaived).getAmount();
         this.amountOutstanding = BigDecimal.ZERO;
         this.paid = false;
         this.waived = true;
-        return getAmountWaived(currency);
+        return amountWaived;
 
     }
 

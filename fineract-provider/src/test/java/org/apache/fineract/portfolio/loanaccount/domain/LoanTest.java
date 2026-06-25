@@ -127,6 +127,26 @@ public class LoanTest {
     }
 
     @Test
+    public void waivedChargeWithResidualOutstandingWaivesOnlyTheResidualAndPreservesPriorWaivedAmount() {
+        final LoanCharge loanCharge = new LoanCharge();
+        ReflectionTestUtils.setField(loanCharge, "amount", new BigDecimal("300000000.00"));
+        ReflectionTestUtils.setField(loanCharge, "amountPaid", BigDecimal.ZERO);
+        ReflectionTestUtils.setField(loanCharge, "amountWaived", new BigDecimal("299462600.00"));
+        ReflectionTestUtils.setField(loanCharge, "amountWrittenOff", BigDecimal.ZERO);
+        ReflectionTestUtils.setField(loanCharge, "amountOutstanding", new BigDecimal("537400.00"));
+        ReflectionTestUtils.setField(loanCharge, "paid", false);
+        ReflectionTestUtils.setField(loanCharge, "waived", true);
+
+        final Money residualWaived = loanCharge.waive(KES, null);
+
+        assertEquals(0, new BigDecimal("537400.00").compareTo(residualWaived.getAmount()));
+        assertEquals(0, new BigDecimal("300000000.00").compareTo(loanCharge.getAmountWaived(KES).getAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(loanCharge.getAmountOutstanding(KES).getAmount()));
+        assertTrue(loanCharge.isWaived());
+        assertFalse(loanCharge.isPaid());
+    }
+
+    @Test
     public void loanReversalTransactionKeepsReversedFlagsFalse() {
         final Office office = mock(Office.class);
         when(office.getId()).thenReturn(1L);
