@@ -3911,6 +3911,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     .stream()
                     .findFirst()
                     .orElse(null);
+            Integer normalizedPaymentTo = disbursementDetail != null ? disbursementDetail.getPaymentTo() : null;
+            if (StringUtils.isNotBlank(disbursementType)) {
+                normalizedPaymentTo = LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)
+                        ? LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue()
+                        : LoanDisbursementDetails.PaymentToType.CLIENT.getValue();
+            } else if (normalizedPaymentTo != null) {
+                final LoanDisbursementDetails.DisbursementType derivedType = LoanDisbursementDetails.DisbursementType
+                        .fromPaymentTo(normalizedPaymentTo);
+                if (derivedType != null) {
+                    disbursementType = derivedType.name();
+                }
+            }
 
             // ------------------------------
             // 2. UPDATE PROPERTIES (ALWAYS)
@@ -3931,9 +3943,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 if (StringUtils.isNotBlank(beneficiaryName)) {
                     disbursementDetail.setBeneficiaryName(beneficiaryName);
                 }
+                if (normalizedPaymentTo != null) {
+                    disbursementDetail.setPaymentTo(normalizedPaymentTo);
+                }
                 if (StringUtils.isNotBlank(disbursementType)) {
                     disbursementDetail.setDisbursementType(disbursementType);
-                } else if (isVendorDisbursement) {
+                } else if (Objects.equals(normalizedPaymentTo, LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue())
+                        || isVendorDisbursement) {
                     disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.VENDOR.name());
                 } else {
                     disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.CLIENT.name());
@@ -4022,6 +4038,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     .stream()
                     .findFirst()
                     .orElse(null);
+            Integer normalizedPaymentTo = disbursementDetail != null ? disbursementDetail.getPaymentTo() : null;
+            if (StringUtils.isNotBlank(disbursementType)) {
+                normalizedPaymentTo = LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)
+                        ? LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue()
+                        : LoanDisbursementDetails.PaymentToType.CLIENT.getValue();
+            } else if (normalizedPaymentTo != null) {
+                final LoanDisbursementDetails.DisbursementType derivedType = LoanDisbursementDetails.DisbursementType
+                        .fromPaymentTo(normalizedPaymentTo);
+                if (derivedType != null) {
+                    disbursementType = derivedType.name();
+                }
+            }
 
             // ------------------------------
             // 2. UPDATE PROPERTIES (ALWAYS)
@@ -4042,9 +4070,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 if (StringUtils.isNotBlank(beneficiaryName)) {
                     disbursementDetail.setBeneficiaryName(beneficiaryName);
                 }
+                if (normalizedPaymentTo != null) {
+                    disbursementDetail.setPaymentTo(normalizedPaymentTo);
+                }
                 if (StringUtils.isNotBlank(disbursementType)) {
                     disbursementDetail.setDisbursementType(disbursementType);
-                } else if (isVendorDisbursement) {
+                } else if (Objects.equals(normalizedPaymentTo, LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue())
+                        || isVendorDisbursement) {
                     disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.VENDOR.name());
                 } else {
                     disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.CLIENT.name());
