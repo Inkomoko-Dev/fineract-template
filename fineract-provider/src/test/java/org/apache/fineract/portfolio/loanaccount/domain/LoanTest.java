@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -42,6 +43,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
@@ -54,6 +56,8 @@ import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
@@ -124,6 +128,51 @@ public class LoanTest {
         final Collection<LoanCharge> chargeIds = loan.getCharges();
 
         assertEquals(0, chargeIds.size());
+    }
+
+    @Test
+    public void updateLoanScheduleRejectsDuplicateInstallmentNumbersInCollection() {
+        final Loan loan = new Loan();
+        final LoanRepaymentScheduleInstallment firstInstallment = new LoanRepaymentScheduleInstallment(null, 1,
+                LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 31), BigDecimal.TEN, BigDecimal.ONE, BigDecimal.ZERO,
+                BigDecimal.ZERO, false, null);
+        final LoanRepaymentScheduleInstallment duplicateInstallment = new LoanRepaymentScheduleInstallment(null, 1,
+                LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 30), BigDecimal.TEN, BigDecimal.ONE, BigDecimal.ZERO,
+                BigDecimal.ZERO, false, null);
+
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> loan.updateLoanSchedule(Arrays.asList(firstInstallment, duplicateInstallment)));
+    }
+
+    @Test
+    public void updateLoanScheduleRejectsDuplicateInstallmentNumbersInModel() {
+        final Loan loan = new Loan();
+        final LoanScheduleModelPeriod firstPeriod = mock(LoanScheduleModelPeriod.class);
+        when(firstPeriod.isRepaymentPeriod()).thenReturn(true);
+        when(firstPeriod.periodNumber()).thenReturn(1);
+        when(firstPeriod.periodFromDate()).thenReturn(LocalDate.of(2026, 5, 1));
+        when(firstPeriod.periodDueDate()).thenReturn(LocalDate.of(2026, 5, 31));
+        when(firstPeriod.principalDue()).thenReturn(BigDecimal.TEN);
+        when(firstPeriod.interestDue()).thenReturn(BigDecimal.ONE);
+        when(firstPeriod.feeChargesDue()).thenReturn(BigDecimal.ZERO);
+        when(firstPeriod.penaltyChargesDue()).thenReturn(BigDecimal.ZERO);
+        when(firstPeriod.isRecalculatedInterestComponent()).thenReturn(false);
+
+        final LoanScheduleModelPeriod duplicatePeriod = mock(LoanScheduleModelPeriod.class);
+        when(duplicatePeriod.isRepaymentPeriod()).thenReturn(true);
+        when(duplicatePeriod.periodNumber()).thenReturn(1);
+        when(duplicatePeriod.periodFromDate()).thenReturn(LocalDate.of(2026, 6, 1));
+        when(duplicatePeriod.periodDueDate()).thenReturn(LocalDate.of(2026, 6, 30));
+        when(duplicatePeriod.principalDue()).thenReturn(BigDecimal.TEN);
+        when(duplicatePeriod.interestDue()).thenReturn(BigDecimal.ONE);
+        when(duplicatePeriod.feeChargesDue()).thenReturn(BigDecimal.ZERO);
+        when(duplicatePeriod.penaltyChargesDue()).thenReturn(BigDecimal.ZERO);
+        when(duplicatePeriod.isRecalculatedInterestComponent()).thenReturn(false);
+
+        final LoanScheduleModel loanScheduleModel = LoanScheduleModel.from(Arrays.asList(firstPeriod, duplicatePeriod), null, 0, null,
+                null, null, null, null, null, null, null);
+
+        assertThrows(PlatformApiDataValidationException.class, () -> loan.updateLoanSchedule(loanScheduleModel));
     }
 
     @Test
