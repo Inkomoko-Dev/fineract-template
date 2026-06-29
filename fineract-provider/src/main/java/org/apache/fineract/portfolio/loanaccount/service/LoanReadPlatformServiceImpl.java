@@ -2137,8 +2137,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         try {
-            return Collections.synchronizedList(this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod,
-                    penaltyWaitPeriod, maxLoanIdInList, pageSize));
+            return Collections.synchronizedList(this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod, maxLoanIdInList, pageSize));
         } catch (final EmptyResultDataAccessException e) {
             return null;
         }
