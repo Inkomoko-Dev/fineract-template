@@ -39,6 +39,14 @@ import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
+import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
+import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
+import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -117,6 +125,301 @@ public class LoanTest {
         assertFalse(reversalTransaction.isRecoveryRepayment());
         assertTrue(reversalTransaction.isRecoveryRepaymentType());
         assertEquals(Boolean.TRUE, accountingData.get("reversed"));
+    }
+
+    @Test
+    public void disbursementChargeAdjustmentKeepsAmountPositiveAndStoresDirectionOnFeePortion() {
+        final Office office = mock(Office.class);
+        final Loan loan = mock(Loan.class);
+
+        final LoanTransaction increaseAdjustment = LoanTransaction.disbursementChargeAdjustment(loan, office,
+                Money.of(KES, new BigDecimal("50.00")), LocalDate.of(2026, 5, 25), false);
+        final LoanTransaction decreaseAdjustment = LoanTransaction.disbursementChargeAdjustment(loan, office,
+                Money.of(KES, new BigDecimal("50.00")), LocalDate.of(2026, 5, 25), true);
+
+        assertEquals(LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT, increaseAdjustment.getTypeOf());
+        assertFalse(increaseAdjustment.isNonMonetaryTransaction());
+        assertFalse(increaseAdjustment.isPaymentTransaction());
+        assertEquals(0, new BigDecimal("50.00").compareTo(increaseAdjustment.getAmount(KES).getAmount()));
+        assertEquals(0, new BigDecimal("50.00").compareTo(increaseAdjustment.getFeeChargesPortion(KES).getAmount()));
+
+        assertEquals(LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT, decreaseAdjustment.getTypeOf());
+        assertFalse(decreaseAdjustment.isNonMonetaryTransaction());
+        assertFalse(decreaseAdjustment.isPaymentTransaction());
+        assertEquals(0, new BigDecimal("50.00").compareTo(decreaseAdjustment.getAmount(KES).getAmount()));
+        assertEquals(0, new BigDecimal("-50.00").compareTo(decreaseAdjustment.getFeeChargesPortion(KES).getAmount()));
+    }
+
+    @Test
+    public void disbursementChargeAdjustmentMapDataDisplaysAbsoluteFeePortion() {
+        final Office office = mock(Office.class);
+        final Loan loan = mock(Loan.class);
+        when(office.getId()).thenReturn(1L);
+        when(loan.getNetDisbursalAmount()).thenReturn(BigDecimal.ZERO);
+        final LoanTransaction decreaseAdjustment = LoanTransaction.disbursementChargeAdjustment(loan, office,
+                Money.of(KES, new BigDecimal("600.00")), LocalDate.of(2026, 5, 25), true);
+
+        final Map<String, Object> transactionData = decreaseAdjustment.toMapData(new CurrencyData("KES", "Kenyan Shilling", 2, 1, "KSh",
+                "currency.KES"));
+
+        assertEquals(0, new BigDecimal("-600.00").compareTo(decreaseAdjustment.getFeeChargesPortion(KES).getAmount()));
+        assertEquals(0, new BigDecimal("600.00").compareTo((BigDecimal) transactionData.get("feeChargesPortion")));
+    }
+
+    @Test
+    public void disbursementChargeAdjustmentDataDisplaysAbsoluteFeePortion() {
+        final LoanTransactionData transactionData = new LoanTransactionData(1L,
+                LoanEnumerations.transactionType(LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT),
+                LocalDate.of(2026, 5, 25), new BigDecimal("600.00"), null, BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("-600.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+
+        final BigDecimal feeChargesPortion = (BigDecimal) ReflectionTestUtils.getField(transactionData, "feeChargesPortion");
+
+        assertEquals(0, new BigDecimal("600.00").compareTo(feeChargesPortion));
+    }
+
+    @Test
+    public void repaymentAtDisbursementCanSeparateChargeFeePaidFromOverpaymentWithoutChangingPaidPool() {
+        final Office office = mock(Office.class);
+        final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(office,
+                Money.of(KES, new BigDecimal("100.00")), null, LocalDate.of(2026, 5, 25), null);
+
+        repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("50.00")),
+                Money.zero(KES), Money.of(KES, new BigDecimal("50.00")));
+
+        assertEquals(0, new BigDecimal("100.00").compareTo(repaymentAtDisbursement.getAmount(KES).getAmount()));
+        assertEquals(0, new BigDecimal("50.00").compareTo(repaymentAtDisbursement.getFeeChargesPortion(KES).getAmount()));
+        assertEquals(0, new BigDecimal("50.00").compareTo(repaymentAtDisbursement.getOverPaymentPortion(KES).getAmount()));
+    }
+
+    @Test
+    public void repaymentAtDisbursementOverpaymentContributesToLoanTotalOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(mock(Office.class),
+                Money.of(KES, new BigDecimal("100.00")), null, LocalDate.of(2026, 5, 25), null);
+        repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("50.00")),
+                Money.zero(KES), Money.of(KES, new BigDecimal("50.00")));
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "loanTransactions", Collections.singletonList(repaymentAtDisbursement));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.emptyList());
+
+        final Money totalOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
+
+        assertEquals(0, new BigDecimal("50.00").compareTo(totalOverpayment.getAmount()));
+    }
+
+    @Test
+    public void linkedRepaymentAtDisbursementAmountDifferenceDoesNotImplyLoanTotalOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        final LoanCharge disbursementCharge = buildDisbursementLoanCharge(loan, new BigDecimal("1000.00"));
+        final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(mock(Office.class),
+                Money.of(KES, new BigDecimal("2000.00")), null, LocalDate.of(2026, 5, 8), null);
+        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, disbursementCharge,
+                new BigDecimal("1000.00"), null));
+        repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("1000.00")),
+                Money.zero(KES), Money.zero(KES));
+        ReflectionTestUtils.setField(repaymentAtDisbursement, "amount", new BigDecimal("2000.00"));
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "loanTransactions", Collections.singletonList(repaymentAtDisbursement));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.emptyList());
+
+        final Money totalOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(totalOverpayment.getAmount()));
+    }
+
+    @Test
+    public void linkedRepaymentAtDisbursementRepaymentValueCannotCreateNegativeLoanTotalOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        final LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 1,
+                LocalDate.of(2026, 5, 8), LocalDate.of(2026, 6, 8), new BigDecimal("300.00"), BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        installment.payPrincipalComponent(LocalDate.of(2026, 5, 8), Money.of(KES, new BigDecimal("300.00")));
+        final LoanCharge disbursementCharge = buildDisbursementLoanCharge(loan, new BigDecimal("500.00"));
+        final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(mock(Office.class),
+                Money.of(KES, new BigDecimal("800.00")), null, LocalDate.of(2026, 5, 8), null);
+        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, disbursementCharge,
+                new BigDecimal("500.00"), null));
+        repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("500.00")),
+                Money.zero(KES));
+        repaymentAtDisbursement.updateComponents(Money.of(KES, new BigDecimal("300.00")), Money.zero(KES),
+                Money.zero(KES), Money.zero(KES));
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "loanTransactions", Collections.singletonList(repaymentAtDisbursement));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.singletonList(installment));
+
+        final Money totalOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(totalOverpayment.getAmount()));
+    }
+
+    @Test
+    public void linkedRepaymentAtDisbursementChargePaidAmountIsExcludedFromLoanTotalOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        final LoanCharge disbursementCharge = buildDisbursementLoanCharge(loan, new BigDecimal("500.00"));
+        final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(mock(Office.class),
+                Money.of(KES, new BigDecimal("800.00")), null, LocalDate.of(2026, 5, 8), null);
+        repaymentAtDisbursement.getLoanChargesPaid().add(new LoanChargePaidBy(repaymentAtDisbursement, disbursementCharge,
+                new BigDecimal("500.00"), null));
+        repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("500.00")),
+                Money.zero(KES), Money.of(KES, new BigDecimal("300.00")));
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "loanTransactions", Collections.singletonList(repaymentAtDisbursement));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.emptyList());
+
+        final Money totalOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
+
+        assertEquals(0, new BigDecimal("300.00").compareTo(totalOverpayment.getAmount()));
+    }
+
+    @Test
+    public void updateLoanSummaryAndStatusMarksLoanOverpaidAfterRepaymentAtDisbursementOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        when(loanProductRelatedDetail.getPrincipal()).thenReturn(Money.of(KES, new BigDecimal("100.00")));
+        final LocalDate disbursementDate = LocalDate.of(2026, 5, 8);
+        final LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 1, disbursementDate,
+                LocalDate.of(2026, 6, 8), new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false,
+                null);
+        installment.payPrincipalComponent(LocalDate.of(2026, 6, 8), Money.of(KES, new BigDecimal("100.00")));
+        final LoanTransaction disbursement = LoanTransaction.disbursement(mock(Office.class), Money.of(KES, new BigDecimal("100.00")),
+                null, disbursementDate, null);
+        final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("100.00")),
+                null, LocalDate.of(2026, 6, 8), null);
+        final LoanTransaction repaymentAtDisbursement = LoanTransaction.repaymentAtDisbursement(mock(Office.class),
+                Money.of(KES, new BigDecimal("125.00")), null, disbursementDate, null);
+        repaymentAtDisbursement.updateRepaymentAtDisbursementComponents(Money.of(KES, new BigDecimal("100.00")),
+                Money.zero(KES), Money.of(KES, new BigDecimal("25.00")));
+        disbursement.updateLoan(loan);
+        repayment.updateLoan(loan);
+        repaymentAtDisbursement.updateLoan(loan);
+
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.ACTIVE.getValue());
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "actualDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "summary", LoanSummary.create(BigDecimal.ZERO));
+        ReflectionTestUtils.setField(loan, "loanSummaryWrapper", new LoanSummaryWrapper());
+        ReflectionTestUtils.setField(loan, "loanLifecycleStateMachine",
+                new DefaultLoanLifecycleStateMachine(Arrays.asList(LoanStatus.values())));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.singletonList(installment));
+        ReflectionTestUtils.setField(loan, "loanTransactions", new ArrayList<>(Collections.singletonList(disbursement)));
+        loan.addLoanTransaction(repaymentAtDisbursement);
+        loan.addLoanTransaction(repayment);
+        ReflectionTestUtils.setField(loan, "charges", Collections.emptySet());
+
+        loan.updateLoanSummarAndStatus();
+
+        assertEquals(LoanStatus.OVERPAID.getValue(), ReflectionTestUtils.getField(loan, "loanStatus"));
+        assertEquals(0, new BigDecimal("25.00").compareTo((BigDecimal) ReflectionTestUtils.getField(loan, "totalOverpaid")));
+    }
+
+    @Test
+    public void disbursementChargeAdjustmentRecomputesPaidAndOutstandingAmounts() {
+        final LoanCharge loanCharge = buildLoanCharge();
+
+        loanCharge.updateAmountPaidForDisbursementChargeAdjustment(new BigDecimal("100.00"), new BigDecimal("50.00"));
+
+        assertFalse(loanCharge.isPaid());
+        assertEquals(0, new BigDecimal("100.00").compareTo(loanCharge.getAmount(KES).getAmount()));
+        assertEquals(0, new BigDecimal("50.00").compareTo(loanCharge.getAmountPaid(KES).getAmount()));
+        assertEquals(0, new BigDecimal("50.00").compareTo(loanCharge.getAmountOutstanding(KES).getAmount()));
+
+        loanCharge.updateAmountPaidForDisbursementChargeAdjustment(new BigDecimal("50.00"), new BigDecimal("50.00"));
+
+        assertTrue(loanCharge.isPaid());
+        assertEquals(0, new BigDecimal("50.00").compareTo(loanCharge.getAmount(KES).getAmount()));
+        assertEquals(0, new BigDecimal("50.00").compareTo(loanCharge.getAmountPaid(KES).getAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(loanCharge.getAmountOutstanding(KES).getAmount()));
+
+        loanCharge.updateAmountPaidForDisbursementChargeAdjustment(BigDecimal.ZERO, BigDecimal.ZERO);
+
+        assertTrue(loanCharge.isPaid());
+        assertEquals(0, BigDecimal.ZERO.compareTo(loanCharge.getAmount(KES).getAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(loanCharge.getAmountPaid(KES).getAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(loanCharge.getAmountOutstanding(KES).getAmount()));
+    }
+
+    @Test
+    public void singleDisbursementKeepsGrossDisbursementDetailPrincipalWhenSubmittedDisbursementAmountIsNet() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("5000.00"));
+        final LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(LocalDate.of(2026, 6, 8), null,
+                new BigDecimal("5000.00"), new BigDecimal("4200.00"));
+        final LoanCharge disbursementCharge = buildDisbursementLoanCharge(loan, new BigDecimal("800.00"));
+        final JsonCommand command = jsonCommand("{\"transactionAmount\":4200,\"netDisbursalAmount\":4200,\"locale\":\"en\"}");
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(false);
+
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("5000.00"));
+        ReflectionTestUtils.setField(loan, "charges", Set.of(disbursementCharge));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Collections.singletonList(disbursementDetails)));
+        disbursementDetails.updateLoan(loan);
+
+        final Money disburseAmount = loan.adjustDisburseAmount(command, LocalDate.of(2026, 6, 8));
+
+        assertEquals(0, new BigDecimal("5000.00").compareTo(disburseAmount.getAmount()));
+        assertEquals(0, new BigDecimal("5000.00").compareTo(disbursementDetails.principal()));
+    }
+
+    @Test
+    public void icReviewWithReducedAmountKeepsAppliedAmountAndUpdatesApprovedAmount() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
+        final LoanProductRelatedDetail scheduleDetail = (LoanProductRelatedDetail) ReflectionTestUtils.getField(loan,
+                "loanRepaymentScheduleDetail");
+        final JsonCommand command = jsonCommand("{\"icReviewRecommendedAmount\":4000,\"locale\":\"en\"}");
+
+        loan.loanApplicationICReview(null, command);
+
+        // Applied amount (original client request) must never be overwritten by the review.
+        assertEquals(0, new BigDecimal("5000.00").compareTo(loan.getProposedPrincipal()));
+        // Approved/IC-review/working principal track the latest recommendation.
+        assertEquals(0, new BigDecimal("4000").compareTo(loan.getApprovedPrincipal()));
+        assertEquals(0, new BigDecimal("4000").compareTo(loan.getApprovedICReview()));
+        assertEquals(0, new BigDecimal("4000").compareTo(scheduleDetail.getPrincipal().getAmount()));
+    }
+
+    @Test
+    public void icReviewWithEqualAmountKeepsAppliedAmountUnchanged() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
+        final JsonCommand command = jsonCommand("{\"icReviewRecommendedAmount\":5000,\"locale\":\"en\"}");
+
+        loan.loanApplicationICReview(null, command);
+
+        assertEquals(0, new BigDecimal("5000.00").compareTo(loan.getProposedPrincipal()));
+        assertEquals(0, new BigDecimal("5000").compareTo(loan.getApprovedPrincipal()));
+    }
+
+    @Test
+    public void icReviewRejectsRecommendedAmountGreaterThanAppliedAmount() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
+        final JsonCommand command = jsonCommand("{\"icReviewRecommendedAmount\":6000,\"locale\":\"en\"}");
+
+        // The system disallows a recommendation above the applied amount, so applied < approved cannot occur.
+        assertThrows(InvalidLoanStateTransitionException.class, () -> loan.loanApplicationICReview(null, command));
+        assertEquals(0, new BigDecimal("5000.00").compareTo(loan.getProposedPrincipal()));
+    }
+
+    private Loan newLoanForIcReview(final BigDecimal appliedAmount) {
+        final Loan loan = new Loan();
+        ReflectionTestUtils.setField(loan, "loanProduct", mock(LoanProduct.class));
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", mutableScheduleDetail(appliedAmount));
+        ReflectionTestUtils.setField(loan, "proposedPrincipal", appliedAmount);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", appliedAmount);
+        ReflectionTestUtils.setField(loan, "approvedICReview", appliedAmount);
+        return loan;
     }
 
     /**
