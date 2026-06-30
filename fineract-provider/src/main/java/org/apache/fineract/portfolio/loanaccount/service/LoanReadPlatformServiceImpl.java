@@ -3822,7 +3822,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + "ld.ic_review_decision_level_two_recommended_amount as icReviewDecisionLevelTwoRecommendedAmount, "
                     + "ld.ic_review_decision_level_three_recommended_amount as icReviewDecisionLevelThreeRecommendedAmount, "
                     + "ld.ic_review_decision_level_four_recommended_amount as icReviewDecisionLevelFourRecommendedAmount, "
-                    + "ld.ic_review_decision_level_five_recommended_amount as icReviewDecisionLevelFiveRecommendedAmount ");
+                    + "ld.ic_review_decision_level_five_recommended_amount as icReviewDecisionLevelFiveRecommendedAmount, "
+                    + "ld.due_diligence_recommended_amount as dueDiligenceRecommendedAmount ");
             sb.append(" FROM m_loan_decision ld ");
             sb.append(" WHERE ld.loan_id= ? ");
             return sb.toString();
@@ -3839,9 +3840,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final BigDecimal icReviewDecisionLevelFourRecommendedAmount = rs.getBigDecimal("icReviewDecisionLevelFourRecommendedAmount");
             final BigDecimal icReviewDecisionLevelFiveRecommendedAmount = rs.getBigDecimal("icReviewDecisionLevelFiveRecommendedAmount");
 
-            return new LoanDecisionData(loanId, loanDecisionState, loanNextDecisionState, icReviewDecisionLevelOneRecommendedAmount,
-                    icReviewDecisionLevelTwoRecommendedAmount, icReviewDecisionLevelThreeRecommendedAmount,
-                    icReviewDecisionLevelFourRecommendedAmount, icReviewDecisionLevelFiveRecommendedAmount);
+            final BigDecimal dueDiligenceRecommendedAmount = rs.getBigDecimal("dueDiligenceRecommendedAmount");
+
+            final LoanDecisionData loanDecisionData = new LoanDecisionData(loanId, loanDecisionState, loanNextDecisionState,
+                    icReviewDecisionLevelOneRecommendedAmount, icReviewDecisionLevelTwoRecommendedAmount,
+                    icReviewDecisionLevelThreeRecommendedAmount, icReviewDecisionLevelFourRecommendedAmount,
+                    icReviewDecisionLevelFiveRecommendedAmount);
+            loanDecisionData.setDueDiligenceRecommendedAmount(dueDiligenceRecommendedAmount);
+            return loanDecisionData;
         }
 
     }
