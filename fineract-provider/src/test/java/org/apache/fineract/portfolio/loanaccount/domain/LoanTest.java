@@ -56,6 +56,7 @@ import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
+import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -446,6 +447,54 @@ public class LoanTest {
 
         assertEquals(0, new BigDecimal("5000.00").compareTo(disburseAmount.getAmount()));
         assertEquals(0, new BigDecimal("5000.00").compareTo(disbursementDetails.principal()));
+    }
+
+    @Test
+    public void icReviewWithReducedAmountKeepsAppliedAmountAndUpdatesApprovedAmount() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
+        final LoanProductRelatedDetail scheduleDetail = (LoanProductRelatedDetail) ReflectionTestUtils.getField(loan,
+                "loanRepaymentScheduleDetail");
+        final JsonCommand command = jsonCommand("{\"icReviewRecommendedAmount\":4000,\"locale\":\"en\"}");
+
+        loan.loanApplicationICReview(null, command);
+
+        // Applied amount (original client request) must never be overwritten by the review.
+        assertEquals(0, new BigDecimal("5000.00").compareTo(loan.getProposedPrincipal()));
+        // Approved/IC-review/working principal track the latest recommendation.
+        assertEquals(0, new BigDecimal("4000").compareTo(loan.getApprovedPrincipal()));
+        assertEquals(0, new BigDecimal("4000").compareTo(loan.getApprovedICReview()));
+        assertEquals(0, new BigDecimal("4000").compareTo(scheduleDetail.getPrincipal().getAmount()));
+    }
+
+    @Test
+    public void icReviewWithEqualAmountKeepsAppliedAmountUnchanged() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
+        final JsonCommand command = jsonCommand("{\"icReviewRecommendedAmount\":5000,\"locale\":\"en\"}");
+
+        loan.loanApplicationICReview(null, command);
+
+        assertEquals(0, new BigDecimal("5000.00").compareTo(loan.getProposedPrincipal()));
+        assertEquals(0, new BigDecimal("5000").compareTo(loan.getApprovedPrincipal()));
+    }
+
+    @Test
+    public void icReviewRejectsRecommendedAmountGreaterThanAppliedAmount() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
+        final JsonCommand command = jsonCommand("{\"icReviewRecommendedAmount\":6000,\"locale\":\"en\"}");
+
+        // The system disallows a recommendation above the applied amount, so applied < approved cannot occur.
+        assertThrows(InvalidLoanStateTransitionException.class, () -> loan.loanApplicationICReview(null, command));
+        assertEquals(0, new BigDecimal("5000.00").compareTo(loan.getProposedPrincipal()));
+    }
+
+    private Loan newLoanForIcReview(final BigDecimal appliedAmount) {
+        final Loan loan = new Loan();
+        ReflectionTestUtils.setField(loan, "loanProduct", mock(LoanProduct.class));
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", mutableScheduleDetail(appliedAmount));
+        ReflectionTestUtils.setField(loan, "proposedPrincipal", appliedAmount);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", appliedAmount);
+        ReflectionTestUtils.setField(loan, "approvedICReview", appliedAmount);
+        return loan;
     }
 
     /**

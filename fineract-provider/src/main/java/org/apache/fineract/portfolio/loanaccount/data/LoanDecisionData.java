@@ -38,6 +38,8 @@ public final class LoanDecisionData {
     private BigDecimal icReviewDecisionLevelFourRecommendedAmount;
     private BigDecimal icReviewDecisionLevelFiveRecommendedAmount;
 
+    private BigDecimal dueDiligenceRecommendedAmount;
+
     // Dynamic levels data (supports unlimited levels)
     private List<LoanDecisionLevelData> decisionLevels;
 
@@ -61,6 +63,14 @@ public final class LoanDecisionData {
 
     public Integer getLoanNextDecisionState() {
         return loanNextDecisionState;
+    }
+
+    public BigDecimal getDueDiligenceRecommendedAmount() {
+        return dueDiligenceRecommendedAmount;
+    }
+
+    public void setDueDiligenceRecommendedAmount(BigDecimal dueDiligenceRecommendedAmount) {
+        this.dueDiligenceRecommendedAmount = dueDiligenceRecommendedAmount;
     }
 
     public List<LoanDecisionLevelData> getDecisionLevels() {
