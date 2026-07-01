@@ -454,6 +454,12 @@ public final class LoanEnumerations {
                 optionData = new LoanTransactionEnumData(LoanTransactionType.PAY_OFF.getValue().longValue(),
                         LoanTransactionType.PAY_OFF.getCode(), "Payoff");
             break;
+            case DISBURSEMENT_CHARGE_ADJUSTMENT:
+                optionData = new LoanTransactionEnumData(
+                        LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue().longValue(),
+                        LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getCode(),
+                        "Disbursement Charge Adjustment");
+                break;
         }
         return optionData;
     }
