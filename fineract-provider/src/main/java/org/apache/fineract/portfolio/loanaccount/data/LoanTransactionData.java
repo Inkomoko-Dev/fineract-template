@@ -116,6 +116,21 @@ public class LoanTransactionData {
     @Setter
     private String beneficiaryName;
 
+    @Setter
+    private String disbursementType;
+
+    @Setter
+    private BigDecimal fxRate;
+
+    @Setter
+    private BigDecimal usdAmount;
+
+    @Setter
+    private String fxSource;
+
+    @Setter
+    private LocalDateTime fxTimestamp;
+
     private Long loanId;
     private String loanExternalId;
     private transient String transactionType;

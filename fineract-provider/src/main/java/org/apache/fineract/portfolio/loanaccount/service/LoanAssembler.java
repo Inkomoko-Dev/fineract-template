@@ -37,6 +37,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.organisation.holiday.domain.Holiday;
 import org.apache.fineract.organisation.holiday.domain.HolidayRepository;
 import org.apache.fineract.organisation.holiday.domain.HolidayStatusType;
+import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepository;
 import org.apache.fineract.organisation.staff.exception.StaffNotFoundException;
@@ -281,6 +282,7 @@ public class LoanAssembler {
         Loan loanApplication = null;
         Client client = null;
         Group group = null;
+        Office office = null;
 
         // Here we add Rates to LoanApplication
         final List<Rate> rates = this.rateAssembler.fromParsedJson(element);

@@ -32,6 +32,7 @@ public class DisbursementRequestData {
     private final String origin;
     private final String requestId;
     private final String externalId;
+    private Long loanId;
     private final BigDecimal amount;
     private final String currencyCode; //
     private String countryCode;
@@ -47,6 +48,11 @@ public class DisbursementRequestData {
     private String narration;
     private String notifier;
     private String glCode;
+    private String disbursementType;
+    private BigDecimal fxRate;
+    private BigDecimal usdAmount;
+    private String fxSource;
+    private String fxTimestamp;
 
     public DisbursementRequestData(String requestId, String loanAccount, BigDecimal amount, String currencyCode, String paymentMethod, Long paymentMethodId,
                                    String clientPhoneNumber, String clientAccountNumber, String clientBankName, String origin, Long paymentTypeId) {

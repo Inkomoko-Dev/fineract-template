@@ -26,6 +26,7 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoField;
 import java.time.temporal.ChronoUnit;
@@ -64,6 +65,7 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.dataqueries.data.EntityTables;
 import org.apache.fineract.infrastructure.dataqueries.data.StatusEnum;
 import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChecksWritePlatformService;
+import org.apache.fineract.infrastructure.dataqueries.service.ReadWriteNonCoreDataService;
 import org.apache.fineract.infrastructure.entityaccess.FineractEntityAccessConstants;
 import org.apache.fineract.infrastructure.entityaccess.domain.FineractEntityAccessType;
 import org.apache.fineract.infrastructure.entityaccess.domain.FineractEntityRelation;
@@ -132,6 +134,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallmentRepository;
@@ -206,6 +210,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final LoanRepositoryWrapper loanRepositoryWrapper;
     private final NoteRepository noteRepository;
     private final LoanScheduleCalculationPlatformService calculationPlatformService;
+    private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
     private final LoanAssembler loanAssembler;
     private final ClientRepositoryWrapper clientRepository;
     private final LoanProductRepository loanProductRepository;
@@ -253,6 +258,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
     private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
+    private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
 
     private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
         final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
@@ -1681,6 +1687,88 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
                 final Integer paymentTo = command.integerValueOfParameterNamed("paymentTo");
                 final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
+                final String disbursementTypeRaw = command.stringValueOfParameterNamed(LoanApiConstants.disbursementTypeParameterName);
+                String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
+
+                if (disbursementType == null && paymentTo != null) {
+                    LoanDisbursementDetails.DisbursementType derivedType = LoanDisbursementDetails.DisbursementType.fromPaymentTo(paymentTo);
+                    if (derivedType != null) {
+                        disbursementType = derivedType.name();
+                    }
+                }
+                BigDecimal fxRate = null;
+                BigDecimal usdAmount = null;
+                String fxSource = null;
+                final boolean isSouthSudanSsp = isSouthSudanLoan(loan) && "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
+                LocalDateTime fxTimestamp = null;
+                Integer normalizedPaymentTo = paymentTo;
+                final List<ApiParameterError> validationErrors = new ArrayList<>();
+
+                if (isSouthSudanSsp) {
+                    if (StringUtils.isBlank(disbursementType)) {
+                        validationErrors.add(ApiParameterError.parameterError("validation.msg.loanapproval.disbursementType.required",
+                                "Disbursement type is mandatory for South Sudan loans.",
+                                LoanApiConstants.disbursementTypeParameterName, disbursementTypeRaw));
+                    } else if (!LoanDisbursementDetails.DisbursementType.CLIENT.name().equals(disbursementType)
+                            && !LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)) {
+                        validationErrors.add(ApiParameterError.parameterError("validation.msg.loanapproval.disbursementType.invalid",
+                                "Disbursement type must be either CLIENT or VENDOR for South Sudan loans.",
+                                LoanApiConstants.disbursementTypeParameterName, disbursementTypeRaw));
+                    }
+                }
+
+                final boolean isVendorDisbursement = LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)
+                        || Objects.equals(paymentTo, LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue());
+
+                if (isSouthSudanSsp && LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)) {
+                    normalizedPaymentTo = LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue();
+                    
+                    BigDecimal fetchedFxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(),
+                            expectedDisbursementDate);
+                    LocalDateTime fetchedFxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(),
+                            expectedDisbursementDate);
+                    
+                    // FX Rate Handling: Prefer backend fetched rate, but allow manual override from API
+                    final BigDecimal manualFxRate = command.bigDecimalValueOfParameterNamed(LoanApiConstants.fxRateParameterName);
+                    if (manualFxRate != null) {
+                        fxRate = manualFxRate;
+                        fxTimestamp = DateUtils.getLocalDateTimeOfTenant(); // Use current time for manual override
+                        fxSource = "MANUAL_ENTRY";
+                    } else {
+                        fxRate = fetchedFxRate;
+                        fxTimestamp = fetchedFxTimestamp;
+                        fxSource = "CBS_DAILY_RATE";
+                    }
+
+                    if (fxRate != null && fxRate.compareTo(BigDecimal.ZERO) > 0) {
+                        usdAmount = loan.getPrincpal().getAmount().divide(fxRate, 6, RoundingMode.HALF_UP);
+                    } else {
+                        validationErrors.add(ApiParameterError.parameterError("validation.msg.loanapproval.fxRate.required",
+                                "FX rate is required for South Sudan vendor disbursement on " + expectedDisbursementDate
+                                        + ". Please ensure a CBS daily rate exists for that date or provide it manually.",
+                                LoanApiConstants.fxRateParameterName, fxRate));
+                    }
+                    if (fxTimestamp == null) {
+                        validationErrors.add(ApiParameterError.parameterError("validation.msg.loanapproval.fxTimestamp.required",
+                                "FX timestamp is required for South Sudan vendor disbursement.",
+                                LoanApiConstants.fxTimestampParameterName, fxTimestamp));
+                    }
+                } else {
+                    normalizedPaymentTo = paymentTo;
+                    if (isSouthSudanSsp && LoanDisbursementDetails.DisbursementType.CLIENT.name().equals(disbursementType)) {
+                        normalizedPaymentTo = LoanDisbursementDetails.PaymentToType.CLIENT.getValue();
+                    }
+                }
+
+                if (!validationErrors.isEmpty()) {
+                    throw new PlatformApiDataValidationException("validation.msg.loanapproval.disbursement.details.invalid",
+                            "Validation errors exist for South Sudan disbursement fields.", validationErrors);
+                }
+
+                // Enforce payment details validation (e.g., vendor details)
+                if (paymentType != null) {
+                    validatePaymentDetails(command, paymentType);
+                }
 
                 BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
                 BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
@@ -1717,8 +1805,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
                 disbursementDetail.setClientBankName(clientBankName);
                 disbursementDetail.setExpectedDisbursementDate(expectedDisbursementDate);
-                disbursementDetail.setPaymentTo(paymentTo);
+                disbursementDetail.setPaymentTo(normalizedPaymentTo);
                 disbursementDetail.setBeneficiaryName(beneficiaryName);
+                disbursementDetail.setDisbursementType(StringUtils.isNotBlank(disbursementType) ? disbursementType
+                        : (isVendorDisbursement ? LoanDisbursementDetails.DisbursementType.VENDOR.name()
+                                : LoanDisbursementDetails.DisbursementType.CLIENT.name()));
+                disbursementDetail.setFxRate(fxRate);
+                disbursementDetail.setUsdAmount(usdAmount);
+                disbursementDetail.setFxSource(fxSource);
+                disbursementDetail.setFxTimestamp(fxTimestamp);
 
             }
 
@@ -1794,6 +1889,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                     "Validation errors exist for payment type and related fields.",
                     dataValidationErrors);
         }
+    }
+
+    private boolean isSouthSudanLoan(final Loan loan) {
+        final LoanDueDiligenceInfo loanDueDiligenceInfo = this.loanDueDiligenceInfoRepository.findLoanDueDiligenceInfoByLoanId(loan.getId());
+        if (loanDueDiligenceInfo != null && loanDueDiligenceInfo.getCountry() != null
+                && StringUtils.isNotBlank(loanDueDiligenceInfo.getCountry().label())) {
+            return "SOUTH SUDAN".equalsIgnoreCase(StringUtils.normalizeSpace(loanDueDiligenceInfo.getCountry().label()));
+        }
+        return "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
     }
 
     private void validateActiveLoanCount(Long clientId) {

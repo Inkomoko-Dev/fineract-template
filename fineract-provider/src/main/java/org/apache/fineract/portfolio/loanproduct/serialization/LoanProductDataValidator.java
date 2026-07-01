@@ -840,9 +840,9 @@ public final class LoanProductDataValidator {
             baseDataValidator.reset().parameter(LoanProductConstants.MAX_TRANCHE_COUNT_PARAMETER_NAME).value(maxTrancheCount).notNull()
                     .integerGreaterThanZero();
 
-            final Integer interestType = this.fromApiJsonHelper.extractIntegerNamed("interestType", element, Locale.getDefault());
-            baseDataValidator.reset().parameter("interestType").value(interestType).ignoreIfNull()
-                    .integerSameAsNumber(InterestMethod.DECLINING_BALANCE.getValue());
+            // CGLT-641: allow flat interest for multi-disburse products. Previously interestType was forced to
+            // DECLINING_BALANCE here; the FLAT schedule generator supports tranche disbursements, so the restriction
+            // is removed.
         }
 
         final String overAppliedCalculationType = this.fromApiJsonHelper.extractStringNamed("overAppliedCalculationType", element);

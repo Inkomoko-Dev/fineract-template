@@ -23,6 +23,8 @@ import lombok.Data;
 @Data
 public class TransUnionRwandaConsumerCreditData {
 
+    private transient Long selectedAddressId;
+    private transient String selectedAddressType;
     private Integer loanId;
     private Integer loanStatus;
     private String currencyType;
