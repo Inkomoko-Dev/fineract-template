@@ -161,6 +161,10 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
     @Column(name = "fx_timestamp")
     private LocalDateTime fxTimestamp;
 
+
+    @Column(name="mfi_code")
+    private String mfiCode;
+
     protected LoanDisbursementDetails() {
 
     }
