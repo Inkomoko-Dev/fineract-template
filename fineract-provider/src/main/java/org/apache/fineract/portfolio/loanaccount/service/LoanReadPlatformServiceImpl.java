@@ -883,6 +883,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         String clientAccountNumber = null;
         String clientBankName = null;
         String clientPhoneNumber = null;
+        String mfiCode = null;
 
         if (disbursementDetail != null) {
             if (disbursementDetail.getPaymentType() != null) {
@@ -892,6 +893,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             clientPhoneNumber = disbursementDetail.getClientPhoneNumber();
             clientAccountNumber = disbursementDetail.getClientAccountNumber();
             clientBankName = disbursementDetail.getClientBankName();
+            mfiCode = disbursementDetail.getMfiCode();
             // optional fields if added in entity
             if (disbursementDetail.getCheckNumber() != null) {
                 checkNumber = Integer.valueOf(disbursementDetail.getCheckNumber());
@@ -939,6 +941,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanTransactionData.setUsdAmount(disbursementDetail.getUsdAmount());
             loanTransactionData.setFxSource(disbursementDetail.getFxSource());
             loanTransactionData.setFxTimestamp(disbursementDetail.getFxTimestamp());
+            loanTransactionData.setMfiCode(mfiCode);
         }
 
         return loanTransactionData;

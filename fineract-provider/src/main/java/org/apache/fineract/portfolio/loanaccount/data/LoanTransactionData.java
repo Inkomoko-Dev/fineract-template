@@ -131,6 +131,9 @@ public class LoanTransactionData {
     @Setter
     private LocalDateTime fxTimestamp;
 
+    @Setter
+    private String mfiCode;
+
     private Long loanId;
     private String loanExternalId;
     private transient String transactionType;
