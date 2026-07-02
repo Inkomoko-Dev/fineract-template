@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.sms.scheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
 
+import java.math.BigDecimal;
 import java.lang.reflect.Type;
 import java.net.URI;
 import java.util.ArrayList;
@@ -61,7 +62,6 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -180,22 +180,26 @@ public class SmsMessageScheduledJobServiceImpl implements SmsMessageScheduledJob
 
             ResponseEntity<String> response = restTemplate.exchange(uri, HttpMethod.POST, entity, String.class);
 
-            if (!response.getStatusCode().equals(HttpStatus.MULTI_STATUS)) {
+            if (!response.getStatusCode().is2xxSuccessful()) {
                 log.error("Unexpected response status: {}", response.getStatusCode());
                 throw new ConnectionFailureException(SmsCampaignConstants.SMS);
             }
 
-            // Push response to processor thread
-            final FineractContext context = ThreadLocalContextUtil.getContext();
-            genericExecutorService.execute(() -> {
-                ThreadLocalContextUtil.init(context); // set correct tenant/schema
-                try {
-                    log.info("Processing SMS Response: {}", response.getBody());
-                    processSmsGatewayResponse(response.getBody());
-                } catch (Exception e) {
-                    log.error("Error in async SMS processing", e);
-                }
-            });
+            if (response.hasBody() && response.getBody() != null && !response.getBody().isBlank()) {
+                // Push response to processor thread
+                final FineractContext context = ThreadLocalContextUtil.getContext();
+                genericExecutorService.execute(() -> {
+                    ThreadLocalContextUtil.init(context); // set correct tenant/schema
+                    try {
+                        log.info("Processing SMS Response: {}", response.getBody());
+                        processSmsGatewayResponse(response.getBody());
+                    } catch (Exception e) {
+                        log.error("Error in async SMS processing", e);
+                    }
+                });
+            } else {
+                log.info("SMS gateway accepted batch with status {} and no response body", response.getStatusCode());
+            }
 
         } catch (Exception e) {
             log.error("Error sending SMS batch to intermediate server", e);
@@ -211,15 +215,24 @@ public class SmsMessageScheduledJobServiceImpl implements SmsMessageScheduledJob
             List<Map<String, Object>> responseList = new Gson().fromJson(responseBody, listType);
 
             for (Map<String, Object> item : responseList) {
-                Long internalId = Long.valueOf((String) item.get("id"));
-                String status = (String) item.get("status");
-                String error = (String) item.getOrDefault("error",null);
+                Object internalIdValue = item.get("id");
+                if (internalIdValue == null) {
+                    log.warn("SMS gateway response is missing internal ID: {}", item);
+                    continue;
+                }
+                String status = item.get("status") == null ? null : String.valueOf(item.get("status"));
+                if (status == null) {
+                    log.warn("SMS gateway response is missing status for internal ID {}", internalIdValue);
+                    continue;
+                }
+                Long internalId = parseInternalId(internalIdValue);
+                String error = item.get("error") == null ? null : String.valueOf(item.get("error"));
 
                 Optional<SmsMessage> optionalSms = smsMessageRepository.findById(internalId);
                 if (optionalSms.isPresent()) {
                     SmsMessage sms = optionalSms.get();
                     sms.setStatusType(mapDeliveryStatusToEnum(status, SmsMessageStatusType.PENDING.getValue()));
-                    if (error != null || status.equals("FAILED")) {
+                    if (error != null || "FAILED".equalsIgnoreCase(status)) {
                         sms.setErrorMessage(error);
                     }
                     smsMessageRepository.saveAndFlush(sms);
@@ -237,27 +250,25 @@ public class SmsMessageScheduledJobServiceImpl implements SmsMessageScheduledJob
     public void sendTriggeredMessages(Map<SmsCampaign, Collection<SmsMessage>> smsDataMap) {
         try {
             if (!smsDataMap.isEmpty()) {
-                List<SmsMessage> toSaveMessages = new ArrayList<>();
-                List<SmsMessage> toSendNotificationMessages = new ArrayList<>();
                 for (Map.Entry<SmsCampaign, Collection<SmsMessage>> entry : smsDataMap.entrySet()) {
+                    List<SmsMessage> toSaveMessages = new ArrayList<>();
+                    List<SmsMessage> toSendNotificationMessages = new ArrayList<>();
                     Iterator<SmsMessage> smsMessageIterator = entry.getValue().iterator();
-                    Collection<SmsMessageApiQueueResourceData> apiQueueResourceDatas = new ArrayList<>();
                     while (smsMessageIterator.hasNext()) {
                         SmsMessage smsMessage = smsMessageIterator.next();
                         smsMessage.setStatusType(SmsMessageStatusType.WAITING_FOR_DELIVERY_REPORT.getValue());
                         if (smsMessage.isNotification()) {
                             toSendNotificationMessages.add(smsMessage);
                         } else {
-                            SmsMessageApiQueueResourceData apiQueueResourceData = SmsMessageApiQueueResourceData.instance(
-                                    smsMessage.getId(), null, smsMessage.getMobileNo(), smsMessage.getMessage(),
-                                    FINERACT_SERVICE_NAME);
-                            apiQueueResourceDatas.add(apiQueueResourceData);
                             toSaveMessages.add(smsMessage);
                         }
                     }
                     if (!toSaveMessages.isEmpty()) {
-                        this.smsMessageRepository.saveAllAndFlush(toSaveMessages);
-                        AfterCommitExecutor.execute(() -> this.triggeredExecutorService.execute(new SmsTask(apiQueueResourceDatas,toSaveMessages.get(0).getSmsCampaign().getProviderId(), ThreadLocalContextUtil.getContext())));
+                        List<SmsMessage> persistedMessages = this.smsMessageRepository.saveAllAndFlush(toSaveMessages);
+                        Collection<SmsMessageApiQueueResourceData> apiQueueResourceDatas = toApiQueueResourceDatas(persistedMessages);
+                        long providerId = entry.getKey().getProviderId();
+                        AfterCommitExecutor.execute(() -> this.triggeredExecutorService
+                                .execute(new SmsTask(apiQueueResourceDatas, providerId, ThreadLocalContextUtil.getContext())));
                     }
                     if (!toSendNotificationMessages.isEmpty()) {
                         this.notificationSenderService.sendNotification(toSendNotificationMessages);
@@ -273,15 +284,12 @@ public class SmsMessageScheduledJobServiceImpl implements SmsMessageScheduledJob
     @Override
     public void sendTriggeredMessage(Collection<SmsMessage> smsMessages, long providerId) {
         try {
-            Collection<SmsMessageApiQueueResourceData> apiQueueResourceDatas = new ArrayList<>();
             StringBuilder request = new StringBuilder();
             for (SmsMessage smsMessage : smsMessages) {
-                SmsMessageApiQueueResourceData apiQueueResourceData = SmsMessageApiQueueResourceData.instance(smsMessage.getId(), null,
-                         smsMessage.getMobileNo(), smsMessage.getMessage(), FINERACT_SERVICE_NAME);
-                apiQueueResourceDatas.add(apiQueueResourceData);
                 smsMessage.setStatusType(SmsMessageStatusType.WAITING_FOR_DELIVERY_REPORT.getValue());
             }
-            this.smsMessageRepository.saveAll(smsMessages);
+            List<SmsMessage> persistedMessages = this.smsMessageRepository.saveAllAndFlush(new ArrayList<>(smsMessages));
+            Collection<SmsMessageApiQueueResourceData> apiQueueResourceDatas = toApiQueueResourceDatas(persistedMessages);
             request.append(SmsMessageApiQueueResourceData.toJsonString(apiQueueResourceDatas));
             log.info("Sending triggered SMS to specific provider with request - {}", request);
             AfterCommitExecutor.execute(() -> this.triggeredExecutorService.execute(new SmsTask(apiQueueResourceDatas, providerId, ThreadLocalContextUtil.getContext())));
@@ -372,6 +380,21 @@ public class SmsMessageScheduledJobServiceImpl implements SmsMessageScheduledJob
             case "FAILED", "EXPIRED" -> SmsMessageStatusType.FAILED.getValue();
             default -> fallback;
         };
+    }
+
+    private Long parseInternalId(Object internalIdValue) {
+        if (internalIdValue instanceof Number number) {
+            return number.longValue();
+        }
+
+        return new BigDecimal(String.valueOf(internalIdValue).trim()).longValueExact();
+    }
+
+    private Collection<SmsMessageApiQueueResourceData> toApiQueueResourceDatas(Collection<SmsMessage> smsMessages) {
+        return smsMessages.stream()
+                .map(smsMessage -> SmsMessageApiQueueResourceData.instance(smsMessage.getId(), null, smsMessage.getMobileNo(),
+                        smsMessage.getMessage(), FINERACT_SERVICE_NAME))
+                .toList();
     }
 
 
