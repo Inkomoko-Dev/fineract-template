@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.util.Collection;
 
 import lombok.Getter;
+import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.portfolio.charge.data.ChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
@@ -59,6 +60,9 @@ public final class LoanRescheduleRequestData {
     private final CodeValueData overdueChargeHandling;
 
     private final Long carryForwardChargeId;
+    private final Integer repaymentEvery;
+    private final EnumOptionData repaymentFrequencyType;
+    private final Boolean preserveLoanTermDuration;
 
     /**
      * LoanRescheduleRequestData constructor
@@ -73,7 +77,12 @@ public final class LoanRescheduleRequestData {
                                       String rescheduleReasonComment, LoanRescheduleRequestTimelineData timeline, final String clientName,
                                       final String loanAccountNumber, final Long clientId, final Boolean recalculateInterest,
                                       Collection<CodeValueData> rescheduleReasons, final Collection<LoanTermVariationsData> loanTermVariationsData,
-                                      LoanTransactionData loanTransactionData, boolean adjustFuturePayments, Collection<ChargeData> availableCarryForwardCharges, Collection<CodeValueData> overdueChargeHandlingOptions, CodeValueData overdueChargeHandling, Long carryForwardChargeId) {
+                                      LoanTransactionData loanTransactionData, boolean adjustFuturePayments,
+                                      Collection<ChargeData> availableCarryForwardCharges,
+                                      Collection<CodeValueData> overdueChargeHandlingOptions,
+                                      CodeValueData overdueChargeHandling, Long carryForwardChargeId,
+                                      Integer repaymentEvery, EnumOptionData repaymentFrequencyType,
+                                      Boolean preserveLoanTermDuration) {
 
         this.id = id;
         this.loanId = loanId;
@@ -95,6 +104,9 @@ public final class LoanRescheduleRequestData {
         this.overdueChargeHandlingOptions = overdueChargeHandlingOptions;
         this.overdueChargeHandling = overdueChargeHandling;
         this.carryForwardChargeId = carryForwardChargeId;
+        this.repaymentEvery = repaymentEvery;
+        this.repaymentFrequencyType = repaymentFrequencyType;
+        this.preserveLoanTermDuration = preserveLoanTermDuration;
     }
 
     /**
@@ -111,12 +123,16 @@ public final class LoanRescheduleRequestData {
                                                      Collection<ChargeData> availableCarryForwardCharges,
                                                      Collection<CodeValueData> overdueChargeHandlingOptions,
                                                      CodeValueData overdueChargeHandling,
-                                                     Long carryForwardChargeId) {
+                                                     Long carryForwardChargeId,
+                                                     Integer repaymentEvery,
+                                                     EnumOptionData repaymentFrequencyType,
+                                                     Boolean preserveLoanTermDuration) {
 
         return new LoanRescheduleRequestData(id, loanId, statusEnum, rescheduleFromInstallment, rescheduleFromDate,
                 rescheduleReasonCodeValue, rescheduleReasonComment, timeline, clientName, loanAccountNumber, clientId, recalculateInterest,
                 rescheduleReasons, loanTermVariationsData, loanTransactionData, adjustFuturePayments,
-                availableCarryForwardCharges, overdueChargeHandlingOptions, overdueChargeHandling, carryForwardChargeId);
+                availableCarryForwardCharges, overdueChargeHandlingOptions, overdueChargeHandling, carryForwardChargeId,
+                repaymentEvery, repaymentFrequencyType, preserveLoanTermDuration);
     }
 
     /**
@@ -139,6 +155,9 @@ public final class LoanRescheduleRequestData {
         this.overdueChargeHandlingOptions = null;
         this.overdueChargeHandling = null;
         this.carryForwardChargeId = null;
+        this.repaymentEvery = null;
+        this.repaymentFrequencyType = null;
+        this.preserveLoanTermDuration = null;
         this.rescheduleFromInstallment = null;
         this.rescheduleReasonComment = null;
         this.timeline = null;
@@ -169,6 +188,19 @@ public final class LoanRescheduleRequestData {
 
         if (recalculateInterest != null) {
             value = recalculateInterest;
+        }
+
+        return value;
+    }
+
+    /**
+     * @return the preserveLoanTermDuration
+     */
+    public Boolean getPreserveLoanTermDuration() {
+        boolean value = false;
+
+        if (preserveLoanTermDuration != null) {
+            value = preserveLoanTermDuration;
         }
 
         return value;

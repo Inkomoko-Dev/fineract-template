@@ -80,6 +80,9 @@ public class LoanRescheduleRequestReadPlatformServiceImpl implements LoanResched
             sqlBuilder.append("lr.reschedule_from_installment as rescheduleFromInstallment, ");
             sqlBuilder.append("lr.reschedule_from_date as rescheduleFromDate, ");
             sqlBuilder.append("lr.recalculate_interest as recalculateInterest, ");
+            sqlBuilder.append("lr.repayment_every as repaymentEvery, ");
+            sqlBuilder.append("lr.repayment_frequency_type as repaymentFrequencyType, ");
+            sqlBuilder.append("lr.preserve_loan_term_duration as preserveLoanTermDuration, ");
             sqlBuilder.append("lr.reschedule_reason_cv_id as rescheduleReasonCvId, ");
             sqlBuilder.append("cv.code_value as rescheduleReasonCvValue, ");
             sqlBuilder.append("lr.reschedule_reason_comment as rescheduleReasonComment, ");
@@ -144,6 +147,9 @@ public class LoanRescheduleRequestReadPlatformServiceImpl implements LoanResched
             final CodeValueData rescheduleReasonCodeValue = CodeValueData.instance(rescheduleReasonCvId, rescheduleReasonCvValue);
             final String rescheduleReasonComment = rs.getString("rescheduleReasonComment");
             final Boolean recalculateInterest = rs.getBoolean("recalculateInterest");
+            final Integer repaymentEvery = JdbcSupport.getInteger(rs, "repaymentEvery");
+            final Integer repaymentFrequencyType = JdbcSupport.getInteger(rs, "repaymentFrequencyType");
+            final Boolean preserveLoanTermDuration = rs.getBoolean("preserveLoanTermDuration");
 
             final LocalDate submittedOnDate = JdbcSupport.getLocalDate(rs, "submittedOnDate");
             final String submittedByUsername = rs.getString("submittedByUsername");
@@ -178,7 +184,9 @@ public class LoanRescheduleRequestReadPlatformServiceImpl implements LoanResched
 
             return LoanRescheduleRequestData.instance(id, loanId, statusEnum, rescheduleFromInstallment, rescheduleFromDate,
                     rescheduleReasonCodeValue, rescheduleReasonComment, timeline, clientName, loanAccountNumber, clientId,
-                    recalculateInterest, null, loanTermVariations, null, false,null, null,null,null);
+                    recalculateInterest, null, loanTermVariations, null, false, null, null, null, null, repaymentEvery,
+                    repaymentFrequencyType == null ? null : LoanEnumerations.repaymentFrequencyType(repaymentFrequencyType),
+                    preserveLoanTermDuration);
         }
 
         private LoanTermVariationsData fetchLoanTermVariation(final ResultSet rs) throws SQLException {
@@ -269,7 +277,8 @@ public class LoanRescheduleRequestReadPlatformServiceImpl implements LoanResched
 
         return LoanRescheduleRequestData.instance(null, null, null, null, null,
                 null, null, null, null, null, null, null,
-                rescheduleReasons, null, null, adjustFuturePayments, carryForwardCharges, chargeHandlingMethods,null,null);
+                rescheduleReasons, null, null, adjustFuturePayments, carryForwardCharges, chargeHandlingMethods, null, null, null,
+                null, null);
     }
 
     @Override

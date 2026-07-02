@@ -35,6 +35,9 @@ public class LoanRescheduleRequestTestBuilder {
     private String submittedOnDate = "04 September 2014";
     private String emi = null;
     private String emiEndDate = null;
+    private String repaymentEvery = null;
+    private String repaymentFrequencyType = null;
+    private Boolean preserveLoanTermDuration = null;
 
     public String build(final String loanId) {
         final HashMap<String, Object> map = new HashMap<>();
@@ -80,6 +83,18 @@ public class LoanRescheduleRequestTestBuilder {
 
         if (emiEndDate != null) {
             map.put("endDate", emiEndDate);
+        }
+
+        if (repaymentEvery != null) {
+            map.put("repaymentEvery", repaymentEvery);
+        }
+
+        if (repaymentFrequencyType != null) {
+            map.put("repaymentFrequencyType", repaymentFrequencyType);
+        }
+
+        if (preserveLoanTermDuration != null) {
+            map.put("preserveLoanTermDuration", preserveLoanTermDuration);
         }
 
         return new Gson().toJson(map);
@@ -154,6 +169,21 @@ public class LoanRescheduleRequestTestBuilder {
 
     public LoanRescheduleRequestTestBuilder updateEMI(final String emi) {
         this.emi = emi;
+        return this;
+    }
+
+    public LoanRescheduleRequestTestBuilder updateRepaymentEvery(final String repaymentEvery) {
+        this.repaymentEvery = repaymentEvery;
+        return this;
+    }
+
+    public LoanRescheduleRequestTestBuilder updateRepaymentFrequencyType(final String repaymentFrequencyType) {
+        this.repaymentFrequencyType = repaymentFrequencyType;
+        return this;
+    }
+
+    public LoanRescheduleRequestTestBuilder updatePreserveLoanTermDuration(final Boolean preserveLoanTermDuration) {
+        this.preserveLoanTermDuration = preserveLoanTermDuration;
         return this;
     }
 
