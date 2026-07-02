@@ -636,6 +636,14 @@ public final class LoanEnumerations {
                 optionData = new EnumOptionData(LoanTermVariationType.INTEREST_RATE_FROM_INSTALLMENT.getValue().longValue(),
                         LoanTermVariationType.INTEREST_RATE_FROM_INSTALLMENT.getCode(), "interestRateForInstallment");
             break;
+            case REPAYMENT_FREQUENCY:
+                optionData = new EnumOptionData(LoanTermVariationType.REPAYMENT_FREQUENCY.getValue().longValue(),
+                        LoanTermVariationType.REPAYMENT_FREQUENCY.getCode(), "repaymentFrequency");
+            break;
+            case REPAYMENT_EVERY:
+                optionData = new EnumOptionData(LoanTermVariationType.REPAYMENT_EVERY.getValue().longValue(),
+                        LoanTermVariationType.REPAYMENT_EVERY.getCode(), "repaymentEvery");
+            break;
             default:
                 optionData = new EnumOptionData(LoanTermVariationType.INVALID.getValue().longValue(),
                         LoanTermVariationType.INVALID.getCode(), "Invalid");
