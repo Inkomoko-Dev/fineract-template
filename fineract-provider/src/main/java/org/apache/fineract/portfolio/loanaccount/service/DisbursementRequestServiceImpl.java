@@ -53,6 +53,8 @@ import org.apache.fineract.portfolio.loanaccount.data.DisbursementRequestData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursementRequestException;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
@@ -60,6 +62,7 @@ import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
 import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatformService;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -85,6 +88,8 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
     final ProductToGLAccountMappingReadPlatformService accountMappingReadPlatformService;
 
     private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
+
+    private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
 
     private OkHttpClient client = new OkHttpClient();
     private Gson gson = new Gson();
@@ -252,6 +257,11 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
             return;
         }
 
+        final boolean isSouthSudanSsp = isSouthSudanLoan(loan) && "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
+        if (!isSouthSudanSsp) {
+            return;
+        }
+
         final LocalDate disbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
         if (disbursementDate == null) {
             return;
@@ -281,6 +291,15 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         disbursementDetail.setFxTimestamp(fxTimestamp);
         disbursementDetail.setFxSource(fxSource);
         disbursementDetail.setUsdAmount(loan.getPrincpal().getAmount().divide(fxRate, 6, RoundingMode.HALF_UP));
+    }
+
+    private boolean isSouthSudanLoan(final Loan loan) {
+        final LoanDueDiligenceInfo loanDueDiligenceInfo = this.loanDueDiligenceInfoRepository.findLoanDueDiligenceInfoByLoanId(loan.getId());
+        if (loanDueDiligenceInfo != null && loanDueDiligenceInfo.getCountry() != null
+                && StringUtils.isNotBlank(loanDueDiligenceInfo.getCountry().label())) {
+            return "SOUTH SUDAN".equalsIgnoreCase(StringUtils.normalizeSpace(loanDueDiligenceInfo.getCountry().label()));
+        }
+        return "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
     }
 
     private void logDisbursementRequestPayload(Loan loan, String requestId, LoanDisbursementDetails disbursementDetail,
