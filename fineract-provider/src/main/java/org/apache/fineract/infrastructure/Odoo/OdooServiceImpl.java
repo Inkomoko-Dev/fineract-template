@@ -34,6 +34,8 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -41,8 +43,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Base64;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
@@ -126,6 +130,15 @@ public class OdooServiceImpl implements OdooService {
 
     @Value("${app.local-ip}")
     private String localIpAddress;
+
+    @Value("${fineract.integrations.integration-layer.enabled}")
+    private Boolean integrationLayerEnabled;
+
+    @Value("${fineract.integrations.integration-layer.base-url}")
+    private String integrationLayerBaseUrl;
+
+    @Value("${fineract.integrations.integration-layer.api-key}")
+    private String integrationLayerApiKey;
     private ClientRepositoryWrapper clientRepository;
     private ConfigurationDomainService configurationDomainService;
 
@@ -459,11 +472,17 @@ public class OdooServiceImpl implements OdooService {
             }
 
             journalEntryToOdooData.setResource(journalData);
-            journalEntryToOdooData.setLocalIp(localIpAddress);
+            if (!integrationLayerEnabled) {
+                // localIp only exists to drive the legacy middleware's ip_temp() routing
+                journalEntryToOdooData.setLocalIp(localIpAddress);
+            }
 
             LOG.info("Journal Entry to Odoo " + journalEntryToOdooData);
             String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
             LOG.info("Journal Entry to Odoo JSON Payload " + jsonPayload);
+            if (integrationLayerEnabled) {
+                return sendRequestViaIntegrationLayer(jsonPayload);
+            }
             return sendRequest(jsonPayload);
         }
         return null;
@@ -474,6 +493,11 @@ public class OdooServiceImpl implements OdooService {
         LOG.info("Received Odoo Journal entry response: {}", stringRequest);
 
         JsonObject odooRequest = JsonParser.parseString(stringRequest).getAsJsonObject();
+
+        return applyOdooStatus(odooRequest).toString();
+    }
+
+    private JsonObject applyOdooStatus(JsonObject odooRequest) {
         JsonObject response = new JsonObject();
 
         String responseCode = getStringField(odooRequest, "responseCode");
@@ -484,9 +508,9 @@ public class OdooServiceImpl implements OdooService {
             LOG.warn("Odoo response missing 'cbs_journal_entry_id'");
             response.addProperty("success", false);
             response.addProperty("message", "cbs_journal_entry_id not found");
-            response.addProperty("data", stringRequest);
+            response.addProperty("data", odooRequest.toString());
             response.addProperty("ack", true);
-            return response.toString();
+            return response;
         }
 
         List<JournalEntry> journalEntries = journalEntryRepository.findJournalEntriesByLoanTransactionId("L" + transactionId);
@@ -545,7 +569,7 @@ public class OdooServiceImpl implements OdooService {
         response.addProperty("success", true);
         response.addProperty("message", "Successful");
         response.addProperty("ack", true);
-        return response.toString();
+        return response;
     }
 
     private JsonObject sendRequest(String payload) throws IOException, NoSuchAlgorithmException, KeyManagementException {
@@ -599,6 +623,57 @@ public class OdooServiceImpl implements OdooService {
                             + getStringField(js, "responseCode") + " -Message From Odoo :-" + getStringField(js, "responseMessage"));
         }
 
+    }
+
+    private JsonObject sendRequestViaIntegrationLayer(String payload) throws IOException {
+
+        // read timeout must exceed the integration layer's own 30s Odoo timeout
+        OkHttpClient httpClient = new OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).build();
+
+        JsonObject envelope = new JsonObject();
+        envelope.addProperty("id", UUID.randomUUID().toString());
+        envelope.addProperty("creationDate", OffsetDateTime.now(ZoneOffset.UTC).toString());
+        envelope.addProperty("requester", "CBS");
+        envelope.addProperty("target", "ODOO");
+        envelope.addProperty("serviceName", "CBS_JOURNAL_ENTRY");
+        envelope.addProperty("version", "1.0");
+        envelope.addProperty("deliveryMode", "SYNC");
+        envelope.add("payload", JsonParser.parseString(payload));
+
+        RequestBody requestBody = RequestBody.create(MediaType.parse("application/json"), envelope.toString());
+        Request request = new Request.Builder()
+                .url(integrationLayerBaseUrl + "/api/v1/integration")
+                .post(requestBody)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer " + integrationLayerApiKey)
+                .build();
+
+        Response response = httpClient.newCall(request).execute();
+        String resObject = response.body().string();
+        LOG.info("Integration layer response on Odoo Journal Entry posting: " + resObject);
+
+        // the integration layer returns a parseable IntegrationResponse body on both 200 and 502
+        JsonObject integrationResponse = JsonParser.parseString(resObject).getAsJsonObject();
+
+        if (!getBooleanField(integrationResponse, "success")) {
+            throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.posting.to.odoo.failed",
+                    " Failed to post Journal Entries to Odoo via integration layer: " + response.code() + " -Cause :-"
+                            + getStringField(integrationResponse, "errorCause"));
+        }
+
+        if (!integrationResponse.has("data") || !integrationResponse.get("data").isJsonObject()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.posting.to.odoo.failed",
+                    " Integration layer returned success without the Odoo response body");
+        }
+
+        // the synchronous Odoo response replaces the legacy updateOdooStatus callback
+        applyOdooStatus(integrationResponse.getAsJsonObject("data"));
+
+        JsonObject ack = new JsonObject();
+        ack.addProperty("success", true);
+        ack.addProperty("message", "Successful");
+        ack.addProperty("ack", true);
+        return ack;
     }
 
     @Override
@@ -733,9 +808,16 @@ public class OdooServiceImpl implements OdooService {
                     boolean success = getBooleanField (odooAck,"success");
                     String message = getStringField(odooAck, "message");
                     if (success) {
-                        for (JournalEntry je : journalEntryDebitCredit) {
-                            je.setOdooAck(ack);
-                            this.journalEntryRepository.saveAndFlush(je);
+                        if (integrationLayerEnabled) {
+                            // entries were already updated from the synchronous Odoo response in
+                            // applyOdooStatus; re-saving these instances would overwrite that state
+                            LOG.info("Journal entries for Loan Transaction Id " + loanTransactionId
+                                    + " posted via integration layer");
+                        } else {
+                            for (JournalEntry je : journalEntryDebitCredit) {
+                                je.setOdooAck(ack);
+                                this.journalEntryRepository.saveAndFlush(je);
+                            }
                         }
                     }
                     else {
