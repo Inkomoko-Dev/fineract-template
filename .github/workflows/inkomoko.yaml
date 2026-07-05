@@ -34,8 +34,8 @@ jobs:
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.host.url=${SONARR_HOST_URL} \
             -Dsonar.login=${SONAR_TOKEN}
-#SONAR_ROOT_CERT: ${{ secrets.SONAR_ROOT_CERT }}
-## -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+      #SONAR_ROOT_CERT: ${{ secrets.SONAR_ROOT_CERT }}
+      ## -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
       - name: Build with Gradles
         run: ./gradlew --no-daemon -q -x rat -x compileTestJava -x test -x spotlessJavaCheck -x spotlessJava -x licenseMain bootJar
 
