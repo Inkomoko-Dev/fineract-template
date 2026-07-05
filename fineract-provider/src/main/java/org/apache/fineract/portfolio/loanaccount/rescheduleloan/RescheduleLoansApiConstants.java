@@ -78,6 +78,10 @@ public final class RescheduleLoansApiConstants {
 
     public static final String notesParamName = "notes";
 
+    public static final String repaymentEveryParamName = "repaymentEvery";
+    public static final String repaymentFrequencyTypeParamName = "repaymentFrequencyType";
+    public static final String preserveLoanTermDurationParamName = "preserveLoanTermDuration";
+
     public static final Set<String> APPROVE_REQUEST_DATA_PARAMETERS = Collections
             .unmodifiableSet(new HashSet<>(Arrays.asList(localeParamName, dateFormatParamName, approvedOnDateParam)));
 
