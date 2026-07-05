@@ -30,7 +30,7 @@ jobs:
           echo "$SONAR_ROOT_CERT" > /tmp/sonar-cert.pem
           keytool -import -alias sonarqube -file /tmp/sonar-cert.pem \
             -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit -noprompt
-         ./gradlew --info --stacktrace sonarqube -x test -x compileTestJava \
+          ./gradlew --info --stacktrace sonarqube -x test -x compileTestJava \
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.host.url=${SONARR_HOST_URL} \
             -Dsonar.login=${SONAR_TOKEN}
