@@ -2029,7 +2029,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public List<Long> retrieveAllLoanIdsWithOverdueInstallments(final Long penaltyWaitPeriod, final Boolean backdatePenalties,
-            Long maxLoanIdInList, int pageSize) {
+                                                                Long maxLoanIdInList, int pageSize) {
         final MusoniOverdueLoanScheduleMapper rm = new MusoniOverdueLoanScheduleMapper();
 
         final StringBuilder sqlBuilder = new StringBuilder(400);
@@ -2051,8 +2051,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         try {
-            return Collections.synchronizedList(this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod,
-                    penaltyWaitPeriod, maxLoanIdInList, pageSize));
+            return Collections.synchronizedList(this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod, maxLoanIdInList, pageSize));
         } catch (final EmptyResultDataAccessException e) {
             return null;
         }
