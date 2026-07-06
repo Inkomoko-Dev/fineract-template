@@ -2145,6 +2145,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public List<Long> retrieveAllLoanIdsWithOverdueInstallments(final Long penaltyWaitPeriod, final Boolean backdatePenalties,
                                                                 Long maxLoanIdInList, int pageSize) {
+        final MusoniOverdueLoanScheduleMapper rm = new MusoniOverdueLoanScheduleMapper();
+
         final StringBuilder sqlBuilder = new StringBuilder(400);
         sqlBuilder.append("select distinct ml.id from m_loan_repayment_schedule ls ")
                 .append(" inner join m_loan ml on ml.id = ls.loan_id ")
@@ -2155,10 +2157,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ").append(" order by ml.id asc limit ? ");
 
         try {
-            return Collections.synchronizedList(
-                    this.jdbcTemplate.query(sqlBuilder.toString(),
-                            (rs, rowNum) -> rs.getLong("id"),
-                            penaltyWaitPeriod, maxLoanIdInList, pageSize));
+            return Collections.synchronizedList(this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod, maxLoanIdInList, pageSize));
         } catch (final EmptyResultDataAccessException e) {
             return backdatePenalties ? new ArrayList<Long>() : null;
         }
