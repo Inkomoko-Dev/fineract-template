@@ -3690,8 +3690,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
         
-        // Skip checks if last transaction is a redraw transaction
-        if (lastTransaction != null && (lastTransaction.isDepositRedraw() || lastTransaction.isWithdrawalRedraw())) {
+        // A deposit redraw can consume an overpayment and allow the loan to close cleanly.
+        // Only skip lifecycle checks for withdrawal redraws because they do not settle the loan.
+        if (lastTransaction != null && lastTransaction.isWithdrawalRedraw()) {
             return;
         }
 
@@ -4024,7 +4025,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         for (final LoanTransaction loanTransaction : this.loanTransactions) {
-            if ((loanTransaction.isRefund() || loanTransaction.isRefundForActiveLoan() || loanTransaction.isCreditBalanceRefund() || loanTransaction.isWithdrawalRedraw())
+            if ((loanTransaction.isRefund() || loanTransaction.isRefundForActiveLoan() || loanTransaction.isCreditBalanceRefund()
+                    || loanTransaction.isWithdrawalRedraw() || loanTransaction.isDepositRedraw())
                     && !loanTransaction.isReversed()) {
                 totalPaidInRepayments = totalPaidInRepayments.minus(loanTransaction.getAmount(currency));
             }
@@ -4447,7 +4449,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         Money cumulativePaid = Money.zero(loanCurrency());
 
         for (final LoanTransaction repayment : this.loanTransactions) {
-            if ((repayment.isRepaymentType() || repayment.isPayoff() || repayment.isDepositRedraw()) && !repayment.isReversed()) {
+            if ((repayment.isRepaymentType() || repayment.isPayoff()) && !repayment.isReversed()) {
                 cumulativePaid = cumulativePaid.plus(repayment.getAmount(loanCurrency()));
             }
         }

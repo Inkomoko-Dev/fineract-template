@@ -371,6 +371,75 @@ public class LoanTest {
     }
 
     @Test
+    public void calculateTotalOverpaymentTreatsDepositRedrawAsConsumedOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        when(loanProductRelatedDetail.getPrincipal()).thenReturn(Money.of(KES, new BigDecimal("100.00")));
+        final LocalDate disbursementDate = LocalDate.of(2026, 5, 8);
+        final LocalDate repaymentDate = LocalDate.of(2026, 6, 8);
+        final LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 1, disbursementDate,
+                repaymentDate, new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        installment.payPrincipalComponent(repaymentDate, Money.of(KES, new BigDecimal("100.00")));
+        final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("125.00")), null,
+                repaymentDate, null);
+        final LoanTransaction depositRedraw = LoanTransaction.applyRedrawRepayment(mock(Office.class), Money.of(KES, new BigDecimal("25.00")),
+                null, repaymentDate, null, loan);
+        repayment.updateLoan(loan);
+        depositRedraw.updateLoan(loan);
+
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.singletonList(installment));
+        ReflectionTestUtils.setField(loan, "loanTransactions", Arrays.asList(repayment, depositRedraw));
+
+        final Money totalOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(totalOverpayment.getAmount()));
+    }
+
+    @Test
+    public void updateLoanSummaryAndStatusClosesLoanAfterDepositRedrawConsumesOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        when(loanProductRelatedDetail.getPrincipal()).thenReturn(Money.of(KES, new BigDecimal("100.00")));
+        final LocalDate disbursementDate = LocalDate.of(2026, 5, 8);
+        final LocalDate repaymentDate = LocalDate.of(2026, 6, 8);
+        final LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 1, disbursementDate,
+                repaymentDate, new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        installment.payPrincipalComponent(repaymentDate, Money.of(KES, new BigDecimal("100.00")));
+        final LoanTransaction disbursement = LoanTransaction.disbursement(mock(Office.class), Money.of(KES, new BigDecimal("100.00")), null,
+                disbursementDate, null);
+        final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("125.00")), null,
+                repaymentDate, null);
+        final LoanTransaction depositRedraw = LoanTransaction.applyRedrawRepayment(mock(Office.class), Money.of(KES, new BigDecimal("25.00")),
+                null, repaymentDate, null, loan);
+        disbursement.updateLoan(loan);
+        repayment.updateLoan(loan);
+        depositRedraw.updateLoan(loan);
+
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.ACTIVE.getValue());
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "actualDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "summary", LoanSummary.create(BigDecimal.ZERO));
+        ReflectionTestUtils.setField(loan, "loanSummaryWrapper", new LoanSummaryWrapper());
+        ReflectionTestUtils.setField(loan, "loanLifecycleStateMachine",
+                new DefaultLoanLifecycleStateMachine(Arrays.asList(LoanStatus.values())));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.singletonList(installment));
+        ReflectionTestUtils.setField(loan, "loanTransactions", new ArrayList<>(Collections.singletonList(disbursement)));
+        loan.addLoanTransaction(repayment);
+        loan.addLoanTransaction(depositRedraw);
+        ReflectionTestUtils.setField(loan, "charges", Collections.emptySet());
+
+        loan.updateLoanSummarAndStatus();
+
+        assertEquals(LoanStatus.CLOSED_OBLIGATIONS_MET.getValue(), ReflectionTestUtils.getField(loan, "loanStatus"));
+        assertEquals(repaymentDate, ReflectionTestUtils.getField(loan, "closedOnDate"));
+        assertEquals(null, ReflectionTestUtils.getField(loan, "totalOverpaid"));
+    }
+
+    @Test
     public void disbursementChargeAdjustmentRecomputesPaidAndOutstandingAmounts() {
         final LoanCharge loanCharge = buildLoanCharge();
 
