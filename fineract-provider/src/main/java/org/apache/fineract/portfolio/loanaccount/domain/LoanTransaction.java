@@ -712,6 +712,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
                 this.getCreatedDateTime().toLocalDateTime());
         data.setOriginalTransactionId(this.originalTxnId);
         data.setReversalTransaction(this.reversalTransaction);
+        // Pure mapping of m_loan_transaction.is_reversed. This is distinct from manuallyReversed
+        // (manual reversals set both, system reversals like undo-disbursal set only is_reversed) and from
+        // reversalTransaction (is_reversal — a row that itself IS a reversal entry of another txn).
+        data.setReversed(isReversed());
         data.setCorrectionDate(this.correctionDate);
         return data;
     }
