@@ -302,31 +302,6 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         return "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
     }
 
-    private void logDisbursementRequestPayload(Loan loan, String requestId, LoanDisbursementDetails disbursementDetail,
-            DisbursementRequestData disbursementRequestData) {
-        Object sourceFxTimestamp = disbursementDetail.getFxTimestamp();
-        LOG.info("Preparing Inkomoko disbursement payload loanId={}, requestId={}, disbursementDetailId={}, sourceFxTimestampType={}, "
-                + "sourceFxTimestampValue={}, payloadFxTimestampType={}, payloadFxTimestampValue={}", loan.getId(), requestId,
-                disbursementDetail.getId(), typeName(sourceFxTimestamp), sourceFxTimestamp, typeName(disbursementRequestData.getFxTimestamp()),
-                disbursementRequestData.getFxTimestamp());
-
-        for (Field field : DisbursementRequestData.class.getDeclaredFields()) {
-            try {
-                field.setAccessible(true);
-                Object value = field.get(disbursementRequestData);
-                LOG.info("Inkomoko disbursement payload field loanId={}, requestId={}, field={}, declaredType={}, valueType={}, value={}",
-                        loan.getId(), requestId, field.getName(), field.getType().getName(), typeName(value), value);
-            } catch (IllegalAccessException e) {
-                LOG.warn("Unable to inspect Inkomoko disbursement payload field loanId={}, requestId={}, field={}", loan.getId(), requestId,
-                        field.getName(), e);
-            }
-        }
-    }
-
-    private String typeName(Object value) {
-        return value == null ? "null" : value.getClass().getName();
-    }
-
     public static BigDecimal getDisbursementChargeAmount(Loan loan) {
         BigDecimal chargeAmount = BigDecimal.ZERO;
         final Collection<LoanCharge> loanCharges = loan.getLoanCharges();
