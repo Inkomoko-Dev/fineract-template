@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -110,6 +111,11 @@ public class LoanDisbursementChargeAdjustmentAudit extends AbstractPersistableCu
     @Column(name = "charge_paid_by_backfilled", nullable = false)
     private boolean chargePaidByBackfilled;
 
+    // Open-period date the correcting GL entries were redirected to when the adjustment touched a closed accounting
+    // period; null for adjustments posted directly on the transaction date.
+    @Column(name = "correction_date")
+    private LocalDate correctionDate;
+
     protected LoanDisbursementChargeAdjustmentAudit() {}
 
     private LoanDisbursementChargeAdjustmentAudit(final Long loanId, final Long clientId, final Long productId, final Long officeId,
@@ -184,5 +190,13 @@ public class LoanDisbursementChargeAdjustmentAudit extends AbstractPersistableCu
 
     public BigDecimal getNewAmount() {
         return this.newAmount;
+    }
+
+    public LocalDate getCorrectionDate() {
+        return this.correctionDate;
+    }
+
+    public void setCorrectionDate(final LocalDate correctionDate) {
+        this.correctionDate = correctionDate;
     }
 }

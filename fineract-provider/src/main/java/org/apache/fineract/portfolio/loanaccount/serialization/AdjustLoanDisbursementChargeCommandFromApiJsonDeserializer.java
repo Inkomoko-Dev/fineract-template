@@ -46,7 +46,7 @@ public class AdjustLoanDisbursementChargeCommandFromApiJsonDeserializer {
 
     private static final Set<String> SUPPORTED_PARAMS = new HashSet<>(
             Arrays.asList("amount", "transactionDate", "notes", "locale", "dateFormat", "glAccountId", "paymentTypeId",
-                    "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber"));
+                    "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber", "correctionDate"));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -71,6 +71,13 @@ public class AdjustLoanDisbursementChargeCommandFromApiJsonDeserializer {
         final LocalDate transactionDate = this.fromApiJsonHelper
                 .extractLocalDateNamed("transactionDate", element);
         validator.reset().parameter("transactionDate").value(transactionDate).notNull();
+
+        // Optional override for the closed-accounting-period correction date. When omitted the server auto-derives it
+        // (latest closure + 1 day); when supplied it must resolve to an open period (validated in the service layer).
+        if (this.fromApiJsonHelper.parameterExists("correctionDate", element)) {
+            final LocalDate correctionDate = this.fromApiJsonHelper.extractLocalDateNamed("correctionDate", element);
+            validator.reset().parameter("correctionDate").value(correctionDate).notNull();
+        }
 
         final String notes = this.fromApiJsonHelper.extractStringNamed("notes", element);
         validator.reset().parameter("notes").value(notes).ignoreIfNull().notExceedingLengthOf(500);
