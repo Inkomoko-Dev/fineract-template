@@ -1545,6 +1545,26 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             this.totalPaidFeeCharges = totalPaidFeeCharges;
         }
 
+        /**
+         * Disbursement detail rows can store net disbursal for insurance-at-disbursement loans while the
+         * repayment schedule still amortizes approved principal. Use the schedule principal base for the
+         * running loan-balance column so the final installment does not display a negative balance.
+         */
+        private BigDecimal principalForLoanBalanceTracking(final DisbursementData data) {
+            if (data == null || data.amount() == null) {
+                return BigDecimal.ZERO;
+            }
+            final BigDecimal disbursementDetailPrincipal = data.amount();
+            if (this.disbursementData.size() != 1 || this.disbursementChargeAmounts.chargeCount <= 0) {
+                return disbursementDetailPrincipal;
+            }
+            final BigDecimal schedulePrincipal = this.disbursement.amount() == null ? BigDecimal.ZERO : this.disbursement.amount();
+            if (schedulePrincipal.compareTo(disbursementDetailPrincipal) > 0) {
+                return schedulePrincipal;
+            }
+            return disbursementDetailPrincipal;
+        }
+
         public String schema() {
 
             return " ls.loan_id as loanId, ls.installment as period, ls.fromdate as fromDate, ls.duedate as dueDate, ls.obligations_met_on_date as obligationsMetOnDate, ls.completed_derived as complete,"
@@ -1627,7 +1647,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                     disbursementChargeAmount.add(data.getChargeAmount()).subtract(waivedChargeAmount), data.isDisbursed());
                         }
                         periods.add(periodData);
-                        this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.add(data.amount());
+                        this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance
+                                .add(principalForLoanBalanceTracking(data));
                     } else if (data.isDueForDisbursement(fromDate, dueDate)) {
                         if (!excludePastUndisbursed || data.isDisbursed()
                                 || !data.disbursementDate().isBefore(DateUtils.getBusinessLocalDate())) {
@@ -1641,7 +1662,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                         data.getChargeAmount(), data.isDisbursed());
                             }
                             periods.add(periodData);
-                            this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.add(data.amount());
+                            this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance
+                                    .add(principalForLoanBalanceTracking(data));
                         }
                     }
                 }
@@ -1719,11 +1741,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 if (fromDate == null) {
                     fromDate = this.lastDueDate;
                 }
-                final BigDecimal outstandingPrincipalBalanceOfLoan = this.outstandingLoanPrincipalBalance.subtract(principalDue);
+                BigDecimal outstandingPrincipalBalanceOfLoan = this.outstandingLoanPrincipalBalance.subtract(principalDue);
+                if (outstandingPrincipalBalanceOfLoan.compareTo(BigDecimal.ZERO) < 0) {
+                    outstandingPrincipalBalanceOfLoan = BigDecimal.ZERO;
+                }
 
                 // update based on current period values
                 this.lastDueDate = dueDate;
                 this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.subtract(principalDue);
+                if (this.outstandingLoanPrincipalBalance.compareTo(BigDecimal.ZERO) < 0) {
+                    this.outstandingLoanPrincipalBalance = BigDecimal.ZERO;
+                }
 
                 final LoanSchedulePeriodData periodData = LoanSchedulePeriodData.repaymentPeriodWithPayments(loanId, period, fromDate,
                         dueDate, obligationsMetOnDate, complete, principalDue, principalPaid, principalWrittenOff, principalOutstanding,
