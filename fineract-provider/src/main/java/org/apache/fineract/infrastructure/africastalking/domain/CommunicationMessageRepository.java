@@ -16,24 +16,20 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.organisation.staff.domain;
+package org.apache.fineract.infrastructure.africastalking.domain;
 
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
-public interface StaffRepository extends JpaRepository<Staff, Long>, JpaSpecificationExecutor<Staff> {
+public interface CommunicationMessageRepository extends JpaRepository<CommunicationMessage, Long> {
 
-    String FIND_BY_OFFICE_QUERY = "select s from Staff s where s.id = :id AND s.office.id = :officeId";
+    Optional<CommunicationMessage> findByExternalId(String externalId);
 
-    /**
-     * Find staff by officeid.
-     */
-    @Query(FIND_BY_OFFICE_QUERY)
-    Staff findByOffice(@Param("id") Long id, @Param("officeId") Long officeId);
+    Optional<CommunicationMessage> findByIdempotencyKey(String idempotencyKey);
 
-    @Query("select s from Staff s where s.mobileNo in :mobileNumbers")
-    List<Staff> findByMobileNumbers(@Param("mobileNumbers") List<String> mobileNumbers);
+    List<CommunicationMessage> findTop200ByStatusAndChannelOrderByCreatedDateAsc(CommunicationMessageStatus status,
+            CommunicationChannel channel);
 
+    List<CommunicationMessage> findByChannelOrderByCreatedDateDesc(CommunicationChannel channel);
 }

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260709-01-whatsapp-hook-template" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_hook_templates WHERE name = 'WhatsApp Gateway'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_hook_templates">
+            <column name="name" value="WhatsApp Gateway"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20260709-02-send-whatsapp-messages-job" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM job WHERE name = 'Send WhatsApp Messages'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="job">
+            <column name="name" value="Send WhatsApp Messages"/>
+            <column name="display_name" value="Send WhatsApp Messages"/>
+            <column name="cron_expression" value="0 */5 * * * ?"/>
+            <column name="create_time" valueDate="NOW()"/>
+            <column name="task_priority" valueNumeric="3"/>
+            <column name="group_name"/>
+            <column name="job_key" value="Send WhatsApp Messages _ DEFAULT"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="currently_running" valueBoolean="false"/>
+            <column name="updates_allowed" valueBoolean="true"/>
+            <column name="scheduler_group" valueNumeric="0"/>
+            <column name="is_misfired" valueBoolean="false"/>
+            <column name="node_id" valueNumeric="1"/>
+            <column name="is_mismatched_job" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260709-01-africastalking-permissions" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'READ_COMMUNICATION'
+            </sqlCheck>
+        </preConditions>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="infrastructure"/>
+            <column name="code" value="READ_COMMUNICATION"/>
+            <column name="entity_name" value="COMMUNICATION"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="infrastructure"/>
+            <column name="code" value="CREATE_COMMUNICATION"/>
+            <column name="entity_name" value="COMMUNICATION"/>
+            <column name="action_name" value="CREATE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+
+        <insert tableName="m_permission">
+            <column name="grouping" value="infrastructure"/>
+            <column name="code" value="CONFIGURE_AFRICASTALKING"/>
+            <column name="entity_name" value="COMMUNICATION"/>
+            <column name="action_name" value="CONFIGURE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
