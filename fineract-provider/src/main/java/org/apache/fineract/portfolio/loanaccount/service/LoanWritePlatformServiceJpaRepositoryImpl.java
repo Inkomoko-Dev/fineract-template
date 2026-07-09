@@ -4236,21 +4236,22 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
 
         final boolean originalDateClosed = isDateInClosedAccountingPeriod(loan, originalTransactionDate);
-        final boolean newDateClosed = isDateInClosedAccountingPeriod(loan, newTransactionDate);
         final boolean transactionDateChanged = !newTransactionDate.isEqual(originalTransactionDate);
-        if (transactionDateChanged && (originalDateClosed || newDateClosed)) {
-            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.date.closed.period",
-                    "Disbursement charge payment date correction cannot update a transaction in a closed accounting period.",
-                    "transactionDate", newTransactionDate);
-        }
+
+        // When the charge (or the requested new date) falls in a closed accounting period, redirect the correcting
+        // GL entries into the first open day instead of blocking the edit. Mirrors the recovery-payment correction
+        // flow (resolveCorrectionDate / CGLT-530) and requires the corrections-in-closed-period global configuration
+        // to be enabled. resolveCorrectionDate returns null when neither date is in a closed period (entries then
+        // post on the transaction date) and rejects a client-supplied correctionDate for open-period edits.
+        final LocalDate suppliedCorrectionDate = command.parameterExists("correctionDate")
+                ? command.localDateValueOfParameterNamed("correctionDate")
+                : null;
+        final LocalDate closedPeriodAnchor = originalDateClosed ? originalTransactionDate : newTransactionDate;
+        final LocalDate correctionDate = resolveCorrectionDate(loan, closedPeriodAnchor, suppliedCorrectionDate);
+        final LocalDate postingDate = correctionDate != null ? correctionDate : newTransactionDate;
 
         final BigDecimal amountDelta = newAmount.subtract(previousAmount);
         final boolean amountChanged = amountDelta.compareTo(BigDecimal.ZERO) != 0;
-        if ((amountChanged || paymentDetailChangeRequested || incomeGlChangeRequested) && (originalDateClosed || newDateClosed)) {
-            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.amount.closed.period",
-                    "Disbursement charge adjustments cannot be posted for a transaction in a closed accounting period.",
-                    "transactionDate", newTransactionDate);
-        }
 
         final Optional<LoanDisbursementChargeAdjustmentAudit> latestChargeEditAudit = this.loanDisbursementChargeAdjustmentAuditRepository
                 .findTopByLoanChargeIdOrderByAdjustedOnDateDescIdDesc(loanChargeId);
@@ -4323,6 +4324,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         changes.put("paymentTransactionCorrectionNeeded", paymentTransactionCorrectionNeeded);
         changes.put("previousTransactionDate", originalTransactionDate);
         changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
+        if (correctionDate != null) {
+            changes.put("correctionDate", correctionDate.toString());
+        }
         changes.put("locale", command.locale());
         changes.put("dateFormat", command.dateFormat());
         changes.put("previousExternalId", originalTransaction.getExternalId());
@@ -4383,11 +4387,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     originalTransaction.getId());
         }
 
-        if (incomeGlReclassificationNeeded && (originalDateClosed || newDateClosed)) {
-            throwTransactionValidationError("error.msg.loan.disbursement.charge.adjustment.gl.closed.period",
-                    "Disbursement charge GL reclassification cannot be posted for a transaction in a closed accounting period.",
-                    "transactionDate", newTransactionDate);
-        }
         if (incomeGlReclassificationNeeded) {
             if ((paidIncomeGlReclassificationNeeded && paidIncomeReclassificationSourceGlAccount == null)
                     || (outstandingIncomeGlReclassificationNeeded && previousIncomeGlAccount == null)
@@ -4407,7 +4406,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     amountDelta.compareTo(BigDecimal.ZERO) < 0);
             amountAdjustmentTransaction.updateLoan(loan);
             amountAdjustmentTransaction.setOriginalTransactionId(originalTransaction.getId());
-            amountAdjustmentTransaction.setCorrectionDate(DateUtils.getBusinessLocalDate());
+            amountAdjustmentTransaction.setCorrectionDate(correctionDate != null ? correctionDate : DateUtils.getBusinessLocalDate());
             loan.addLoanTransaction(amountAdjustmentTransaction);
             this.loanTransactionRepository.saveAndFlush(amountAdjustmentTransaction);
             changes.put("chargeAmountAdjustmentTransactionId", amountAdjustmentTransaction.getId());
@@ -4416,6 +4415,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         boolean originalTransactionReversed = false;
         LoanTransaction replacementTransaction = null;
         if (paymentTransactionCorrectionNeeded && originalTransaction.isNotReversed()) {
+            if (correctionDate != null) {
+                // Redirect the reversal of the closed-period repayment-at-disbursement entries into the open period.
+                originalTransaction.setCorrectionDate(correctionDate);
+            }
             originalTransaction.reverse();
             originalTransactionReversed = true;
             originalTransaction.manuallyAdjustedOrReversed();
@@ -4427,7 +4430,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     newPaymentDetail, newTransactionDate, txnExternalId);
             replacementTransaction.updateLoan(loan);
             replacementTransaction.setOriginalTransactionId(originalTransaction.getId());
-            replacementTransaction.setCorrectionDate(DateUtils.getBusinessLocalDate());
+            replacementTransaction.setCorrectionDate(correctionDate != null ? correctionDate : DateUtils.getBusinessLocalDate());
             final Integer installmentNumber = selectedChargePaidBy == null ? null : selectedChargePaidBy.getInstallmentNumber();
             replacementTransaction.getLoanChargesPaid().add(new LoanChargePaidBy(replacementTransaction, loanCharge, feePaidPortion,
                     installmentNumber));
@@ -4446,17 +4449,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final LoanTransaction chargeAdjustmentJournalTransaction = amountAdjustmentTransaction != null ? amountAdjustmentTransaction
                 : replacementTransaction == null ? originalTransaction : replacementTransaction;
         postChargeCustomerBalanceAdjustmentJournalEntries(loan, chargeAdjustmentJournalTransaction, allocation,
-                previousIncomeGlAccount, newIncomeGlAccount, newTransactionDate, changes);
+                previousIncomeGlAccount, newIncomeGlAccount, postingDate, correctionDate, changes);
 
         if (paidIncomeGlReclassificationNeeded) {
             final LoanTransaction reclassificationTransaction = replacementTransaction != null ? replacementTransaction
                     : amountAdjustmentTransaction != null ? amountAdjustmentTransaction : originalTransaction;
             this.journalEntryRepository.save(buildManualJournalEntry(loan, paidIncomeReclassificationSourceGlAccount, JournalEntryType.DEBIT,
                     paidIncomeReclassificationPortion, "Disbursement charge paid portion reclassification - reduce previous income GL",
-                    reclassificationTransaction, newTransactionDate));
+                    reclassificationTransaction, postingDate, correctionDate));
             this.journalEntryRepository.save(buildManualJournalEntry(loan, newIncomeGlAccount, JournalEntryType.CREDIT,
                     paidIncomeReclassificationPortion, "Disbursement charge paid portion reclassification - apply charge income GL",
-                    reclassificationTransaction, newTransactionDate));
+                    reclassificationTransaction, postingDate, correctionDate));
             changes.put("previousIncomeGlAccountId", glAccountId(previousIncomeGlAccount));
             changes.put("newIncomeGlAccountId", newIncomeGlAccount.getId());
             changes.put("replacementIncomeGlAccountId", glAccountId(replacementIncomeGlAccount));
@@ -4469,11 +4472,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             this.journalEntryRepository.save(buildManualJournalEntry(loan, previousIncomeGlAccount, JournalEntryType.DEBIT,
                     outstandingIncomeReclassificationPortion,
                     "Disbursement charge outstanding portion reclassification - reduce previous income GL", reclassificationTransaction,
-                    newTransactionDate));
+                    postingDate, correctionDate));
             this.journalEntryRepository.save(buildManualJournalEntry(loan, newIncomeGlAccount, JournalEntryType.CREDIT,
                     outstandingIncomeReclassificationPortion,
                     "Disbursement charge outstanding portion reclassification - apply charge income GL", reclassificationTransaction,
-                    newTransactionDate));
+                    postingDate, correctionDate));
             changes.put("previousIncomeGlAccountId", glAccountId(previousIncomeGlAccount));
             changes.put("newIncomeGlAccountId", newIncomeGlAccount.getId());
             changes.put("outstandingIncomeGlReclassifiedAmount", outstandingIncomeReclassificationPortion);
@@ -4505,6 +4508,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 glAccountId(previousFundSourceGlAccount), glAccountId(newFundSourceGlAccount),
                 glAccountId(previousIncomeGlAccount), glAccountId(newIncomeGlAccount), noteText, currentUser.getId(), currentUser.getUsername(), roleNames(currentUser),
                 DateUtils.getOffsetDateTimeOfTenant(), chargePaidByBackfilled);
+        audit.setCorrectionDate(correctionDate);
         this.loanDisbursementChargeAdjustmentAuditRepository.saveAndFlush(audit);
         changes.put("chargeAdjustmentAuditId", audit.getId());
 
@@ -4836,7 +4840,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     private void postChargeCustomerBalanceAdjustmentJournalEntries(final Loan loan, final LoanTransaction journalTransaction,
             final DisbursementChargeAdjustmentAllocation allocation, final GLAccount previousIncomeGlAccount,
-            final GLAccount newIncomeGlAccount, final LocalDate transactionDate, final Map<String, Object> changes) {
+            final GLAccount newIncomeGlAccount, final LocalDate transactionDate, final LocalDate correctionDate,
+            final Map<String, Object> changes) {
         if (journalTransaction == null) {
             return;
         }
@@ -4862,7 +4867,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 loanPortfolioGlAccount = requireDisbursementChargeAdjustmentLoanPortfolioGlAccount(loan);
                 saveManualJournalEntryIfPositive(loan, loanPortfolioGlAccount, JournalEntryType.DEBIT,
                         loanPortfolioBalanceIncrease, "Disbursement charge adjustment - restore customer balance",
-                        journalTransaction, transactionDate);
+                        journalTransaction, transactionDate, correctionDate);
                 changes.put("chargeLoanPortfolioBalanceIncrease", loanPortfolioBalanceIncrease);
                 changes.put("chargeLoanPortfolioGlAccountId", loanPortfolioGlAccount.getId());
             }
@@ -4876,7 +4881,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                             loan.productId());
                 }
                 saveManualJournalEntryIfPositive(loan, overpaymentGlAccount, JournalEntryType.DEBIT, customerOverpaymentDecrease,
-                        "Disbursement charge adjustment - reduce customer credit", journalTransaction, transactionDate);
+                        "Disbursement charge adjustment - reduce customer credit", journalTransaction, transactionDate, correctionDate);
                 changes.put("chargeCustomerCreditDecrease", customerOverpaymentDecrease);
                 changes.put("chargeOverpaymentGlAccountId", overpaymentGlAccount.getId());
             }
@@ -4887,12 +4892,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 final GLAccount receivableGlAccount = findDisbursementChargeAdjustmentReceivableGlAccount(loan, loanPortfolioGlAccount);
                 saveManualJournalEntryIfPositive(loan, receivableGlAccount, JournalEntryType.DEBIT,
                         allocation.feeReceivableIncrease(), "Disbursement charge adjustment - increase fee receivable",
-                        journalTransaction, transactionDate);
+                        journalTransaction, transactionDate, correctionDate);
                 changes.put("chargeFeeReceivableIncrease", allocation.feeReceivableIncrease());
                 changes.put("chargeFeeReceivableGlAccountId", receivableGlAccount.getId());
             }
             saveManualJournalEntryIfPositive(loan, newIncomeGlAccount, JournalEntryType.CREDIT, chargeIncomeIncrease,
-                    "Disbursement charge adjustment - recognize charge income", journalTransaction, transactionDate);
+                    "Disbursement charge adjustment - recognize charge income", journalTransaction, transactionDate, correctionDate);
             changes.put("chargeCustomerBalanceIncrease", allocation.customerBalanceIncrease());
         }
 
@@ -4910,13 +4915,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final BigDecimal customerCredit = journalTransaction.getOverPaymentPortion(loan.getCurrency()).getAmount();
             final BigDecimal receivableBalanceDecrease = allocation.feeReceivableDecrease();
             saveManualJournalEntryIfPositive(loan, incomeGlAccount, JournalEntryType.DEBIT, chargeIncomeDecrease,
-                    "Disbursement charge adjustment - reduce charge income", journalTransaction, transactionDate);
+                    "Disbursement charge adjustment - reduce charge income", journalTransaction, transactionDate, correctionDate);
             saveManualJournalEntryIfPositive(loan, loanPortfolioGlAccount, JournalEntryType.CREDIT, loanPortfolioBalanceDecrease,
-                    "Disbursement charge adjustment - reduce customer balance", journalTransaction, transactionDate);
+                    "Disbursement charge adjustment - reduce customer balance", journalTransaction, transactionDate, correctionDate);
             if (receivableBalanceDecrease.compareTo(BigDecimal.ZERO) > 0) {
                 final GLAccount receivableGlAccount = findDisbursementChargeAdjustmentReceivableGlAccount(loan, loanPortfolioGlAccount);
                 saveManualJournalEntryIfPositive(loan, receivableGlAccount, JournalEntryType.CREDIT, receivableBalanceDecrease,
-                        "Disbursement charge adjustment - reduce fee receivable", journalTransaction, transactionDate);
+                        "Disbursement charge adjustment - reduce fee receivable", journalTransaction, transactionDate, correctionDate);
                 changes.put("chargeFeeReceivableDecrease", receivableBalanceDecrease);
                 changes.put("chargeFeeReceivableGlAccountId", receivableGlAccount.getId());
             }
@@ -4930,7 +4935,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                             loan.productId());
                 }
                 saveManualJournalEntryIfPositive(loan, overpaymentGlAccount, JournalEntryType.CREDIT, customerCredit,
-                        "Disbursement charge adjustment - customer credit", journalTransaction, transactionDate);
+                        "Disbursement charge adjustment - customer credit", journalTransaction, transactionDate, correctionDate);
                 changes.put("chargeCustomerCredit", customerCredit);
                 changes.put("chargeOverpaymentGlAccountId", overpaymentGlAccount.getId());
             }
@@ -4941,12 +4946,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     }
 
     private void saveManualJournalEntryIfPositive(final Loan loan, final GLAccount glAccount, final JournalEntryType entryType,
-            final BigDecimal amount, final String description, final LoanTransaction loanTransaction, final LocalDate entryDate) {
+            final BigDecimal amount, final String description, final LoanTransaction loanTransaction, final LocalDate entryDate,
+            final LocalDate correctionDate) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
         this.journalEntryRepository.save(buildManualJournalEntry(loan, glAccount, entryType, amount, description,
-                loanTransaction, entryDate));
+                loanTransaction, entryDate, correctionDate));
     }
 
     private GLAccount requireDisbursementChargeAdjustmentLoanPortfolioGlAccount(final Loan loan) {
@@ -5207,22 +5213,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final BigDecimal amount,
             final String description,
             final LoanTransaction loanTransaction,
-            final LocalDate entryDate) {
-        return buildManualJournalEntry(loan, glAccount, entryType, amount, description, loanTransaction, entryDate, null);
-    }
-
-    private JournalEntry buildManualJournalEntry(
-            final Loan loan,
-            final GLAccount glAccount,
-            final JournalEntryType entryType,
-            final BigDecimal amount,
-            final String description,
-            final LoanTransaction loanTransaction,
             final LocalDate entryDate,
-            final PaymentDetail paymentDetail) {
-        return JournalEntry.createNew(
+            final LocalDate correctionDate) {
+        final JournalEntry journalEntry = JournalEntry.createNew(
                 loan.getOffice(),                          // office
-                paymentDetail,                             // paymentDetail
+                null,                                      // paymentDetail
                 glAccount,                                 // glAccount
                 loan.getCurrency().getCode(),              // currencyCode
                 "L" + loanTransaction.getId(),              // transactionId
@@ -5239,6 +5234,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 null,                                      // clientTransaction
                 null                                       // shareTransactionId
         );
+        // Flag closed-period corrections so downstream consumers (Odoo export, correction reporting) treat the
+        // manual entry as a correction posted into the open period rather than a normal current-period entry.
+        if (correctionDate != null) {
+            journalEntry.setCorrection(true);
+            journalEntry.setCorrectionDate(correctionDate);
+        }
+        return journalEntry;
     }
 
     private JournalEntry findActiveDebitEntry(final LoanTransaction originalTransaction) {

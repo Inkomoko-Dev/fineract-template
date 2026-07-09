@@ -994,8 +994,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final LoanTransactionData loanTransactionData = this.jdbcTemplate.queryForObject(sql, rm, loanId, transactionId); // NOSONAR
             final LoanTransaction loanTransaction = this.loanTransactionRepository.findById(transactionId)
                     .orElseThrow(() -> new LoanTransactionNotFoundException(transactionId));
-            if (loanTransaction.isRecoveryRepaymentType()) {
-                populateRecoveryCorrectionMetadata(loanTransactionData, loanTransaction.getLoan(), loanTransaction.getTransactionDate());
+            if (loanTransaction.isRecoveryRepaymentType() || loanTransaction.isRepaymentAtDisbursement()
+                    || loanTransaction.isDisbursementChargeAdjustment()) {
+                // Expose the closed-accounting-period correction window so the "Edit Insurance Payment" screen can warn
+                // when corrections are disallowed and knows the open-period date range. Mirrors the recovery flow.
+                populateClosedPeriodCorrectionMetadata(loanTransactionData, loanTransaction.getLoan(), loanTransaction.getTransactionDate());
             }
             return loanTransactionData;
         } catch (final EmptyResultDataAccessException e) {
@@ -2482,7 +2485,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         if (originalTransactionId != null) {
             final LoanTransaction originalRecoveryTransaction = retrieveRecoveryCorrectionReference(loan, originalTransactionId);
             loanTransactionData.setOriginalTransactionId(originalTransactionId);
-            populateRecoveryCorrectionMetadata(loanTransactionData, loan, originalRecoveryTransaction.getTransactionDate());
+            populateClosedPeriodCorrectionMetadata(loanTransactionData, loan, originalRecoveryTransaction.getTransactionDate());
         }
         return loanTransactionData;
 
@@ -2507,7 +2510,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         return originalTransaction;
     }
 
-    private void populateRecoveryCorrectionMetadata(final LoanTransactionData loanTransactionData, final Loan loan,
+    private void populateClosedPeriodCorrectionMetadata(final LoanTransactionData loanTransactionData, final Loan loan,
             final LocalDate originalTransactionDate) {
         loanTransactionData.setCorrectionAllowed(Boolean.TRUE);
         loanTransactionData.setCorrectionDateRequired(Boolean.FALSE);

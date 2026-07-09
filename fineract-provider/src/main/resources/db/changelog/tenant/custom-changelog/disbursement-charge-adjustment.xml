@@ -170,4 +170,63 @@ ORDER BY a.adjusted_on_date DESC, a.id DESC]]>
             <column name="self_service_user_report" valueBoolean="false"/>
         </insert>
     </changeSet>
+
+    <changeSet id="add-disbursement-charge-adjustment-correction-date" author="Wilfred">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_disbursement_charge_adjustment_audit" columnName="correction_date"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan_disbursement_charge_adjustment_audit">
+            <column name="correction_date" type="DATE"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="add-correction-date-to-disbursement-charge-adjustment-report" author="Wilfred" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Edited Disbursement Charge Adjustments'
+            </sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql">
+                <![CDATA[SELECT a.id AS auditId,
+       a.adjusted_on_date AS adjustedOnDate,
+       a.adjustedby_username AS adjustedBy,
+       a.adjustedby_roles AS adjustedByRoles,
+       o.name AS office,
+       l.id AS loanId,
+       l.account_no AS loanAccountNo,
+       c.id AS clientId,
+       c.display_name AS clientName,
+       lp.name AS productName,
+       ch.name AS chargeName,
+       a.original_transaction_id AS originalTransactionId,
+       a.adjustment_transaction_id AS adjustmentTransactionId,
+       a.previous_amount AS previousAmount,
+       a.new_amount AS newAmount,
+       a.amount_delta AS amountDelta,
+       a.previous_payment_type_name AS previousPaymentType,
+       a.new_payment_type_name AS newPaymentType,
+       oldfund.gl_code AS previousFundSourceGlCode,
+       newfund.gl_code AS newFundSourceGlCode,
+       oldinc.gl_code AS previousIncomeGlCode,
+       newinc.gl_code AS newIncomeGlCode,
+       a.correction_date AS correctionDate,
+       a.reason
+FROM m_loan_disbursement_charge_adjustment_audit a
+JOIN m_loan l ON l.id = a.loan_id
+LEFT JOIN m_client c ON c.id = a.client_id
+JOIN m_product_loan lp ON lp.id = a.product_id
+JOIN m_office o ON o.id = a.office_id
+JOIN m_charge ch ON ch.id = a.charge_id
+LEFT JOIN acc_gl_account oldfund ON oldfund.id = a.previous_fund_source_gl_account_id
+LEFT JOIN acc_gl_account newfund ON newfund.id = a.new_fund_source_gl_account_id
+LEFT JOIN acc_gl_account oldinc ON oldinc.id = a.previous_income_gl_account_id
+LEFT JOIN acc_gl_account newinc ON newinc.id = a.new_income_gl_account_id
+ORDER BY a.adjusted_on_date DESC, a.id DESC]]>
+            </column>
+            <where>report_name = 'Edited Disbursement Charge Adjustments'</where>
+        </update>
+    </changeSet>
 </databaseChangeLog>
