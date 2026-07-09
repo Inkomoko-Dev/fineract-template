@@ -1424,10 +1424,8 @@ public final class LoanApplicationCommandFromApiJsonHelper {
                     baseDataValidator.reset().parameter(LoanApiConstants.disbursementPrincipalParameterName)
                             .failWithCode(LoanApiConstants.APPROVED_AMOUNT_IS_LESS_THAN_SUM_OF_TRANCHES);
                 }
-                final String interestTypeParameterName = "interestType";
-                final Integer interestType = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(interestTypeParameterName, element);
-                baseDataValidator.reset().parameter(interestTypeParameterName).value(interestType).ignoreIfNull()
-                        .integerSameAsNumber(InterestMethod.DECLINING_BALANCE.getValue());
+                // CGLT-641: flat interest is permitted for multi-disburse loans. The FLAT schedule generator already
+                // supports tranche disbursements, so we no longer force interestType == DECLINING_BALANCE here.
 
             }
 

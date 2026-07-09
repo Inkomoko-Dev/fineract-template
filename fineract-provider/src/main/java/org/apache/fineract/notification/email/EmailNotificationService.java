@@ -24,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.domain.EmailDetail;
 import org.apache.fineract.infrastructure.core.service.GmailBackedPlatformEmailService;
+import org.apache.fineract.infrastructure.core.service.PlatformEmailSendException;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDecisionAcceptedEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanDecisionRejectEvent;
@@ -77,10 +78,18 @@ public class EmailNotificationService {
             }else {
                 emailDetail = getLoanDecisionApproverEmail(loan, nextStage, nextApprover, note);
             }
-            emailService.sendDefinedEmail(emailDetail);
+            sendEmailSafely(emailDetail, nextApprover.getEmail());
         }
     }
 
+    private void sendEmailSafely(EmailDetail emailDetail, String recipientEmail) {
+        try {
+            emailService.sendDefinedEmail(emailDetail);
+        } catch (PlatformEmailSendException e) {
+            log.error("Loan decision notification email could not be sent to {}. Approval was still recorded. "
+                    + "Check SMTP settings under Admin > System > External Services.", recipientEmail, e);
+        }
+    }
 
     private AppUser getNextApprover(LoanDecision decision, Integer stage) {
         LoanDecisionState state = LoanDecisionState.fromInt(stage);
@@ -191,7 +200,7 @@ public class EmailNotificationService {
         if (approver != null && StringUtils.isNotBlank(approver.getEmail())) {
             EmailDetail emailDetail;
             emailDetail = getLoanDecisionRejectEmail(loan, state, approver, note);
-            emailService.sendDefinedEmail(emailDetail);
+            sendEmailSafely(emailDetail, approver.getEmail());
         }
     }
 

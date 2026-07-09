@@ -48,10 +48,11 @@ public class EarlyPaymentLoanRepaymentScheduleTransactionProcessor extends Abstr
 
         final MonetaryCurrency currency = paymentInAdvance.getCurrency();
         Money transactionAmountRemaining = paymentInAdvance;
-        Money principalPortion = Money.zero(transactionAmountRemaining.getCurrency());
-        Money interestPortion = Money.zero(transactionAmountRemaining.getCurrency());
-        Money feeChargesPortion = Money.zero(transactionAmountRemaining.getCurrency());
-        Money penaltyChargesPortion = Money.zero(transactionAmountRemaining.getCurrency());
+        Money principalPortion = Money.zero(currency);
+        Money interestPortion = Money.zero(currency);
+        Money feeChargesPortion = Money.zero(currency);
+        Money penaltyChargesPortion = Money.zero(currency);
+        boolean currentInstallmentMapped = false;
 
         if (loanTransaction.isChargesWaiver()) {
             penaltyChargesPortion = currentInstallment.waivePenaltyChargesComponent(transactionDate,
@@ -77,15 +78,25 @@ public class EarlyPaymentLoanRepaymentScheduleTransactionProcessor extends Abstr
             }
             loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
         } else {
-            // Pay ONLY accrued interest and write off unearned interest for this installment
+            penaltyChargesPortion = currentInstallment.payPenaltyChargesComponent(transactionDate, transactionAmountRemaining);
+            transactionAmountRemaining = transactionAmountRemaining.minus(penaltyChargesPortion);
+
+            feeChargesPortion = currentInstallment.payFeeChargesComponent(transactionDate, transactionAmountRemaining);
+            transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortion);
+
             interestPortion = currentInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
 
-            // Allocate remaining to principal
             principalPortion = currentInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(principalPortion);
 
             loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+
+            if (principalPortion.plus(interestPortion).plus(feeChargesPortion).plus(penaltyChargesPortion).isGreaterThanZero()) {
+                transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, currentInstallment,
+                        principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion));
+                currentInstallmentMapped = true;
+            }
 
             // Process remaining installments (future installments) - write off their interest too
             if (transactionAmountRemaining.isGreaterThanZero()) {
@@ -103,7 +114,8 @@ public class EarlyPaymentLoanRepaymentScheduleTransactionProcessor extends Abstr
 
                         if (futurePrincipalPortion.isGreaterThanZero()) {
                             principalPortion = principalPortion.plus(futurePrincipalPortion);
-                            loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+                            loanTransaction.updateComponents(futurePrincipalPortion, Money.zero(currency), Money.zero(currency),
+                                    Money.zero(currency));
                             transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, futureInstallment,
                                     futurePrincipalPortion, Money.zero(currency), Money.zero(currency), Money.zero(currency)));
                         }
@@ -111,7 +123,8 @@ public class EarlyPaymentLoanRepaymentScheduleTransactionProcessor extends Abstr
                 }
             }
         }
-        if (principalPortion.plus(interestPortion).plus(feeChargesPortion).plus(penaltyChargesPortion).isGreaterThanZero()) {
+        if (!currentInstallmentMapped
+                && principalPortion.plus(interestPortion).plus(feeChargesPortion).plus(penaltyChargesPortion).isGreaterThanZero()) {
             transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, currentInstallment,
                     principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion));
         }

@@ -134,6 +134,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallmentRepository;
@@ -256,6 +258,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
     private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
+    private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
 
     private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
         final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
@@ -1679,6 +1682,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
             if (!loan.loanProduct().isMultiDisburseLoan()) {
 
+                final String mfiCode = command.stringValueOfParameterNamed("mfiCode");
                 final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
                 final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
                 final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
@@ -1696,7 +1700,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 BigDecimal fxRate = null;
                 BigDecimal usdAmount = null;
                 String fxSource = null;
-                final boolean isSouthSudanSsp = "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
+                final boolean isSouthSudanSsp = isSouthSudanLoan(loan) && "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
                 LocalDateTime fxTimestamp = null;
                 Integer normalizedPaymentTo = paymentTo;
                 final List<ApiParameterError> validationErrors = new ArrayList<>();
@@ -1720,8 +1724,10 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 if (isSouthSudanSsp && LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)) {
                     normalizedPaymentTo = LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue();
                     
-                    BigDecimal fetchedFxRate = this.readWriteNonCoreDataService.getFxLatestRate("Fx_rate", loan.getOfficeId());
-                    LocalDateTime fetchedFxTimestamp = this.readWriteNonCoreDataService.getFxLatestTimestamp("Fx_rate", loan.getOfficeId());
+                    BigDecimal fetchedFxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(),
+                            expectedDisbursementDate);
+                    LocalDateTime fetchedFxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(),
+                            expectedDisbursementDate);
                     
                     // FX Rate Handling: Prefer backend fetched rate, but allow manual override from API
                     final BigDecimal manualFxRate = command.bigDecimalValueOfParameterNamed(LoanApiConstants.fxRateParameterName);
@@ -1739,7 +1745,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                         usdAmount = loan.getPrincpal().getAmount().divide(fxRate, 6, RoundingMode.HALF_UP);
                     } else {
                         validationErrors.add(ApiParameterError.parameterError("validation.msg.loanapproval.fxRate.required",
-                                "FX rate is required for South Sudan vendor disbursement. Please ensure a rate is recorded or provided manually.",
+                                "FX rate is required for South Sudan vendor disbursement on " + expectedDisbursementDate
+                                        + ". Please ensure a CBS daily rate exists for that date or provide it manually.",
                                 LoanApiConstants.fxRateParameterName, fxRate));
                     }
                     if (fxTimestamp == null) {
@@ -1808,6 +1815,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 disbursementDetail.setUsdAmount(usdAmount);
                 disbursementDetail.setFxSource(fxSource);
                 disbursementDetail.setFxTimestamp(fxTimestamp);
+                disbursementDetail.setMfiCode(mfiCode);
 
             }
 
@@ -1883,6 +1891,15 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                     "Validation errors exist for payment type and related fields.",
                     dataValidationErrors);
         }
+    }
+
+    private boolean isSouthSudanLoan(final Loan loan) {
+        final LoanDueDiligenceInfo loanDueDiligenceInfo = this.loanDueDiligenceInfoRepository.findLoanDueDiligenceInfoByLoanId(loan.getId());
+        if (loanDueDiligenceInfo != null && loanDueDiligenceInfo.getCountry() != null
+                && StringUtils.isNotBlank(loanDueDiligenceInfo.getCountry().label())) {
+            return "SOUTH SUDAN".equalsIgnoreCase(StringUtils.normalizeSpace(loanDueDiligenceInfo.getCountry().label()));
+        }
+        return "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
     }
 
     private void validateActiveLoanCount(Long clientId) {

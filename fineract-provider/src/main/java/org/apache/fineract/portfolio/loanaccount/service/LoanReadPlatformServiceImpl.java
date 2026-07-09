@@ -126,6 +126,10 @@ import org.apache.fineract.portfolio.loanaccount.data.PaidInAdvanceData;
 import org.apache.fineract.portfolio.loanaccount.data.RepaymentScheduleRelatedLoanData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrix;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrixRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
@@ -166,6 +170,7 @@ import org.apache.fineract.useradministration.data.AppUserData;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.service.AppUserReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -214,6 +219,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final LoanTransactionRepository loanTransactionRepository;
     private final AppUserReadPlatformService appUserReadPlatformService;
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
+    private final LoanDecisionStateUtilService loanDecisionStateUtilService;
+    private final LoanApprovalMatrixRepository loanApprovalMatrixRepository;
+    private final LoanDecisionRepository loanDecisionRepository;
 
     @Autowired
     public LoanReadPlatformServiceImpl(final PlatformSecurityContext context,
@@ -235,7 +243,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                        SearchReadPlatformService searchReadPlatformService, final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository,
                                        final ConfigurationReadPlatformService configurationReadPlatformService,
                                        final CurrencyReadPlatformService currencyReadPlatformService, final LoanTransactionRepository loanTransactionRepository,
-                                       AppUserReadPlatformService appUserReadPlatformService, final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper) {
+                                       AppUserReadPlatformService appUserReadPlatformService, final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper,
+                                       @Lazy final LoanDecisionStateUtilService loanDecisionStateUtilService,
+                                       final LoanApprovalMatrixRepository loanApprovalMatrixRepository,
+                                       final LoanDecisionRepository loanDecisionRepository) {
         this.context = context;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
         this.applicationCurrencyRepository = applicationCurrencyRepository;
@@ -270,6 +281,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.loanTransactionRepository = loanTransactionRepository;
         this.appUserReadPlatformService = appUserReadPlatformService;
         this.dynamicIcReviewLevelHelper = dynamicIcReviewLevelHelper;
+        this.loanDecisionStateUtilService = loanDecisionStateUtilService;
+        this.loanApprovalMatrixRepository = loanApprovalMatrixRepository;
+        this.loanDecisionRepository = loanDecisionRepository;
     }
 
     @Override
@@ -725,6 +739,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public LoanApprovalData retrieveApprovalTemplate(final Long loanId, boolean paymentDetailsRequired) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        return retrieveApprovalTemplate(loanId, paymentDetailsRequired, loan.getExpectedDisbursedOnLocalDate());
+    }
+
+    @Override
+    public LoanApprovalData retrieveApprovalTemplate(final Long loanId, boolean paymentDetailsRequired, final LocalDate disbursementDate) {
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
         BigDecimal approvedAmount;
         if (loanDecisionData != null
@@ -746,8 +766,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         LocalDateTime fxTimestamp = null;
         String fxSource = null;
         if ("SSP".equalsIgnoreCase(loan.getCurrencyCode())) {
-            fxRate = this.readWriteNonCoreDataService.getFxLatestRate("Fx_rate", loan.getOfficeId());
-            fxTimestamp = this.readWriteNonCoreDataService.getFxLatestTimestamp("Fx_rate", loan.getOfficeId());
+            final LocalDate fxLookupDate = disbursementDate != null ? disbursementDate : loan.getExpectedDisbursedOnLocalDate();
+            fxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(), fxLookupDate);
+            fxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(), fxLookupDate);
             fxSource = "CBS_DAILY_RATE";
         }
 
@@ -756,15 +777,83 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public LoanApprovalData retrieveICReviewTemplate(final Long loanId) {
+        return retrieveICReviewTemplate(loanId, null);
+    }
+
+    @Override
+    public LoanApprovalData retrieveICReviewTemplate(final Long loanId, final Integer approvingLevelNumber) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final String currencyCode = loan.getCurrencyCode();
         final CurrencyData currency = currencyReadPlatformService.retrieveCurrency(currencyCode);
         final Collection<EnumOptionData> termFrequencyTypeOptions = this.loanDropdownReadPlatformService
                 .retrieveLoanTermFrequencyTypeOptions();
         final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
-        Collection<AppUserData> approverOptions = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(), getNextStageApproverPermission(loanDecisionData.getLoanDecisionState()));
-        return new LoanApprovalData(loan.getProposedPrincipal(), DateUtils.getBusinessLocalDate(), loan.getNetDisbursalAmount(),
-                termFrequencyTypeOptions, currency, loanDecisionData, approverOptions);
+
+        Collection<AppUserData> approverOptions = Collections.emptyList();
+        boolean nextApproverRequired = false;
+        Integer predictedNextStage = null;
+
+        if (approvingLevelNumber != null) {
+            final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+            final LoanApprovalMatrix approvalMatrix = this.loanApprovalMatrixRepository
+                    .findLoanApprovalMatrixByCurrency(loan.getCurrencyCode());
+
+            if (loanDecision != null && approvalMatrix != null) {
+                final List<Loan> loanIndividualCounter = loanDecisionStateUtilService.getLoanCounter(loan);
+                final Boolean isLoanFirstCycle = loanDecisionStateUtilService.isLoanFirstCycle(loanIndividualCounter);
+                final Boolean isLoanUnsecure = loanDecisionStateUtilService.isLoanUnSecure(loan);
+                final BigDecimal dueDiligenceRecommendedAmount = loanDecision.getDueDiligenceRecommendedAmount();
+                final Integer originalNextStage = loanDecision.getNextLoanIcReviewDecisionState();
+
+                loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle,
+                        isLoanUnsecure, approvingLevelNumber, dueDiligenceRecommendedAmount);
+
+                predictedNextStage = loanDecision.getNextLoanIcReviewDecisionState();
+                loanDecision.setNextLoanIcReviewDecisionState(originalNextStage);
+                if (predictedNextStage != null
+                        && predictedNextStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+                    nextApproverRequired = false;
+                    approverOptions = Collections.emptyList();
+                } else if (predictedNextStage != null && dynamicIcReviewLevelHelper.isIcReviewLevel(predictedNextStage)) {
+                    nextApproverRequired = true;
+                    final Integer nextLevelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(predictedNextStage);
+                    final String permission = nextLevelNumber != null
+                            ? dynamicIcReviewLevelHelper.getAcceptPermissionForLevel(nextLevelNumber)
+                            : null;
+                    if (permission != null) {
+                        approverOptions = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(),
+                                permission);
+                    } else {
+                        approverOptions = Collections.emptyList();
+                    }
+                }
+            }
+        } else {
+            final String nextStagePermission = getNextStageApproverPermission(loanDecisionData.getLoanDecisionState());
+            if (nextStagePermission != null) {
+                approverOptions = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(),
+                        nextStagePermission);
+                nextApproverRequired = true;
+            }
+        }
+
+        final LoanApprovalData template = new LoanApprovalData(loan.getProposedPrincipal(), DateUtils.getBusinessLocalDate(),
+                loan.getNetDisbursalAmount(), termFrequencyTypeOptions, currency, loanDecisionData, approverOptions);
+        template.setNextApproverRequired(nextApproverRequired);
+        template.setPredictedNextStage(predictedNextStage);
+
+        final LoanDecision loanDecisionEntity = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+        if (loanDecisionEntity != null) {
+            template.setDueDiligenceRecommendedAmount(loanDecisionEntity.getDueDiligenceRecommendedAmount());
+            template.setDueDiligenceTermFrequency(loanDecisionEntity.getDueDiligenceTermFrequency());
+            template.setDueDiligenceTermFrequencyType(loanDecisionEntity.getDueDiligenceTermFrequencyType());
+            template.setIdeaClient(loanDecisionEntity.getIdeaClient());
+            if (!Boolean.TRUE.equals(loanDecisionEntity.getIdeaClient())) {
+                template.setMaxRecommendedAmount(loanDecisionStateUtilService.getMaxLoanAmountFromCashFlow(loan));
+            }
+        }
+
+        return template;
     }
 
     /**
@@ -809,6 +898,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         String clientAccountNumber = null;
         String clientBankName = null;
         String clientPhoneNumber = null;
+        String mfiCode = null;
 
         if (disbursementDetail != null) {
             if (disbursementDetail.getPaymentType() != null) {
@@ -818,6 +908,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             clientPhoneNumber = disbursementDetail.getClientPhoneNumber();
             clientAccountNumber = disbursementDetail.getClientAccountNumber();
             clientBankName = disbursementDetail.getClientBankName();
+            mfiCode = disbursementDetail.getMfiCode();
             // optional fields if added in entity
             if (disbursementDetail.getCheckNumber() != null) {
                 checkNumber = Integer.valueOf(disbursementDetail.getCheckNumber());
@@ -865,6 +956,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanTransactionData.setUsdAmount(disbursementDetail.getUsdAmount());
             loanTransactionData.setFxSource(disbursementDetail.getFxSource());
             loanTransactionData.setFxTimestamp(disbursementDetail.getFxTimestamp());
+            loanTransactionData.setMfiCode(mfiCode);
         }
 
         return loanTransactionData;
@@ -1764,7 +1856,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " tr.fee_charges_portion_derived as fees, tr.penalty_charges_portion_derived as penalties, "
                     + " tr.overpayment_portion_derived as overpayment, tr.outstanding_loan_balance_derived as outstandingLoanBalance, "
                     + " tr.unrecognized_income_portion as unrecognizedIncome,"
-                    + " tr.original_transaction_id as originalTransactionId, tr.is_reversal as reversalTransaction, tr.correction_date as correctionDate, "
+                    + " tr.original_transaction_id as originalTransactionId, tr.is_reversal as reversalTransaction, tr.is_reversed as reversed, tr.correction_date as correctionDate, "
                     + " tr.submitted_on_date as submittedOnDate,tr.created_on_utc as createdDate, "
                     + " tr.manually_adjusted_or_reversed as manuallyReversed, mo.id officeId,au.id userId, au.username as createdByUsername, mc.id clientId,"
                     + " pd.payment_type_id as paymentType,pd.account_number as accountNumber,pd.check_number as checkNumber, "
@@ -1840,6 +1932,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final String externalId = rs.getString("externalId");
             final Long originalTransactionId = JdbcSupport.getLong(rs, "originalTransactionId");
             final boolean reversalTransaction = rs.getBoolean("reversalTransaction");
+            final boolean reversed = rs.getBoolean("reversed");
             final LocalDate correctionDate = JdbcSupport.getLocalDate(rs, "correctionDate");
 
             final BigDecimal netDisbursalAmount = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "netDisbursalAmount");
@@ -1872,6 +1965,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanTransactionData.setCreatedByUsername(createdByUsername);
             loanTransactionData.setOriginalTransactionId(originalTransactionId);
             loanTransactionData.setReversalTransaction(reversalTransaction);
+            loanTransactionData.setReversed(reversed);
             loanTransactionData.setCorrectionDate(correctionDate);
             return loanTransactionData;
         }
@@ -2056,32 +2150,23 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public List<Long> retrieveAllLoanIdsWithOverdueInstallments(final Long penaltyWaitPeriod, final Boolean backdatePenalties,
-            Long maxLoanIdInList, int pageSize) {
-        final MusoniOverdueLoanScheduleMapper rm = new MusoniOverdueLoanScheduleMapper();
-
+                                                                Long maxLoanIdInList, int pageSize) {
         final StringBuilder sqlBuilder = new StringBuilder(400);
-        sqlBuilder.append("select distinct ml.id from m_loan_repayment_schedule ls ").append(" inner join m_loan ml on ml.id = ls.loan_id ")
+        sqlBuilder.append("select distinct ml.id from m_loan_repayment_schedule ls ")
+                .append(" inner join m_loan ml on ml.id = ls.loan_id ")
                 .append(" join m_product_loan_charge plc on plc.product_loan_id = ml.product_id ")
-                .append(" join m_charge mc on mc.id = plc.charge_id ")
-                .append(" where " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day") + " > ls.duedate ")
+                .append(" join m_charge mc on mc.id = plc.charge_id ").append(" where ").append(sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day")).append(" > ls.duedate ")
                 .append(" and ml.id > ? ").append(" and ls.completed_derived <> true and mc.charge_applies_to_enum =1 ")
                 .append(" and ls.recalculated_interest_component <> true ")
                 .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ").append(" order by ml.id asc limit ? ");
 
-        if (backdatePenalties) {
-            try {
-                return Collections.synchronizedList(
-                        this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod, maxLoanIdInList, pageSize));
-            } catch (final EmptyResultDataAccessException e) {
-                return new ArrayList<Long>();
-            }
-        }
-
         try {
-            return Collections.synchronizedList(this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod,
-                    penaltyWaitPeriod, maxLoanIdInList, pageSize));
+            return Collections.synchronizedList(
+                    this.jdbcTemplate.query(sqlBuilder.toString(),
+                            (rs, rowNum) -> rs.getLong("id"),
+                            penaltyWaitPeriod, maxLoanIdInList, pageSize));
         } catch (final EmptyResultDataAccessException e) {
-            return null;
+            return backdatePenalties ? new ArrayList<Long>() : null;
         }
     }
 
@@ -3737,7 +3822,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + "ld.ic_review_decision_level_two_recommended_amount as icReviewDecisionLevelTwoRecommendedAmount, "
                     + "ld.ic_review_decision_level_three_recommended_amount as icReviewDecisionLevelThreeRecommendedAmount, "
                     + "ld.ic_review_decision_level_four_recommended_amount as icReviewDecisionLevelFourRecommendedAmount, "
-                    + "ld.ic_review_decision_level_five_recommended_amount as icReviewDecisionLevelFiveRecommendedAmount ");
+                    + "ld.ic_review_decision_level_five_recommended_amount as icReviewDecisionLevelFiveRecommendedAmount, "
+                    + "ld.due_diligence_recommended_amount as dueDiligenceRecommendedAmount ");
             sb.append(" FROM m_loan_decision ld ");
             sb.append(" WHERE ld.loan_id= ? ");
             return sb.toString();
@@ -3754,9 +3840,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final BigDecimal icReviewDecisionLevelFourRecommendedAmount = rs.getBigDecimal("icReviewDecisionLevelFourRecommendedAmount");
             final BigDecimal icReviewDecisionLevelFiveRecommendedAmount = rs.getBigDecimal("icReviewDecisionLevelFiveRecommendedAmount");
 
-            return new LoanDecisionData(loanId, loanDecisionState, loanNextDecisionState, icReviewDecisionLevelOneRecommendedAmount,
-                    icReviewDecisionLevelTwoRecommendedAmount, icReviewDecisionLevelThreeRecommendedAmount,
-                    icReviewDecisionLevelFourRecommendedAmount, icReviewDecisionLevelFiveRecommendedAmount);
+            final BigDecimal dueDiligenceRecommendedAmount = rs.getBigDecimal("dueDiligenceRecommendedAmount");
+
+            final LoanDecisionData loanDecisionData = new LoanDecisionData(loanId, loanDecisionState, loanNextDecisionState,
+                    icReviewDecisionLevelOneRecommendedAmount, icReviewDecisionLevelTwoRecommendedAmount,
+                    icReviewDecisionLevelThreeRecommendedAmount, icReviewDecisionLevelFourRecommendedAmount,
+                    icReviewDecisionLevelFiveRecommendedAmount);
+            loanDecisionData.setDueDiligenceRecommendedAmount(dueDiligenceRecommendedAmount);
+            return loanDecisionData;
         }
 
     }

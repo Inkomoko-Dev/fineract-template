@@ -22,15 +22,19 @@ import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.accounting.provisioning.exception.ProvisioningEntryNotfoundException;
 import org.apache.fineract.accounting.provisioning.data.LoanData;
 import org.apache.fineract.accounting.provisioning.data.LoanProvisioningCandidateData;
 import org.apache.fineract.accounting.provisioning.data.LoanProductProvisioningEntryData;
+import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryCriteriaVersionData;
 import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryData;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.Page;
@@ -146,14 +150,43 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
     @Override
     public ProvisioningEntryData retrieveProvisioningEntryData(Long entryId) {
         ProvisioningEntryDataMapperWithSumReserved mapper1 = new ProvisioningEntryDataMapperWithSumReserved();
-        final String sql = "select" + mapper1.getSchema() + " where entry.id = ? group by entry.id, created.username, modified.username";
-        return this.jdbcTemplate.queryForObject(sql, mapper1, entryId);
+        final String sql = "select" + mapper1.getSchema() + " where entry.id = ? group by entry.id, entry.journal_entry_created, entry.createdby_id, "
+                + "entry.created_date, entry.executed_at, entry.lastmodifiedby_id, entry.lastmodified_date, created.username, modified.username";
+        ProvisioningEntryData data;
+        try {
+            data = this.jdbcTemplate.queryForObject(sql, mapper1, entryId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new ProvisioningEntryNotfoundException(entryId);
+        }
+        data = enrichProvisioningEntryMetadata(data);
+        return data;
+    }
+
+    private ProvisioningEntryData enrichProvisioningEntryMetadata(final ProvisioningEntryData data) {
+        if (data == null) {
+            return null;
+        }
+        Collection<ProvisioningEntryCriteriaVersionData> criteriaVersions = retrieveCriteriaVersionsForEntry(data.getId());
+        return new ProvisioningEntryData(data.getId(), data.getJournalEntry(), data.getCreatedById(), data.getCreatedUser(),
+                data.getCreatedDate(), data.getModifiedById(), data.getModifiedUser(), data.getReservedAmount(),
+                data.getProvisioningDate(), data.getExecutedAt(), "All offices and loan products mapped to provisioning criteria",
+                criteriaVersions);
+    }
+
+    private Collection<ProvisioningEntryCriteriaVersionData> retrieveCriteriaVersionsForEntry(final Long entryId) {
+        final String sql = "select distinct pc.id as criteriaId, pc.criteria_name as criteriaName, pcv.id as criteriaVersionId, pcv.version_no as versionNo "
+                + "from m_loanproduct_provisioning_entry e "
+                + "join m_provisioning_criteria pc on pc.id = e.criteria_id "
+                + "join m_provisioning_criteria_version pcv on pcv.id = e.criteria_version_id "
+                + "where e.history_id = ? order by pc.criteria_name, pcv.version_no";
+        return this.jdbcTemplate.query(sql, (rs, rowNum) -> new ProvisioningEntryCriteriaVersionData(rs.getLong("criteriaId"),
+                rs.getString("criteriaName"), rs.getLong("criteriaVersionId"), rs.getInt("versionNo")), entryId);
     }
 
     private static final class ProvisioningEntryDataMapper implements RowMapper<ProvisioningEntryData> {
 
         private final StringBuilder sqlQuery = new StringBuilder()
-                .append(" entry.id, entry.journal_entry_created, entry.createdby_id, entry.created_date, created.username as createduser,")
+                .append(" entry.id, entry.journal_entry_created, entry.createdby_id, entry.created_date, entry.executed_at, created.username as createduser,")
                 .append("entry.lastmodifiedby_id, modified.username as modifieduser, entry.lastmodified_date ")
                 .append("from m_provisioning_history entry ").append("left JOIN m_appuser created ON created.id = entry.createdby_id ")
                 .append("left JOIN m_appuser modified ON modified.id = entry.lastmodifiedby_id ");
@@ -170,8 +203,10 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
             String modifieUser = rs.getString("modifieduser");
             BigDecimal totalReservedAmount = null;
             LocalDate createdLocalDate = createdDate != null ? createdDate.toLocalDate() : null;
+            Timestamp executedTimestamp = rs.getTimestamp("executed_at");
+            LocalDateTime executedAt = executedTimestamp == null ? null : executedTimestamp.toLocalDateTime();
             return new ProvisioningEntryData(id, journalEntry, createdById, createdUser, createdLocalDate, modifiedById, modifieUser,
-                    totalReservedAmount);
+                    totalReservedAmount, createdLocalDate, executedAt, null, null);
         }
 
         public String getSchema() {
@@ -183,7 +218,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
     private static final class LoanProductProvisioningEntryRowMapper implements RowMapper<LoanProductProvisioningEntryData> {
 
         private final StringBuilder sqlQuery = new StringBuilder().append(
-                " entry.id, entry.history_id as historyId, entry.office_id, entry.criteria_id as criteriaid, entry.criteria_version_id as criteriaVersionId, ")
+                " entry.id, entry.history_id as historyId, entry.office_id, entry.criteria_id as criteriaid, entry.criteria_version_id as criteriaVersionId, pcv.version_no as criteriaVersionNo, ")
                 .append("entry.criteria_definition_id as criteriaDefinitionId, entry.classification_type, office.name as officename, product.name as productname, entry.product_id, ")
                 .append("mlpel.loan_id as loanId, mlpel.account_no as loanAccountNo, mlpel.outstanding_balance as outstandingBalance, mlpel.provisioning_amount as provisioningAmount, ")
                 .append("entry.category_id, definition.category_code, CASE WHEN entry.classification_type = 'WRITTEN_OFF_PORTFOLIO' THEN 'Written-Off Portfolio' ELSE definition.category_name END as category_name, liability.id as liabilityid, liability.gl_code as liabilitycode, liability.name as liabilityname, ")
@@ -191,6 +226,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
                 .append("left join m_office office ON office.id = entry.office_id ")
                 .append("left join m_product_loan product ON product.id = entry.product_id ")
                 .append("left join m_provisioning_criteria_definition definition ON definition.id = entry.criteria_definition_id ")
+                .append("left join m_provisioning_criteria_version pcv ON pcv.id = entry.criteria_version_id ")
                 .append("left join acc_gl_account liability ON liability.id = entry.liability_account ")
                 .append("left join acc_gl_account expense ON expense.id = entry.expense_account ")
                 .append("left join m_loanproduct_provisioning_entry_loans mlpel on mlpel.loanproduct_provision_entry_id = entry.id ");
@@ -218,6 +254,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
             Long expenseAccountCode = rs.getObject("expenseid") == null ? null : rs.getLong("expenseid");
             Long criteriaId = rs.getLong("criteriaid");
             Long criteriaVersionId = rs.getLong("criteriaVersionId");
+            Integer criteriaVersionNo = rs.getObject("criteriaVersionNo") == null ? null : rs.getInt("criteriaVersionNo");
             Long criteriaDefinitionId = rs.getObject("criteriaDefinitionId") == null ? null : rs.getLong("criteriaDefinitionId");
             String liabilityAccountName = rs.getString("liabilityname");
             String expenseAccountName = rs.getString("expensename");
@@ -227,7 +264,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
             LoanProductProvisioningEntryData data = new LoanProductProvisioningEntryData(historyId, officeId, officeName, currentcyCode,
                     productId, productName, categoryId, categoryCode, categoryName, classificationType, overdueDays, amountreserved,
                     liabilityAccountCode, liabilityAccountglCode, liabilityAccountName, expenseAccountCode, expenseAccountglCode,
-                    expenseAccountName, criteriaId, criteriaVersionId, criteriaDefinitionId, loans);
+                    expenseAccountName, criteriaId, criteriaVersionId, criteriaVersionNo, criteriaDefinitionId, loans);
 
             do {
                 if (rs.getObject("loanId") == null) {
@@ -252,10 +289,10 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
     private static final class ProvisioningEntryDataMapperWithSumReserved implements RowMapper<ProvisioningEntryData> {
 
         private final StringBuilder sqlQuery = new StringBuilder()
-                .append(" entry.id, journal_entry_created, createdby_id, created_date, created.username as createduser,")
-                .append("lastmodifiedby_id, modified.username as modifieduser, lastmodified_date, SUM(reserved.reseve_amount) as totalreserved ")
+                .append(" entry.id, entry.journal_entry_created, entry.createdby_id, entry.created_date, entry.executed_at, created.username as createduser,")
+                .append("entry.lastmodifiedby_id, modified.username as modifieduser, entry.lastmodified_date, SUM(reserved.reseve_amount) as totalreserved ")
                 .append("from m_provisioning_history entry ")
-                .append("JOIN m_loanproduct_provisioning_entry reserved on entry.id = reserved.history_id ")
+                .append("LEFT JOIN m_loanproduct_provisioning_entry reserved on entry.id = reserved.history_id ")
                 .append("left JOIN m_appuser created ON created.id = entry.createdby_id ")
                 .append("left JOIN m_appuser modified ON modified.id = entry.lastmodifiedby_id ");
 
@@ -271,8 +308,10 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
             String modifieUser = rs.getString("modifieduser");
             BigDecimal totalReservedAmount = rs.getBigDecimal("totalreserved");
             LocalDate createdLocalDate = createdDate != null ? createdDate.toLocalDate() : null;
+            Timestamp executedTimestamp = rs.getTimestamp("executed_at");
+            LocalDateTime executedAt = executedTimestamp == null ? null : executedTimestamp.toLocalDateTime();
             return new ProvisioningEntryData(id, journalEntry, createdById, createdUser, createdLocalDate, modifiedById, modifieUser,
-                    totalReservedAmount);
+                    totalReservedAmount, createdLocalDate, executedAt, null, null);
         }
 
         public String getSchema() {

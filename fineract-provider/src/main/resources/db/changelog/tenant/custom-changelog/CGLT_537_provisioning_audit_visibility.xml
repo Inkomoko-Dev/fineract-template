@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-537-executed-at-on-provisioning-history" author="codex">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_provisioning_history" columnName="executed_at"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_provisioning_history">
+            <column name="executed_at" type="datetime"/>
+        </addColumn>
+        <sql dbms="mysql,mariadb">
+            UPDATE m_provisioning_history SET executed_at = created_date WHERE executed_at IS NULL;
+        </sql>
+        <sql dbms="postgresql">
+            UPDATE m_provisioning_history SET executed_at = created_date::timestamp WHERE executed_at IS NULL;
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-537-stretchy-provisioning-by-category-by-run" author="codex">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Provisioning By Category (By Run)'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report">
+            <column name="report_name" value="Provisioning By Category (By Run)"/>
+            <column name="report_type" value="Table"/>
+            <column name="report_subtype"/>
+            <column name="report_category" value="Loan"/>
+            <column name="report_sql">
+                <![CDATA[SELECT DATE(ph.created_date) AS provisioning_as_of_date,
+       ph.executed_at AS run_executed_at,
+       created_user.username AS run_by,
+       o.name AS office_name,
+       COALESCE(def.category_code, pc.category_code, '-') AS category_code,
+       COALESCE(def.category_name,
+                CASE WHEN e.classification_type = 'WRITTEN_OFF_PORTFOLIO' THEN 'Written-Off Portfolio' ELSE pc.category_name END,
+                e.classification_type) AS category_label,
+       pcv.version_no AS criteria_version_no,
+       pc.criteria_name,
+       e.currency_code,
+       SUM(e.reseve_amount) AS total_reserved_amount,
+       COUNT(*) AS line_count
+FROM m_provisioning_history ph
+JOIN m_loanproduct_provisioning_entry e ON e.history_id = ph.id
+JOIN m_office o ON o.id = e.office_id
+LEFT JOIN m_provisioning_criteria pc ON pc.id = e.criteria_id
+LEFT JOIN m_provisioning_criteria_version pcv ON pcv.id = e.criteria_version_id
+LEFT JOIN m_provisioning_criteria_definition def ON def.id = e.criteria_definition_id
+LEFT JOIN m_provision_category pc ON pc.id = e.category_id
+LEFT JOIN m_appuser created_user ON created_user.id = ph.createdby_id
+WHERE ph.id = ${provisioningEntryId}
+  AND o.id = ${officeId}
+GROUP BY provisioning_as_of_date, run_executed_at, run_by, office_name, category_code, category_label,
+         criteria_version_no, pc.criteria_name, e.currency_code
+ORDER BY office_name, category_code]]>
+            </column>
+            <column name="description" value="Provisioning run totals by category using stored definition snapshots (supports N buckets and Written-Off Portfolio)."/>
+            <column name="core_report" valueBoolean="true"/>
+            <column name="use_report" valueBoolean="true"/>
+            <column name="self_service_user_report" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-537-stretchy-param-provisioning-entry-id" author="codex">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'provisioningEntryId'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="provisioningEntryId"/>
+            <column name="parameter_variable" value="provisioningEntryId"/>
+            <column name="parameter_label" value="Provisioning Run Id"/>
+            <column name="parameter_displayType" value="text"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="0"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-537-stretchy-provisioning-by-category-by-run-params" author="codex">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                WHERE sr.report_name = 'Provisioning By Category (By Run)'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Provisioning By Category (By Run)')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'OfficeIdSelectOne')"/>
+            <column name="report_parameter_name" value="officeId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Provisioning By Category (By Run)')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'provisioningEntryId')"/>
+            <column name="report_parameter_name" value="provisioningEntryId"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-537-update-latest-provisioning-report-snapshot-labels" author="codex">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Provisioning By Category (Latest Run)'</sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE stretchy_report
+               SET report_sql = 'SELECT DATE(ph.created_date) AS provisioning_as_of_date,
+       ph.executed_at AS run_executed_at,
+       created_user.username AS run_by,
+       o.name AS office_name,
+       COALESCE(def.category_code, pc.category_code, ''-'') AS category_code,
+       COALESCE(def.category_name,
+                CASE WHEN e.classification_type = ''WRITTEN_OFF_PORTFOLIO'' THEN ''Written-Off Portfolio'' ELSE pc.category_name END,
+                e.classification_type) AS category_label,
+       pcv.version_no AS criteria_version_no,
+       pc.criteria_name,
+       e.currency_code,
+       SUM(e.reseve_amount) AS total_reserved_amount,
+       COUNT(*) AS line_count
+FROM m_provisioning_history ph
+JOIN m_loanproduct_provisioning_entry e ON e.history_id = ph.id
+JOIN m_office o ON o.id = e.office_id
+LEFT JOIN m_provisioning_criteria pc ON pc.id = e.criteria_id
+LEFT JOIN m_provisioning_criteria_version pcv ON pcv.id = e.criteria_version_id
+LEFT JOIN m_provisioning_criteria_definition def ON def.id = e.criteria_definition_id
+LEFT JOIN m_provision_category pc ON pc.id = e.category_id
+LEFT JOIN m_appuser created_user ON created_user.id = ph.createdby_id
+WHERE ph.id = (SELECT MAX(id) FROM m_provisioning_history)
+  AND o.id = ${officeId}
+GROUP BY provisioning_as_of_date, run_executed_at, run_by, office_name, category_code, category_label,
+         criteria_version_no, pc.criteria_name, e.currency_code
+ORDER BY office_name, category_code',
+                   description = 'Latest provisioning run: reserved amounts by category snapshot and criteria version (office scope).'
+             WHERE report_name = 'Provisioning By Category (Latest Run)';
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

@@ -131,6 +131,9 @@ public class LoanTransactionData {
     @Setter
     private LocalDateTime fxTimestamp;
 
+    @Setter
+    private String mfiCode;
+
     private Long loanId;
     private String loanExternalId;
     private transient String transactionType;
@@ -146,6 +149,12 @@ public class LoanTransactionData {
 
     @Setter
     private Boolean reversalTransaction;
+
+    // Reflects m_loan_transaction.is_reversed (a transaction reversed e.g. by undo-disbursal, which does
+    // not set manually_adjusted_or_reversed). Exposed so clients can distinguish a reversed transaction
+    // from a live one; without it a reversed disbursement is indistinguishable from the active one.
+    @Setter
+    private Boolean reversed;
 
     @Setter
     private LocalDate correctionDate;

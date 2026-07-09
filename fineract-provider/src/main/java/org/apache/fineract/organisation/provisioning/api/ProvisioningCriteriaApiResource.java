@@ -30,6 +30,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
@@ -52,6 +53,7 @@ import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSer
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.organisation.provisioning.constants.ProvisioningCriteriaConstants;
 import org.apache.fineract.organisation.provisioning.data.ProvisioningCriteriaData;
+import org.apache.fineract.organisation.provisioning.data.ProvisioningCriteriaVersionData;
 import org.apache.fineract.organisation.provisioning.service.ProvisioningCriteriaReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
@@ -69,19 +71,32 @@ public class ProvisioningCriteriaApiResource {
     private final ProvisioningCriteriaReadPlatformService provisioningCriteriaReadPlatformService;
     private final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService;
     private final DefaultToApiJsonSerializer<ProvisioningCriteriaData> toApiJsonSerializer;
+    private final DefaultToApiJsonSerializer<ProvisioningCriteriaVersionData> versionToApiJsonSerializer;
 
     private static final Set<String> PROVISIONING_CRITERIA_TEMPLATE_PARAMETER = new HashSet<>(
             Arrays.asList(ProvisioningCriteriaConstants.DEFINITIONS_PARAM, ProvisioningCriteriaConstants.LOANPRODUCTS_PARAM,
                     ProvisioningCriteriaConstants.CATEGORIES_PARAM, ProvisioningCriteriaConstants.GLACCOUNTS_PARAM,
                     ProvisioningCriteriaConstants.ACTIVE_VERSION_ID_PARAM, ProvisioningCriteriaConstants.VERSION_NO_PARAM,
-                    ProvisioningCriteriaConstants.EFFECTIVE_FROM_PARAM, ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM));
+                    ProvisioningCriteriaConstants.EFFECTIVE_FROM_PARAM, ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM,
+                    ProvisioningCriteriaConstants.EFFECTIVE_FOR_TODAY_VERSION_ID_PARAM,
+                    ProvisioningCriteriaConstants.EFFECTIVE_FOR_TODAY_VERSION_NO_PARAM,
+                    ProvisioningCriteriaConstants.EFFECTIVE_FOR_TODAY_FROM_PARAM,
+                    ProvisioningCriteriaConstants.VERSION_DISPLAY_STATUS_PARAM, "effectiveDefinitions"));
 
     private static final Set<String> PROVISIONING_CRITERIA_PARAMETERS = new HashSet<>(
             Arrays.asList(ProvisioningCriteriaConstants.CRITERIA_PARAM, ProvisioningCriteriaConstants.LOANPRODUCTS_PARAM,
                     ProvisioningCriteriaConstants.DEFINITIONS_PARAM, ProvisioningCriteriaConstants.CATEGORIES_PARAM,
                     ProvisioningCriteriaConstants.GLACCOUNTS_PARAM, ProvisioningCriteriaConstants.ACTIVE_VERSION_ID_PARAM,
                     ProvisioningCriteriaConstants.VERSION_NO_PARAM, ProvisioningCriteriaConstants.EFFECTIVE_FROM_PARAM,
-                    ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM));
+                    ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM,
+                    ProvisioningCriteriaConstants.EFFECTIVE_FOR_TODAY_VERSION_ID_PARAM,
+                    ProvisioningCriteriaConstants.EFFECTIVE_FOR_TODAY_VERSION_NO_PARAM,
+                    ProvisioningCriteriaConstants.EFFECTIVE_FOR_TODAY_FROM_PARAM,
+                    ProvisioningCriteriaConstants.VERSION_DISPLAY_STATUS_PARAM, "effectiveDefinitions"));
+
+    private static final Set<String> PROVISIONING_CRITERIA_VERSION_PARAMETERS = new HashSet<>(Arrays.asList("id", "criteriaId",
+            "criteriaName", "versionNo", "effectiveFrom", "retiredOn", "policyChangeReason", "createdBy", "createdDate", "definitions",
+            "previousVersion"));
 
     private static final Set<String> ALL_PROVISIONING_CRITERIA_PARAMETERS = new HashSet<>(
             Arrays.asList(ProvisioningCriteriaConstants.CRITERIA_ID_PARAM, ProvisioningCriteriaConstants.CRITERIA_NAME_PARAM,
@@ -92,12 +107,14 @@ public class ProvisioningCriteriaApiResource {
             final ApiRequestParameterHelper apiRequestParameterHelper,
             final ProvisioningCriteriaReadPlatformService provisioningCriteriaReadPlatformService,
             final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService,
-            final DefaultToApiJsonSerializer<ProvisioningCriteriaData> toApiJsonSerializer) {
+            final DefaultToApiJsonSerializer<ProvisioningCriteriaData> toApiJsonSerializer,
+            final DefaultToApiJsonSerializer<ProvisioningCriteriaVersionData> versionToApiJsonSerializer) {
         this.platformSecurityContext = platformSecurityContext;
         this.apiRequestParameterHelper = apiRequestParameterHelper;
         this.provisioningCriteriaReadPlatformService = provisioningCriteriaReadPlatformService;
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
         this.toApiJsonSerializer = toApiJsonSerializer;
+        this.versionToApiJsonSerializer = versionToApiJsonSerializer;
     }
 
     @GET
@@ -140,6 +157,32 @@ public class ProvisioningCriteriaApiResource {
         Collection<ProvisioningCriteriaData> data = this.provisioningCriteriaReadPlatformService.retrieveAllProvisioningCriterias();
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.toApiJsonSerializer.serialize(settings, data, ALL_PROVISIONING_CRITERIA_PARAMETERS);
+    }
+
+    @GET
+    @Path("{criteriaId}/versions")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Retrieves provisioning criteria version history")
+    public String retrieveAllCriteriaVersions(@PathParam("criteriaId") final Long criteriaId, @Context final UriInfo uriInfo) {
+        platformSecurityContext.authenticatedUser();
+        List<ProvisioningCriteriaVersionData> versions = this.provisioningCriteriaReadPlatformService.retrieveAllCriteriaVersions(criteriaId);
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.versionToApiJsonSerializer.serialize(settings, versions, PROVISIONING_CRITERIA_VERSION_PARAMETERS);
+    }
+
+    @GET
+    @Path("{criteriaId}/versions/{versionId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Retrieves a provisioning criteria version snapshot")
+    public String retrieveCriteriaVersion(@PathParam("criteriaId") final Long criteriaId, @PathParam("versionId") final Long versionId,
+            @Context final UriInfo uriInfo) {
+        platformSecurityContext.authenticatedUser();
+        ProvisioningCriteriaVersionData version = this.provisioningCriteriaReadPlatformService.retrieveCriteriaVersion(criteriaId,
+                versionId);
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.versionToApiJsonSerializer.serialize(settings, version, PROVISIONING_CRITERIA_VERSION_PARAMETERS);
     }
 
     @POST

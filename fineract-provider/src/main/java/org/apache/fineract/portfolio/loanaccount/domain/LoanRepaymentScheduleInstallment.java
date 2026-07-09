@@ -505,11 +505,13 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
         this.interestPaid = defaultToNullIfZero(this.interestPaid);
 
-        // Write off unearned interest (the difference between total outstanding and accrued)
-        final Money unearnedInterest = totalInterestOutstanding.minus(accruedInterestDue);
-        if (unearnedInterest.isGreaterThanZero()) {
-            this.interestWrittenOff = getInterestWrittenOff(currency).plus(unearnedInterest).getAmount();
-            this.interestWrittenOff = defaultToNullIfZero(this.interestWrittenOff);
+        // Write off unearned interest only when accrued interest has been fully settled
+        if (interestPortionOfTransaction.isGreaterThanOrEqualTo(accruedInterestDue)) {
+            final Money unearnedInterest = totalInterestOutstanding.minus(accruedInterestDue);
+            if (unearnedInterest.isGreaterThanZero()) {
+                this.interestWrittenOff = getInterestWrittenOff(currency).plus(unearnedInterest).getAmount();
+                this.interestWrittenOff = defaultToNullIfZero(this.interestWrittenOff);
+            }
         }
 
         checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
@@ -1152,7 +1154,8 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
             return Money.zero(currency);
         }
 
-        return accruedOutstanding;
+        final Money interestOutstanding = getInterestOutstanding(currency);
+        return accruedOutstanding.isGreaterThan(interestOutstanding) ? interestOutstanding : accruedOutstanding;
     }
 
     /**
