@@ -22,6 +22,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.stream.StreamSupport;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -199,9 +200,12 @@ public class AppUserWritePlatformServiceJpaRepositoryImpl implements AppUserWrit
             }
 
             if (changes.containsKey("roles")) {
-                final String[] roleIds = (String[]) changes.get("roles");
-                final Set<Role> allRoles = assembleSetOfRoles(roleIds);
-
+                JsonArray roleArray = command.arrayOfParameterNamed("roles");
+                String[] roleIds = StreamSupport.stream(roleArray.spliterator(), false)
+                        .map(JsonElement::getAsString)
+                        .distinct()
+                        .toArray(String[]::new);
+                Set<Role> allRoles = assembleSetOfRoles(roleIds);
                 userToUpdate.updateRoles(allRoles);
             }
 
