@@ -65,6 +65,12 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
             final LocalDate transactionDate, final Money paymentInAdvance,
             final List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {
 
+        // A waiver must never be treated as an advance principal prepayment; route it through the on-time handler
+        // (waives interest/charges only), mirroring handleTransactionThatIsALateRepaymentOfInstallment.
+        if (loanTransaction.isWaiver()) {
+            return handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment, loanTransaction, paymentInAdvance,
+                    transactionMappings);
+        }
         return handleAdvancePaymentWithAccruedInterest(currentInstallment, installments, loanTransaction,
                 transactionDate, paymentInAdvance, transactionMappings);
     }
@@ -177,7 +183,7 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
         } else if (loanTransaction.isInterestWaiver()) {
             interestPortion = currentInstallment.waiveInterestComponent(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
-            loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+            // Components are applied once by the trailing updateComponents call below; do not double-count here.
         } else if (loanTransaction.isChargePayment()) {
             if (loanTransaction.isPenaltyPayment()) {
                 penaltyChargesPortion = currentInstallment.payPenaltyChargesComponent(transactionDate, transactionAmountRemaining);
