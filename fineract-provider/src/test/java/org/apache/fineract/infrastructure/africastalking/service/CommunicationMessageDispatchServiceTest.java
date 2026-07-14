@@ -31,6 +31,9 @@ import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMes
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -48,6 +51,11 @@ class CommunicationMessageDispatchServiceTest {
 
     @InjectMocks
     private CommunicationMessageDispatchService dispatchService;
+
+    @BeforeEach
+    void setUp() {
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Asia/Kolkata", null));
+    }
 
     @Test
     void marksMessageSentWhenProviderReturnsSuccess() throws Exception {
