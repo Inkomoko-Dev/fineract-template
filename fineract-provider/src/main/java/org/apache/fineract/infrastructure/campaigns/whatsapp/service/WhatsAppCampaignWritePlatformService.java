@@ -39,4 +39,6 @@ public interface WhatsAppCampaignWritePlatformService {
     CommandProcessingResult reactivate(Long campaignId, String json);
 
     WhatsAppPreviewData preview(String json);
+
+    void storeTemplateMessageIntoWhatsAppOutboundTable() throws org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 }

@@ -27,8 +27,10 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -38,6 +40,8 @@ import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMes
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.data.WhatsAppPreviewData;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaign;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaignRepository;
@@ -46,10 +50,15 @@ import org.apache.fineract.infrastructure.campaigns.whatsapp.serialization.Whats
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
+import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
+import org.apache.fineract.infrastructure.jobs.service.JobName;
 import org.apache.fineract.infrastructure.dataqueries.data.GenericResultsetData;
 import org.apache.fineract.infrastructure.dataqueries.domain.Report;
 import org.apache.fineract.infrastructure.dataqueries.domain.ReportRepository;
@@ -283,6 +292,54 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
 
     private String buildPreviewMessage(final String atTemplateName, final String languageCode, final List<String> bodyValues) {
         return "Template: " + atTemplateName + " (" + languageCode + ") body=" + bodyValues;
+    }
+
+    @Override
+    @CronTarget(jobName = JobName.UPDATE_WHATSAPP_OUTBOUND_WITH_CAMPAIGN_MESSAGE)
+    public void storeTemplateMessageIntoWhatsAppOutboundTable() throws JobExecutionException {
+        final Collection<WhatsAppCampaign> campaigns = this.whatsAppCampaignRepository.findByTriggerTypeAndStatus(
+                WhatsAppCampaignTriggerType.SCHEDULE.getValue(), WhatsAppCampaignStatus.ACTIVE.getValue());
+        if (campaigns == null) {
+            return;
+        }
+        for (final WhatsAppCampaign campaign : campaigns) {
+            final LocalDateTime tenantDateNow = tenantDateTime();
+            final LocalDateTime nextTriggerDate = campaign.getNextTriggerDate();
+            if (nextTriggerDate == null) {
+                continue;
+            }
+            LOG.info("WhatsApp campaign schedule check tenant={} trigger={} job={}", tenantDateNow, nextTriggerDate,
+                    JobName.UPDATE_WHATSAPP_OUTBOUND_WITH_CAMPAIGN_MESSAGE.name());
+            if (nextTriggerDate.isBefore(tenantDateNow)) {
+                insertDirectCampaignIntoOutboundTable(campaign);
+                updateTriggerDates(campaign.getId());
+            }
+        }
+    }
+
+    private void updateTriggerDates(final Long campaignId) {
+        final WhatsAppCampaign campaign = this.whatsAppCampaignRepository.findById(campaignId)
+                .orElseThrow(() -> new WhatsAppCampaignNotFoundException(campaignId));
+        final LocalDateTime previousNext = campaign.getNextTriggerDate();
+        campaign.setLastTriggerDate(previousNext);
+        LocalDateTime nextRuntime = CalendarUtils.getNextRecurringDate(campaign.getRecurrence(), campaign.getNextTriggerDate(),
+                previousNext);
+        if (nextRuntime.isBefore(DateUtils.getLocalDateTimeOfTenant())) {
+            nextRuntime = CalendarUtils.getNextRecurringDate(campaign.getRecurrence(), campaign.getNextTriggerDate(),
+                    DateUtils.getLocalDateTimeOfTenant());
+        }
+        campaign.setNextTriggerDate(nextRuntime);
+        this.whatsAppCampaignRepository.saveAndFlush(campaign);
+    }
+
+    private LocalDateTime tenantDateTime() {
+        LocalDateTime today = LocalDateTime.now(DateUtils.getDateTimeZoneOfTenant());
+        final FineractPlatformTenant tenant = ThreadLocalContextUtil.getTenant();
+        if (tenant != null) {
+            final ZoneId zone = ZoneId.of(tenant.getTimezoneId());
+            today = LocalDateTime.now(zone);
+        }
+        return today;
     }
 
     void insertDirectCampaignIntoOutboundTable(final WhatsAppCampaign campaign) {
