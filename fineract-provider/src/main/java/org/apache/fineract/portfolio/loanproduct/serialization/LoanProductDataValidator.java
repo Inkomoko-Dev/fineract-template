@@ -45,6 +45,7 @@ import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.FinancingPartnerCode;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestRecalculationCompoundingMethod;
@@ -119,7 +120,7 @@ public final class LoanProductDataValidator {
             LoanProductConstants.isBnplLoanProductParamName, LoanProductConstants.requiresEquityContributionParamName,
             LoanProductConstants.equityContributionLoanPercentageParamName, LoanProductConstants.LOAN_PRODUCT_CATEGORY,
             LoanProductConstants.LOAN_PRODUCT_TYPE, LoanProductConstants.maintainInterestOnLoanTermExtensionParamName,
-            LoanProductConstants.IS_ISLAMIC, LoanProductConstants.allowableDSCR));
+            LoanProductConstants.IS_ISLAMIC, LoanProductConstants.FINANCING_PARTNER_CODE, LoanProductConstants.allowableDSCR));
 
     private static final String[] supportedloanConfigurableAttributes = { LoanProductConstants.amortizationTypeParamName,
             LoanProductConstants.interestTypeParamName, LoanProductConstants.transactionProcessingStrategyIdParamName,
@@ -711,6 +712,13 @@ public final class LoanProductDataValidator {
         }
         final Boolean isIslamic = this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.IS_ISLAMIC, element);
         baseDataValidator.reset().parameter(LoanProductConstants.IS_ISLAMIC).value(isIslamic).ignoreIfNull().validateForBooleanValue();
+
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.FINANCING_PARTNER_CODE, element)) {
+            final String financingPartnerCode = this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.FINANCING_PARTNER_CODE,
+                    element);
+            baseDataValidator.reset().parameter(LoanProductConstants.FINANCING_PARTNER_CODE).value(financingPartnerCode).ignoreIfNull()
+                    .notExceedingLengthOf(FinancingPartnerCode.MAX_LENGTH);
+        }
 
         validateBnplValues(baseDataValidator, isBnplLoanProduct, requiresEquityContribution, equityContributionLoanPercentage);
 
@@ -1617,6 +1625,12 @@ public final class LoanProductDataValidator {
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.IS_ISLAMIC, element)) {
             final Boolean isIslamic = this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.IS_ISLAMIC, element);
             baseDataValidator.reset().parameter(LoanProductConstants.IS_ISLAMIC).value(isIslamic).ignoreIfNull().validateForBooleanValue();
+        }
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.FINANCING_PARTNER_CODE, element)) {
+            final String financingPartnerCode = this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.FINANCING_PARTNER_CODE,
+                    element);
+            baseDataValidator.reset().parameter(LoanProductConstants.FINANCING_PARTNER_CODE).value(financingPartnerCode).ignoreIfNull()
+                    .notExceedingLengthOf(FinancingPartnerCode.MAX_LENGTH);
         }
         // set with persisted value if not coming from API call
         isBnplLoanProduct = isBnplLoanProduct == null ? loanProduct.getBnplLoanProduct() : isBnplLoanProduct;

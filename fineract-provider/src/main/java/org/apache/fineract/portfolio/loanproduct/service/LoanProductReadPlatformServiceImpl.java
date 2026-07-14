@@ -243,7 +243,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.is_bnpl_loan_product as isBnplLoanProduct, " + "lp.requires_equity_contribution as requiresEquityContribution, "
                     + "lp.equity_contribution_loan_percentage as equityContributionLoanPercentage, "
                     + "lp.is_account_level_arrears_tolerance_enable as isAccountLevelArrearsToleranceEnable, "
-                    + " lp.is_islamic as isIslamic, lp.allowable_dscr as allowableDSCR " + " from m_product_loan lp "
+                    + " lp.is_islamic as isIslamic, lp.financing_partner_code as financingPartnerCode, lp.allowable_dscr as allowableDSCR "
+                    + " from m_product_loan lp "
                     + " left join m_fund f on f.id = lp.fund_id "
                     + " left join m_product_loan_recalculation_details lpr on lpr.product_id=lp.id "
                     + " left join m_product_loan_guarantee_details lpg on lpg.loan_product_id=lp.id "
@@ -310,6 +311,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
 
             final boolean isLinkedToFloatingInterestRates = rs.getBoolean("isLinkedToFloatingInterestRates");
             final Boolean isIslamic = rs.getBoolean("isIslamic");
+            final String financingPartnerCode = rs.getString("financingPartnerCode");
             final boolean loanTermIncludesToppedUpLoanTerm = rs.getBoolean("loanTermIncludesToppedUpLoanTerm");
             final Integer floatingRateId = JdbcSupport.getIntegerDefaultToNullIfZero(rs, "floatingRateId");
             final String floatingRateName = rs.getString("floatingRateName");
@@ -509,6 +511,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             loanProductData.setBnplLoanProduct(isBnplLoanProduct);
             loanProductData.setRequiresEquityContribution(requiresEquityContribution);
             loanProductData.setEquityContributionLoanPercentage(equityContributionLoanPercentage);
+            loanProductData.setFinancingPartnerCode(financingPartnerCode);
             return loanProductData;
         }
     }

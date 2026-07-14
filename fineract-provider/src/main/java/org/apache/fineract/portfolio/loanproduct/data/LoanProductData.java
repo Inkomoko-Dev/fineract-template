@@ -224,6 +224,8 @@ public class LoanProductData implements Serializable {
     private Boolean maintainInterestOnLoanTermExtension;
     private Boolean isIslamic;
     private BigDecimal allowableDSCR;
+    private String financingPartnerCode;
+    private Collection<String> financingPartnerCodeOptions;
 
     /**
      * Used when returning lookup information about loan product for dropdowns.
@@ -1009,6 +1011,8 @@ public class LoanProductData implements Serializable {
         this.isAccountLevelArrearsToleranceEnable = productData.isAccountLevelArrearsToleranceEnable;
         this.isIslamic = productData.isIslamic;
         this.allowableDSCR = productData.allowableDSCR;
+        this.financingPartnerCode = productData.financingPartnerCode;
+        this.financingPartnerCodeOptions = productData.financingPartnerCodeOptions;
     }
 
     private Collection<ChargeData> nullIfEmpty(final Collection<ChargeData> charges) {
@@ -1495,6 +1499,22 @@ public class LoanProductData implements Serializable {
 
     public Long getProductCategoryId() {
         return productCategoryId;
+    }
+
+    public String getFinancingPartnerCode() {
+        return financingPartnerCode;
+    }
+
+    public void setFinancingPartnerCode(final String financingPartnerCode) {
+        this.financingPartnerCode = financingPartnerCode;
+    }
+
+    public Collection<String> getFinancingPartnerCodeOptions() {
+        return financingPartnerCodeOptions;
+    }
+
+    public void setFinancingPartnerCodeOptions(final Collection<String> financingPartnerCodeOptions) {
+        this.financingPartnerCodeOptions = financingPartnerCodeOptions;
     }
 
     public Collection<PaymentTypeToGLAccountMapper> getPaymentChannelToFundSourceMappings() {
