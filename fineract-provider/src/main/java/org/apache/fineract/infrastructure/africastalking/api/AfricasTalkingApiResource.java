@@ -24,6 +24,7 @@ import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
+import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
@@ -117,6 +118,16 @@ public class AfricasTalkingApiResource {
         return this.messageSerializer.serialize(settings, this.communicationMessageReadPlatformService.retrieveWhatsAppMessages());
     }
 
+    @GET
+    @Path("messages/{messageId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveMessage(@PathParam("messageId") final Long messageId, @Context final UriInfo uriInfo) {
+        this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.messageSerializer.serialize(settings, this.communicationMessageReadPlatformService.retrieveOne(messageId));
+    }
+
     @POST
     @Path("messages")
     @Consumes({ MediaType.APPLICATION_JSON })
@@ -124,7 +135,7 @@ public class AfricasTalkingApiResource {
     public String sendMessage(final String apiRequestBodyAsJson) {
         this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
         final CommandProcessingResult result = this.whatsAppService.queueOutboundMessage(apiRequestBodyAsJson);
-        return this.commandProcessingResultSerializer.serialize(result);
+        return this.commandProcessingResultSerializer.serializeResult(result);
     }
 
     @POST
@@ -134,7 +145,7 @@ public class AfricasTalkingApiResource {
     public String initiateVoiceCall(final String apiRequestBodyAsJson) {
         this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
         final CommandProcessingResult result = this.voiceService.initiateOutboundCall(apiRequestBodyAsJson);
-        return this.commandProcessingResultSerializer.serialize(result);
+        return this.commandProcessingResultSerializer.serializeResult(result);
     }
 
     @GET
@@ -145,6 +156,16 @@ public class AfricasTalkingApiResource {
         this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveCallLogs());
+    }
+
+    @GET
+    @Path("voice/calls/{callId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveVoiceCall(@PathParam("callId") final Long callId, @Context final UriInfo uriInfo) {
+        this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveOne(callId));
     }
 
     @POST

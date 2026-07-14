@@ -56,8 +56,15 @@ public class VoiceCallLogData {
         this.createdDate = createdDate;
     }
 
+    public static VoiceCallLogData instance(final Long id, final String externalSessionId, final CommunicationDirection direction,
+            final String callerNumber, final String destinationNumber, final Long clientId, final Long staffId, final String status,
+            final Integer durationSeconds, final String recordingUrl, final String dtmfDigits, final LocalDateTime createdDate) {
+        return new VoiceCallLogData(id, externalSessionId, direction, callerNumber, destinationNumber, clientId, staffId, status,
+                durationSeconds, recordingUrl, dtmfDigits, createdDate);
+    }
+
     public static VoiceCallLogData fromEntity(final VoiceCallLog callLog) {
-        return new VoiceCallLogData(callLog.getId(), callLog.getExternalSessionId(), callLog.getDirection(), callLog.getCallerNumber(),
+        return instance(callLog.getId(), callLog.getExternalSessionId(), callLog.getDirection(), callLog.getCallerNumber(),
                 callLog.getDestinationNumber(), callLog.getClient() != null ? callLog.getClient().getId() : null,
                 callLog.getStaff() != null ? callLog.getStaff().getId() : null, callLog.getStatus(), callLog.getDurationSeconds(),
                 callLog.getRecordingUrl(), callLog.getDtmfDigits(), callLog.getCreatedDate());

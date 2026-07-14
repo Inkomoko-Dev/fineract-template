@@ -66,9 +66,17 @@ public class CommunicationMessageData {
         this.readDate = readDate;
     }
 
+    public static CommunicationMessageData instance(final Long id, final String externalId, final CommunicationChannel channel,
+            final CommunicationDirection direction, final RecipientType recipientType, final Long clientId, final Long staffId,
+            final String phoneNumber, final String messageBody, final String templateName, final CommunicationMessageStatus status,
+            final String statusDetail, final LocalDateTime createdDate, final LocalDateTime deliveredDate, final LocalDateTime readDate) {
+        return new CommunicationMessageData(id, externalId, channel, direction, recipientType, clientId, staffId, phoneNumber, messageBody,
+                templateName, status, statusDetail, createdDate, deliveredDate, readDate);
+    }
+
     public static CommunicationMessageData fromEntity(final CommunicationMessage message) {
-        return new CommunicationMessageData(message.getId(), message.getExternalId(), message.getChannel(), message.getDirection(),
-                message.getRecipientType(), message.getClient() != null ? message.getClient().getId() : null,
+        return instance(message.getId(), message.getExternalId(), message.getChannel(), message.getDirection(), message.getRecipientType(),
+                message.getClient() != null ? message.getClient().getId() : null,
                 message.getStaff() != null ? message.getStaff().getId() : null, message.getPhoneNumber(), message.getMessageBody(),
                 message.getTemplateName(), message.getStatus(), message.getStatusDetail(), message.getCreatedDate(),
                 message.getDeliveredDate(), message.getReadDate());

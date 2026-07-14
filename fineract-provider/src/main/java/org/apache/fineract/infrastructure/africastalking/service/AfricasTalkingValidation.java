@@ -16,26 +16,19 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.organisation.staff.domain;
-
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
+package org.apache.fineract.infrastructure.africastalking.service;
 
 import java.util.List;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 
-public interface StaffRepository extends JpaRepository<Staff, Long>, JpaSpecificationExecutor<Staff> {
+final class AfricasTalkingValidation {
 
-    String FIND_BY_OFFICE_QUERY = "select s from Staff s where s.id = :id AND s.office.id = :officeId";
+    private AfricasTalkingValidation() {}
 
-    /**
-     * Find staff by officeid.
-     */
-    @Query(FIND_BY_OFFICE_QUERY)
-    Staff findByOffice(@Param("id") Long id, @Param("officeId") Long officeId);
-
-    @Query("select s from Staff s where s.mobileNo in :mobileNumbers")
-    List<Staff> findByMobileNumbers(@Param("mobileNumbers") List<String> mobileNumbers);
-
+    static PlatformApiDataValidationException parameterError(final String globalisationMessageCode, final String defaultUserMessage,
+            final String parameterName) {
+        return new PlatformApiDataValidationException(globalisationMessageCode, defaultUserMessage,
+                List.of(ApiParameterError.parameterError(globalisationMessageCode, defaultUserMessage, parameterName)));
+    }
 }

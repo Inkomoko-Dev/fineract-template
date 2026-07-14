@@ -21,7 +21,6 @@ package org.apache.fineract.infrastructure.africastalking.service;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.google.gson.JsonPrimitive;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -31,10 +30,8 @@ import org.apache.fineract.infrastructure.africastalking.domain.CommunicationCha
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
-import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientData;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
-import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.staff.domain.Staff;
@@ -76,12 +73,20 @@ public class AfricasTalkingWhatsAppService {
         }
         if (element.has("sendImmediately") && element.get("sendImmediately").getAsBoolean()) {
             message.setIdempotencyKey(UUID.randomUUID().toString());
-            communicationMessageRepository.save(message);
-            communicationMessageDispatchService.dispatchMessage(message);
-            return CommandProcessingResult.resourceResult(message.getId());
+            final CommunicationMessage saved = communicationMessageRepository.saveAndFlush(message);
+            communicationMessageDispatchService.dispatchMessage(saved);
+            return CommandProcessingResult.resourceResult(requirePersistedId(saved), null);
         }
-        communicationMessageRepository.save(message);
-        return CommandProcessingResult.resourceResult(message.getId());
+        final CommunicationMessage saved = communicationMessageRepository.saveAndFlush(message);
+        return CommandProcessingResult.resourceResult(requirePersistedId(saved), null);
+    }
+
+    private static Long requirePersistedId(final CommunicationMessage message) {
+        final Long id = message.getId();
+        if (id == null) {
+            throw new IllegalStateException("Communication message was not assigned a database id after save");
+        }
+        return id;
     }
 
     @Transactional
@@ -148,7 +153,7 @@ public class AfricasTalkingWhatsAppService {
         if (element.has("clientId") && !element.get("clientId").isJsonNull()) {
             final Client client = clientRepositoryWrapper.findOneWithNotFoundDetection(element.get("clientId").getAsLong());
             if (StringUtils.isBlank(client.mobileNo())) {
-                throw new PlatformApiDataValidationException("validation.msg.communication.client.mobile.missing",
+                throw AfricasTalkingValidation.parameterError("validation.msg.communication.client.mobile.missing",
                         "Client does not have a mobile number", "clientId");
             }
             return phoneNumberNormalizer.normalize(client.mobileNo());
@@ -156,18 +161,18 @@ public class AfricasTalkingWhatsAppService {
         if (element.has("staffId") && !element.get("staffId").isJsonNull()) {
             final Staff staff = staffRepositoryWrapper.findOneWithNotFoundDetection(element.get("staffId").getAsLong());
             if (StringUtils.isBlank(staff.mobileNo())) {
-                throw new PlatformApiDataValidationException("validation.msg.communication.staff.mobile.missing",
+                throw AfricasTalkingValidation.parameterError("validation.msg.communication.staff.mobile.missing",
                         "Staff does not have a mobile number", "staffId");
             }
             return phoneNumberNormalizer.normalize(staff.mobileNo());
         }
-        throw new PlatformApiDataValidationException("validation.msg.communication.recipient.missing",
+        throw AfricasTalkingValidation.parameterError("validation.msg.communication.recipient.missing",
                 "Provide phoneNumber, clientId, or staffId", "phoneNumber");
     }
 
     private String extractRequiredString(final JsonObject element, final String parameterName) {
         if (!this.fromJsonHelper.parameterExists(parameterName, element)) {
-            throw new PlatformApiDataValidationException("validation.msg.communication.parameter.missing", "Required parameter missing",
+            throw AfricasTalkingValidation.parameterError("validation.msg.communication.parameter.missing", "Required parameter missing",
                     parameterName);
         }
         return element.get(parameterName).getAsString();
@@ -175,11 +180,11 @@ public class AfricasTalkingWhatsAppService {
 
     private void validateOutboundRequest(final String json) {
         if (StringUtils.isBlank(json)) {
-            throw new PlatformApiDataValidationException("validation.msg.communication.json.invalid", "Request body is required", "json");
+            throw AfricasTalkingValidation.parameterError("validation.msg.communication.json.invalid", "Request body is required", "json");
         }
         final JsonElement parsed = JsonParser.parseString(json);
         if (!parsed.isJsonObject()) {
-            throw new PlatformApiDataValidationException("validation.msg.communication.json.invalid", "Request body must be a JSON object",
+            throw AfricasTalkingValidation.parameterError("validation.msg.communication.json.invalid", "Request body must be a JSON object",
                     "json");
         }
     }

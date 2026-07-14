@@ -36,7 +36,6 @@ import org.apache.fineract.infrastructure.africastalking.domain.CommunicationDir
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLog;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLogRepository;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
-import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -133,7 +132,7 @@ public class AfricasTalkingVoiceService {
         final String clientRequestId = UUID.randomUUID().toString();
         final VoiceCallLog callLog = VoiceCallLog.outbound(clientRequestId, properties.getVoice().getCallerId(), phoneNumber, client,
                 staff);
-        voiceCallLogRepository.save(callLog);
+        voiceCallLogRepository.saveAndFlush(callLog);
         try {
             final AfricasTalkingClient.AfricasTalkingApiResponse response = africasTalkingClient.initiateVoiceCall(phoneNumber,
                     clientRequestId);
@@ -144,13 +143,21 @@ public class AfricasTalkingVoiceService {
                 callLog.setStatus(AfricasTalkingConstants.CALL_STATUS_FAILED);
             }
             voiceCallLogRepository.save(callLog);
-            return CommandProcessingResult.resourceResult(callLog.getId());
+            return CommandProcessingResult.resourceResult(requirePersistedId(callLog), null);
         } catch (IOException e) {
             callLog.setStatus(AfricasTalkingConstants.CALL_STATUS_FAILED);
             voiceCallLogRepository.save(callLog);
-            throw new PlatformApiDataValidationException("error.msg.africastalking.voice.call.failed",
+            throw AfricasTalkingValidation.parameterError("error.msg.africastalking.voice.call.failed",
                     "Failed to initiate AfricasTalking voice call", "phoneNumber");
         }
+    }
+
+    private static Long requirePersistedId(final VoiceCallLog callLog) {
+        final Long id = callLog.getId();
+        if (id == null) {
+            throw new IllegalStateException("Voice call log was not assigned a database id after save");
+        }
+        return id;
     }
 
     private String routeDtmfSelection(final String dtmfDigits) {
@@ -226,11 +233,11 @@ public class AfricasTalkingVoiceService {
 
     private void validateOutboundRequest(final String json) {
         if (StringUtils.isBlank(json)) {
-            throw new PlatformApiDataValidationException("validation.msg.africastalking.voice.invalid",
+            throw AfricasTalkingValidation.parameterError("validation.msg.africastalking.voice.invalid",
                     "Voice call request body is required", "json");
         }
         if (!JsonParser.parseString(json).isJsonObject()) {
-            throw new PlatformApiDataValidationException("validation.msg.africastalking.voice.invalid",
+            throw AfricasTalkingValidation.parameterError("validation.msg.africastalking.voice.invalid",
                     "Voice call request body must be a JSON object", "json");
         }
     }
@@ -242,7 +249,7 @@ public class AfricasTalkingVoiceService {
         if (element.has("clientId") && !element.get("clientId").isJsonNull()) {
             final Client client = clientRepositoryWrapper.findOneWithNotFoundDetection(element.get("clientId").getAsLong());
             if (StringUtils.isBlank(client.mobileNo())) {
-                throw new PlatformApiDataValidationException("validation.msg.africastalking.voice.client.phone.missing",
+                throw AfricasTalkingValidation.parameterError("validation.msg.africastalking.voice.client.phone.missing",
                         "Client does not have a mobile number configured", "clientId");
             }
             return normalizePhone(client.mobileNo());
@@ -250,12 +257,12 @@ public class AfricasTalkingVoiceService {
         if (element.has("staffId") && !element.get("staffId").isJsonNull()) {
             final Staff staff = staffRepositoryWrapper.findOneWithNotFoundDetection(element.get("staffId").getAsLong());
             if (StringUtils.isBlank(staff.mobileNo())) {
-                throw new PlatformApiDataValidationException("validation.msg.africastalking.voice.staff.phone.missing",
+                throw AfricasTalkingValidation.parameterError("validation.msg.africastalking.voice.staff.phone.missing",
                         "Staff member does not have a mobile number configured", "staffId");
             }
             return normalizePhone(staff.mobileNo());
         }
-        throw new PlatformApiDataValidationException("validation.msg.africastalking.voice.phone.required",
+        throw AfricasTalkingValidation.parameterError("validation.msg.africastalking.voice.phone.required",
                 "phoneNumber, clientId, or staffId is required", "phoneNumber");
     }
 
