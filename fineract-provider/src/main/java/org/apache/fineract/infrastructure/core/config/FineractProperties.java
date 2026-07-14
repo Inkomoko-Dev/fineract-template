@@ -41,6 +41,8 @@ public class FineractProperties {
 
     private FineractTemplateProperties template;
 
+    private FineractSmsProperties sms;
+
     @Getter
     @Setter
     public static class FineractTenantProperties {
@@ -115,5 +117,17 @@ public class FineractProperties {
 
         private boolean regexWhitelistEnabled;
         private List<String> regexWhitelist;
+    }
+
+    /**
+     * QA environments that load masked production data should set
+     * FINERACT_SMS_WHITELIST_ENABLED=true so SMS is only sent to numbers in
+     * the MESSAGE_GATEWAY sms_whitelist external service property.
+     */
+    @Getter
+    @Setter
+    public static class FineractSmsProperties {
+
+        private boolean whitelistEnabled;
     }
 }

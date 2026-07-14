@@ -29,9 +29,16 @@ public class MessageGatewayConfigurationData {
     private final String password;
     private final boolean sslEnabled;
     private final String tenantAppKey;
+    private final String smsWhitelist;
 
     public MessageGatewayConfigurationData(final Long id, final String connectionName, final String hostName, final int portNumber,
             final String endPoint, final String userName, final String password, final boolean sslEnabled, final String tenantAppKey) {
+        this(id, connectionName, hostName, portNumber, endPoint, userName, password, sslEnabled, tenantAppKey, null);
+    }
+
+    public MessageGatewayConfigurationData(final Long id, final String connectionName, final String hostName, final int portNumber,
+            final String endPoint, final String userName, final String password, final boolean sslEnabled, final String tenantAppKey,
+            final String smsWhitelist) {
         this.id = id;
         this.connectionName = connectionName;
         this.hostName = hostName;
@@ -41,6 +48,7 @@ public class MessageGatewayConfigurationData {
         this.password = password;
         this.sslEnabled = sslEnabled;
         this.tenantAppKey = tenantAppKey;
+        this.smsWhitelist = smsWhitelist;
     }
 
     public Long getId() {
@@ -77,5 +85,9 @@ public class MessageGatewayConfigurationData {
 
     public String getTenantAppKey() {
         return this.tenantAppKey;
+    }
+
+    public String getSmsWhitelist() {
+        return this.smsWhitelist;
     }
 }
