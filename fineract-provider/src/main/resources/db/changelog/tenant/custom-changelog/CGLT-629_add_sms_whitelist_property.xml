@@ -42,4 +42,23 @@
         </sql>
     </changeSet>
 
+    <changeSet id="2026-07-14-cglt-629-add-sms-whitelist-enabled-property" author="CGLT-629">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1)
+                FROM c_external_service_properties esp
+                         INNER JOIN c_external_service es ON esp.external_service_id = es.id
+                WHERE es.name = 'MESSAGE_GATEWAY'
+                  AND esp.name = 'sms_whitelist_enabled'
+            </sqlCheck>
+        </preConditions>
+        <comment>Seed SMS whitelist toggle under MESSAGE_GATEWAY; enabled by default for QA safety</comment>
+        <sql>
+            INSERT INTO c_external_service_properties (name, value, external_service_id)
+            SELECT 'sms_whitelist_enabled', 'true', es.id
+            FROM c_external_service es
+            WHERE es.name = 'MESSAGE_GATEWAY'
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>

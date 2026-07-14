@@ -30,15 +30,22 @@ public class MessageGatewayConfigurationData {
     private final boolean sslEnabled;
     private final String tenantAppKey;
     private final String smsWhitelist;
+    private final boolean smsWhitelistEnabled;
 
     public MessageGatewayConfigurationData(final Long id, final String connectionName, final String hostName, final int portNumber,
             final String endPoint, final String userName, final String password, final boolean sslEnabled, final String tenantAppKey) {
-        this(id, connectionName, hostName, portNumber, endPoint, userName, password, sslEnabled, tenantAppKey, null);
+        this(id, connectionName, hostName, portNumber, endPoint, userName, password, sslEnabled, tenantAppKey, null, false);
     }
 
     public MessageGatewayConfigurationData(final Long id, final String connectionName, final String hostName, final int portNumber,
             final String endPoint, final String userName, final String password, final boolean sslEnabled, final String tenantAppKey,
             final String smsWhitelist) {
+        this(id, connectionName, hostName, portNumber, endPoint, userName, password, sslEnabled, tenantAppKey, smsWhitelist, false);
+    }
+
+    public MessageGatewayConfigurationData(final Long id, final String connectionName, final String hostName, final int portNumber,
+            final String endPoint, final String userName, final String password, final boolean sslEnabled, final String tenantAppKey,
+            final String smsWhitelist, final boolean smsWhitelistEnabled) {
         this.id = id;
         this.connectionName = connectionName;
         this.hostName = hostName;
@@ -49,6 +56,7 @@ public class MessageGatewayConfigurationData {
         this.sslEnabled = sslEnabled;
         this.tenantAppKey = tenantAppKey;
         this.smsWhitelist = smsWhitelist;
+        this.smsWhitelistEnabled = smsWhitelistEnabled;
     }
 
     public Long getId() {
@@ -89,5 +97,9 @@ public class MessageGatewayConfigurationData {
 
     public String getSmsWhitelist() {
         return this.smsWhitelist;
+    }
+
+    public boolean isSmsWhitelistEnabled() {
+        return this.smsWhitelistEnabled;
     }
 }

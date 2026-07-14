@@ -20,14 +20,12 @@ package org.apache.fineract.infrastructure.configuration.service;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.Collection;
 import org.apache.fineract.infrastructure.campaigns.sms.data.MessageGatewayConfigurationData;
 import org.apache.fineract.infrastructure.configuration.data.ExternalServicesPropertiesData;
 import org.apache.fineract.infrastructure.configuration.data.S3CredentialsData;
 import org.apache.fineract.infrastructure.configuration.data.SMTPCredentialsData;
 import org.apache.fineract.infrastructure.configuration.exception.ExternalServiceConfigurationNotFoundException;
-import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.gcm.domain.NotificationConfigurationData;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
@@ -39,16 +37,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class ExternalServicesPropertiesReadPlatformServiceImpl implements ExternalServicesPropertiesReadPlatformService {
 
-    public static final String SMS_WHITELIST_ENFORCED_PROPERTY = "sms_whitelist_enforced";
-
     private final JdbcTemplate jdbcTemplate;
-    private final FineractProperties fineractProperties;
 
     @Autowired
-    public ExternalServicesPropertiesReadPlatformServiceImpl(final JdbcTemplate jdbcTemplate,
-            final FineractProperties fineractProperties) {
+    public ExternalServicesPropertiesReadPlatformServiceImpl(final JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
-        this.fineractProperties = fineractProperties;
     }
 
     private static final class S3CredentialsDataExtractor implements ResultSetExtractor<S3CredentialsData> {
@@ -132,6 +125,7 @@ public class ExternalServicesPropertiesReadPlatformServiceImpl implements Extern
             String endPoint = null;
             String tenantAppKey = null;
             String smsWhitelist = null;
+            boolean smsWhitelistEnabled = false;
 
             while (rs.next()) {
                 if (rs.getString("name").equalsIgnoreCase(ExternalServicesConstants.SMS_HOST)) {
@@ -144,9 +138,12 @@ public class ExternalServicesPropertiesReadPlatformServiceImpl implements Extern
                     tenantAppKey = rs.getString("value");
                 } else if (rs.getString("name").equalsIgnoreCase(ExternalServicesConstants.SMS_WHITELIST)) {
                     smsWhitelist = rs.getString("value");
+                } else if (rs.getString("name").equalsIgnoreCase(ExternalServicesConstants.SMS_WHITELIST_ENABLED)) {
+                    smsWhitelistEnabled = Boolean.parseBoolean(rs.getString("value"));
                 }
             }
-            return new MessageGatewayConfigurationData(null, null, host, port, endPoint, null, null, false, tenantAppKey, smsWhitelist);
+            return new MessageGatewayConfigurationData(null, null, host, port, endPoint, null, null, false, tenantAppKey, smsWhitelist,
+                    smsWhitelistEnabled);
         }
     }
 
@@ -205,11 +202,7 @@ public class ExternalServicesPropertiesReadPlatformServiceImpl implements Extern
         final ExternalServiceMapper mapper = new ExternalServiceMapper();
         final String sql = "SELECT esp.name, esp.value FROM c_external_service_properties esp inner join c_external_service es on esp.external_service_id = es.id where es.name = '"
                 + serviceNameToUse + "'";
-        final Collection<ExternalServicesPropertiesData> properties = new ArrayList<>(this.jdbcTemplate.query(sql, mapper)); // NOSONAR
-        if ("SMS".equals(serviceName) && fineractProperties.getSms() != null && fineractProperties.getSms().isWhitelistEnabled()) {
-            properties.add(new ExternalServicesPropertiesData(SMS_WHITELIST_ENFORCED_PROPERTY, "true"));
-        }
-        return properties;
+        return this.jdbcTemplate.query(sql, mapper); // NOSONAR
 
     }
 
