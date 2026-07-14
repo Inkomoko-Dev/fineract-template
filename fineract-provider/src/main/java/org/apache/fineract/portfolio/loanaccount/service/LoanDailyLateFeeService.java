@@ -256,6 +256,36 @@ public class LoanDailyLateFeeService {
         return value == null ? BigDecimal.ZERO : value;
     }
 
+    /**
+     * Life-to-date penalties charged on the loan. The cap must be enforced against every active penalty charge —
+     * including legacy overdue charges and manually added penalties that have no m_loan_daily_late_fee metadata — so
+     * the loan's visible penalty total can never exceed the cap.
+     */
+    private BigDecimal calculateTotalActivePenaltyChargesCharged(final Loan loan) {
+        BigDecimal totalPenaltyCharges = BigDecimal.ZERO;
+        for (LoanCharge loanCharge : loan.charges()) {
+            if (loanCharge.isPenaltyCharge() && loanCharge.isActive()) {
+                totalPenaltyCharges = totalPenaltyCharges.add(defaultToZero(loanCharge.amount()));
+            }
+        }
+        return totalPenaltyCharges;
+    }
+
+    /**
+     * Guards manual penalty charge additions: the loan's life-to-date penalty charges plus the new charge must not
+     * exceed the disbursed-principal cap.
+     */
+    public void validatePenaltyChargeAgainstCap(final Loan loan, final BigDecimal penaltyChargeAmount) {
+        final BigDecimal capAmount = calculateDailyLateFeeCap(loan);
+        final BigDecimal totalPenaltiesAfterCharge = calculateTotalActivePenaltyChargesCharged(loan)
+                .add(defaultToZero(penaltyChargeAmount));
+        if (totalPenaltiesAfterCharge.compareTo(capAmount) > 0) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.charge.penalty.cap.exceeded",
+                    "Total penalty charges on the loan cannot exceed the principal disbursed.", loan.getId(),
+                    totalPenaltiesAfterCharge, capAmount);
+        }
+    }
+
     private BigDecimal calculateDailyLateFeeCap(final Loan loan) {
         BigDecimal disbursedPrincipal = loan.getDisbursedAmount();
         if (disbursedPrincipal == null || disbursedPrincipal.compareTo(BigDecimal.ZERO) <= 0) {
@@ -536,9 +566,7 @@ public class LoanDailyLateFeeService {
         }
 
         final BigDecimal capAmount = calculateDailyLateFeeCap(loan);
-        BigDecimal cumulativePenaltyAmount = rebuildFromDate == null
-                ? defaultToZero(this.loanDailyLateFeeRepository.sumActivePenaltyAmount(loanId))
-                : defaultToZero(this.loanDailyLateFeeRepository.sumActivePenaltyAmountBeforeDate(loanId, generationStartDate));
+        BigDecimal cumulativePenaltyAmount = calculateTotalActivePenaltyChargesCharged(loan);
 
         if (cumulativePenaltyAmount.compareTo(capAmount) >= 0) {
             finalizeDailyLateFeeChanges(loan, existingTransactionIds, existingReversedTransactionIds, processingState);
