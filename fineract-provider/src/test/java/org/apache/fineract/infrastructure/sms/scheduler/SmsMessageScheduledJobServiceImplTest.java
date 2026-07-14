@@ -38,6 +38,7 @@ import org.apache.fineract.infrastructure.sms.data.SmsMessageApiQueueResourceDat
 import org.apache.fineract.infrastructure.sms.domain.SmsMessage;
 import org.apache.fineract.infrastructure.sms.domain.SmsMessageRepository;
 import org.apache.fineract.infrastructure.sms.domain.SmsMessageStatusType;
+import org.apache.fineract.infrastructure.sms.service.SmsPhoneWhitelistService;
 import org.apache.fineract.infrastructure.sms.service.SmsReadPlatformService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,6 +61,8 @@ class SmsMessageScheduledJobServiceImplTest {
     @Mock
     private NotificationSenderService notificationSenderService;
     @Mock
+    private SmsPhoneWhitelistService smsPhoneWhitelistService;
+    @Mock
     private ExecutorService triggeredExecutorService;
     @Mock
     private ExecutorService genericExecutorService;
@@ -69,7 +72,7 @@ class SmsMessageScheduledJobServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new SmsMessageScheduledJobServiceImpl(smsMessageRepository, smsReadPlatformService, smsConfigUtils,
-                notificationSenderService);
+                notificationSenderService, smsPhoneWhitelistService);
         ReflectionTestUtils.setField(service, "triggeredExecutorService", triggeredExecutorService);
         ReflectionTestUtils.setField(service, "genericExecutorService", genericExecutorService);
         HashMap<BusinessDateType, LocalDate> businessDates = new HashMap<>();
