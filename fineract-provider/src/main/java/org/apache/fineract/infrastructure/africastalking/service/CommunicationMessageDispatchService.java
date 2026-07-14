@@ -18,15 +18,17 @@
  */
 package org.apache.fineract.infrastructure.africastalking.service;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
-import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,14 +56,23 @@ public class CommunicationMessageDispatchService {
             return;
         }
         try {
-            final AfricasTalkingClient.AfricasTalkingApiResponse response = africasTalkingClient
-                    .sendWhatsAppMessage(message.getPhoneNumber(), message.getMessageBody());
+            final AfricasTalkingClient.AfricasTalkingApiResponse response;
+            if (StringUtils.isNotBlank(message.getTemplateName())) {
+                final List<String> bodyValues = parseBodyValues(message.getTemplateBodyValues());
+                response = africasTalkingClient.sendWhatsAppTemplate(message.getPhoneNumber(), message.getTemplateName(),
+                        message.getTemplateLanguage(), bodyValues);
+            } else {
+                response = africasTalkingClient.sendWhatsAppMessage(message.getPhoneNumber(), message.getMessageBody());
+            }
             if (response.isSuccessful()) {
                 message.setStatus(CommunicationMessageStatus.SENT);
                 message.setExternalId(extractExternalId(response.body()));
             } else {
                 message.setStatus(CommunicationMessageStatus.FAILED);
-                message.setStatusDetail("HTTP " + response.statusCode());
+                final String detail = StringUtils.isNotBlank(response.body())
+                        ? "HTTP " + response.statusCode() + ": " + response.body()
+                        : "HTTP " + response.statusCode();
+                message.setStatusDetail(StringUtils.left(detail, 255));
             }
         } catch (Exception e) {
             log.error("Failed to dispatch WhatsApp message {}", message.getId(), e);
@@ -69,6 +80,18 @@ public class CommunicationMessageDispatchService {
             message.setStatusDetail(StringUtils.left(e.getMessage(), 255));
         }
         communicationMessageRepository.save(message);
+    }
+
+    private List<String> parseBodyValues(final String templateBodyValuesJson) {
+        final List<String> bodyValues = new ArrayList<>();
+        if (StringUtils.isBlank(templateBodyValuesJson)) {
+            return bodyValues;
+        }
+        final JsonArray array = JsonParser.parseString(templateBodyValuesJson).getAsJsonArray();
+        for (final var element : array) {
+            bodyValues.add(element.isJsonNull() ? "" : element.getAsString());
+        }
+        return bodyValues;
     }
 
     private String extractExternalId(final String responseBody) {

@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.infrastructure.africastalking.service;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -25,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
@@ -63,33 +65,55 @@ public class AfricasTalkingClient {
                 .addQueryParameter("username", properties.getUsername()).build();
         final Request request = new Request.Builder().url(url).get().addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
                 .addHeader("Accept", "application/json").build();
-        return integrationHttpRetryService.executeWithRetry(() -> {
-            try (Response response = httpClient.newCall(request).execute()) {
-                final String body = response.body() != null ? response.body().string() : "";
-                return new AfricasTalkingApiResponse(response.code(), body);
-            }
-        });
+        return executeRequest("user lookup", request);
     }
 
     public AfricasTalkingApiResponse sendWhatsAppMessage(final String recipientPhoneNumber, final String messageText) throws IOException {
         validateWhatsAppConfigured();
+        // Official AT SDKs send camelCase: waNumber / phoneNumber (not snake_case).
         final JsonObject bodyContent = new JsonObject();
         bodyContent.addProperty("message", messageText);
         final JsonObject requestBody = new JsonObject();
         requestBody.addProperty("username", properties.getUsername());
-        requestBody.addProperty("wa_number", properties.getWhatsapp().getSenderNumber());
-        requestBody.addProperty("phone_number", recipientPhoneNumber);
+        requestBody.addProperty("waNumber", properties.getWhatsapp().getSenderNumber());
+        requestBody.addProperty("phoneNumber", recipientPhoneNumber);
         requestBody.add("body", bodyContent);
         final HttpUrl url = HttpUrl.parse(properties.getWhatsappBaseUrl() + AfricasTalkingConstants.WHATSAPP_SEND_PATH);
         final Request request = new Request.Builder().url(url).post(RequestBody.create(requestBody.toString(),
                 MediaType.parse("application/json"))).addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
                 .addHeader("Accept", "application/json").addHeader("Content-Type", "application/json").build();
-        return integrationHttpRetryService.executeWithRetry(() -> {
-            try (Response response = httpClient.newCall(request).execute()) {
-                final String body = response.body() != null ? response.body().string() : "";
-                return new AfricasTalkingApiResponse(response.code(), body);
+        return executeRequest("send WhatsApp message", request);
+    }
+
+    public AfricasTalkingApiResponse sendWhatsAppTemplate(final String recipientPhoneNumber, final String templateName,
+            final String languageCode, final List<String> bodyValues) throws IOException {
+        validateWhatsAppConfigured();
+        final JsonObject body = new JsonObject();
+        body.addProperty("templateId", templateName);
+        if (StringUtils.isNotBlank(languageCode)) {
+            body.addProperty("language", languageCode);
+        }
+        final JsonArray values = new JsonArray();
+        if (bodyValues != null) {
+            for (final String v : bodyValues) {
+                values.add(v == null ? "" : v);
             }
-        });
+        }
+        body.add("bodyValues", values);
+
+        final JsonObject requestBody = new JsonObject();
+        requestBody.addProperty("username", properties.getUsername());
+        requestBody.addProperty("waNumber", properties.getWhatsapp().getSenderNumber());
+        requestBody.addProperty("phoneNumber", recipientPhoneNumber);
+        requestBody.add("body", body);
+
+        final HttpUrl url = HttpUrl.parse(properties.getWhatsappBaseUrl() + AfricasTalkingConstants.WHATSAPP_SEND_PATH);
+        final Request request = new Request.Builder().url(url)
+                .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
+                .addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
+                .addHeader("Accept", "application/json")
+                .addHeader("Content-Type", "application/json").build();
+        return executeRequest("send WhatsApp template", request);
     }
 
     public void validateWhatsAppConfigured() {
@@ -110,12 +134,15 @@ public class AfricasTalkingClient {
                 .post(RequestBody.create(formBody, MediaType.parse("application/x-www-form-urlencoded")))
                 .addHeader(AfricasTalkingConstants.API_KEY_HEADER_ALT, properties.getApiKey())
                 .addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey()).addHeader("Accept", "application/xml").build();
-        return integrationHttpRetryService.executeWithRetry(() -> {
-            try (Response response = httpClient.newCall(request).execute()) {
-                final String body = response.body() != null ? response.body().string() : "";
-                return new AfricasTalkingApiResponse(response.code(), body);
-            }
-        });
+        return executeRequest("initiate voice call", request);
+    }
+
+    private AfricasTalkingApiResponse executeRequest(final String operationName, final Request request) throws IOException {
+        try (Response response = integrationHttpRetryService.execute(AfricasTalkingConstants.USER_AGENT_PREFIX, operationName, httpClient,
+                request)) {
+            final String body = response.body() != null ? response.body().string() : "";
+            return new AfricasTalkingApiResponse(response.code(), body);
+        }
     }
 
     public void validateVoiceConfigured() {

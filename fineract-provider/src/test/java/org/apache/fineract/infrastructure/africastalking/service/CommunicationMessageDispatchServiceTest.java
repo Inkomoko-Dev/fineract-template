@@ -19,9 +19,13 @@
 package org.apache.fineract.infrastructure.africastalking.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationChannel;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
@@ -56,6 +60,37 @@ class CommunicationMessageDispatchServiceTest {
 
         assertEquals(CommunicationMessageStatus.SENT, message.getStatus());
         assertEquals("ATX_1", message.getExternalId());
+        verify(communicationMessageRepository).save(message);
+    }
+
+    @Test
+    void dispatchesTemplateMessageWhenTemplateNameSet() throws Exception {
+        final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate("+254712345678", RecipientType.CLIENT, null,
+                null, "payment_due_today", "en", "[\"John\",\"1000\"]", "Payment reminder", 5L);
+        when(africasTalkingClient.sendWhatsAppTemplate("+254712345678", "payment_due_today", "en", List.of("John", "1000")))
+                .thenReturn(new AfricasTalkingClient.AfricasTalkingApiResponse(200, "{\"messageId\":\"ATX_2\"}"));
+
+        dispatchService.dispatchMessage(message);
+
+        assertEquals(CommunicationMessageStatus.SENT, message.getStatus());
+        assertEquals("ATX_2", message.getExternalId());
+        verify(africasTalkingClient).sendWhatsAppTemplate("+254712345678", "payment_due_today", "en", List.of("John", "1000"));
+        verify(africasTalkingClient, never()).sendWhatsAppMessage(any(), any());
+        verify(communicationMessageRepository).save(message);
+    }
+
+    @Test
+    void dispatchesFreeFormMessageWhenTemplateNameBlank() throws Exception {
+        final CommunicationMessage message = CommunicationMessage.pendingOutbound(CommunicationChannel.WHATSAPP, "+254712345678",
+                RecipientType.CLIENT, null, null, "Hello");
+        when(africasTalkingClient.sendWhatsAppMessage("+254712345678", "Hello"))
+                .thenReturn(new AfricasTalkingClient.AfricasTalkingApiResponse(200, "{\"messageId\":\"ATX_3\"}"));
+
+        dispatchService.dispatchMessage(message);
+
+        assertEquals(CommunicationMessageStatus.SENT, message.getStatus());
+        verify(africasTalkingClient).sendWhatsAppMessage("+254712345678", "Hello");
+        verify(africasTalkingClient, never()).sendWhatsAppTemplate(any(), any(), any(), anyList());
         verify(communicationMessageRepository).save(message);
     }
 }

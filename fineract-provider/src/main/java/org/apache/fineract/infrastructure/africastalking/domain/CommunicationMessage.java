@@ -73,6 +73,15 @@ public class CommunicationMessage extends AbstractPersistableCustom {
     @Column(name = "template_name", length = 100)
     private String templateName;
 
+    @Column(name = "campaign_id")
+    private Long campaignId;
+
+    @Column(name = "template_language", length = 15)
+    private String templateLanguage;
+
+    @Column(name = "template_body_values", columnDefinition = "TEXT")
+    private String templateBodyValues; // JSON array of already-resolved values
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 30, nullable = false)
     private CommunicationMessageStatus status;
@@ -104,6 +113,18 @@ public class CommunicationMessage extends AbstractPersistableCustom {
         message.messageBody = messageBody;
         message.status = CommunicationMessageStatus.PENDING;
         message.createdDate = DateUtils.getLocalDateTimeOfTenant();
+        return message;
+    }
+
+    public static CommunicationMessage pendingOutboundTemplate(final String phoneNumber, final RecipientType recipientType,
+            final Client client, final Staff staff, final String templateName, final String templateLanguage,
+            final String templateBodyValuesJson, final String auditMessageBody, final Long campaignId) {
+        final CommunicationMessage message = pendingOutbound(CommunicationChannel.WHATSAPP, phoneNumber, recipientType, client, staff,
+                auditMessageBody);
+        message.templateName = templateName;
+        message.templateLanguage = templateLanguage;
+        message.templateBodyValues = templateBodyValuesJson;
+        message.campaignId = campaignId;
         return message;
     }
 
