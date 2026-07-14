@@ -90,6 +90,9 @@ public final class WhatsAppCampaignEnumerations {
                 optionData = new EnumOptionData(CampaignType.NOTIFICATION.getValue().longValue(), CampaignType.NOTIFICATION.getCode(),
                         "NOTIFICATION");
             break;
+            case WHATSAPP:
+                optionData = new EnumOptionData(CampaignType.WHATSAPP.getValue().longValue(), CampaignType.WHATSAPP.getCode(), "WHATSAPP");
+            break;
         }
         return optionData;
     }
