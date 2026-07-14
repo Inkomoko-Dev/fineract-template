@@ -34,6 +34,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
+import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
+import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.data.WhatsAppPreviewData;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaign;
@@ -55,6 +58,8 @@ import org.apache.fineract.infrastructure.dataqueries.service.GenericDataService
 import org.apache.fineract.infrastructure.dataqueries.service.ReadReportingService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.calendar.service.CalendarUtils;
+import org.apache.fineract.portfolio.client.domain.Client;
+import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,12 +81,15 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     private final FromJsonHelper fromJsonHelper;
     private final ReadReportingService readReportingService;
     private final GenericDataService genericDataService;
+    private final CommunicationMessageRepository communicationMessageRepository;
+    private final ClientRepositoryWrapper clientRepositoryWrapper;
 
     @Autowired
     public WhatsAppCampaignWritePlatformServiceImpl(final PlatformSecurityContext context,
             final WhatsAppCampaignRepository whatsAppCampaignRepository, final WhatsAppCampaignValidator whatsAppCampaignValidator,
             final ReportRepository reportRepository, final FromJsonHelper fromJsonHelper, final ReadReportingService readReportingService,
-            final GenericDataService genericDataService) {
+            final GenericDataService genericDataService, final CommunicationMessageRepository communicationMessageRepository,
+            final ClientRepositoryWrapper clientRepositoryWrapper) {
         this.context = context;
         this.whatsAppCampaignRepository = whatsAppCampaignRepository;
         this.whatsAppCampaignValidator = whatsAppCampaignValidator;
@@ -89,6 +97,8 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         this.fromJsonHelper = fromJsonHelper;
         this.readReportingService = readReportingService;
         this.genericDataService = genericDataService;
+        this.communicationMessageRepository = communicationMessageRepository;
+        this.clientRepositoryWrapper = clientRepositoryWrapper;
     }
 
     @Transactional
@@ -183,7 +193,9 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             this.whatsAppCampaignRepository.saveAndFlush(campaign);
         }
 
-        // TODO Task 6: enqueue outbound WhatsApp messages for direct/scheduled campaigns
+        if (campaign.isDirect()) {
+            insertDirectCampaignIntoOutboundTable(campaign);
+        }
 
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(campaign.getId()).build();
     }
@@ -216,7 +228,9 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         final DateTimeFormatter fmt = DateTimeFormatter.ofPattern(command.dateFormat()).withLocale(locale);
         final LocalDate reactivationDate = command.localDateValueOfParameterNamed(WhatsAppCampaignValidator.activationDateParamName);
         campaign.reactivate(currentUser, fmt, reactivationDate);
-        if (campaign.isSchedule()) {
+        if (campaign.isDirect()) {
+            insertDirectCampaignIntoOutboundTable(campaign);
+        } else if (campaign.isSchedule()) {
             LocalDateTime nextTriggerDate;
             if (campaign.getRecurrenceStartDateTime().isBefore(DateUtils.getLocalDateTimeOfTenant())) {
                 nextTriggerDate = CalendarUtils.getNextRecurringDate(campaign.getRecurrence(), campaign.getRecurrenceStartDate(),
@@ -227,8 +241,6 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             campaign.setNextTriggerDate(nextTriggerDate);
         }
         this.whatsAppCampaignRepository.saveAndFlush(campaign);
-
-        // TODO Task 6: enqueue outbound WhatsApp messages for direct/scheduled campaigns
 
         return new CommandProcessingResultBuilder().withEntityId(campaign.getId()).build();
     }
@@ -271,6 +283,47 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
 
     private String buildPreviewMessage(final String atTemplateName, final String languageCode, final List<String> bodyValues) {
         return "Template: " + atTemplateName + " (" + languageCode + ") body=" + bodyValues;
+    }
+
+    void insertDirectCampaignIntoOutboundTable(final WhatsAppCampaign campaign) {
+        try {
+            final HashMap<String, String> campaignParams = new ObjectMapper().readValue(campaign.getParamValue(),
+                    new TypeReference<HashMap<String, String>>() {});
+
+            final HashMap<String, String> queryParamForRunReport = new ObjectMapper().readValue(campaign.getParamValue(),
+                    new TypeReference<HashMap<String, String>>() {});
+
+            final List<HashMap<String, Object>> runReportObject = getRunReportByServiceImpl(campaignParams.get("reportName"),
+                    queryParamForRunReport);
+
+            if (runReportObject != null) {
+                for (final HashMap<String, Object> entry : runReportObject) {
+                    final Object mobileNo = entry.get("mobileNo");
+                    if (mobileNo == null || mobileNo.toString().isBlank()) {
+                        continue;
+                    }
+
+                    final List<String> bodyValues = WhatsAppTemplateVariableMapper.toBodyValues(campaign.getBodyVariableMapping(), entry);
+                    final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
+                    final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
+
+                    Client client = null;
+                    final Object clientIdObj = entry.get("id");
+                    if (clientIdObj != null) {
+                        final long clientId = clientIdObj instanceof Integer ? ((Integer) clientIdObj).longValue()
+                                : Long.parseLong(clientIdObj.toString());
+                        client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(clientId);
+                    }
+
+                    final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate(mobileNo.toString(),
+                            RecipientType.CLIENT, client, null, campaign.getAtTemplateName(), campaign.getLanguageCode(),
+                            templateBodyValuesJson, auditMessageBody, campaign.getId());
+                    this.communicationMessageRepository.save(message);
+                }
+            }
+        } catch (final IOException e) {
+            LOG.error("Error enqueueing WhatsApp campaign messages.", e);
+        }
     }
 
     private List<HashMap<String, Object>> getRunReportByServiceImpl(final String reportName, final Map<String, String> queryParams)
