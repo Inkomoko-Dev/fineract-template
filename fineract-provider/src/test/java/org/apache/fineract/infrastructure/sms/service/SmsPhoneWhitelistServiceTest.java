@@ -31,7 +31,6 @@ import java.util.Optional;
 import java.util.Set;
 import org.apache.fineract.infrastructure.campaigns.sms.data.MessageGatewayConfigurationData;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesPropertiesReadPlatformService;
-import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.sms.data.SmsMessageApiQueueResourceData;
 import org.apache.fineract.infrastructure.sms.domain.SmsMessage;
 import org.apache.fineract.infrastructure.sms.domain.SmsMessageRepository;
@@ -51,16 +50,11 @@ class SmsPhoneWhitelistServiceTest {
     @Mock
     private SmsMessageRepository smsMessageRepository;
 
-    private FineractProperties fineractProperties;
     private SmsPhoneWhitelistService service;
 
     @BeforeEach
     void setUp() {
-        fineractProperties = new FineractProperties();
-        FineractProperties.FineractSmsProperties smsProperties = new FineractProperties.FineractSmsProperties();
-        smsProperties.setWhitelistEnabled(true);
-        fineractProperties.setSms(smsProperties);
-        service = new SmsPhoneWhitelistService(fineractProperties, propertiesReadPlatformService, smsMessageRepository);
+        service = new SmsPhoneWhitelistService(propertiesReadPlatformService, smsMessageRepository);
     }
 
     @Test
@@ -72,7 +66,7 @@ class SmsPhoneWhitelistServiceTest {
     @Test
     void filterAllowsWhitelistedAndMarksOthersFailed() {
         when(propertiesReadPlatformService.getSMSGateway()).thenReturn(new MessageGatewayConfigurationData(null, null, "host", 8005, "/",
-                null, null, false, "key", "+254702719701"));
+                null, null, false, "key", "+254702719701", true));
         SmsMessage blocked = SmsMessage.pendingSms(null, null, null, null, "hello", "+254700000000", null, false);
         ReflectionTestUtils.setField(blocked, "id", 2L);
         when(smsMessageRepository.findById(2L)).thenReturn(Optional.of(blocked));
@@ -80,8 +74,7 @@ class SmsPhoneWhitelistServiceTest {
         SmsMessageApiQueueResourceData allowed = SmsMessageApiQueueResourceData.instance(1L, null, "+254702719701", "ok", "FINERACT");
         SmsMessageApiQueueResourceData denied = SmsMessageApiQueueResourceData.instance(2L, null, "+254700000000", "no", "FINERACT");
 
-        List<SmsMessageApiQueueResourceData> result = List
-                .copyOf(service.filterAllowedOrMarkBlocked(List.of(allowed, denied)));
+        List<SmsMessageApiQueueResourceData> result = List.copyOf(service.filterAllowedOrMarkBlocked(List.of(allowed, denied)));
 
         assertEquals(1, result.size());
         assertEquals("+254702719701", result.get(0).getPhoneNumber());
@@ -92,18 +85,18 @@ class SmsPhoneWhitelistServiceTest {
 
     @Test
     void filterIsNoOpWhenWhitelistDisabled() {
-        fineractProperties.getSms().setWhitelistEnabled(false);
+        when(propertiesReadPlatformService.getSMSGateway()).thenReturn(new MessageGatewayConfigurationData(null, null, "host", 8005, "/",
+                null, null, false, "key", "+254702719701", false));
         SmsMessageApiQueueResourceData message = SmsMessageApiQueueResourceData.instance(1L, null, "+254700000000", "ok", "FINERACT");
 
         assertEquals(1, service.filterAllowedOrMarkBlocked(List.of(message)).size());
-        verify(propertiesReadPlatformService, never()).getSMSGateway();
         verify(smsMessageRepository, never()).findById(any());
     }
 
     @Test
     void isAllowedMatchesDigitsIgnoringPlus() {
         when(propertiesReadPlatformService.getSMSGateway()).thenReturn(new MessageGatewayConfigurationData(null, null, "host", 8005, "/",
-                null, null, false, "key", "+254702719701"));
+                null, null, false, "key", "+254702719701", true));
         assertTrue(service.isAllowed("254702719701"));
         assertFalse(service.isAllowed("+254700000000"));
     }

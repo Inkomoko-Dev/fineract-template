@@ -30,7 +30,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.campaigns.sms.data.MessageGatewayConfigurationData;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesPropertiesReadPlatformService;
-import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.sms.data.SmsMessageApiQueueResourceData;
 import org.apache.fineract.infrastructure.sms.domain.SmsMessage;
 import org.apache.fineract.infrastructure.sms.domain.SmsMessageRepository;
@@ -38,8 +37,7 @@ import org.apache.fineract.infrastructure.sms.domain.SmsMessageStatusType;
 import org.springframework.stereotype.Service;
 
 /**
- * On QA instances with masked production data, only allow SMS to numbers listed in
- * MESSAGE_GATEWAY sms_whitelist. Enforcement is gated by fineract.sms.whitelist-enabled.
+ * When MESSAGE_GATEWAY sms_whitelist_enabled is true, only allow SMS to numbers in sms_whitelist.
  */
 @Service
 @RequiredArgsConstructor
@@ -48,21 +46,26 @@ public class SmsPhoneWhitelistService {
 
     public static final String BLOCKED_ERROR_MESSAGE = "SMS not sent: recipient is not on the QA whitelist";
 
-    private final FineractProperties fineractProperties;
     private final ExternalServicesPropertiesReadPlatformService propertiesReadPlatformService;
     private final SmsMessageRepository smsMessageRepository;
 
     public boolean isWhitelistEnforced() {
-        return fineractProperties.getSms() != null && fineractProperties.getSms().isWhitelistEnabled();
+        MessageGatewayConfigurationData config = this.propertiesReadPlatformService.getSMSGateway();
+        return config != null && config.isSmsWhitelistEnabled();
     }
 
     public Collection<SmsMessageApiQueueResourceData> filterAllowedOrMarkBlocked(
             Collection<SmsMessageApiQueueResourceData> messages) {
-        if (!isWhitelistEnforced() || messages == null || messages.isEmpty()) {
+        if (messages == null || messages.isEmpty()) {
             return messages;
         }
 
-        Set<String> whitelist = resolveWhitelist();
+        MessageGatewayConfigurationData config = this.propertiesReadPlatformService.getSMSGateway();
+        if (config == null || !config.isSmsWhitelistEnabled()) {
+            return messages;
+        }
+
+        Set<String> whitelist = parseWhitelist(config.getSmsWhitelist());
         if (whitelist.isEmpty()) {
             log.warn("SMS whitelist enforcement is enabled but sms_whitelist is empty; blocking all SMS");
         }
@@ -78,10 +81,11 @@ public class SmsPhoneWhitelistService {
     }
 
     public boolean isAllowed(String phoneNumber) {
-        if (!isWhitelistEnforced()) {
+        MessageGatewayConfigurationData config = this.propertiesReadPlatformService.getSMSGateway();
+        if (config == null || !config.isSmsWhitelistEnabled()) {
             return true;
         }
-        return isAllowed(phoneNumber, resolveWhitelist());
+        return isAllowed(phoneNumber, parseWhitelist(config.getSmsWhitelist()));
     }
 
     Set<String> parseWhitelist(String rawWhitelist) {
@@ -101,11 +105,6 @@ public class SmsPhoneWhitelistService {
             trimmed = "+" + trimmed.substring(2);
         }
         return trimmed;
-    }
-
-    private Set<String> resolveWhitelist() {
-        MessageGatewayConfigurationData config = this.propertiesReadPlatformService.getSMSGateway();
-        return parseWhitelist(config == null ? null : config.getSmsWhitelist());
     }
 
     private boolean isAllowed(String phoneNumber, Set<String> whitelist) {
