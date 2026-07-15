@@ -54,6 +54,7 @@ import org.apache.fineract.infrastructure.sms.data.SmsProviderBatchRequest;
 import org.apache.fineract.infrastructure.sms.domain.SmsMessage;
 import org.apache.fineract.infrastructure.sms.domain.SmsMessageRepository;
 import org.apache.fineract.infrastructure.sms.domain.SmsMessageStatusType;
+import org.apache.fineract.infrastructure.sms.service.SmsPhoneWhitelistService;
 import org.apache.fineract.infrastructure.sms.service.SmsReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationListener;
@@ -79,6 +80,7 @@ public class SmsMessageScheduledJobServiceImpl implements SmsMessageScheduledJob
     private final RestTemplate restTemplate = new RestTemplate();
     private final SmsConfigUtils smsConfigUtils;
     private final NotificationSenderService notificationSenderService;
+    private final SmsPhoneWhitelistService smsPhoneWhitelistService;
     private ExecutorService genericExecutorService;
     private ExecutorService triggeredExecutorService;
 
@@ -89,11 +91,13 @@ public class SmsMessageScheduledJobServiceImpl implements SmsMessageScheduledJob
      **/
     @Autowired
     public SmsMessageScheduledJobServiceImpl(SmsMessageRepository smsMessageRepository, SmsReadPlatformService smsReadPlatformService,
-                                             final SmsConfigUtils smsConfigUtils, final NotificationSenderService notificationSenderService) {
+            final SmsConfigUtils smsConfigUtils, final NotificationSenderService notificationSenderService,
+            final SmsPhoneWhitelistService smsPhoneWhitelistService) {
         this.smsMessageRepository = smsMessageRepository;
         this.smsReadPlatformService = smsReadPlatformService;
         this.smsConfigUtils = smsConfigUtils;
         this.notificationSenderService = notificationSenderService;
+        this.smsPhoneWhitelistService = smsPhoneWhitelistService;
     }
 
     @PostConstruct
@@ -170,7 +174,14 @@ public class SmsMessageScheduledJobServiceImpl implements SmsMessageScheduledJob
 
     private void connectAndSendToIntermediateServer(Collection<SmsMessageApiQueueResourceData> apiQueueResourceData, Long providerId) {
         try {
-            SmsProviderBatchRequest batchRequest = new SmsProviderBatchRequest(providerId, apiQueueResourceData);
+            Collection<SmsMessageApiQueueResourceData> allowedMessages = this.smsPhoneWhitelistService
+                    .filterAllowedOrMarkBlocked(apiQueueResourceData);
+            if (allowedMessages == null || allowedMessages.isEmpty()) {
+                log.info("No SMS messages remaining after QA whitelist filter for provider {}", providerId);
+                return;
+            }
+
+            SmsProviderBatchRequest batchRequest = new SmsProviderBatchRequest(providerId, allowedMessages);
             String jsonPayload = new ObjectMapper().writeValueAsString(batchRequest);
 
             Map<String, Object> hostConfig = this.smsConfigUtils.getMessageGateWayRequestURI("send", jsonPayload);

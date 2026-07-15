@@ -22,10 +22,9 @@ import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 import javax.ws.rs.core.UriBuilder;
+import org.apache.fineract.infrastructure.campaigns.sms.constants.SmsCampaignConstants;
 import org.apache.fineract.infrastructure.campaigns.sms.data.MessageGatewayConfigurationData;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesPropertiesReadPlatformService;
-import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
-import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -43,9 +42,12 @@ public class SmsConfigUtils {
     public Map<String, Object> getMessageGateWayRequestURI(final String apiEndPoint, String apiQueueResourceDatas) {
         Map<String, Object> httpRequestdetails = new HashMap<>();
         MessageGatewayConfigurationData messageGatewayConfigurationData = this.propertiesReadPlatformService.getSMSGateway();
-        final FineractPlatformTenant tenant = ThreadLocalContextUtil.getTenant();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        final String tenantAppKey = messageGatewayConfigurationData.getTenantAppKey();
+        if (tenantAppKey != null && !tenantAppKey.isBlank()) {
+            headers.set(SmsCampaignConstants.SMS_API_KEY_HEADER, tenantAppKey);
+        }
         StringBuilder pathBuilder = new StringBuilder();
         String endPoint = messageGatewayConfigurationData.getEndPoint() == null || messageGatewayConfigurationData.getEndPoint().equals("/")
                 ? ""
