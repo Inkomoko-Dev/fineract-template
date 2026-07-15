@@ -23,4 +23,7 @@ public interface SmsCampaignConstants {
     String RESOURCE_NAME = "SMSCAMPAIGN";
 
     String SMS = "sms";
+
+    /** Header expected by the intermediate SMS gateway (see Postman "Send SMS"). */
+    String SMS_API_KEY_HEADER = "X-API-KEY";
 }

@@ -124,6 +124,8 @@ public class ExternalServicesPropertiesReadPlatformServiceImpl implements Extern
             int port = 9191;
             String endPoint = null;
             String tenantAppKey = null;
+            String smsWhitelist = null;
+            boolean smsWhitelistEnabled = false;
 
             while (rs.next()) {
                 if (rs.getString("name").equalsIgnoreCase(ExternalServicesConstants.SMS_HOST)) {
@@ -134,9 +136,14 @@ public class ExternalServicesPropertiesReadPlatformServiceImpl implements Extern
                     endPoint = rs.getString("value");
                 } else if (rs.getString("name").equalsIgnoreCase(ExternalServicesConstants.SMS_TENANT_APP_KEY)) {
                     tenantAppKey = rs.getString("value");
+                } else if (rs.getString("name").equalsIgnoreCase(ExternalServicesConstants.SMS_WHITELIST)) {
+                    smsWhitelist = rs.getString("value");
+                } else if (rs.getString("name").equalsIgnoreCase(ExternalServicesConstants.SMS_WHITELIST_ENABLED)) {
+                    smsWhitelistEnabled = Boolean.parseBoolean(rs.getString("value"));
                 }
             }
-            return new MessageGatewayConfigurationData(null, null, host, port, endPoint, null, null, false, tenantAppKey);
+            return new MessageGatewayConfigurationData(null, null, host, port, endPoint, null, null, false, tenantAppKey, smsWhitelist,
+                    smsWhitelistEnabled);
         }
     }
 
