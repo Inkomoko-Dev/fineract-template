@@ -173,4 +173,24 @@ class LoanReadPlatformServiceImplTest {
     private void assertAmount(final String expected, final BigDecimal actual) {
         assertEquals(0, new BigDecimal(expected).compareTo(actual));
     }
+
+    @Test
+    void repaymentTransactionTemplateSchemaAllowsFullyCompletedSchedules() throws Exception {
+        final DatabaseSpecificSQLGenerator sqlGenerator = mock(DatabaseSpecificSQLGenerator.class);
+        when(sqlGenerator.escape("name")).thenReturn("`name`");
+        when(sqlGenerator.escape("code")).thenReturn("`code`");
+
+        final Class<?> mapperClass = Class.forName(
+                "org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformServiceImpl$RepaymentTransactionTemplateMapper");
+        final var constructor = mapperClass.getDeclaredConstructor(DatabaseSpecificSQLGenerator.class);
+        constructor.setAccessible(true);
+        final Object repaymentMapper = constructor.newInstance(sqlGenerator);
+        final String schema = (String) ReflectionTestUtils.invokeMethod(repaymentMapper, "schema");
+
+        // Old SQL required incomplete rows and broke overpaid / fully-settled schedules (CGLT-652 / FINERACT-2421).
+        org.junit.jupiter.api.Assertions.assertFalse(schema.contains("completed_derived = false"));
+        org.junit.jupiter.api.Assertions.assertTrue(schema.contains("ORDER BY ls.completed_derived ASC"));
+        org.junit.jupiter.api.Assertions.assertTrue(schema.toUpperCase().contains("LIMIT 1"));
+        org.junit.jupiter.api.Assertions.assertTrue(schema.contains("LEFT JOIN"));
+    }
 }
