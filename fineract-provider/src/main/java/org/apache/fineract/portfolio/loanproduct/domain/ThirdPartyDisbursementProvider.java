@@ -21,12 +21,12 @@ package org.apache.fineract.portfolio.loanproduct.domain;
 import java.util.Locale;
 
 /**
- * Normalizes third-party disbursement provider codes stored in m_disbursement_provider
- * and referenced by m_loan_product_disbursement_provider_mapping.disbursement_provider_code.
+ * Third-party disbursement service provider codes (e.g. Kifiya). Not the loan financier.
  */
 public final class ThirdPartyDisbursementProvider {
 
     public static final int MAX_LENGTH = 50;
+    public static final String KIFIYA = "KIFIYA";
 
     private ThirdPartyDisbursementProvider() {}
 

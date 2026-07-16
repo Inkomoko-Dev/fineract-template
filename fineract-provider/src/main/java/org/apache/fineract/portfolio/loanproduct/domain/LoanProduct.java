@@ -230,8 +230,10 @@ public class LoanProduct extends AbstractPersistableCustom {
     private Boolean maintainInterestRateOnLoanTermExtension;
     @Column(name = "is_islamic")
     private Boolean isIslamic;
-    @OneToOne(mappedBy = "loanProduct", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    private LoanProductDisbursementProviderMapping disbursementProviderMapping;
+    @Column(name = "enable_third_party_disbursement", nullable = false)
+    private boolean enableThirdPartyDisbursement = false;
+    @Column(name = "third_party_disbursement_provider", length = 50)
+    private String thirdPartyDisbursementProvider;
     @Column(name = "allowable_dscr")
     private BigDecimal allowableDSCR;
 
@@ -1333,14 +1335,14 @@ public class LoanProduct extends AbstractPersistableCustom {
 
         if (command.parameterExists(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT)
                 || command.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER)) {
-            final boolean previousEnabled = isEnableThirdPartyDisbursement();
-            final String previousProvider = getThirdPartyDisbursementProvider();
+            final boolean previousEnabled = this.enableThirdPartyDisbursement;
+            final String previousProvider = this.thirdPartyDisbursementProvider;
             applyThirdPartyDisbursementSettings(command);
-            if (previousEnabled != isEnableThirdPartyDisbursement()) {
-                actualChanges.put(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT, isEnableThirdPartyDisbursement());
+            if (previousEnabled != this.enableThirdPartyDisbursement) {
+                actualChanges.put(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT, this.enableThirdPartyDisbursement);
             }
-            if (!java.util.Objects.equals(previousProvider, getThirdPartyDisbursementProvider())) {
-                actualChanges.put(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, getThirdPartyDisbursementProvider());
+            if (!java.util.Objects.equals(previousProvider, this.thirdPartyDisbursementProvider)) {
+                actualChanges.put(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, this.thirdPartyDisbursementProvider);
             }
         }
 
@@ -1821,42 +1823,39 @@ public class LoanProduct extends AbstractPersistableCustom {
     }
 
     public boolean isEnableThirdPartyDisbursement() {
-        return this.disbursementProviderMapping != null && this.disbursementProviderMapping.isActive();
+        return this.enableThirdPartyDisbursement;
+    }
+
+    public void setEnableThirdPartyDisbursement(final boolean enableThirdPartyDisbursement) {
+        this.enableThirdPartyDisbursement = enableThirdPartyDisbursement;
     }
 
     public String getThirdPartyDisbursementProvider() {
-        if (this.disbursementProviderMapping == null || !this.disbursementProviderMapping.isActive()) {
-            return null;
-        }
-        return this.disbursementProviderMapping.getDisbursementProviderCode();
+        return this.thirdPartyDisbursementProvider;
+    }
+
+    public void setThirdPartyDisbursementProvider(final String thirdPartyDisbursementProvider) {
+        this.thirdPartyDisbursementProvider = thirdPartyDisbursementProvider;
     }
 
     /**
-     * Flag off removes mapping. Flag on keeps/creates mapping (provider required enforced by validator).
+     * Flag off clears provider. Flag on keeps/normalizes provider (required enforced by validator).
      */
     public void applyThirdPartyDisbursementSettings(final JsonCommand command) {
         final boolean enabled;
         if (command.parameterExists(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT)) {
             enabled = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT);
         } else {
-            enabled = isEnableThirdPartyDisbursement();
+            enabled = this.enableThirdPartyDisbursement;
         }
+        this.enableThirdPartyDisbursement = enabled;
         if (!enabled) {
-            this.disbursementProviderMapping = null;
+            this.thirdPartyDisbursementProvider = null;
             return;
         }
-        String providerCode = null;
         if (command.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER)) {
-            providerCode = ThirdPartyDisbursementProvider
+            this.thirdPartyDisbursementProvider = ThirdPartyDisbursementProvider
                     .normalize(command.stringValueOfParameterNamedAllowingNull(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER));
-        } else if (this.disbursementProviderMapping != null) {
-            providerCode = this.disbursementProviderMapping.getDisbursementProviderCode();
-        }
-        if (this.disbursementProviderMapping == null) {
-            this.disbursementProviderMapping = new LoanProductDisbursementProviderMapping(this, providerCode, true);
-        } else {
-            this.disbursementProviderMapping.setDisbursementProviderCode(providerCode);
-            this.disbursementProviderMapping.setActive(true);
         }
     }
 
