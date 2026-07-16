@@ -21,7 +21,9 @@ package org.apache.fineract.portfolio.supplier.api;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -74,7 +76,20 @@ public class SupplierApiResource {
         this.context.authenticatedUser().validateHasPermissionTo("CREATE_SUPPLIER");
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createSupplier().withJson(apiRequestBodyAsJson).build();
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
-        return this.toApiJsonSerializer.serialize(result);
+        return this.toApiJsonSerializer.serialize(flattenCallbackResponse(result));
+    }
+
+    /**
+     * Partner contract expects a flat body: resourceId, externalId, sourceSystem, syncStatus.
+     */
+    private static Map<String, Object> flattenCallbackResponse(final CommandProcessingResult result) {
+        final Map<String, Object> response = new LinkedHashMap<>();
+        response.put("resourceId", result.resourceId());
+        final Map<String, Object> changes = result.getChanges();
+        if (changes != null) {
+            response.putAll(changes);
+        }
+        return response;
     }
 
     @GET

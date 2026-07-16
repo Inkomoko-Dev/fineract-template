@@ -21,18 +21,22 @@ package org.apache.fineract.portfolio.supplier.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.gson.JsonParser;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.portfolio.supplier.data.SupplierApiConstants;
 import org.apache.fineract.portfolio.supplier.data.SupplierDataValidator;
 import org.apache.fineract.portfolio.supplier.domain.Supplier;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
@@ -52,13 +56,16 @@ class SupplierWritePlatformServiceImplTest {
     @Mock
     private SupplierRepository supplierRepository;
 
+    @Mock
+    private SupplierSyncFailureService syncFailureService;
+
     private SupplierWritePlatformServiceImpl writeService;
 
     @BeforeEach
     void setUp() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         final SupplierDataValidator validator = new SupplierDataValidator(new FromJsonHelper());
-        this.writeService = new SupplierWritePlatformServiceImpl(this.supplierRepository, validator);
+        this.writeService = new SupplierWritePlatformServiceImpl(this.supplierRepository, validator, this.syncFailureService);
     }
 
     @Test
@@ -74,6 +81,12 @@ class SupplierWritePlatformServiceImplTest {
         final CommandProcessingResult result = this.writeService.upsert(command(json));
 
         assertEquals(42L, result.resourceId());
+        final Map<String, Object> changes = result.getChanges();
+        assertNotNull(changes);
+        assertEquals("SUP-001", changes.get(SupplierApiConstants.EXTERNAL_ID));
+        assertEquals("KIFIYA", changes.get(SupplierApiConstants.SOURCE_SYSTEM));
+        assertEquals(SupplierSyncStatus.SUCCESS.name(), changes.get(SupplierApiConstants.SYNC_STATUS));
+
         final ArgumentCaptor<Supplier> captor = ArgumentCaptor.forClass(Supplier.class);
         verify(this.supplierRepository).saveAndFlush(captor.capture());
         final Supplier saved = captor.getValue();
@@ -87,6 +100,7 @@ class SupplierWritePlatformServiceImplTest {
         assertEquals(json, saved.getRawPayload());
         assertNotNull(saved.getCreatedDate());
         assertNotNull(saved.getLastModifiedDate());
+        verify(this.syncFailureService, never()).markFailed(any(), any());
     }
 
     @Test
@@ -102,6 +116,9 @@ class SupplierWritePlatformServiceImplTest {
         final CommandProcessingResult result = this.writeService.upsert(command(json));
 
         assertEquals(7L, result.resourceId());
+        assertEquals("SUP-001", result.getChanges().get(SupplierApiConstants.EXTERNAL_ID));
+        assertEquals("KIFIYA", result.getChanges().get(SupplierApiConstants.SOURCE_SYSTEM));
+        assertEquals(SupplierSyncStatus.SUCCESS.name(), result.getChanges().get(SupplierApiConstants.SYNC_STATUS));
         verify(this.supplierRepository).findBySourceSystemAndExternalId("KIFIYA", "SUP-001");
         verify(this.supplierRepository).saveAndFlush(existing);
         assertEquals("New Name", existing.getName());
@@ -109,6 +126,34 @@ class SupplierWritePlatformServiceImplTest {
         assertEquals(SupplierSyncStatus.SUCCESS, existing.getSyncStatus());
         assertEquals(json, existing.getRawPayload());
         verify(this.supplierRepository, never()).delete(any());
+        verify(this.syncFailureService, never()).markFailed(any(), any());
+    }
+
+    @Test
+    void marksExistingSupplierFailedWhenSaveThrows() {
+        final Supplier existing = Supplier.create("KIFIYA", "SUP-001", "Abebe", null, null, null, null, null, null, null,
+                SupplierStatus.ACTIVE);
+        ReflectionTestUtils.setField(existing, "id", 7L);
+
+        when(this.supplierRepository.findBySourceSystemAndExternalId("KIFIYA", "SUP-001")).thenReturn(Optional.of(existing));
+        when(this.supplierRepository.saveAndFlush(any(Supplier.class))).thenThrow(new RuntimeException("db unavailable"));
+
+        final String json = "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe\"}";
+        final RuntimeException thrown = assertThrows(RuntimeException.class, () -> this.writeService.upsert(command(json)));
+
+        assertEquals("db unavailable", thrown.getMessage());
+        verify(this.syncFailureService).markFailed(eq(7L), eq("db unavailable"));
+    }
+
+    @Test
+    void doesNotMarkFailedWhenNewSupplierHasNoIdYet() {
+        when(this.supplierRepository.findBySourceSystemAndExternalId("KIFIYA", "SUP-001")).thenReturn(Optional.empty());
+        when(this.supplierRepository.saveAndFlush(any(Supplier.class))).thenThrow(new RuntimeException("unique violation"));
+
+        final String json = "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe\"}";
+        assertThrows(RuntimeException.class, () -> this.writeService.upsert(command(json)));
+
+        verify(this.syncFailureService, never()).markFailed(any(), any());
     }
 
     private static JsonCommand command(final String json) {
