@@ -223,6 +223,9 @@ public class LoanProductData implements Serializable {
 
     private Boolean maintainInterestOnLoanTermExtension;
     private Boolean isIslamic;
+    private Boolean enableThirdPartyDisbursement;
+    private String thirdPartyDisbursementProvider;
+    private Collection<String> thirdPartyDisbursementProviderOptions;
     private BigDecimal allowableDSCR;
 
     /**
@@ -1008,6 +1011,9 @@ public class LoanProductData implements Serializable {
         this.loanTermIncludesToppedUpLoanTerm = productData.loanTermIncludesToppedUpLoanTerm;
         this.isAccountLevelArrearsToleranceEnable = productData.isAccountLevelArrearsToleranceEnable;
         this.isIslamic = productData.isIslamic;
+        this.enableThirdPartyDisbursement = productData.enableThirdPartyDisbursement;
+        this.thirdPartyDisbursementProvider = productData.thirdPartyDisbursementProvider;
+        this.thirdPartyDisbursementProviderOptions = productData.thirdPartyDisbursementProviderOptions;
         this.allowableDSCR = productData.allowableDSCR;
     }
 
@@ -1495,6 +1501,30 @@ public class LoanProductData implements Serializable {
 
     public Long getProductCategoryId() {
         return productCategoryId;
+    }
+
+    public Boolean getEnableThirdPartyDisbursement() {
+        return enableThirdPartyDisbursement;
+    }
+
+    public void setEnableThirdPartyDisbursement(final Boolean enableThirdPartyDisbursement) {
+        this.enableThirdPartyDisbursement = enableThirdPartyDisbursement;
+    }
+
+    public String getThirdPartyDisbursementProvider() {
+        return thirdPartyDisbursementProvider;
+    }
+
+    public void setThirdPartyDisbursementProvider(final String thirdPartyDisbursementProvider) {
+        this.thirdPartyDisbursementProvider = thirdPartyDisbursementProvider;
+    }
+
+    public Collection<String> getThirdPartyDisbursementProviderOptions() {
+        return thirdPartyDisbursementProviderOptions;
+    }
+
+    public void setThirdPartyDisbursementProviderOptions(final Collection<String> thirdPartyDisbursementProviderOptions) {
+        this.thirdPartyDisbursementProviderOptions = thirdPartyDisbursementProviderOptions;
     }
 
     public Collection<PaymentTypeToGLAccountMapper> getPaymentChannelToFundSourceMappings() {
