@@ -73,13 +73,10 @@ public class WhatsAppCampaignReadPlatformServiceImpl implements WhatsAppCampaign
 
     @Override
     public WhatsAppCampaignData retrieveTemplate() {
-        String sql = "select " + this.businessRuleMapper.schema();
-        final String reportType = CampaignType.WHATSAPP.name();
-        if (!StringUtils.isEmpty(reportType)) {
-            sql = sql + " where sr.report_type = ?";
-        }
+        // Reuse existing SMS stretchy reports (and any WHATSAPP-typed ones) as audience / business rules.
+        String sql = "select " + this.businessRuleMapper.schema() + " where sr.report_type in (?, ?)";
         final Collection<SmsBusinessRulesData> businessRulesOptions = this.jdbcTemplate.query(sql, this.businessRuleMapper,
-                new Object[] { reportType });
+                CampaignType.SMS.name(), CampaignType.WHATSAPP.name());
         final Collection<EnumOptionData> campaignTypeOptions = Arrays
                 .asList(WhatsAppCampaignEnumerations.whatsAppCampaignType(CampaignType.WHATSAPP));
         final Collection<EnumOptionData> campaignTriggerTypeOptions = Arrays.asList(

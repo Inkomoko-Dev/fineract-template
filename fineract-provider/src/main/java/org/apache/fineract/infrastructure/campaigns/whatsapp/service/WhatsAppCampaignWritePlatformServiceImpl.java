@@ -18,9 +18,9 @@
  */
 package org.apache.fineract.infrastructure.campaigns.whatsapp.service;
 
-import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -32,7 +32,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -60,10 +59,11 @@ import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
 import org.apache.fineract.infrastructure.dataqueries.data.GenericResultsetData;
+import org.apache.fineract.infrastructure.dataqueries.data.ResultsetColumnHeaderData;
+import org.apache.fineract.infrastructure.dataqueries.data.ResultsetRowData;
 import org.apache.fineract.infrastructure.dataqueries.domain.Report;
 import org.apache.fineract.infrastructure.dataqueries.domain.ReportRepository;
 import org.apache.fineract.infrastructure.dataqueries.exception.ReportNotFoundException;
-import org.apache.fineract.infrastructure.dataqueries.service.GenericDataService;
 import org.apache.fineract.infrastructure.dataqueries.service.ReadReportingService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.calendar.service.CalendarUtils;
@@ -89,7 +89,6 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     private final ReportRepository reportRepository;
     private final FromJsonHelper fromJsonHelper;
     private final ReadReportingService readReportingService;
-    private final GenericDataService genericDataService;
     private final CommunicationMessageRepository communicationMessageRepository;
     private final ClientRepositoryWrapper clientRepositoryWrapper;
 
@@ -97,15 +96,13 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     public WhatsAppCampaignWritePlatformServiceImpl(final PlatformSecurityContext context,
             final WhatsAppCampaignRepository whatsAppCampaignRepository, final WhatsAppCampaignValidator whatsAppCampaignValidator,
             final ReportRepository reportRepository, final FromJsonHelper fromJsonHelper, final ReadReportingService readReportingService,
-            final GenericDataService genericDataService, final CommunicationMessageRepository communicationMessageRepository,
-            final ClientRepositoryWrapper clientRepositoryWrapper) {
+            final CommunicationMessageRepository communicationMessageRepository, final ClientRepositoryWrapper clientRepositoryWrapper) {
         this.context = context;
         this.whatsAppCampaignRepository = whatsAppCampaignRepository;
         this.whatsAppCampaignValidator = whatsAppCampaignValidator;
         this.reportRepository = reportRepository;
         this.fromJsonHelper = fromJsonHelper;
         this.readReportingService = readReportingService;
-        this.genericDataService = genericDataService;
         this.communicationMessageRepository = communicationMessageRepository;
         this.clientRepositoryWrapper = clientRepositoryWrapper;
     }
@@ -261,9 +258,8 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         final JsonElement element = this.fromJsonHelper.parse(json);
         final JsonElement paramValueElement = this.fromJsonHelper.extractJsonObjectNamed(WhatsAppCampaignValidator.paramValue, element);
         final String paramValueJson = paramValueElement.toString();
-        final JsonElement mappingElement = this.fromJsonHelper.extractJsonObjectNamed(WhatsAppCampaignValidator.bodyVariableMapping,
-                element);
-        final String bodyVariableMappingJson = mappingElement != null ? this.fromJsonHelper.toJson(mappingElement) : "[]";
+        final JsonArray mappingArray = this.fromJsonHelper.extractJsonArrayNamed(WhatsAppCampaignValidator.bodyVariableMapping, element);
+        final String bodyVariableMappingJson = mappingArray != null ? mappingArray.toString() : "[]";
         final String atTemplateNameValue = this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.atTemplateName, element);
         final String languageCodeValue = this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.languageCode, element);
 
@@ -383,33 +379,27 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         }
     }
 
-    private List<HashMap<String, Object>> getRunReportByServiceImpl(final String reportName, final Map<String, String> queryParams)
-            throws IOException {
+    private List<HashMap<String, Object>> getRunReportByServiceImpl(final String reportName, final Map<String, String> queryParams) {
         final String reportType = "report";
-        final List<HashMap<String, Object>> resultList = new ArrayList<>();
         final GenericResultsetData results = this.readReportingService.retrieveGenericResultSetForSmsEmailCampaign(reportName, reportType,
                 queryParams);
-        try {
-            final String response = this.genericDataService.generateJsonFromGenericResultsetData(results);
-            final List<HashMap<String, Object>> parsed = new ObjectMapper().readValue(response,
-                    new TypeReference<List<HashMap<String, Object>>>() {});
-            resultList.addAll(parsed);
-        } catch (JsonParseException e) {
-            LOG.info("Conversion of report query results to JSON failed", e);
+        // Map rows directly — avoid generateJsonFromGenericResultsetData + Jackson parse, which breaks on
+        // unescaped control characters (tabs/newlines) common in stretchy-report string columns.
+        final List<ResultsetColumnHeaderData> columnHeaders = results.getColumnHeaders();
+        final List<HashMap<String, Object>> resultList = new ArrayList<>();
+        if (columnHeaders == null || results.getData() == null) {
             return resultList;
         }
-        for (Iterator<HashMap<String, Object>> iter = resultList.iterator(); iter.hasNext();) {
-            final HashMap<String, Object> entry = iter.next();
-            for (Iterator<Map.Entry<String, Object>> it = entry.entrySet().iterator(); it.hasNext();) {
-                final Map.Entry<String, Object> map = it.next();
-                final String key = map.getKey();
-                final Object ob = map.getValue();
-                if (ob instanceof ArrayList<?> arrayList && arrayList.size() == 3) {
-                    final String changeArrayDateToStringDate = arrayList.get(2).toString() + "-" + arrayList.get(1).toString() + "-"
-                            + arrayList.get(0).toString();
-                    entry.put(key, changeArrayDateToStringDate);
-                }
+        for (final ResultsetRowData rowData : results.getData()) {
+            final List<String> row = rowData.getRow();
+            if (row == null) {
+                continue;
             }
+            final HashMap<String, Object> entry = new HashMap<>();
+            for (int j = 0; j < columnHeaders.size() && j < row.size(); j++) {
+                entry.put(columnHeaders.get(j).getColumnName(), row.get(j));
+            }
+            resultList.add(entry);
         }
         return resultList;
     }

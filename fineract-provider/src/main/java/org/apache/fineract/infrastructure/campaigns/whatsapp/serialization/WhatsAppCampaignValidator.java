@@ -303,7 +303,11 @@ public class WhatsAppCampaignValidator {
     }
 
     private void validateBodyVariableMapping(final JsonElement element, final DataValidatorBuilder baseDataValidator) {
-        final JsonElement mappingElement = this.fromApiJsonHelper.extractJsonObjectNamed(bodyVariableMapping, element);
+        // bodyVariableMapping is a JSON array of column names, not an object — do not use extractJsonObjectNamed.
+        JsonElement mappingElement = null;
+        if (element != null && element.isJsonObject() && element.getAsJsonObject().has(bodyVariableMapping)) {
+            mappingElement = element.getAsJsonObject().get(bodyVariableMapping);
+        }
         baseDataValidator.reset().parameter(bodyVariableMapping).value(mappingElement).notNull();
         if (mappingElement != null && !mappingElement.isJsonNull()) {
             if (!mappingElement.isJsonArray()) {
