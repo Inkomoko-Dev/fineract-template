@@ -18,10 +18,22 @@
  */
 package org.apache.fineract.portfolio.supplier.domain;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
 
-public interface SupplierRepository extends JpaRepository<Supplier, Long> {
+public interface SupplierRepository extends JpaRepository<Supplier, Long>, JpaSpecificationExecutor<Supplier> {
 
     Optional<Supplier> findBySourceSystemAndExternalId(String sourceSystem, String externalId);
+
+    @Query("SELECT DISTINCT s.businessSector FROM Supplier s WHERE s.businessSector IS NOT NULL ORDER BY s.businessSector")
+    List<String> findDistinctBusinessSectors();
+
+    @Query("SELECT DISTINCT s.supplierType FROM Supplier s WHERE s.supplierType IS NOT NULL ORDER BY s.supplierType")
+    List<String> findDistinctSupplierTypes();
+
+    @Query("SELECT DISTINCT s.country FROM Supplier s WHERE s.country IS NOT NULL ORDER BY s.country")
+    List<String> findDistinctCountries();
 }
