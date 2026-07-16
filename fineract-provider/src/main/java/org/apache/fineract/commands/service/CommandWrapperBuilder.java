@@ -2922,6 +2922,14 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder createSupplier() {
+        this.actionName = "CREATE";
+        this.entityName = "SUPPLIER";
+        this.entityId = null;
+        this.href = "/suppliers/callback";
+        return this;
+    }
+
     public CommandWrapperBuilder updatePaymentType(final Long paymentTypeId) {
         this.actionName = "UPDATE";
         this.entityName = PaymentTypeApiResourceConstants.ENTITY_NAME;
