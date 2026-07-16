@@ -86,6 +86,7 @@ class SupplierWritePlatformServiceImplTest {
         assertEquals("SUP-001", changes.get(SupplierApiConstants.EXTERNAL_ID));
         assertEquals("KIFIYA", changes.get(SupplierApiConstants.SOURCE_SYSTEM));
         assertEquals(SupplierSyncStatus.SUCCESS.name(), changes.get(SupplierApiConstants.SYNC_STATUS));
+        assertEquals(Boolean.TRUE, changes.get(SupplierApiConstants.CREATED));
 
         final ArgumentCaptor<Supplier> captor = ArgumentCaptor.forClass(Supplier.class);
         verify(this.supplierRepository).saveAndFlush(captor.capture());
@@ -119,6 +120,7 @@ class SupplierWritePlatformServiceImplTest {
         assertEquals("SUP-001", result.getChanges().get(SupplierApiConstants.EXTERNAL_ID));
         assertEquals("KIFIYA", result.getChanges().get(SupplierApiConstants.SOURCE_SYSTEM));
         assertEquals(SupplierSyncStatus.SUCCESS.name(), result.getChanges().get(SupplierApiConstants.SYNC_STATUS));
+        assertEquals(Boolean.FALSE, result.getChanges().get(SupplierApiConstants.CREATED));
         verify(this.supplierRepository).findBySourceSystemAndExternalId("KIFIYA", "SUP-001");
         verify(this.supplierRepository).saveAndFlush(existing);
         assertEquals("New Name", existing.getName());
