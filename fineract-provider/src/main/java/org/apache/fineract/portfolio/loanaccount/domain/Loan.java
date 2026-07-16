@@ -5652,6 +5652,19 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return this.totalOverpaid;
     }
 
+    /**
+     * CGLT-592 gate: a genuine overpayment may only be swept into the redraw account once the loan is fully settled.
+     * Sweeping a transient/false surplus while a balance is still outstanding creates a spurious deposit redraw that
+     * then flips an active loan to OVERPAID and closes it with arrears. Returns true only when there is a positive
+     * overpayment AND nothing is outstanding.
+     */
+    public boolean isGenuineOverpaymentReadyForRedraw() {
+        final BigDecimal totalOverpaidAmount = getTotalOverpaid();
+        final BigDecimal totalOutstandingAmount = this.summary == null ? null : this.summary.getTotalOutstanding();
+        return totalOverpaidAmount != null && totalOverpaidAmount.compareTo(BigDecimal.ZERO) > 0 && totalOutstandingAmount != null
+                && totalOutstandingAmount.compareTo(BigDecimal.ZERO) == 0;
+    }
+
     public void updateIsInterestRecalculationEnabled() {
         this.loanRepaymentScheduleDetail.updateIsInterestRecalculationEnabled(isInterestRecalculationEnabledForProduct());
     }

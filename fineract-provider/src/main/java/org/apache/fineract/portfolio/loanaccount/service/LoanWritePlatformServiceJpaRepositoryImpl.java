@@ -1214,13 +1214,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
 
             // CGLT-592: only sweep a genuine overpayment into the redraw account once the loan is fully
-            // settled. Sweeping a transient/false surplus while a balance is still outstanding mints
-            // phantom deposit-redraws that then flip an active loan to OVERPAID (closed with arrears).
-            final BigDecimal totalOverpaid = loan.getTotalOverpaid();
-            final BigDecimal totalOutstanding = loan.getSummary().getTotalOutstanding();
-            if (totalOverpaid != null && totalOverpaid.compareTo(BigDecimal.ZERO) > 0 && totalOutstanding != null
-                    && totalOutstanding.compareTo(BigDecimal.ZERO) == 0) {
-                loanRepositoryWrapper.updateRedrawAmount(loan, currentUser, loanId, totalOverpaid, true, transactionDate,
+            // settled. Sweeping a transient/false surplus while a balance is still outstanding creates a
+            // spurious deposit redraw that then flips an active loan to OVERPAID (closed with arrears).
+            if (loan.isGenuineOverpaymentReadyForRedraw()) {
+                loanRepositoryWrapper.updateRedrawAmount(loan, currentUser, loanId, loan.getTotalOverpaid(), true, transactionDate,
                         paymentDetail);
             }
             // update account to cache these value. They will be used on GLIM Overview Table and used to post Loan

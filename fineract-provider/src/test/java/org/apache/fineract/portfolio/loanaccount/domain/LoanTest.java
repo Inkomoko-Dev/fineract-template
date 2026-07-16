@@ -439,6 +439,42 @@ public class LoanTest {
         assertEquals(null, ReflectionTestUtils.getField(loan, "totalOverpaid"));
     }
 
+    // CGLT-592: the "closed with arrears" defect. A payment that leaves a balance outstanding must not be swept
+    // into a deposit redraw, so an active loan can never be flipped to OVERPAID and closed while it still owes.
+
+    @Test
+    public void redrawSweepIsBlockedWhileTheLoanStillHasAnOutstandingBalance() {
+        final Loan loan = redrawGateLoan(new BigDecimal("40.00"), new BigDecimal("40.00"));
+        assertFalse(loan.isGenuineOverpaymentReadyForRedraw());
+    }
+
+    @Test
+    public void redrawSweepIsAllowedOnlyWhenTheLoanIsFullySettledAndGenuinelyOverpaid() {
+        final Loan loan = redrawGateLoan(BigDecimal.ZERO, new BigDecimal("25.00"));
+        assertTrue(loan.isGenuineOverpaymentReadyForRedraw());
+    }
+
+    @Test
+    public void redrawSweepIsBlockedWhenSettledButNotOverpaid() {
+        final Loan loan = redrawGateLoan(BigDecimal.ZERO, null);
+        assertFalse(loan.isGenuineOverpaymentReadyForRedraw());
+    }
+
+    @Test
+    public void redrawSweepIsBlockedWhenThereIsNoOverpaymentEvenWithZeroOutstanding() {
+        final Loan loan = redrawGateLoan(BigDecimal.ZERO, BigDecimal.ZERO);
+        assertFalse(loan.isGenuineOverpaymentReadyForRedraw());
+    }
+
+    private Loan redrawGateLoan(final BigDecimal totalOutstanding, final BigDecimal totalOverpaid) {
+        final Loan loan = new Loan();
+        final LoanSummary summary = LoanSummary.create(BigDecimal.ZERO);
+        ReflectionTestUtils.setField(summary, "totalOutstanding", totalOutstanding);
+        ReflectionTestUtils.setField(loan, "summary", summary);
+        ReflectionTestUtils.setField(loan, "totalOverpaid", totalOverpaid);
+        return loan;
+    }
+
     @Test
     public void disbursementChargeAdjustmentRecomputesPaidAndOutstandingAmounts() {
         final LoanCharge loanCharge = buildLoanCharge();
