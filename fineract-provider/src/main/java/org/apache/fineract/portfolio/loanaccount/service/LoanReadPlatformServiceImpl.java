@@ -1078,7 +1078,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " coalesce((select sum(dlf.penalty_amount) from m_loan_daily_late_fee dlf where dlf.loan_id = l.id and dlf.is_active = true), 0) as dailyLateFeeChargedToDate,"
                     + " coalesce((select sum(lc2.amount_outstanding_derived) from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.loan_id = l.id and dlf2.is_active = true and lc2.is_active = true), 0) as dailyLateFeeOutstanding,"
                     + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
-                    + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(dlf3.penalty_amount) from m_loan_daily_late_fee dlf3 where dlf3.loan_id = l.id and dlf3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,"
+                    + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(lc3.amount) from m_loan_charge lc3 where lc3.loan_id = l.id and lc3.is_penalty = true and lc3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,"
                     + " la.total_overdue_derived as totalOverdue,"
                     + " la.overdue_since_date_derived as overdueSinceDate,"
                     + " l.sync_disbursement_with_meeting as syncDisbursementWithMeeting,"

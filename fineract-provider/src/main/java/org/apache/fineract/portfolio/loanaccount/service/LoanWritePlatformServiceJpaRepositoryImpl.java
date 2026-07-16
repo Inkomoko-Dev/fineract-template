@@ -1951,6 +1951,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     }
 
     private void validateAddLoanCharge(final Loan loan, final Charge chargeDefinition, final LoanCharge loanCharge) {
+        if (chargeDefinition.isPenalty()) {
+            this.loanDailyLateFeeService.validatePenaltyChargeAgainstCap(loan, loanCharge.amount());
+        }
         if (chargeDefinition.isOverdueInstallment()) {
             final String defaultUserMessage = "Installment charge cannot be added to the loan.";
             throw new LoanChargeCannotBeAddedException("loanCharge", "overdue.charge", defaultUserMessage, null,
