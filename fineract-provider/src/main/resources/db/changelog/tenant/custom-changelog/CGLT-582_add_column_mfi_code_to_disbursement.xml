@@ -26,6 +26,13 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
 
     <changeSet id="2026-07-02-cglt-582-add-column-mfi-code-to-disbursement" author="Omoi Nelson">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists
+                        tableName="m_loan_disbursement_detail"
+                        columnName="mfi_code"/>
+            </not>
+        </preConditions>
         <addColumn tableName="m_loan_disbursement_detail">
             <column name="mfi_code" type="VARCHAR(100)"/>
         </addColumn>
