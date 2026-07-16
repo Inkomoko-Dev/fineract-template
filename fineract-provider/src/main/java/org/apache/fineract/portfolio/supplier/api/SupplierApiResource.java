@@ -32,11 +32,14 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
 import org.apache.fineract.commands.domain.CommandWrapper;
 import org.apache.fineract.commands.service.CommandWrapperBuilder;
 import org.apache.fineract.commands.service.PortfolioCommandSourceWritePlatformService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
+import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.supplier.data.SupplierApiConstants;
 import org.apache.fineract.portfolio.supplier.data.SupplierData;
@@ -72,24 +75,12 @@ public class SupplierApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Supplier registration callback", description = "Upserts a supplier from an external financing partner (e.g. Kifiya)")
-    public String callback(@Parameter(hidden = true) final String apiRequestBodyAsJson) {
+    public Response callback(@Parameter(hidden = true) final String apiRequestBodyAsJson) {
         this.context.authenticatedUser().validateHasPermissionTo("CREATE_SUPPLIER");
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createSupplier().withJson(apiRequestBodyAsJson).build();
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
-        return this.toApiJsonSerializer.serialize(flattenCallbackResponse(result));
-    }
-
-    /**
-     * Partner contract expects a flat body: resourceId, externalId, sourceSystem, syncStatus.
-     */
-    private static Map<String, Object> flattenCallbackResponse(final CommandProcessingResult result) {
-        final Map<String, Object> response = new LinkedHashMap<>();
-        response.put("resourceId", result.resourceId());
-        final Map<String, Object> changes = result.getChanges();
-        if (changes != null) {
-            response.putAll(changes);
-        }
-        return response;
+        final Status status = isCreated(result) ? Status.CREATED : Status.OK;
+        return Response.status(status).entity(this.toApiJsonSerializer.serialize(flattenCallbackResponse(result))).build();
     }
 
     @GET
@@ -101,8 +92,12 @@ public class SupplierApiResource {
             @QueryParam("syncStatus") final String syncStatus, @QueryParam("offset") final Integer offset,
             @QueryParam("limit") final Integer limit) {
         this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-        final List<SupplierData> suppliers = this.readPlatformService.retrieveAll(search, businessSector, supplierType, country, syncStatus,
-                offset, limit);
+        if (offset != null && limit != null) {
+            final Page<SupplierData> suppliers = this.readPlatformService.retrieveAllPaged(search, businessSector, supplierType, country,
+                    syncStatus, offset, limit);
+            return this.toApiJsonSerializer.serialize(suppliers);
+        }
+        final List<SupplierData> suppliers = this.readPlatformService.retrieveAll(search, businessSector, supplierType, country, syncStatus);
         return this.toApiJsonSerializer.serialize(suppliers);
     }
 
@@ -125,5 +120,31 @@ public class SupplierApiResource {
     public String retrieveOne(@PathParam("supplierId") @Parameter(description = "supplierId") final Long supplierId) {
         this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
         return this.toApiJsonSerializer.serialize(this.readPlatformService.retrieveOne(supplierId));
+    }
+
+    /**
+     * Partner contract expects a flat body: resourceId, externalId, sourceSystem, syncStatus.
+     */
+    private static Map<String, Object> flattenCallbackResponse(final CommandProcessingResult result) {
+        final Map<String, Object> response = new LinkedHashMap<>();
+        response.put("resourceId", result.resourceId());
+        final Map<String, Object> changes = result.getChanges();
+        if (changes != null) {
+            changes.forEach((key, value) -> {
+                if (!SupplierApiConstants.CREATED.equals(key)) {
+                    response.put(key, value);
+                }
+            });
+        }
+        return response;
+    }
+
+    private static boolean isCreated(final CommandProcessingResult result) {
+        final Map<String, Object> changes = result.getChanges();
+        if (changes == null) {
+            return false;
+        }
+        final Object created = changes.get(SupplierApiConstants.CREATED);
+        return Boolean.TRUE.equals(created);
     }
 }
