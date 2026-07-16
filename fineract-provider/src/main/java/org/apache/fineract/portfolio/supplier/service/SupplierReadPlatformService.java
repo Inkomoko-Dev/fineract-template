@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.supplier.service;
 
 import java.util.List;
+import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.portfolio.supplier.data.SupplierData;
 import org.apache.fineract.portfolio.supplier.data.SupplierTemplateData;
 
@@ -26,7 +27,9 @@ public interface SupplierReadPlatformService {
 
     SupplierData retrieveOne(Long supplierId);
 
-    List<SupplierData> retrieveAll(String search, String businessSector, String supplierType, String country, String syncStatus,
+    List<SupplierData> retrieveAll(String search, String businessSector, String supplierType, String country, String syncStatus);
+
+    Page<SupplierData> retrieveAllPaged(String search, String businessSector, String supplierType, String country, String syncStatus,
             Integer offset, Integer limit);
 
     SupplierTemplateData retrieveTemplate();

@@ -24,6 +24,7 @@ import java.util.Locale;
 import java.util.stream.Collectors;
 import javax.persistence.criteria.Predicate;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.portfolio.supplier.data.SupplierData;
 import org.apache.fineract.portfolio.supplier.data.SupplierTemplateData;
 import org.apache.fineract.portfolio.supplier.domain.Supplier;
@@ -57,16 +58,23 @@ public class SupplierReadPlatformServiceImpl implements SupplierReadPlatformServ
 
     @Override
     public List<SupplierData> retrieveAll(final String search, final String businessSector, final String supplierType, final String country,
-            final String syncStatus, final Integer offset, final Integer limit) {
+            final String syncStatus) {
         final Specification<Supplier> spec = buildSpecification(search, businessSector, supplierType, country, syncStatus);
         final Sort sort = Sort.by(Sort.Direction.DESC, "lastModifiedDate");
-        final List<Supplier> suppliers;
-        if (offset != null && limit != null && offset >= 0 && limit > 0) {
-            suppliers = this.supplierRepository.findAll(spec, PageRequest.of(offset / limit, limit, sort)).getContent();
-        } else {
-            suppliers = this.supplierRepository.findAll(spec, sort);
-        }
-        return suppliers.stream().map(SupplierData::from).collect(Collectors.toList());
+        return this.supplierRepository.findAll(spec, sort).stream().map(SupplierData::from).collect(Collectors.toList());
+    }
+
+    @Override
+    public Page<SupplierData> retrieveAllPaged(final String search, final String businessSector, final String supplierType,
+            final String country, final String syncStatus, final Integer offset, final Integer limit) {
+        final Specification<Supplier> spec = buildSpecification(search, businessSector, supplierType, country, syncStatus);
+        final Sort sort = Sort.by(Sort.Direction.DESC, "lastModifiedDate");
+        final int safeOffset = offset == null || offset < 0 ? 0 : offset;
+        final int safeLimit = limit == null || limit <= 0 ? 15 : limit;
+        final org.springframework.data.domain.Page<Supplier> page = this.supplierRepository.findAll(spec,
+                PageRequest.of(safeOffset / safeLimit, safeLimit, sort));
+        final List<SupplierData> pageItems = page.getContent().stream().map(SupplierData::from).collect(Collectors.toList());
+        return new Page<>(pageItems, Math.toIntExact(page.getTotalElements()));
     }
 
     @Override

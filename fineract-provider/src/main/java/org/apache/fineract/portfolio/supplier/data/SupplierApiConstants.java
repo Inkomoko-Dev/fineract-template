@@ -40,4 +40,5 @@ public final class SupplierApiConstants {
     public static final String TIN = "tin";
     public static final String STATUS = "status";
     public static final String SYNC_STATUS = "syncStatus";
+    public static final String CREATED = "created";
 }

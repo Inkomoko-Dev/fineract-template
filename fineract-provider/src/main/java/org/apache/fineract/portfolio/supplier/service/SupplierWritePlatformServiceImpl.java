@@ -70,9 +70,11 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
         final SupplierStatus status = SupplierStatus.from(command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.STATUS));
 
         Supplier supplier = null;
+        final boolean created;
         try {
             final Optional<Supplier> existing = this.supplierRepository.findBySourceSystemAndExternalId(sourceSystem, externalId);
-            if (existing.isEmpty()) {
+            created = existing.isEmpty();
+            if (created) {
                 supplier = Supplier.create(sourceSystem, externalId, name, displayName, businessLicenseNumber, supplierType, businessSector,
                         category, country, tin, status);
             } else {
@@ -82,7 +84,7 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
             supplier.setRawPayload(command.json());
             this.supplierRepository.saveAndFlush(supplier);
             return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(supplier.getId())
-                    .with(buildCallbackChanges(supplier)).build();
+                    .with(buildCallbackChanges(supplier, created)).build();
         } catch (final RuntimeException ex) {
             LOG.error("Supplier upsert failed for sourceSystem={} externalId={}: {}", sourceSystem, externalId, ex.getMessage(), ex);
             if (supplier != null && supplier.getId() != null) {
@@ -97,11 +99,12 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
         }
     }
 
-    private static Map<String, Object> buildCallbackChanges(final Supplier supplier) {
+    private static Map<String, Object> buildCallbackChanges(final Supplier supplier, final boolean created) {
         final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put(SupplierApiConstants.EXTERNAL_ID, supplier.getExternalId());
         changes.put(SupplierApiConstants.SOURCE_SYSTEM, supplier.getSourceSystem());
         changes.put(SupplierApiConstants.SYNC_STATUS, SupplierSyncStatus.SUCCESS.name());
+        changes.put(SupplierApiConstants.CREATED, created);
         return changes;
     }
 
