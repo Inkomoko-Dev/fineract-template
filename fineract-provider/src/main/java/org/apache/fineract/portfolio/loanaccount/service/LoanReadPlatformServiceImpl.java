@@ -102,6 +102,7 @@ import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.CollectionData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
+import org.apache.fineract.portfolio.loanaccount.data.KenyaCapitalDisbursementDefaultsResult;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApplicationTimelineData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
@@ -1003,6 +1004,18 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 loanTransactionData.setSupplierName(disbursementDetail.getSupplier().getName());
                 loanTransactionData.setSupplierSourceSystem(disbursementDetail.getSupplier().getSourceSystem());
             }
+        }
+
+        final LocalDate templateDisbursementDate = loan.getExpectedDisbursedOnLocalDateForTemplate();
+        final KenyaCapitalDisbursementDefaultsResult kenyaCapitalDefaults = this.kenyaCapitalDisbursementDefaultsService
+                .resolve(loan, templateDisbursementDate);
+        if (kenyaCapitalDefaults.isKenyaCapital()) {
+            loanTransactionData.setKenyaCapitalDisbursementDefaults(true);
+            loanTransactionData.setDefaultDepartmentId(kenyaCapitalDefaults.getDepartmentId());
+            loanTransactionData.setDefaultDepartmentName(kenyaCapitalDefaults.getDepartmentName());
+            loanTransactionData.setDefaultBudgetLocation(kenyaCapitalDefaults.getBudgetLocation());
+            loanTransactionData.setBudgetReviewRequired(kenyaCapitalDefaults.isBudgetReviewRequired());
+            loanTransactionData.setBudgetLocation(kenyaCapitalDefaults.getBudgetLocation());
         }
 
         return loanTransactionData;
