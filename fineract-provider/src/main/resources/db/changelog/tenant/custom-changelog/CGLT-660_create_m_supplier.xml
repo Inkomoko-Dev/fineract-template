@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- 1. Create m_supplier table -->
+    <changeSet id="CGLT-660_create_m_supplier" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_supplier"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="m_supplier">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="source_system" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="external_id" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="display_name" type="VARCHAR(255)"/>
+            <column name="business_license_number" type="VARCHAR(100)"/>
+            <column name="supplier_type" type="VARCHAR(100)"/>
+            <column name="business_sector" type="VARCHAR(100)"/>
+            <column name="category" type="VARCHAR(100)"/>
+            <column name="country" type="VARCHAR(100)"/>
+            <column name="tin" type="VARCHAR(50)"/>
+            <column name="status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sync_status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_sync_error" type="VARCHAR(1000)"/>
+            <column name="raw_payload" type="TEXT"/>
+            <column name="created_date" type="DATETIME"/>
+            <column name="last_modified_date" type="DATETIME"/>
+        </createTable>
+
+        <addUniqueConstraint
+                tableName="m_supplier"
+                columnNames="source_system, external_id"
+                constraintName="uq_m_supplier_source_system_external_id"/>
+
+        <createIndex tableName="m_supplier" indexName="idx_m_supplier_sync_status">
+            <column name="sync_status"/>
+        </createIndex>
+
+        <createIndex tableName="m_supplier" indexName="idx_m_supplier_business_sector">
+            <column name="business_sector"/>
+        </createIndex>
+
+        <createIndex tableName="m_supplier" indexName="idx_m_supplier_country">
+            <column name="country"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- 2. Add CREATE_SUPPLIER permission -->
+    <changeSet id="CGLT-660_add_permission_CREATE_SUPPLIER" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'CREATE_SUPPLIER'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="CREATE_SUPPLIER"/>
+            <column name="entity_name" value="SUPPLIER"/>
+            <column name="action_name" value="CREATE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <!-- 3. Add READ_SUPPLIER permission -->
+    <changeSet id="CGLT-660_add_permission_READ_SUPPLIER" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'READ_SUPPLIER'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="READ_SUPPLIER"/>
+            <column name="entity_name" value="SUPPLIER"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
