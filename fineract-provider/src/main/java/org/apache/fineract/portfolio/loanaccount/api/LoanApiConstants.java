@@ -114,6 +114,8 @@ public interface LoanApiConstants {
     String EMI_AMOUNT_VARIATIONS_PARAMNAME = "emiAmountVariations";
     String COLLECTION_PARAMNAME = "collection";
     String DEPARTMENT_PARAM = "department";
+    String BUDGET_LOCATION_PARAM = "budgetLocation";
+    String BUDGET_REVIEW_REQUIRED_PARAM = "budgetReviewRequired";
     String DESCRIPTION_PARAM = "description";
     String KIVA_ID_PARAM = "kivaId";
 

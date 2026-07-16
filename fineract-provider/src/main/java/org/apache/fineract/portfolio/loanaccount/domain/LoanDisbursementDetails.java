@@ -165,6 +165,12 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
     @Column(name="mfi_code")
     private String mfiCode;
 
+    @Column(name = "budget_location", length = 255)
+    private String budgetLocation;
+
+    @Column(name = "budget_review_required")
+    private Boolean budgetReviewRequired;
+
     protected LoanDisbursementDetails() {
 
     }

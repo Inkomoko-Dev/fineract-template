@@ -134,6 +134,24 @@ public class LoanTransactionData {
     @Setter
     private String mfiCode;
 
+    @Setter
+    private Boolean kenyaCapitalDisbursementDefaults;
+
+    @Setter
+    private Long defaultDepartmentId;
+
+    @Setter
+    private String defaultDepartmentName;
+
+    @Setter
+    private String defaultBudgetLocation;
+
+    @Setter
+    private Boolean budgetReviewRequired;
+
+    @Setter
+    private String budgetLocation;
+
     private Long loanId;
     private String loanExternalId;
     private transient String transactionType;
