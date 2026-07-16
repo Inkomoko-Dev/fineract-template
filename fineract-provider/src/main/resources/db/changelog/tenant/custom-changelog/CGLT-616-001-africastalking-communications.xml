@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260709-01-communication-message-table" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="communication_message"/>
+            </not>
+        </preConditions>
+        <createTable tableName="communication_message">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="external_id" type="VARCHAR(100)"/>
+            <column name="channel" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="direction" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="recipient_type" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="client_id" type="BIGINT"/>
+            <column name="staff_id" type="BIGINT"/>
+            <column name="phone_number" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="message_body" type="TEXT"/>
+            <column name="template_name" type="VARCHAR(100)"/>
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status_detail" type="VARCHAR(255)"/>
+            <column name="idempotency_key" type="VARCHAR(100)"/>
+            <column name="created_date" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+            <column name="delivered_date" type="datetime"/>
+            <column name="read_date" type="datetime"/>
+        </createTable>
+        <createIndex indexName="idx_communication_message_external_id" tableName="communication_message">
+            <column name="external_id"/>
+        </createIndex>
+        <createIndex indexName="idx_communication_message_phone_number" tableName="communication_message">
+            <column name="phone_number"/>
+        </createIndex>
+        <createIndex indexName="idx_communication_message_status" tableName="communication_message">
+            <column name="status"/>
+        </createIndex>
+        <addUniqueConstraint columnNames="idempotency_key" constraintName="uk_communication_message_idempotency"
+                             tableName="communication_message"/>
+    </changeSet>
+
+    <changeSet id="20260709-02-communication-webhook-event-table" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="communication_webhook_event"/>
+            </not>
+        </preConditions>
+        <createTable tableName="communication_webhook_event">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="event_id" type="VARCHAR(150)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_type" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="payload_hash" type="VARCHAR(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="processed" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="processed_date" type="datetime"/>
+            <column name="created_date" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint columnNames="event_id" constraintName="uk_communication_webhook_event_id"
+                             tableName="communication_webhook_event"/>
+    </changeSet>
+
+    <changeSet id="20260709-03-voice-call-log-table" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="voice_call_log"/>
+            </not>
+        </preConditions>
+        <createTable tableName="voice_call_log">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="external_session_id" type="VARCHAR(100)"/>
+            <column name="direction" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="caller_number" type="VARCHAR(50)"/>
+            <column name="destination_number" type="VARCHAR(50)"/>
+            <column name="client_id" type="BIGINT"/>
+            <column name="staff_id" type="BIGINT"/>
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="duration_seconds" type="INT"/>
+            <column name="recording_url" type="VARCHAR(500)"/>
+            <column name="dtmf_digits" type="VARCHAR(50)"/>
+            <column name="created_date" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex indexName="idx_voice_call_log_session_id" tableName="voice_call_log">
+            <column name="external_session_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

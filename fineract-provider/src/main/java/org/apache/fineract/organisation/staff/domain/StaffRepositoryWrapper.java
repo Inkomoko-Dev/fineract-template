@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.organisation.staff.domain;
 
+import java.util.List;
 import org.apache.fineract.organisation.staff.exception.StaffNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -60,5 +61,13 @@ public class StaffRepositoryWrapper {
 
     public void save(final Staff staff) {
         this.repository.save(staff);
+    }
+
+    public Staff findByMobileNo(final String mobileNo) {
+        if (mobileNo == null || mobileNo.isBlank()) {
+            return null;
+        }
+        final List<Staff> staffMembers = this.repository.findByMobileNumbers(List.of(mobileNo));
+        return staffMembers.isEmpty() ? null : staffMembers.get(0);
     }
 }

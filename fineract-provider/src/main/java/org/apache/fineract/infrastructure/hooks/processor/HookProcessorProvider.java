@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.hooks.processor;
 import static org.apache.fineract.infrastructure.hooks.api.HookApiConstants.elasticSearchTemplateName;
 import static org.apache.fineract.infrastructure.hooks.api.HookApiConstants.emailTemplateName;
 import static org.apache.fineract.infrastructure.hooks.api.HookApiConstants.httpSMSTemplateName;
+import static org.apache.fineract.infrastructure.hooks.api.HookApiConstants.whatsAppTemplateName;
 import static org.apache.fineract.infrastructure.hooks.api.HookApiConstants.smsTemplateName;
 import static org.apache.fineract.infrastructure.hooks.api.HookApiConstants.webTemplateName;
 
@@ -53,7 +54,9 @@ public class HookProcessorProvider implements ApplicationContextAware {
             processor = this.applicationContext.getBean("elasticSearchHookProcessor", ElasticSearchHookProcessor.class);
         } else if (templateName.equals(httpSMSTemplateName)) {
             processor = this.applicationContext.getBean("messageGatewayHookProcessor", MessageGatewayHookProcessor.class);
-        }else if (templateName.equals(emailTemplateName)) {
+        } else if (templateName.equals(whatsAppTemplateName)) {
+            processor = this.applicationContext.getBean("africasTalkingHookProcessor", AfricasTalkingHookProcessor.class);
+        } else if (templateName.equals(emailTemplateName)) {
             processor = this.applicationContext.getBean("emailHookProcessor", EmailHookProcessor.class);
         }else {
             processor = null;

@@ -24,7 +24,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecificationExecutor<Client> {
+public interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecificationExecutor<Client> {
 
     String FIND_CLIENT_BY_ACCOUNT_NUMBER = "select client from Client client where client.accountNumber = :accountNumber";
 
@@ -37,4 +37,7 @@ interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecification
     @Query("select client from Client client where client.isOdooCustomerPosted= :isOdooCustomerPosted and client.isUpdatedToOdoo = :isUpdatedToOdoo")
     List<Client> getClientUpdatedDetailsByIsUpdatedToOdoo(@Param("isOdooCustomerPosted") boolean isOdooCustomerPosted,
             @Param("isUpdatedToOdoo") boolean isUpdatedToOdoo);
+
+    @Query("select client from Client client where client.mobileNo in :mobileNumbers")
+    List<Client> findByMobileNumbers(@Param("mobileNumbers") List<String> mobileNumbers);
 }

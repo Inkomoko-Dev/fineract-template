@@ -52,6 +52,12 @@ public class IntegrationHttpClientConfig {
         return buildClient("fineract.integrations.kiva.http");
     }
 
+    @Bean
+    @Qualifier("africasTalkingHttpClient")
+    public OkHttpClient africasTalkingHttpClient() {
+        return buildClient("fineract.integrations.africastalking.http");
+    }
+
     private OkHttpClient buildClient(String prefix) {
         return new OkHttpClient.Builder()
                 .connectTimeout(getLong(prefix + ".connectTimeoutSeconds", DEFAULT_CONNECT_TIMEOUT_SECONDS), TimeUnit.SECONDS)
