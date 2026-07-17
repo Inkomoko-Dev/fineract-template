@@ -1630,23 +1630,42 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         /**
-         * Disbursement detail rows can store net disbursal for insurance-at-disbursement loans while the
-         * repayment schedule still amortizes approved principal. Use the schedule principal base for the
-         * running loan-balance column so the final installment does not display a negative balance.
+         * Disbursement detail rows can store net disbursal, zero, or null principal (common after
+         * insurance-at-disbursement adjustments / schedule repairs) while the repayment schedule still
+         * amortizes approved principal. For single-disbursement loans, prefer the schedule principal
+         * whenever the detail principal is missing or understated so the running loan-balance column
+         * does not go negative.
          */
         private BigDecimal principalForLoanBalanceTracking(final DisbursementData data) {
+            final BigDecimal schedulePrincipal = this.disbursement.amount() == null ? BigDecimal.ZERO : this.disbursement.amount();
+            if (this.disbursementData.size() != 1) {
+                return data == null || data.amount() == null ? BigDecimal.ZERO : data.amount();
+            }
             if (data == null || data.amount() == null) {
-                return BigDecimal.ZERO;
+                return schedulePrincipal;
             }
             final BigDecimal disbursementDetailPrincipal = data.amount();
-            if (this.disbursementData.size() != 1 || this.disbursementChargeAmounts.chargeCount <= 0) {
-                return disbursementDetailPrincipal;
-            }
-            final BigDecimal schedulePrincipal = this.disbursement.amount() == null ? BigDecimal.ZERO : this.disbursement.amount();
             if (schedulePrincipal.compareTo(disbursementDetailPrincipal) > 0) {
                 return schedulePrincipal;
             }
             return disbursementDetailPrincipal;
+        }
+
+        private void applySingleDisbursementPrincipalIfMissing(final Integer period) {
+            if (this.disbursementData.size() != 1 || this.outstandingLoanPrincipalBalance.compareTo(BigDecimal.ZERO) != 0) {
+                return;
+            }
+            if (period != null && period > 1) {
+                return;
+            }
+            final DisbursementData onlyDisbursement = this.disbursementData.iterator().next();
+            if (!onlyDisbursement.isDisbursed()) {
+                return;
+            }
+            final BigDecimal trackedPrincipal = principalForLoanBalanceTracking(onlyDisbursement);
+            if (trackedPrincipal.compareTo(BigDecimal.ZERO) > 0) {
+                this.outstandingLoanPrincipalBalance = trackedPrincipal;
+            }
         }
 
         public String schema() {
@@ -1753,6 +1772,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                         }
                     }
                 }
+                // Single-disburse loans can miss the date match after schedule repairs (or when
+                // detail principal is zero), leaving Balance of Loan as a cumulative negative.
+                applySingleDisbursementPrincipalIfMissing(period);
                 totalPrincipalDisbursed = totalPrincipalDisbursed.add(principal);
 
                 Integer daysInPeriod = 0;
