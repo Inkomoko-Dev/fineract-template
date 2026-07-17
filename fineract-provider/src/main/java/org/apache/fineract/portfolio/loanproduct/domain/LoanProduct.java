@@ -230,6 +230,10 @@ public class LoanProduct extends AbstractPersistableCustom {
     private Boolean maintainInterestRateOnLoanTermExtension;
     @Column(name = "is_islamic")
     private Boolean isIslamic;
+    @Column(name = "enable_third_party_disbursement", nullable = false)
+    private boolean enableThirdPartyDisbursement = false;
+    @Column(name = "third_party_disbursement_provider", length = 50)
+    private String thirdPartyDisbursementProvider;
     @Column(name = "allowable_dscr")
     private BigDecimal allowableDSCR;
 
@@ -428,24 +432,27 @@ public class LoanProduct extends AbstractPersistableCustom {
 
         final BigDecimal allowableDSCR = command.bigDecimalValueOfParameterNamed(LoanProductConstants.allowableDSCR);
 
-        return new LoanProduct(fund, loanTransactionProcessingStrategy, name, shortName, description, currency, principal, minPrincipal,
-                maxPrincipal, interestRatePerPeriod, minInterestRatePerPeriod, maxInterestRatePerPeriod, interestFrequencyType,
-                annualInterestRate, interestMethod, interestCalculationPeriodMethod, allowPartialPeriodInterestCalcualtion, repaymentEvery,
-                repaymentFrequencyType, numberOfRepayments, minNumberOfRepayments, maxNumberOfRepayments, graceOnPrincipalPayment,
-                recurringMoratoriumOnPrincipalPeriods, graceOnInterestPayment, graceOnInterestCharged, amortizationMethod,
-                inArrearsTolerance, productCharges, accountingRuleType, includeInBorrowerCycle, startDate, closeDate, externalId,
-                useBorrowerCycle, loanProductBorrowerCycleVariations, multiDisburseLoan, maxTrancheCount, outstandingLoanBalance,
-                graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
-                interestRecalculationSettings, minimumDaysBetweenDisbursalAndFirstRepayment, holdGuarantorFunds,
-                loanProductGuaranteeDetails, principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion,
-                canDefineEmiAmount, installmentAmountInMultiplesOf, loanConfigurableAttributes, isLinkedToFloatingInterestRates,
-                floatingRate, interestRateDifferential, minDifferentialLendingRate, maxDifferentialLendingRate,
-                defaultDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed,
-                minimumGapBetweenInstallments, maximumGapBetweenInstallments, syncExpectedWithDisbursementDate, canUseForTopup,
-                isEqualAmortization, productRates, fixedPrincipalPercentagePerInstallment, disallowExpectedDisbursements,
-                allowApprovedDisbursedAmountsOverApplied, overAppliedCalculationType, overAppliedNumber, maxNumberOfLoanExtensionsAllowed,
-                loanTermIncludesToppedUpLoanTerm, isAccountLevelArrearsToleranceEnable, isBnplLoanProduct, requiresEquityContribution,
-                equityContributionLoanPercentage, maintainInterest, isIslamic, allowableDSCR, productCategory, productType);
+        final LoanProduct product = new LoanProduct(fund, loanTransactionProcessingStrategy, name, shortName, description, currency,
+                principal, minPrincipal, maxPrincipal, interestRatePerPeriod, minInterestRatePerPeriod, maxInterestRatePerPeriod,
+                interestFrequencyType, annualInterestRate, interestMethod, interestCalculationPeriodMethod,
+                allowPartialPeriodInterestCalcualtion, repaymentEvery, repaymentFrequencyType, numberOfRepayments, minNumberOfRepayments,
+                maxNumberOfRepayments, graceOnPrincipalPayment, recurringMoratoriumOnPrincipalPeriods, graceOnInterestPayment,
+                graceOnInterestCharged, amortizationMethod, inArrearsTolerance, productCharges, accountingRuleType, includeInBorrowerCycle,
+                startDate, closeDate, externalId, useBorrowerCycle, loanProductBorrowerCycleVariations, multiDisburseLoan, maxTrancheCount,
+                outstandingLoanBalance, graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType,
+                isInterestRecalculationEnabled, interestRecalculationSettings, minimumDaysBetweenDisbursalAndFirstRepayment,
+                holdGuarantorFunds, loanProductGuaranteeDetails, principalThresholdForLastInstallment,
+                accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineEmiAmount, installmentAmountInMultiplesOf, loanConfigurableAttributes,
+                isLinkedToFloatingInterestRates, floatingRate, interestRateDifferential, minDifferentialLendingRate,
+                maxDifferentialLendingRate, defaultDifferentialLendingRate, isFloatingInterestRateCalculationAllowed,
+                isVariableInstallmentsAllowed, minimumGapBetweenInstallments, maximumGapBetweenInstallments,
+                syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, productRates, fixedPrincipalPercentagePerInstallment,
+                disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied, overAppliedCalculationType, overAppliedNumber,
+                maxNumberOfLoanExtensionsAllowed, loanTermIncludesToppedUpLoanTerm, isAccountLevelArrearsToleranceEnable, isBnplLoanProduct,
+                requiresEquityContribution, equityContributionLoanPercentage, maintainInterest, isIslamic, allowableDSCR, productCategory,
+                productType);
+        product.applyThirdPartyDisbursementSettings(command);
+        return product;
 
     }
 
@@ -1326,6 +1333,19 @@ public class LoanProduct extends AbstractPersistableCustom {
             this.isIslamic = newValue;
         }
 
+        if (command.parameterExists(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT)
+                || command.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER)) {
+            final boolean previousEnabled = this.enableThirdPartyDisbursement;
+            final String previousProvider = this.thirdPartyDisbursementProvider;
+            applyThirdPartyDisbursementSettings(command);
+            if (previousEnabled != this.enableThirdPartyDisbursement) {
+                actualChanges.put(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT, this.enableThirdPartyDisbursement);
+            }
+            if (!java.util.Objects.equals(previousProvider, this.thirdPartyDisbursementProvider)) {
+                actualChanges.put(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, this.thirdPartyDisbursementProvider);
+            }
+        }
+
         Long existingCategoryId = null;
         if (this.productCategory != null) {
             existingCategoryId = this.productCategory.getId();
@@ -1800,6 +1820,43 @@ public class LoanProduct extends AbstractPersistableCustom {
 
     public Boolean isIslamic() {
         return isIslamic;
+    }
+
+    public boolean isEnableThirdPartyDisbursement() {
+        return this.enableThirdPartyDisbursement;
+    }
+
+    public void setEnableThirdPartyDisbursement(final boolean enableThirdPartyDisbursement) {
+        this.enableThirdPartyDisbursement = enableThirdPartyDisbursement;
+    }
+
+    public String getThirdPartyDisbursementProvider() {
+        return this.thirdPartyDisbursementProvider;
+    }
+
+    public void setThirdPartyDisbursementProvider(final String thirdPartyDisbursementProvider) {
+        this.thirdPartyDisbursementProvider = thirdPartyDisbursementProvider;
+    }
+
+    /**
+     * Flag off clears provider. Flag on keeps/normalizes provider (required enforced by validator).
+     */
+    public void applyThirdPartyDisbursementSettings(final JsonCommand command) {
+        final boolean enabled;
+        if (command.parameterExists(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT)) {
+            enabled = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT);
+        } else {
+            enabled = this.enableThirdPartyDisbursement;
+        }
+        this.enableThirdPartyDisbursement = enabled;
+        if (!enabled) {
+            this.thirdPartyDisbursementProvider = null;
+            return;
+        }
+        if (command.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER)) {
+            this.thirdPartyDisbursementProvider = ThirdPartyDisbursementProvider
+                    .normalize(command.stringValueOfParameterNamedAllowingNull(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER));
+        }
     }
 
     public BigDecimal getAllowableDSCR() {
