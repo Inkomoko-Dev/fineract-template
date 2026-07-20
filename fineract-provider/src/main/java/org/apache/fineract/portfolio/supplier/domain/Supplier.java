@@ -24,9 +24,12 @@ import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.EnumType;
 import javax.persistence.Enumerated;
+import javax.persistence.JoinColumn;
 import javax.persistence.Lob;
+import javax.persistence.ManyToOne;
 import javax.persistence.Table;
 import javax.persistence.UniqueConstraint;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -89,6 +92,19 @@ public class Supplier extends AbstractPersistableCustom {
     @Column(name = "raw_payload")
     private String rawPayload;
 
+    @ManyToOne
+    @JoinColumn(name = "payment_type_id")
+    private PaymentType paymentType;
+
+    @Column(name = "payment_phone_number", length = 50)
+    private String paymentPhoneNumber;
+
+    @Column(name = "payment_account_number", length = 150)
+    private String paymentAccountNumber;
+
+    @Column(name = "payment_bank_name", length = 150)
+    private String paymentBankName;
+
     @Column(name = "created_date")
     private LocalDateTime createdDate;
 
@@ -119,6 +135,22 @@ public class Supplier extends AbstractPersistableCustom {
         this.syncStatus = SupplierSyncStatus.FAILED;
         this.lastSyncError = truncateError(error);
         this.lastModifiedDate = DateUtils.getLocalDateTimeOfTenant();
+    }
+
+    public void updatePaymentDetails(final PaymentType paymentType, final String paymentPhoneNumber, final String paymentAccountNumber,
+            final String paymentBankName) {
+        this.paymentType = paymentType;
+        this.paymentPhoneNumber = trimOptional(paymentPhoneNumber);
+        this.paymentAccountNumber = trimOptional(paymentAccountNumber);
+        this.paymentBankName = trimOptional(paymentBankName);
+        this.lastModifiedDate = DateUtils.getLocalDateTimeOfTenant();
+    }
+
+    public String resolveBeneficiaryName() {
+        if (displayName != null && !displayName.isBlank()) {
+            return displayName;
+        }
+        return name;
     }
 
     private void applyProfileFields(final String name, final String displayName, final String businessLicenseNumber,

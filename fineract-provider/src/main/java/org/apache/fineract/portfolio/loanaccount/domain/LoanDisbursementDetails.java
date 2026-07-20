@@ -27,6 +27,7 @@ import javax.persistence.Entity;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.Table;
+import org.apache.fineract.portfolio.supplier.domain.Supplier;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -164,6 +165,10 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
 
     @Column(name="mfi_code")
     private String mfiCode;
+
+    @ManyToOne
+    @JoinColumn(name = "supplier_id")
+    private Supplier supplier;
 
     protected LoanDisbursementDetails() {
 

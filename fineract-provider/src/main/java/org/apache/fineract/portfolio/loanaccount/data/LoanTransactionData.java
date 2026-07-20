@@ -134,6 +134,21 @@ public class LoanTransactionData {
     @Setter
     private String mfiCode;
 
+    @Setter
+    private String paymentTypeName;
+
+    @Setter
+    private Long supplierId;
+
+    @Setter
+    private String supplierExternalId;
+
+    @Setter
+    private String supplierName;
+
+    @Setter
+    private String supplierSourceSystem;
+
     private Long loanId;
     private String loanExternalId;
     private transient String transactionType;
