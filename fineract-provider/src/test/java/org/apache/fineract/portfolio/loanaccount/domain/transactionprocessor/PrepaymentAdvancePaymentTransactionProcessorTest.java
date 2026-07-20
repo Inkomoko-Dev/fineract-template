@@ -40,6 +40,7 @@ import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.EarlyPaymentLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.FineractStyleLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.HeavensFamilyLoanRepaymentScheduleTransactionProcessor;
@@ -92,7 +93,7 @@ class PrepaymentAdvancePaymentTransactionProcessorTest {
                 DUE_DATE.plusMonths(1), new BigDecimal("500.00"), new BigDecimal("50.00"), BigDecimal.ZERO, BigDecimal.ZERO, false, null);
         final List<LoanRepaymentScheduleInstallment> installments = new ArrayList<>(List.of(currentInstallment, futureInstallment));
 
-        final LoanTransaction repayment = LoanTransaction.repaymentType(null, mock(Office.class), Money.of(KES, new BigDecimal("1050.00")),
+        final LoanTransaction repayment = LoanTransaction.repaymentType(LoanTransactionType.REPAYMENT, mock(Office.class), Money.of(KES, new BigDecimal("1050.00")),
                 null, PREPAYMENT_DATE, null);
 
         processor.handleTransaction(repayment, KES, installments, Set.of());
@@ -103,8 +104,12 @@ class PrepaymentAdvancePaymentTransactionProcessorTest {
 
         assertAmount("500.00", principalByInstallment.getOrDefault(1, BigDecimal.ZERO));
         assertAmount("500.00", principalByInstallment.getOrDefault(2, BigDecimal.ZERO));
-        assertAmount("50.00", repayment.getInterestPortion(KES).getAmount());
+        // Paid on 2026-01-16, half-way through the current installment: only the pro-rata accrued
+        // interest (25 of 50) is charged; the future installment has accrued none yet. The 1,050
+        // covers 1,000 principal + 25 interest, leaving 25 as overpayment.
         assertAmount("1000.00", repayment.getPrincipalPortion(KES).getAmount());
+        assertAmount("25.00", repayment.getInterestPortion(KES).getAmount());
+        assertAmount("25.00", repayment.getOverPaymentPortion(KES).getAmount());
         assertAmount("0.00", currentInstallment.getTotalOutstanding(KES).getAmount());
         assertAmount("0.00", futureInstallment.getTotalOutstanding(KES).getAmount());
     }
@@ -121,12 +126,14 @@ class PrepaymentAdvancePaymentTransactionProcessorTest {
                     new BigDecimal("1666.67"), new BigDecimal("166.67"), BigDecimal.ZERO, BigDecimal.ZERO, false, null));
         }
 
-        final LoanTransaction repayment = LoanTransaction.repaymentType(null, mock(Office.class), Money.of(KES, new BigDecimal("10000.00")),
+        final LoanTransaction repayment = LoanTransaction.repaymentType(LoanTransactionType.REPAYMENT, mock(Office.class), Money.of(KES, new BigDecimal("10000.00")),
                 null, PREPAYMENT_DATE, null);
 
         processor.handleTransaction(repayment, KES, installments, Set.of());
 
-        assertAmount("10000.00", repayment.getPrincipalPortion(KES).getAmount());
+        // Principal is not inflated beyond the payment: the pro-rata accrued interest on the current
+        // installment (~80.65) is taken first, leaving 9,919.35 mapped to principal.
+        assertAmount("9919.35", repayment.getPrincipalPortion(KES).getAmount());
         assertAmount("10000.00", repayment.getAmount(KES).getAmount());
     }
 
