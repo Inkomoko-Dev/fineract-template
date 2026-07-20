@@ -1472,6 +1472,53 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         doPostLoanTransactionChecks(getLastUserTransactionDate(), loanLifecycleStateMachine);
     }
 
+    /**
+     * CGLT-649: A repayment that overpays a loan auto-creates a DEPOSIT_REDRAW (see the sweep in
+     * {@code LoanWritePlatformServiceJpaRepositoryImpl.makeLoanRepayment}). When that repayment is later
+     * reversed / adjusted / undone, the redraw it produced is orphaned: {@link #calculateTotalOverpayment()}
+     * keeps subtracting the still-live redraw, so the loan is stranded in OVERPAID with a phantom, withdrawable
+     * redraw balance even though it now owes principal/interest again (see loan 000422992). This reverses every
+     * live deposit-redraw, recomputes the summary and demotes the status out of OVERPAID when the loan is no
+     * longer overpaid.
+     * <p>
+     * It is intentionally skipped when a withdrawal-redraw is still live: in that case cash has already left the
+     * institution via the redraw and the situation needs manual / finance handling rather than an automatic
+     * unwind. {@code doPostLoanTransactionChecks} never demotes OVERPAID -&gt; ACTIVE, so the status transition
+     * is applied explicitly here.
+     *
+     * @return the total deposit-redraw amount reversed (zero when nothing was reversed or the unwind was skipped)
+     */
+    public Money reversePhantomDepositRedraws() {
+        final MonetaryCurrency currency = loanCurrency();
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isWithdrawalRedraw() && !transaction.isReversed()) {
+                return Money.zero(currency);
+            }
+        }
+        Money reversedTotal = Money.zero(currency);
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isDepositRedraw() && !transaction.isReversed()) {
+                reversedTotal = reversedTotal.plus(transaction.getAmount(currency));
+                transaction.reverse();
+                transaction.manuallyAdjustedOrReversed();
+            }
+        }
+        if (reversedTotal.isGreaterThanZero()) {
+            updateLoanSummaryDerivedFields();
+            if (this.loanStatus.equals(LoanStatus.OVERPAID.getValue()) && !isOverPaid() && !this.status().isClosedWrittenOff()) {
+                if (this.summary.isRepaidInFull(currency)) {
+                    this.loanStatus = LoanStatus.CLOSED_OBLIGATIONS_MET.getValue();
+                    this.closedOnDate = getLastUserTransactionDate();
+                } else {
+                    this.loanStatus = LoanStatus.ACTIVE.getValue();
+                    this.closedOnDate = null;
+                    this.actualMaturityDate = null;
+                }
+            }
+        }
+        return reversedTotal;
+    }
+
     public Map<String, Object> loanApplicationModification(final JsonCommand command, final Set<LoanCharge> possiblyModifedLoanCharges,
             final Set<LoanCollateralManagement> possiblyModifedLoanCollateralItems, final AprCalculator aprCalculator,
             boolean isChargesModified, final LoanProduct loanProduct) {

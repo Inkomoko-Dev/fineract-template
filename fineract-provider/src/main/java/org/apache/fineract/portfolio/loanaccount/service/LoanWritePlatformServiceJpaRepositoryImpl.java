@@ -1426,6 +1426,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
         }
 
+        // CGLT-649: symmetric counterpart to the makeLoanRepayment redraw sweep. If reversing/adjusting this
+        // repayment has left the loan owing money again (outstanding > 0) while a deposit-redraw is still live,
+        // that redraw is now phantom - a loan with arrears cannot hold a redrawable surplus. Unwind it and zero
+        // the redraw account so the loan is not stranded in OVERPAID with a withdrawable balance it never funded
+        // (root cause of loan 000422992, missed by the CGLT-592 sweep).
+        final BigDecimal outstandingAfterAdjustment = loan.getSummary() == null ? null : loan.getSummary().getTotalOutstanding();
+        if (outstandingAfterAdjustment != null && outstandingAfterAdjustment.compareTo(BigDecimal.ZERO) > 0) {
+            this.loanRepositoryWrapper.reversePhantomRedrawsAndZeroAccount(loan, currentUser, loanId);
+        }
+
         final String noteText = command.stringValueOfParameterNamed("note");
         String enhancedNoteText = noteText;
         if (bypassTransferDateValidation){
