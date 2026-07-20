@@ -134,6 +134,39 @@ public class LoanTransactionData {
     @Setter
     private String mfiCode;
 
+    @Setter
+    private Boolean kenyaCapitalDisbursementDefaults;
+
+    @Setter
+    private Long defaultDepartmentId;
+
+    @Setter
+    private String defaultDepartmentName;
+
+    @Setter
+    private String defaultBudgetLocation;
+
+    @Setter
+    private Boolean budgetReviewRequired;
+
+    @Setter
+    private String budgetLocation;
+
+    @Setter
+    private String paymentTypeName;
+
+    @Setter
+    private Long supplierId;
+
+    @Setter
+    private String supplierExternalId;
+
+    @Setter
+    private String supplierName;
+
+    @Setter
+    private String supplierSourceSystem;
+
     private Long loanId;
     private String loanExternalId;
     private transient String transactionType;
@@ -361,7 +394,7 @@ public class LoanTransactionData {
         this.netDisbursalAmount = netDisbursalAmount;
         this.principalPortion = principalPortion;
         this.interestPortion = interestPortion;
-        this.feeChargesPortion = feeChargesPortion;
+        this.feeChargesPortion = displayFeeChargesPortion(transactionType, feeChargesPortion);
         this.penaltyChargesPortion = penaltyChargesPortion;
         this.unrecognizedIncomePortion = unrecognizedIncomePortion;
         this.paymentTypeOptions = paymentTypeOptions;
@@ -429,7 +462,7 @@ public class LoanTransactionData {
         this.netDisbursalAmount = netDisbursalAmount;
         this.principalPortion = principalPortion;
         this.interestPortion = interestPortion;
-        this.feeChargesPortion = feeChargesPortion;
+        this.feeChargesPortion = displayFeeChargesPortion(transactionType, feeChargesPortion);
         this.penaltyChargesPortion = penaltyChargesPortion;
         this.unrecognizedIncomePortion = unrecognizedIncomePortion;
         this.paymentTypeOptions = paymentOptions;
@@ -442,6 +475,14 @@ public class LoanTransactionData {
         this.manuallyReversed = manuallyReversed;
         this.possibleNextRepaymentDate = possibleNextRepaymentDate;
         this.createdDate = createdDate;
+    }
+
+    private static BigDecimal displayFeeChargesPortion(final LoanTransactionEnumData transactionType,
+            final BigDecimal feeChargesPortion) {
+        if (transactionType != null && transactionType.isDisbursementChargeAdjustment() && feeChargesPortion != null) {
+            return feeChargesPortion.abs();
+        }
+        return feeChargesPortion;
     }
 
     public LocalDate dateOf() {

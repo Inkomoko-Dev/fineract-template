@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- Supplier payment details for Kifiya disbursement instruction -->
+    <changeSet id="CGLT-670_add_supplier_payment_columns" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_supplier" columnName="payment_type_id"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_supplier">
+            <column name="payment_type_id" type="BIGINT"/>
+            <column name="payment_phone_number" type="VARCHAR(50)"/>
+            <column name="payment_account_number" type="VARCHAR(150)"/>
+            <column name="payment_bank_name" type="VARCHAR(150)"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Link loan disbursement detail to supplier -->
+    <changeSet id="CGLT-670_add_supplier_id_to_loan_disbursement_detail" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_disbursement_detail" columnName="supplier_id"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan_disbursement_detail">
+            <column name="supplier_id" type="BIGINT"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Permission for Kifiya disbursement instruction callback -->
+    <changeSet id="CGLT-670_add_permission_DISBURSEMENTINSTRUCTION_LOAN" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'DISBURSEMENTINSTRUCTION_LOAN'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="DISBURSEMENTINSTRUCTION_LOAN"/>
+            <column name="entity_name" value="LOAN"/>
+            <column name="action_name" value="DISBURSEMENTINSTRUCTION"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <!-- Permission for Kifiya / partner loan discovery -->
+    <changeSet id="CGLT-670_add_permission_READ_THIRDPARTYDISBURSEMENTLOAN_LOAN" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'READ_THIRDPARTYDISBURSEMENTLOAN_LOAN'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="READ_THIRDPARTYDISBURSEMENTLOAN_LOAN"/>
+            <column name="entity_name" value="LOAN"/>
+            <column name="action_name" value="READTHIRDPARTYDISBURSEMENTLOAN"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-670_create_m_loan_supplier_disbursement_audit" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_supplier_disbursement_audit"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_supplier_disbursement_audit">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_disbursement_detail_id" type="BIGINT"/>
+            <column name="change_source" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="previous_supplier_id" type="BIGINT"/>
+            <column name="new_supplier_id" type="BIGINT"/>
+            <column name="previous_payment_to" type="INT"/>
+            <column name="new_payment_to" type="INT"/>
+            <column name="previous_beneficiary_name" type="VARCHAR(150)"/>
+            <column name="new_beneficiary_name" type="VARCHAR(150)"/>
+            <column name="previous_client_phone_number" type="VARCHAR(50)"/>
+            <column name="new_client_phone_number" type="VARCHAR(50)"/>
+            <column name="previous_client_account_number" type="VARCHAR(150)"/>
+            <column name="new_client_account_number" type="VARCHAR(150)"/>
+            <column name="previous_client_bank_name" type="VARCHAR(150)"/>
+            <column name="new_client_bank_name" type="VARCHAR(150)"/>
+            <column name="previous_payment_type_id" type="BIGINT"/>
+            <column name="new_payment_type_id" type="BIGINT"/>
+            <column name="changed_by_id" type="BIGINT"/>
+            <column name="changed_by_username" type="VARCHAR(100)"/>
+            <column name="changed_on_date" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="CGLT-670_add_permission_OVERRIDE_THIRDPARTYDISBURSEMENTRECIPIENT_LOAN" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'OVERRIDE_THIRDPARTYDISBURSEMENTRECIPIENT_LOAN'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="OVERRIDE_THIRDPARTYDISBURSEMENTRECIPIENT_LOAN"/>
+            <column name="entity_name" value="LOAN"/>
+            <column name="action_name" value="OVERRIDE_THIRDPARTYDISBURSEMENTRECIPIENT"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

@@ -36,6 +36,18 @@ public class DisbursementData implements Comparable<DisbursementData> {
     private final String loanChargeId;
     private final BigDecimal chargeAmount;
     private final BigDecimal waivedChargeAmount;
+    private final Integer paymentTo;
+    private final String disbursementType;
+    private final String beneficiaryName;
+    private final String clientPhoneNumber;
+    private final String clientAccountNumber;
+    private final String clientBankName;
+    private final Long paymentTypeId;
+    private final String paymentTypeName;
+    private final Long supplierId;
+    private final String supplierExternalId;
+    private final String supplierName;
+    private final String supplierSourceSystem;
 
     // import fields
     private transient Integer rowIndex;
@@ -63,7 +75,18 @@ public class DisbursementData implements Comparable<DisbursementData> {
         this.chargeAmount = null;
         this.waivedChargeAmount = null;
         this.netDisbursalAmount = null;
-
+        this.paymentTo = null;
+        this.disbursementType = null;
+        this.beneficiaryName = null;
+        this.clientPhoneNumber = null;
+        this.clientAccountNumber = null;
+        this.clientBankName = null;
+        this.paymentTypeId = null;
+        this.paymentTypeName = null;
+        this.supplierId = null;
+        this.supplierExternalId = null;
+        this.supplierName = null;
+        this.supplierSourceSystem = null;
     }
 
     public String getLinkAccountId() {
@@ -73,6 +96,16 @@ public class DisbursementData implements Comparable<DisbursementData> {
     public DisbursementData(Long id, final LocalDate expectedDisbursementDate, final LocalDate actualDisbursementDate,
             final BigDecimal principalDisbursed, final BigDecimal netDisbursalAmount, final String loanChargeId, BigDecimal chargeAmount,
             BigDecimal waivedChargeAmount) {
+        this(id, expectedDisbursementDate, actualDisbursementDate, principalDisbursed, netDisbursalAmount, loanChargeId, chargeAmount,
+                waivedChargeAmount, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public DisbursementData(final Long id, final LocalDate expectedDisbursementDate, final LocalDate actualDisbursementDate,
+            final BigDecimal principalDisbursed, final BigDecimal netDisbursalAmount, final String loanChargeId,
+            final BigDecimal chargeAmount, final BigDecimal waivedChargeAmount, final Integer paymentTo, final String disbursementType,
+            final String beneficiaryName, final String clientPhoneNumber, final String clientAccountNumber, final String clientBankName,
+            final Long paymentTypeId, final String paymentTypeName, final Long supplierId, final String supplierExternalId,
+            final String supplierName, final String supplierSourceSystem) {
         this.id = id;
         this.expectedDisbursementDate = expectedDisbursementDate;
         this.actualDisbursementDate = actualDisbursementDate;
@@ -81,6 +114,18 @@ public class DisbursementData implements Comparable<DisbursementData> {
         this.chargeAmount = chargeAmount;
         this.waivedChargeAmount = waivedChargeAmount;
         this.netDisbursalAmount = netDisbursalAmount;
+        this.paymentTo = paymentTo;
+        this.disbursementType = disbursementType;
+        this.beneficiaryName = beneficiaryName;
+        this.clientPhoneNumber = clientPhoneNumber;
+        this.clientAccountNumber = clientAccountNumber;
+        this.clientBankName = clientBankName;
+        this.paymentTypeId = paymentTypeId;
+        this.paymentTypeName = paymentTypeName;
+        this.supplierId = supplierId;
+        this.supplierExternalId = supplierExternalId;
+        this.supplierName = supplierName;
+        this.supplierSourceSystem = supplierSourceSystem;
     }
 
     public LocalDate disbursementDate() {
@@ -97,6 +142,54 @@ public class DisbursementData implements Comparable<DisbursementData> {
 
     public BigDecimal getChargeAmount() {
         return this.chargeAmount;
+    }
+
+    public Integer getPaymentTo() {
+        return this.paymentTo;
+    }
+
+    public String getDisbursementType() {
+        return this.disbursementType;
+    }
+
+    public String getBeneficiaryName() {
+        return this.beneficiaryName;
+    }
+
+    public String getClientPhoneNumber() {
+        return this.clientPhoneNumber;
+    }
+
+    public String getClientAccountNumber() {
+        return this.clientAccountNumber;
+    }
+
+    public String getClientBankName() {
+        return this.clientBankName;
+    }
+
+    public Long getPaymentTypeId() {
+        return this.paymentTypeId;
+    }
+
+    public String getPaymentTypeName() {
+        return this.paymentTypeName;
+    }
+
+    public Long getSupplierId() {
+        return this.supplierId;
+    }
+
+    public String getSupplierExternalId() {
+        return this.supplierExternalId;
+    }
+
+    public String getSupplierName() {
+        return this.supplierName;
+    }
+
+    public String getSupplierSourceSystem() {
+        return this.supplierSourceSystem;
     }
 
     public boolean isDisbursed() {
