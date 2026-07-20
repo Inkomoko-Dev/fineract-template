@@ -46,6 +46,7 @@ import org.apache.fineract.portfolio.supplier.domain.Supplier;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
 import org.apache.fineract.portfolio.supplier.domain.SupplierStatus;
 import org.apache.fineract.portfolio.supplier.domain.SupplierSyncStatus;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepositoryWrapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,13 +81,17 @@ class SupplierWritePlatformServiceImplTest {
     @Mock
     private SupplierSyncFailureService syncFailureService;
 
+    @Mock
+    private PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper;
+
     private SupplierWritePlatformServiceImpl writeService;
 
     @BeforeEach
     void setUp() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         final SupplierDataValidator validator = new SupplierDataValidator(new FromJsonHelper());
-        this.writeService = new SupplierWritePlatformServiceImpl(this.supplierRepository, validator, this.syncFailureService);
+        this.writeService = new SupplierWritePlatformServiceImpl(this.supplierRepository, validator, this.syncFailureService,
+                this.paymentTypeRepositoryWrapper);
     }
 
     @AfterEach

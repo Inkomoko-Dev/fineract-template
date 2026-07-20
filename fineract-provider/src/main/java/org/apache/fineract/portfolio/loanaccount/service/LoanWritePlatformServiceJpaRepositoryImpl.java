@@ -175,6 +175,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanInstallmentChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.data.SupplierDisbursementSnapshot;
 import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.DefaultLoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.GLIMAccountInfoRepository;
@@ -268,6 +269,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     private static final Logger LOG = LoggerFactory.getLogger(LoanWritePlatformServiceJpaRepositoryImpl.class);
     private final PlatformSecurityContext context;
+    private final ThirdPartySupplierDisbursementGuard thirdPartySupplierDisbursementGuard;
+    private final SupplierDisbursementAuditService supplierDisbursementAuditService;
     private final LoanEventApiJsonValidator loanEventApiJsonValidator;
     private final LoanUpdateCommandFromApiJsonDeserializer loanUpdateCommandFromApiJsonDeserializer;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
@@ -3879,9 +3882,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final Map<String, Object> kenyaCapitalChanges = new LinkedHashMap<>();
         this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, kenyaCapitalDisbursementDate, command,
                 kenyaCapitalChanges);
+        final AppUser currentUser = getAppUserIfPresent();
+        this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
         
         // Update disbursement details
-        if (!loan.loanProduct().isMultiDisburseLoan()) {
+        if (!loan.loanProduct().isMultiDisburseLoan()
+                && this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
             final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
             final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
             final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
@@ -3936,6 +3942,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     .stream()
                     .findFirst()
                     .orElse(null);
+            final SupplierDisbursementSnapshot recipientSnapshotBeforeUpdate = SupplierDisbursementSnapshot.from(disbursementDetail);
             Integer normalizedPaymentTo = disbursementDetail != null ? disbursementDetail.getPaymentTo() : null;
             if (StringUtils.isNotBlank(disbursementType)) {
                 normalizedPaymentTo = LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)
@@ -3991,6 +3998,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 if (fxTimestamp != null) {
                     disbursementDetail.setFxTimestamp(fxTimestamp);
                 }
+                if (this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan)) {
+                    this.supplierDisbursementAuditService.recordChange(loan, disbursementDetail, recipientSnapshotBeforeUpdate,
+                            SupplierDisbursementSnapshot.from(disbursementDetail), SupplierDisbursementAuditService.CHANGE_SOURCE_MANUAL_OVERRIDE,
+                            currentUser);
+                }
             }
         }
         
@@ -4008,10 +4020,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final Map<String, Object> kenyaCapitalChanges = new LinkedHashMap<>();
         this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command,
                 kenyaCapitalChanges);
+        final AppUser currentUser = getAppUserIfPresent();
+        this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
         if(!loan.isMultiDisburmentLoan()){
             if (loan.getDisbursementDetails().get(0).getPaymentType().isCashPayment())
                 return disburseLoan(loanId, command, false, false);
 
+            if (this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
             // Update disbursement details
             final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
             final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
@@ -4067,6 +4082,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     .stream()
                     .findFirst()
                     .orElse(null);
+            final SupplierDisbursementSnapshot recipientSnapshotBeforeUpdate = SupplierDisbursementSnapshot.from(disbursementDetail);
             Integer normalizedPaymentTo = disbursementDetail != null ? disbursementDetail.getPaymentTo() : null;
             if (StringUtils.isNotBlank(disbursementType)) {
                 normalizedPaymentTo = LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)
@@ -4122,6 +4138,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 if (fxTimestamp != null) {
                     disbursementDetail.setFxTimestamp(fxTimestamp);
                 }
+                if (this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan)) {
+                    this.supplierDisbursementAuditService.recordChange(loan, disbursementDetail, recipientSnapshotBeforeUpdate,
+                            SupplierDisbursementSnapshot.from(disbursementDetail), SupplierDisbursementAuditService.CHANGE_SOURCE_MANUAL_OVERRIDE,
+                            currentUser);
+                }
+            }
+
             }
 
             this.disbursementRequestService.disburseRequestLoan(loan, command);

@@ -970,6 +970,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanTransactionData.setFxSource(disbursementDetail.getFxSource());
             loanTransactionData.setFxTimestamp(disbursementDetail.getFxTimestamp());
             loanTransactionData.setMfiCode(mfiCode);
+            if (disbursementDetail.getPaymentType() != null) {
+                loanTransactionData.setPaymentTypeName(disbursementDetail.getPaymentType().getPaymentName());
+            }
+            if (disbursementDetail.getSupplier() != null) {
+                loanTransactionData.setSupplierId(disbursementDetail.getSupplier().getId());
+                loanTransactionData.setSupplierExternalId(disbursementDetail.getSupplier().getExternalId());
+                loanTransactionData.setSupplierName(disbursementDetail.getSupplier().getName());
+                loanTransactionData.setSupplierSourceSystem(disbursementDetail.getSupplier().getSourceSystem());
+            }
         }
 
         final LocalDate templateDisbursementDate = loan.getExpectedDisbursedOnLocalDateForTemplate();
@@ -2299,8 +2308,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         public String schema() {
             return "dd.id as id,dd.expected_disburse_date as expectedDisbursementdate, dd.disbursedon_date as actualDisbursementdate,dd.principal as principal,dd.net_disbursal_amount as netDisbursalAmount,sum(lc.amount) chargeAmount, lc.amount_waived_derived waivedAmount, "
-                    + sqlGenerator.groupConcat("lc.id") + " loanChargeId "
-                    + "from m_loan l inner join m_loan_disbursement_detail dd on dd.loan_id = l.id left join m_loan_tranche_disbursement_charge tdc on tdc.disbursement_detail_id=dd.id "
+                    + sqlGenerator.groupConcat("lc.id") + " loanChargeId, "
+                    + " dd.payment_to as paymentTo, dd.disbursement_type as disbursementType, dd.beneficiary_name as beneficiaryName, "
+                    + " dd.client_phone_number as clientPhoneNumber, dd.client_account_number as clientAccountNumber, "
+                    + " dd.client_bank_name as clientBankName, dd.payment_type_id as paymentTypeId, pt.value as paymentTypeName, "
+                    + " dd.supplier_id as supplierId, s.external_id as supplierExternalId, s.name as supplierName, s.source_system as supplierSourceSystem "
+                    + "from m_loan l inner join m_loan_disbursement_detail dd on dd.loan_id = l.id "
+                    + "left join m_payment_type pt on pt.id = dd.payment_type_id "
+                    + "left join m_supplier s on s.id = dd.supplier_id "
+                    + "left join m_loan_tranche_disbursement_charge tdc on tdc.disbursement_detail_id=dd.id "
                     + "left join m_loan_charge lc on  lc.id=tdc.loan_charge_id and lc.is_active=true";
         }
 
@@ -2318,7 +2334,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 chargeAmount = chargeAmount.subtract(waivedAmount);
             }
             return new DisbursementData(id, expectedDisbursementdate, actualDisbursementdate, principal, netDisbursalAmount, loanChargeId,
-                    chargeAmount, waivedAmount);
+                    chargeAmount, waivedAmount, JdbcSupport.getInteger(rs, "paymentTo"), rs.getString("disbursementType"),
+                    rs.getString("beneficiaryName"), rs.getString("clientPhoneNumber"), rs.getString("clientAccountNumber"),
+                    rs.getString("clientBankName"), JdbcSupport.getLong(rs, "paymentTypeId"), rs.getString("paymentTypeName"),
+                    JdbcSupport.getLong(rs, "supplierId"), rs.getString("supplierExternalId"), rs.getString("supplierName"),
+                    rs.getString("supplierSourceSystem"));
         }
 
     }

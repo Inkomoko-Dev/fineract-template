@@ -41,4 +41,9 @@ public final class SupplierApiConstants {
     public static final String STATUS = "status";
     public static final String SYNC_STATUS = "syncStatus";
     public static final String CREATED = "created";
+
+    public static final String PAYMENT_TYPE_ID = "paymentTypeId";
+    public static final String PAYMENT_PHONE_NUMBER = "paymentPhoneNumber";
+    public static final String PAYMENT_ACCOUNT_NUMBER = "paymentAccountNumber";
+    public static final String PAYMENT_BANK_NAME = "paymentBankName";
 }
