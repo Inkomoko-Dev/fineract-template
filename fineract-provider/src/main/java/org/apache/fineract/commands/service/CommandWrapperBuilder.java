@@ -2930,6 +2930,14 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder createDisbursementInstruction() {
+        this.actionName = "DISBURSEMENTINSTRUCTION";
+        this.entityName = "LOAN";
+        this.entityId = null;
+        this.href = "/loans/disbursement-instruction";
+        return this;
+    }
+
     public CommandWrapperBuilder updatePaymentType(final Long paymentTypeId) {
         this.actionName = "UPDATE";
         this.entityName = PaymentTypeApiResourceConstants.ENTITY_NAME;

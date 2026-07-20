@@ -34,6 +34,8 @@ import org.apache.fineract.portfolio.supplier.domain.Supplier;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
 import org.apache.fineract.portfolio.supplier.domain.SupplierStatus;
 import org.apache.fineract.portfolio.supplier.domain.SupplierSyncStatus;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepositoryWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,13 +49,15 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
     private final SupplierRepository supplierRepository;
     private final SupplierDataValidator validator;
     private final SupplierSyncFailureService syncFailureService;
+    private final PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper;
 
     @Autowired
     public SupplierWritePlatformServiceImpl(final SupplierRepository supplierRepository, final SupplierDataValidator validator,
-            final SupplierSyncFailureService syncFailureService) {
+            final SupplierSyncFailureService syncFailureService, final PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper) {
         this.supplierRepository = supplierRepository;
         this.validator = validator;
         this.syncFailureService = syncFailureService;
+        this.paymentTypeRepositoryWrapper = paymentTypeRepositoryWrapper;
     }
 
     @Override
@@ -72,6 +76,10 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
         final String country = command.stringValueOfParameterNamed(SupplierApiConstants.COUNTRY);
         final String tin = trimRequired(command.stringValueOfParameterNamed(SupplierApiConstants.TIN));
         final SupplierStatus status = SupplierStatus.from(command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.STATUS));
+        final PaymentType paymentType = resolvePaymentType(command);
+        final String paymentPhoneNumber = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.PAYMENT_PHONE_NUMBER);
+        final String paymentAccountNumber = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.PAYMENT_ACCOUNT_NUMBER);
+        final String paymentBankName = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.PAYMENT_BANK_NAME);
 
         Supplier supplier = null;
         final boolean created;
@@ -86,6 +94,9 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
                 supplier.updateFrom(name, displayName, businessLicenseNumber, supplierType, businessSector, category, country, tin, status);
             }
             assertUniqueBusinessLicenseAndTin(sourceSystem, businessLicenseNumber, tin, supplier.getId());
+            if (paymentType != null || paymentPhoneNumber != null || paymentAccountNumber != null || paymentBankName != null) {
+                supplier.updatePaymentDetails(paymentType, paymentPhoneNumber, paymentAccountNumber, paymentBankName);
+            }
             supplier.setRawPayload(command.json());
             this.supplierRepository.saveAndFlush(supplier);
             return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(supplier.getId())
@@ -139,5 +150,13 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
 
     private static String trimRequired(final String value) {
         return value == null ? null : value.trim();
+    }
+
+    private PaymentType resolvePaymentType(final JsonCommand command) {
+        final Long paymentTypeId = command.longValueOfParameterNamed(SupplierApiConstants.PAYMENT_TYPE_ID);
+        if (paymentTypeId == null) {
+            return null;
+        }
+        return this.paymentTypeRepositoryWrapper.findOneWithNotFoundDetection(paymentTypeId);
     }
 }

@@ -119,6 +119,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanCashFlowProjectionData
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanFinancialRatioData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.data.SupplierDisbursementSnapshot;
 import org.apache.fineract.portfolio.loanaccount.domain.DefaultLoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.GLIMAccountInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.GroupLoanIndividualMonitoringAccount;
@@ -255,6 +256,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final OdooService odooService;
     private final FundReadPlatformService fundReadPlatformService;
     private final PaymentTypeRepositoryWrapper paymentTypeRepository;
+    private final ThirdPartySupplierDisbursementGuard thirdPartySupplierDisbursementGuard;
+    private final SupplierDisbursementAuditService supplierDisbursementAuditService;
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
     private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
@@ -1547,11 +1550,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         final AppUser currentUser = getAppUserIfPresent();
         LocalDate expectedDisbursementDate = null;
 
-        final Loan loan = retrieveLoanBy(loanId);
-        final boolean requirePaymentTypeId = !loan.loanProduct().isMultiDisburseLoan()
-                && !this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan);
-        this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json(), requirePaymentTypeId);
+        this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json());
 
+        final Loan loan = retrieveLoanBy(loanId);
         this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
 
         final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
@@ -1559,8 +1560,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         if (paymentTypeId != null) {
             paymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(paymentTypeId);
         }
-        if (requirePaymentTypeId) {
-            validatePaymentDetails(loan, command, paymentType);
+        if (!this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan)) {
+            validatePaymentDetails(command, paymentType);
         }
 
         final Boolean isExtendLoanLifeCycleConfig = this.loanDecisionStateUtilService.isExtendLoanLifeCycleConfig();
@@ -1702,6 +1703,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             }
 
             if (!loan.loanProduct().isMultiDisburseLoan()) {
+                if (this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
 
                 final String mfiCode = command.stringValueOfParameterNamed(LoanApiConstants.mfiCodeParameterName);
                 final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
@@ -1805,6 +1807,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                         .stream()
                         .findFirst()
                         .orElse(null);
+                final SupplierDisbursementSnapshot recipientSnapshotBeforeUpdate = SupplierDisbursementSnapshot.from(disbursementDetail);
 
                 // ------------------------------
                 // 2. IF NOT FOUND, CREATE A NEW ONE
@@ -1839,6 +1842,14 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 disbursementDetail.setFxSource(fxSource);
                 disbursementDetail.setFxTimestamp(fxTimestamp);
                 disbursementDetail.applyMfiCodeIfProvided(mfiCode);
+
+                if (this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan)) {
+                    this.supplierDisbursementAuditService.recordChange(loan, disbursementDetail, recipientSnapshotBeforeUpdate,
+                            SupplierDisbursementSnapshot.from(disbursementDetail), SupplierDisbursementAuditService.CHANGE_SOURCE_MANUAL_OVERRIDE,
+                            currentUser);
+                }
+
+                }
 
             }
 
