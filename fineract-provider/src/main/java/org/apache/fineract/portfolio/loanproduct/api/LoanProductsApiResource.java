@@ -79,7 +79,7 @@ import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
-import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.productmix.data.ProductMixData;
 import org.apache.fineract.portfolio.loanproduct.productmix.service.ProductMixReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
@@ -142,6 +142,7 @@ public class LoanProductsApiResource {
     private final ConfigurationDomainService configurationDomainService;
     private final InterestRateChartReadPlatformService chartReadPlatformService;
     private final CodeValueReadPlatformService codeValueReadPlatformService;
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
 
     @Autowired
     public LoanProductsApiResource(final PlatformSecurityContext context, final LoanProductReadPlatformService readPlatformService,
@@ -158,7 +159,8 @@ public class LoanProductsApiResource {
             PaymentTypeReadPlatformService paymentTypeReadPlatformService,
             final FloatingRatesReadPlatformService floatingRateReadPlatformService, final RateReadService rateReadService,
             final ConfigurationDomainService configurationDomainService, InterestRateChartReadPlatformService chartReadPlatformService,
-            CodeValueReadPlatformService codeValueReadPlatformService) {
+            CodeValueReadPlatformService codeValueReadPlatformService,
+            final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService) {
         this.context = context;
         this.loanProductReadPlatformService = readPlatformService;
         this.chargeReadPlatformService = chargeReadPlatformService;
@@ -179,6 +181,7 @@ public class LoanProductsApiResource {
         this.configurationDomainService = configurationDomainService;
         this.chartReadPlatformService = chartReadPlatformService;
         this.codeValueReadPlatformService = codeValueReadPlatformService;
+        this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
     }
 
     @POST
@@ -402,7 +405,7 @@ public class LoanProductsApiResource {
         loanProductDataResponse.setEquityContributionLoanPercentage(productData.getEquityContributionLoanPercentage());
         loanProductDataResponse.setEnableThirdPartyDisbursement(productData.getEnableThirdPartyDisbursement());
         loanProductDataResponse.setThirdPartyDisbursementProvider(productData.getThirdPartyDisbursementProvider());
-        loanProductDataResponse.setThirdPartyDisbursementProviderOptions(Arrays.asList(ThirdPartyDisbursementProvider.KIFIYA));
+        loanProductDataResponse.setThirdPartyDisbursementProviderOptions(this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
         return loanProductDataResponse;
     }
 
