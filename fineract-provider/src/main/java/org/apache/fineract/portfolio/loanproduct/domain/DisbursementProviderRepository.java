@@ -18,26 +18,19 @@
  */
 package org.apache.fineract.portfolio.loanproduct.domain;
 
-import java.util.Locale;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-/**
- * Normalizes third-party disbursement provider codes stored in m_disbursement_provider
- * and referenced by m_loan_product_disbursement_provider_mapping.disbursement_provider_code.
- */
-public final class ThirdPartyDisbursementProvider {
+public interface DisbursementProviderRepository extends JpaRepository<DisbursementProvider, Long> {
 
-    public static final int MAX_LENGTH = 50;
+    Optional<DisbursementProvider> findByCode(String code);
 
-    private ThirdPartyDisbursementProvider() {}
+    @Query("select dp from DisbursementProvider dp where dp.code = :code and dp.active = true")
+    Optional<DisbursementProvider> findActiveByCode(@Param("code") String code);
 
-    public static String normalize(final String raw) {
-        if (raw == null) {
-            return null;
-        }
-        final String trimmed = raw.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        return trimmed.toUpperCase(Locale.ROOT);
-    }
+    @Query("select dp.code from DisbursementProvider dp where dp.active = true order by dp.code")
+    List<String> findAllActiveCodes();
 }

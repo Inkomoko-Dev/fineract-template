@@ -16,28 +16,22 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.portfolio.loanproduct.domain;
+package org.apache.fineract.portfolio.loanproduct.service;
 
-import java.util.Locale;
+import java.util.Collection;
+import java.util.Optional;
 
-/**
- * Normalizes third-party disbursement provider codes stored in m_disbursement_provider
- * and referenced by m_loan_product_disbursement_provider_mapping.disbursement_provider_code.
- */
-public final class ThirdPartyDisbursementProvider {
+public interface DisbursementProviderReadPlatformService {
 
-    public static final int MAX_LENGTH = 50;
+    Collection<String> retrieveActiveProviderCodes();
 
-    private ThirdPartyDisbursementProvider() {}
+    boolean isActiveProvider(String providerCode);
 
-    public static String normalize(final String raw) {
-        if (raw == null) {
-            return null;
-        }
-        final String trimmed = raw.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        return trimmed.toUpperCase(Locale.ROOT);
-    }
+    /**
+     * Returns the active disbursement provider code mapped to the loan product, if any.
+     * Uses JDBC so callers do not depend on lazy JPA loading of the mapping entity.
+     */
+    Optional<String> findActiveMappedProviderCode(Long loanProductId);
+
+    boolean hasActiveThirdPartyDisbursementMapping(Long loanProductId);
 }

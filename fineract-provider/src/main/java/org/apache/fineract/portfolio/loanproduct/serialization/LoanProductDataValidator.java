@@ -54,6 +54,7 @@ import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductValueConditionType;
 import org.apache.fineract.portfolio.loanproduct.domain.RecalculationFrequencyType;
 import org.apache.fineract.portfolio.loanproduct.exception.EqualAmortizationUnsupportedFeatureException;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.savings.DepositsApiConstants;
 import org.apache.fineract.portfolio.savings.data.DepositProductDataValidator;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -133,10 +134,14 @@ public final class LoanProductDataValidator {
 
     private final DepositProductDataValidator depositProductDataValidator;
 
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
+
     @Autowired
-    public LoanProductDataValidator(final FromJsonHelper fromApiJsonHelper, DepositProductDataValidator depositProductDataValidator) {
+    public LoanProductDataValidator(final FromJsonHelper fromApiJsonHelper, DepositProductDataValidator depositProductDataValidator,
+            final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService) {
         this.fromApiJsonHelper = fromApiJsonHelper;
         this.depositProductDataValidator = depositProductDataValidator;
+        this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
     }
 
     public void validateForCreate(final String json) {
@@ -763,6 +768,11 @@ public final class LoanProductDataValidator {
         if (Boolean.TRUE.equals(enabled)) {
             baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).value(provider).notBlank()
                     .notExceedingLengthOf(ThirdPartyDisbursementProvider.MAX_LENGTH);
+            if (provider != null && !this.disbursementProviderReadPlatformService.isActiveProvider(provider)) {
+                baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
+                        "not.found.or.inactive",
+                        "thirdPartyDisbursementProvider must match an active disbursement provider code in m_disbursement_provider");
+            }
         } else if (provider != null && this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER,
                 element)) {
             // Provider sent while flag is/will be off — reject rather than silently ignore when explicitly provided with flag false
