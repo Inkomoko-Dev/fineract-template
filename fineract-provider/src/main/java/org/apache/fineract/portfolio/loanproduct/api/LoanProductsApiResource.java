@@ -79,7 +79,7 @@ import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
-import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.productmix.data.ProductMixData;
 import org.apache.fineract.portfolio.loanproduct.productmix.service.ProductMixReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
@@ -405,7 +405,7 @@ public class LoanProductsApiResource {
         loanProductDataResponse.setEquityContributionLoanPercentage(productData.getEquityContributionLoanPercentage());
         loanProductDataResponse.setEnableThirdPartyDisbursement(productData.getEnableThirdPartyDisbursement());
         loanProductDataResponse.setThirdPartyDisbursementProvider(productData.getThirdPartyDisbursementProvider());
-        loanProductDataResponse.setThirdPartyDisbursementProviderOptions(Arrays.asList(ThirdPartyDisbursementProvider.KIFIYA));
+        loanProductDataResponse.setThirdPartyDisbursementProviderOptions(this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
         return loanProductDataResponse;
     }
 

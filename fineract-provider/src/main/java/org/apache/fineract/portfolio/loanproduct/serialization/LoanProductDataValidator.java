@@ -768,6 +768,11 @@ public final class LoanProductDataValidator {
         if (Boolean.TRUE.equals(enabled)) {
             baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).value(provider).notBlank()
                     .notExceedingLengthOf(ThirdPartyDisbursementProvider.MAX_LENGTH);
+            if (provider != null && !this.disbursementProviderReadPlatformService.isActiveProvider(provider)) {
+                baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
+                        "not.found.or.inactive",
+                        "thirdPartyDisbursementProvider must match an active disbursement provider code in m_disbursement_provider");
+            }
         } else if (provider != null && this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER,
                 element)) {
             // Provider sent while flag is/will be off — reject rather than silently ignore when explicitly provided with flag false
