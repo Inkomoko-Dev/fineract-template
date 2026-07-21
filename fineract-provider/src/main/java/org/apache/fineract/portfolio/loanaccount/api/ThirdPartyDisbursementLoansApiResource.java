@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.api;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
@@ -28,6 +29,8 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -35,6 +38,7 @@ import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoan
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanData;
 import org.apache.fineract.portfolio.loanaccount.service.ThirdPartyDisbursementLoanReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -45,14 +49,17 @@ public class ThirdPartyDisbursementLoansApiResource {
 
     private final PlatformSecurityContext context;
     private final ThirdPartyDisbursementLoanReadPlatformService readPlatformService;
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
     private final DefaultToApiJsonSerializer<ThirdPartyDisbursementLoanData> toApiJsonSerializer;
 
     @Autowired
     public ThirdPartyDisbursementLoansApiResource(final PlatformSecurityContext context,
             final ThirdPartyDisbursementLoanReadPlatformService readPlatformService,
+            final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService,
             final DefaultToApiJsonSerializer<ThirdPartyDisbursementLoanData> toApiJsonSerializer) {
         this.context = context;
         this.readPlatformService = readPlatformService;
+        this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
         this.toApiJsonSerializer = toApiJsonSerializer;
     }
 
@@ -60,7 +67,7 @@ public class ThirdPartyDisbursementLoansApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "List third-party disbursement loans",
-            description = "Returns loans on products flagged for third-party disbursement (e.g. KIFIYA). "
+            description = "Returns loans on products mapped to the given disbursement provider code. "
                     + "Use readyForInstruction=true to find approved loans not yet sent a disbursement instruction.")
     public String retrieveAll(@QueryParam(ThirdPartyDisbursementLoanApiConstants.PROVIDER) final String provider,
             @QueryParam(ThirdPartyDisbursementLoanApiConstants.STATUS) final String status,
@@ -71,8 +78,23 @@ public class ThirdPartyDisbursementLoansApiResource {
             @QueryParam(ThirdPartyDisbursementLoanApiConstants.LIMIT) final Integer limit) {
         this.context.authenticatedUser().validateHasPermissionTo(ThirdPartyDisbursementLoanApiConstants.PERMISSION_CODE);
 
-        final String effectiveProvider = StringUtils.isBlank(provider) ? ThirdPartyDisbursementProvider.KIFIYA : provider;
-        final Page<ThirdPartyDisbursementLoanData> loans = this.readPlatformService.retrieveAll(effectiveProvider, status,
+        final String normalizedProvider = ThirdPartyDisbursementProvider.normalize(provider);
+        if (StringUtils.isBlank(normalizedProvider)) {
+            throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.provider.required",
+                    "Disbursement provider query parameter is required.",
+                    List.of(ApiParameterError.parameterError("validation.msg.thirdPartyDisbursementLoan.provider.required",
+                            "Disbursement provider query parameter is required.", ThirdPartyDisbursementLoanApiConstants.PROVIDER,
+                            provider)));
+        }
+        if (!this.disbursementProviderReadPlatformService.isActiveProvider(normalizedProvider)) {
+            throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.provider.notFoundOrInactive",
+                    "Disbursement provider is not registered or inactive.",
+                    List.of(ApiParameterError.parameterError("validation.msg.thirdPartyDisbursementLoan.provider.notFoundOrInactive",
+                            "Disbursement provider is not registered or inactive.", ThirdPartyDisbursementLoanApiConstants.PROVIDER,
+                            normalizedProvider)));
+        }
+
+        final Page<ThirdPartyDisbursementLoanData> loans = this.readPlatformService.retrieveAll(normalizedProvider, status,
                 readyForInstruction, loanAccountNo, externalId, offset, limit);
         return this.toApiJsonSerializer.serialize(loans);
     }

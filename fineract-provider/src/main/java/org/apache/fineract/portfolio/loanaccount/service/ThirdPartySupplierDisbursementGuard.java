@@ -20,6 +20,8 @@ package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
@@ -28,17 +30,28 @@ import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartySupplierDisbursementApiConstants;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class ThirdPartySupplierDisbursementGuard {
 
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
+
     public boolean isThirdPartyDisbursementProduct(final Loan loan) {
-        if (loan == null || loan.getLoanProduct() == null) {
+        if (loan == null || loan.productId() == null) {
             return false;
         }
-        return loan.getLoanProduct().isEnableThirdPartyDisbursement();
+        return this.disbursementProviderReadPlatformService.hasActiveThirdPartyDisbursementMapping(loan.productId());
+    }
+
+    public Optional<String> findMappedProviderCode(final Loan loan) {
+        if (loan == null || loan.productId() == null) {
+            return Optional.empty();
+        }
+        return this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(loan.productId());
     }
 
     public boolean hasOverridePermission(final AppUser user) {

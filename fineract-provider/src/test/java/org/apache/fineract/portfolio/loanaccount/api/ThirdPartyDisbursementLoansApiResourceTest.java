@@ -25,6 +25,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 
 import java.util.Collections;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.exception.NoAuthorizationException;
@@ -32,6 +33,7 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanData;
 import org.apache.fineract.portfolio.loanaccount.service.ThirdPartyDisbursementLoanReadPlatformService;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +55,9 @@ class ThirdPartyDisbursementLoansApiResourceTest {
     private ThirdPartyDisbursementLoanReadPlatformService readPlatformService;
 
     @Mock
+    private DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
+
+    @Mock
     private DefaultToApiJsonSerializer<ThirdPartyDisbursementLoanData> toApiJsonSerializer;
 
     @Mock
@@ -68,6 +73,7 @@ class ThirdPartyDisbursementLoansApiResourceTest {
 
     @Test
     void listsFlaggedLoansWhenAuthorized() {
+        given(this.disbursementProviderReadPlatformService.isActiveProvider("KIFIYA")).willReturn(true);
         final Page<ThirdPartyDisbursementLoanData> page = new Page<>(Collections.emptyList(), 0);
         given(this.readPlatformService.retrieveAll("KIFIYA", null, true, null, null, 0, 15)).willReturn(page);
         given(this.toApiJsonSerializer.serialize(page)).willReturn("{\"totalFilteredRecords\":0,\"pageItems\":[]}");
@@ -80,11 +86,17 @@ class ThirdPartyDisbursementLoansApiResourceTest {
     }
 
     @Test
+    void rejectsWhenProviderMissing() {
+        assertThatThrownBy(() -> this.underTest.retrieveAll(null, null, null, null, null, null, null))
+                .isInstanceOf(PlatformApiDataValidationException.class);
+    }
+
+    @Test
     void rejectsWhenMissingPermission() {
         doThrow(new NoAuthorizationException("denied")).when(this.appUser)
                 .validateHasPermissionTo(ThirdPartyDisbursementLoanApiConstants.PERMISSION_CODE);
 
-        assertThatThrownBy(() -> this.underTest.retrieveAll(null, null, null, null, null, null, null))
+        assertThatThrownBy(() -> this.underTest.retrieveAll("KIFIYA", null, null, null, null, null, null))
                 .isInstanceOf(NoAuthorizationException.class);
     }
 }
