@@ -102,6 +102,7 @@ import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.CollectionData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
+import org.apache.fineract.portfolio.loanaccount.data.KenyaCapitalDisbursementDefaultsResult;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApplicationTimelineData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
@@ -222,6 +223,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
     private final LoanApprovalMatrixRepository loanApprovalMatrixRepository;
     private final LoanDecisionRepository loanDecisionRepository;
+    private final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
 
     @Autowired
     public LoanReadPlatformServiceImpl(final PlatformSecurityContext context,
@@ -246,7 +248,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                        AppUserReadPlatformService appUserReadPlatformService, final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper,
                                        @Lazy final LoanDecisionStateUtilService loanDecisionStateUtilService,
                                        final LoanApprovalMatrixRepository loanApprovalMatrixRepository,
-                                       final LoanDecisionRepository loanDecisionRepository) {
+                                       final LoanDecisionRepository loanDecisionRepository,
+                                       final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService) {
         this.context = context;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
         this.applicationCurrencyRepository = applicationCurrencyRepository;
@@ -284,6 +287,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.loanDecisionStateUtilService = loanDecisionStateUtilService;
         this.loanApprovalMatrixRepository = loanApprovalMatrixRepository;
         this.loanDecisionRepository = loanDecisionRepository;
+        this.kenyaCapitalDisbursementDefaultsService = kenyaCapitalDisbursementDefaultsService;
     }
 
     @Override
@@ -966,6 +970,18 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanTransactionData.setFxSource(disbursementDetail.getFxSource());
             loanTransactionData.setFxTimestamp(disbursementDetail.getFxTimestamp());
             loanTransactionData.setMfiCode(mfiCode);
+        }
+
+        final LocalDate templateDisbursementDate = loan.getExpectedDisbursedOnLocalDateForTemplate();
+        final KenyaCapitalDisbursementDefaultsResult kenyaCapitalDefaults = this.kenyaCapitalDisbursementDefaultsService
+                .resolve(loan, templateDisbursementDate);
+        if (kenyaCapitalDefaults.isKenyaCapital()) {
+            loanTransactionData.setKenyaCapitalDisbursementDefaults(true);
+            loanTransactionData.setDefaultDepartmentId(kenyaCapitalDefaults.getDepartmentId());
+            loanTransactionData.setDefaultDepartmentName(kenyaCapitalDefaults.getDepartmentName());
+            loanTransactionData.setDefaultBudgetLocation(kenyaCapitalDefaults.getBudgetLocation());
+            loanTransactionData.setBudgetReviewRequired(kenyaCapitalDefaults.isBudgetReviewRequired());
+            loanTransactionData.setBudgetLocation(kenyaCapitalDefaults.getBudgetLocation());
         }
 
         return loanTransactionData;

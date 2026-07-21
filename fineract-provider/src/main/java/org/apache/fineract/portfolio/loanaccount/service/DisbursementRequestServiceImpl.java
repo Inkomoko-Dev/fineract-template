@@ -92,6 +92,8 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
     private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
 
+    private final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
+
     private OkHttpClient client = new OkHttpClient();
     private Gson gson = new Gson();
     @Autowired
@@ -170,6 +172,15 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         final String narration = "Loan Disbursement for Loan Account No: " + loan.getAccountNumber() + "  Client " + clientName;
         final String location = clientAddressRepositoryWrapper.findAddressesForClient(loan.getClient().getId()).stream().findFirst()
                 .map(address -> address.getAddress().getLocation()).orElse("N/A");
+        String resolvedLocation = location;
+        if (this.kenyaCapitalDisbursementDefaultsService.isKenyaCapitalLoan(loan)) {
+            final LocalDate disbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+            if (disbursementDetail != null && StringUtils.isNotBlank(disbursementDetail.getBudgetLocation())) {
+                resolvedLocation = disbursementDetail.getBudgetLocation();
+            } else {
+                resolvedLocation = this.kenyaCapitalDisbursementDefaultsService.resolve(loan, disbursementDate).getBudgetLocation();
+            }
+        }
 
         LoanProductData loanProductData=  this.loanProductReadPlatformService.retrieveLoanProduct(loan.getLoanProduct().getId());
 
@@ -223,7 +234,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
         disbursementRequestData.setNarration(narration);
         disbursementRequestData.setNotifier(loanOfficer);
-        disbursementRequestData.setLocation(location);
+        disbursementRequestData.setLocation(resolvedLocation);
         disbursementRequestData.setGlCode(glCode);
         disbursementRequestData.setTransactionType("DISBURSEMENT");
 

@@ -88,7 +88,7 @@ class LoanReadPlatformServiceImplTest {
 
         final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
                 null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null,null,null,null);
+                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null,null,null,null,null);
 
         final CurrencyData currency = new CurrencyData("KES", 2, 0);
         final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,

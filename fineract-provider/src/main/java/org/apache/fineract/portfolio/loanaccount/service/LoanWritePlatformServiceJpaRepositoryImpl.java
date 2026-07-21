@@ -321,6 +321,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
     private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
     private final PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper;
+    private final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -475,6 +476,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final List<Long> existingReversedTransactionIds = new ArrayList<>();
 
         final Map<String, Object> changes = new LinkedHashMap<>();
+
+        this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command, changes);
 
         final PaymentDetail paymentDetail = this.paymentDetailWritePlatformService.createAndPersistPaymentDetail(command, changes);
         if (paymentDetail != null && paymentDetail.getPaymentType() != null && paymentDetail.getPaymentType().isCashPayment()) {
@@ -813,6 +816,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         for (final SingleDisbursalCommand singleLoanDisbursalCommand : disbursalCommand) {
             final Loan loan = this.loanAssembler.assembleFrom(singleLoanDisbursalCommand.getLoanId());
             final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+
+            this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command, changes);
 
             // validate ActualDisbursement Date Against Expected Disbursement
             // Date
@@ -3860,6 +3865,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     @Transactional
     public CommandProcessingResult disbursePreApproval(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        final LocalDate kenyaCapitalDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        final Map<String, Object> kenyaCapitalChanges = new LinkedHashMap<>();
+        this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, kenyaCapitalDisbursementDate, command,
+                kenyaCapitalChanges);
         
         // Update disbursement details
         if (!loan.loanProduct().isMultiDisburseLoan()) {
@@ -3985,6 +3994,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     @Transactional
     public CommandProcessingResult disburseRequestLoan(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        final Map<String, Object> kenyaCapitalChanges = new LinkedHashMap<>();
+        this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command,
+                kenyaCapitalChanges);
         if(!loan.isMultiDisburmentLoan()){
             if (loan.getDisbursementDetails().get(0).getPaymentType().isCashPayment())
                 return disburseLoan(loanId, command, false, false);
