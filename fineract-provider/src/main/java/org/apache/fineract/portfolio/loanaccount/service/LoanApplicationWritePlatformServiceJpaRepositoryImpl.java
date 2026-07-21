@@ -1682,6 +1682,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
             if (!loan.loanProduct().isMultiDisburseLoan()) {
 
+                final String mfiCode = command.stringValueOfParameterNamed("mfiCode");
                 final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
                 final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
                 final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
@@ -1814,6 +1815,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 disbursementDetail.setUsdAmount(usdAmount);
                 disbursementDetail.setFxSource(fxSource);
                 disbursementDetail.setFxTimestamp(fxTimestamp);
+                disbursementDetail.setMfiCode(mfiCode);
 
             }
 

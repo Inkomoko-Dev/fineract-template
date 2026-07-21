@@ -60,6 +60,12 @@ public class FineractStyleLoanRepaymentScheduleTransactionProcessor extends Abst
             final LocalDate transactionDate, final Money paymentInAdvance,
             List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {
 
+        // A waiver must never be treated as an advance principal prepayment; route it through the on-time handler
+        // (waives interest/charges only), mirroring handleTransactionThatIsALateRepaymentOfInstallment.
+        if (loanTransaction.isWaiver()) {
+            return handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment, loanTransaction, paymentInAdvance,
+                    transactionMappings);
+        }
         return handleAdvancePaymentWithAccruedInterest(currentInstallment, installments, loanTransaction,
                 transactionDate, paymentInAdvance, transactionMappings);
     }

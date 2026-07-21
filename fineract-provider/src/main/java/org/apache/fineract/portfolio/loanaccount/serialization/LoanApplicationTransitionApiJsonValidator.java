@@ -69,7 +69,7 @@ public final class LoanApplicationTransitionApiJsonValidator {
                         LoanApiConstants.noteParameterName, LoanApiConstants.localeParameterName, LoanApiConstants.dateFormatParameterName,
                         LoanApiConstants.disbursementDataParameterName, LoanApiConstants.disbursementDateParameterName,
                         "paymentTypeId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
-                        "clientPhoneNumber", "clientAccountNumber","clientBankName","transactionAmount",
+                        "clientPhoneNumber", "clientAccountNumber","clientBankName","transactionAmount","mfiCode",
                         LoanApiConstants.paymentToParameterName, LoanApiConstants.beneficiaryNameParameterName,
                         LoanApiConstants.disbursementTypeParameterName, LoanApiConstants.fxRateParameterName,
                         LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName,

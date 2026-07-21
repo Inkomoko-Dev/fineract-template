@@ -453,6 +453,13 @@ public class LoanTransactionHelper {
         return (Integer) response.get("resourceId");
     }
 
+    public HashMap adjustDisbursementCharge(final Integer loanId, final Integer loanChargeId, final String json) {
+        LOG.info("--------------------------------- ADJUST DISBURSEMENT CHARGE (INSURANCE) --------------------------------");
+        final String CHARGES_URL = "/fineract-provider/api/v1/loans/" + loanId + "/charges/" + loanChargeId + "?command=adjust&"
+                + Utils.TENANT_IDENTIFIER;
+        return Utils.performServerPost(requestSpec, responseSpec, CHARGES_URL, json, "");
+    }
+
     public ArrayList<HashMap> getLoanTransactionDetails(final RequestSpecification requestSpec, final ResponseSpecification responseSpec,
             final Integer loanID) {
         final String URL = "/fineract-provider/api/v1/loans/" + loanID + "?associations=all&exclude=guarantors,futureSchedule&"
