@@ -40,8 +40,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSubStatus;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
 import org.apache.fineract.portfolio.loanaccount.serialization.DisbursementInstructionDataValidator;
-import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
-import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.supplier.domain.Supplier;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
@@ -60,6 +59,7 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
     private final SupplierRepository supplierRepository;
     private final SupplierDisbursementAuditService supplierDisbursementAuditService;
     private final PlatformSecurityContext context;
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
 
     @Override
     @Transactional
@@ -73,7 +73,7 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
 
         final LoanAccountData loanAccountData = this.loanReadPlatformService.retrieveLoanByLoanAccount(loanAccountNo);
         final Loan loan = this.loanAssembler.assembleFrom(loanAccountData.getId());
-        validateLoanForDisbursementInstruction(loan);
+        validateLoanForDisbursementInstruction(loan, sourceSystem);
 
         final Supplier supplier = this.supplierRepository.findBySourceSystemAndExternalId(sourceSystem, supplierExternalId)
                 .orElse(null);
@@ -98,7 +98,7 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
                 .withLoanId(loan.getId()).with(buildResponseChanges(loan, supplier)).build();
     }
 
-    private void validateLoanForDisbursementInstruction(final Loan loan) {
+    void validateLoanForDisbursementInstruction(final Loan loan, final String sourceSystem) {
         if (loan.isMultiDisburmentLoan()) {
             throw new LoanDisbursalException("Loan can't receive a disbursement instruction; it is a multi-disbursement loan.",
                     "validation.msg.disbursementInstruction.multiDisbursementNotSupported", loan.getApprovedPrincipal());
@@ -110,14 +110,29 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
                             "Loan must be approved and not yet disbursed.")));
         }
 
-        final LoanProduct loanProduct = loan.getLoanProduct();
-        if (!loanProduct.isEnableThirdPartyDisbursement()
-                || !Objects.equals(ThirdPartyDisbursementProvider.KIFIYA,
-                        ThirdPartyDisbursementProvider.normalize(loanProduct.getThirdPartyDisbursementProvider()))) {
-            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.loanProduct.notKifiya",
-                    "Loan product must have third-party disbursement enabled for provider KIFIYA.",
-                    List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.loanProduct.notKifiya",
-                            "Loan product must have third-party disbursement enabled for provider KIFIYA.")));
+        if (!this.disbursementProviderReadPlatformService.isActiveProvider(sourceSystem)) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.provider.notFoundOrInactive",
+                    "Disbursement provider is not registered or inactive.",
+                    List.of(ApiParameterError.parameterError("validation.msg.disbursementInstruction.provider.notFoundOrInactive",
+                            "Disbursement provider is not registered or inactive.",
+                            DisbursementInstructionApiConstants.SOURCE_SYSTEM, sourceSystem)));
+        }
+
+        final String mappedProvider = this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(loan.productId())
+                .orElse(null);
+        if (mappedProvider == null) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.loanProduct.notThirdPartyDisbursement",
+                    "Loan product is not configured for third-party disbursement.",
+                    List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.loanProduct.notThirdPartyDisbursement",
+                            "Loan product is not configured for third-party disbursement.")));
+        }
+
+        if (!Objects.equals(mappedProvider, sourceSystem)) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.loanProduct.providerMismatch",
+                    "Loan product disbursement provider does not match the instruction source system.",
+                    List.of(ApiParameterError.parameterError("validation.msg.disbursementInstruction.loanProduct.providerMismatch",
+                            "Loan product disbursement provider does not match the instruction source system.",
+                            DisbursementInstructionApiConstants.SOURCE_SYSTEM, sourceSystem)));
         }
     }
 

@@ -29,7 +29,7 @@ import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartySupplierDisbursementApiConstants;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
-import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,22 +37,22 @@ import org.junit.jupiter.api.Test;
 class ThirdPartySupplierDisbursementGuardTest {
 
     private ThirdPartySupplierDisbursementGuard underTest;
+    private DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
     private Loan loan;
-    private LoanProduct loanProduct;
     private AppUser user;
 
     @BeforeEach
     void setUp() {
-        this.underTest = new ThirdPartySupplierDisbursementGuard();
+        this.disbursementProviderReadPlatformService = mock(DisbursementProviderReadPlatformService.class);
+        this.underTest = new ThirdPartySupplierDisbursementGuard(this.disbursementProviderReadPlatformService);
         this.loan = mock(Loan.class);
-        this.loanProduct = mock(LoanProduct.class);
         this.user = mock(AppUser.class);
-        when(this.loan.getLoanProduct()).thenReturn(this.loanProduct);
+        when(this.loan.productId()).thenReturn(5L);
     }
 
     @Test
     void blocksManualRecipientEditForThirdPartyProductWithoutOverride() {
-        when(this.loanProduct.isEnableThirdPartyDisbursement()).thenReturn(true);
+        when(this.disbursementProviderReadPlatformService.hasActiveThirdPartyDisbursementMapping(5L)).thenReturn(true);
         when(this.user.hasSpecificPermissionTo(ThirdPartySupplierDisbursementApiConstants.PERMISSION_CODE)).thenReturn(false);
         final JsonCommand command = JsonCommand.from("{\"beneficiaryName\":\"Vendor A\"}");
 
@@ -62,7 +62,7 @@ class ThirdPartySupplierDisbursementGuardTest {
 
     @Test
     void allowsManualRecipientEditForNonThirdPartyProduct() {
-        when(this.loanProduct.isEnableThirdPartyDisbursement()).thenReturn(false);
+        when(this.disbursementProviderReadPlatformService.hasActiveThirdPartyDisbursementMapping(5L)).thenReturn(false);
         final JsonCommand command = JsonCommand.from("{\"beneficiaryName\":\"Vendor A\"}");
 
         assertDoesNotThrow(() -> this.underTest.assertManualRecipientEditAllowed(this.loan, command, this.user));
@@ -71,7 +71,7 @@ class ThirdPartySupplierDisbursementGuardTest {
 
     @Test
     void allowsManualRecipientEditWhenOverridePermissionPresent() {
-        when(this.loanProduct.isEnableThirdPartyDisbursement()).thenReturn(true);
+        when(this.disbursementProviderReadPlatformService.hasActiveThirdPartyDisbursementMapping(5L)).thenReturn(true);
         when(this.user.hasSpecificPermissionTo(ThirdPartySupplierDisbursementApiConstants.PERMISSION_CODE)).thenReturn(true);
         final JsonCommand command = JsonCommand.from("{\"beneficiaryName\":\"Vendor A\"}");
 
@@ -81,7 +81,7 @@ class ThirdPartySupplierDisbursementGuardTest {
 
     @Test
     void doesNotBlockThirdPartyApprovalWithoutRecipientFields() {
-        when(this.loanProduct.isEnableThirdPartyDisbursement()).thenReturn(true);
+        when(this.disbursementProviderReadPlatformService.hasActiveThirdPartyDisbursementMapping(5L)).thenReturn(true);
         when(this.user.hasSpecificPermissionTo(ThirdPartySupplierDisbursementApiConstants.PERMISSION_CODE)).thenReturn(false);
         final JsonCommand command = JsonCommand.from("{\"approvedLoanAmount\":1000}");
 

@@ -27,12 +27,15 @@ import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.core.service.PaginationHelper;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.portfolio.loanaccount.data.LoanStatusEnumData;
+import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSubStatus;
@@ -55,8 +58,14 @@ public class ThirdPartyDisbursementLoanReadPlatformServiceImpl implements ThirdP
     @Override
     public Page<ThirdPartyDisbursementLoanData> retrieveAll(final String provider, final String status, final Boolean readyForInstruction,
             final String loanAccountNo, final String externalId, final Integer offset, final Integer limit) {
-        final String normalizedProvider = ThirdPartyDisbursementProvider.normalize(
-                StringUtils.isBlank(provider) ? ThirdPartyDisbursementProvider.KIFIYA : provider);
+        final String normalizedProvider = ThirdPartyDisbursementProvider.normalize(provider);
+        if (StringUtils.isBlank(normalizedProvider)) {
+            throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.provider.required",
+                    "Disbursement provider query parameter is required.",
+                    List.of(ApiParameterError.parameterError("validation.msg.thirdPartyDisbursementLoan.provider.required",
+                            "Disbursement provider query parameter is required.", ThirdPartyDisbursementLoanApiConstants.PROVIDER,
+                            provider)));
+        }
         final Integer parsedStatusId = parseStatusId(status);
         final Integer effectiveStatusId = parsedStatusId != null ? parsedStatusId : LoanStatus.APPROVED.getValue();
         final int safeOffset = offset == null || offset < 0 ? 0 : offset;
@@ -67,9 +76,10 @@ public class ThirdPartyDisbursementLoanReadPlatformServiceImpl implements ThirdP
         sqlBuilder.append(buildSelectColumns());
         sqlBuilder.append(" from m_loan l ");
         sqlBuilder.append(" join m_product_loan lp on lp.id = l.product_id ");
+        sqlBuilder.append(" join m_loan_product_disbursement_provider_mapping lpdpm on lpdpm.loan_product_id = lp.id ");
         sqlBuilder.append(" left join m_client c on c.id = l.client_id ");
-        sqlBuilder.append(" where lp.enable_third_party_disbursement = true ");
-        sqlBuilder.append(" and lp.third_party_disbursement_provider = ? ");
+        sqlBuilder.append(" where lpdpm.is_active = true ");
+        sqlBuilder.append(" and lpdpm.disbursement_provider_code = ? ");
 
         final List<Object> params = new ArrayList<>();
         params.add(normalizedProvider);
@@ -113,7 +123,7 @@ public class ThirdPartyDisbursementLoanReadPlatformServiceImpl implements ThirdP
     private static String buildSelectColumns() {
         return " l.id as loanId, l.account_no as loanAccountNo, l.external_id as externalId, "
                 + " l.loan_status_id as loanStatusId, l.loan_sub_status_id as loanSubStatusId, "
-                + " lp.third_party_disbursement_provider as thirdPartyDisbursementProvider, "
+                + " lpdpm.disbursement_provider_code as thirdPartyDisbursementProvider, "
                 + " lp.id as loanProductId, lp.name as loanProductName, "
                 + " l.approved_principal as approvedPrincipal, l.currency_code as currencyCode, "
                 + " l.approvedon_date as approvedOnDate, c.id as clientId, c.display_name as clientName, c.external_id as clientExternalId ";
