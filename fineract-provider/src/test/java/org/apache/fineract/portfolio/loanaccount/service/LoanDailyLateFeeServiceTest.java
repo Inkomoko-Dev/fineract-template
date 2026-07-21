@@ -178,11 +178,14 @@ class LoanDailyLateFeeServiceTest {
             assertTrue(!dailyLateFeeCharge.getDueLocalDate().isBefore(LocalDate.of(2026, 1, 21))
                     && !dailyLateFeeCharge.getDueLocalDate().isAfter(LocalDate.of(2026, 1, 23)),
                     "penalty day outside the expected window: " + dailyLateFeeCharge.getDueLocalDate());
-            assertEquals(0, new BigDecimal("3.333333").compareTo(dailyLateFeeCharge.amount()),
-                    "each penalty day must charge dailyRate x overdue principal");
+            assertEquals(0, new BigDecimal("3.33").compareTo(dailyLateFeeCharge.amount()),
+                    "each penalty day must charge dailyRate x overdue principal, at currency precision");
+            assertTrue(dailyLateFeeCharge.amount().stripTrailingZeros().scale() <= 2,
+                    "daily penalty must be at currency scale so charge amount equals derived outstanding, but was "
+                            + dailyLateFeeCharge.amount());
             totalDailyLateFees = totalDailyLateFees.add(dailyLateFeeCharge.amount());
         }
-        assertEquals(0, new BigDecimal("9.999999").compareTo(totalDailyLateFees));
+        assertEquals(0, new BigDecimal("9.99").compareTo(totalDailyLateFees));
         verify(this.loanDailyLateFeeRepository, times(3)).save(any(LoanDailyLateFee.class));
     }
 
@@ -243,6 +246,32 @@ class LoanDailyLateFeeServiceTest {
         verify(this.businessEventNotifierService).notifyPostBusinessEvent(any(LoanApplyOverdueChargeBusinessEvent.class));
     }
 
+    /**
+     * AC4 across a multi-installment schedule: a 5,000 loan over 6 monthly installments, never repaid, run for years of
+     * arrears must stop its life-to-date penalty exactly at the disbursed principal (5,000) and never exceed it.
+     */
+    @Test
+    void multiInstallmentPenaltyStopsExactlyAtDisbursedPrincipalCap() {
+        setUpMultiInstallmentLoanFixture(LocalDate.of(2031, 12, 31));
+
+        this.service.syncDailyLateFeesForLoan(LOAN_ID, LocalDate.of(2031, 12, 31));
+
+        final BigDecimal totalDailyLateFees = capturedTotalDailyLateFees();
+
+        assertEquals(0, DISBURSED_PRINCIPAL.compareTo(totalDailyLateFees.setScale(2, MoneyHelper.getRoundingMode())),
+                "long-run accrual must stop exactly at the 5,000 disbursed-principal cap, but accrued " + totalDailyLateFees);
+    }
+
+    private BigDecimal capturedTotalDailyLateFees() {
+        final ArgumentCaptor<LoanCharge> chargeCaptor = ArgumentCaptor.forClass(LoanCharge.class);
+        verify(this.loanChargeRepository, atLeastOnce()).saveAndFlush(chargeCaptor.capture());
+        BigDecimal totalDailyLateFees = BigDecimal.ZERO;
+        for (LoanCharge dailyLateFeeCharge : chargeCaptor.getAllValues()) {
+            totalDailyLateFees = totalDailyLateFees.add(dailyLateFeeCharge.amount());
+        }
+        return totalDailyLateFees;
+    }
+
     private Object principalReductionEvent(final Long installmentId, final LocalDate transactionDate, final BigDecimal principalPortion)
             throws Exception {
         final Class<?> eventClass = Class
@@ -274,6 +303,99 @@ class LoanDailyLateFeeServiceTest {
         this.service.syncDailyLateFeesForLoan(LOAN_ID, BUSINESS_DATE);
 
         verify(this.loanChargeRepository, never()).saveAndFlush(any(LoanCharge.class));
+    }
+
+    /**
+     * Active loan of 5,000 disbursed across 6 equal monthly installments (due 2024-02-01 .. 2024-07-01), 2% monthly
+     * overdue penalty, default 5-day grace, nothing ever repaid. The business date is set to {@code businessDate} so
+     * accrual runs the full arrears window. No pre-existing penalty charges (all penalty is daily late fee).
+     */
+    private void setUpMultiInstallmentLoanFixture(final LocalDate businessDate) {
+        final HashMap<BusinessDateType, LocalDate> businessDates = new HashMap<>();
+        businessDates.put(BusinessDateType.BUSINESS_DATE, businessDate);
+        businessDates.put(BusinessDateType.COB_DATE, businessDate.minusDays(1));
+        ThreadLocalContextUtil.setBusinessDates(businessDates);
+
+        final MonetaryCurrency currency = new MonetaryCurrency("KES", 2, 0);
+
+        final Charge chargeDefinition = mock(Charge.class);
+        when(chargeDefinition.isActive()).thenReturn(true);
+        when(chargeDefinition.isLoanCharge()).thenReturn(true);
+        when(chargeDefinition.isPenalty()).thenReturn(true);
+        when(chargeDefinition.getChargeTimeType()).thenReturn(ChargeTimeType.OVERDUE_INSTALLMENT.getValue());
+        when(chargeDefinition.getChargeCalculation()).thenReturn(ChargeCalculationType.PERCENT_OF_AMOUNT.getValue());
+        when(chargeDefinition.getAmount()).thenReturn(new BigDecimal("2"));
+        when(chargeDefinition.getId()).thenReturn(99L);
+        when(chargeDefinition.getCurrencyCode()).thenReturn("KES");
+        when(chargeDefinition.getChargePaymentMode()).thenReturn(0);
+
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.getLoanProductCharges()).thenReturn(List.of(chargeDefinition));
+
+        final LoanProductRelatedDetail productRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(productRelatedDetail.fetchDaysInMonthType()).thenReturn(DaysInMonthType.DAYS_30);
+        when(productRelatedDetail.isInterestRecalculationEnabled()).thenReturn(false);
+
+        this.loan = mock(Loan.class);
+        final LocalDate[] dueDates = { LocalDate.of(2024, 2, 1), LocalDate.of(2024, 3, 1), LocalDate.of(2024, 4, 1),
+                LocalDate.of(2024, 5, 1), LocalDate.of(2024, 6, 1), LocalDate.of(2024, 7, 1) };
+        // 5,000 principal split into 2-dp installments that sum exactly to 5,000
+        final BigDecimal[] principals = { new BigDecimal("833.33"), new BigDecimal("833.33"), new BigDecimal("833.33"),
+                new BigDecimal("833.33"), new BigDecimal("833.33"), new BigDecimal("833.35") };
+        final List<LoanRepaymentScheduleInstallment> installments = new ArrayList<>();
+        for (int i = 0; i < dueDates.length; i++) {
+            final LoanRepaymentScheduleInstallment scheduleInstallment = new LoanRepaymentScheduleInstallment(this.loan, i + 1,
+                    dueDates[i].minusMonths(1), dueDates[i], principals[i], BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+            ReflectionTestUtils.setField(scheduleInstallment, "id", (long) (i + 1));
+            installments.add(scheduleInstallment);
+        }
+        final LoanRepaymentScheduleInstallment lastInstallment = installments.get(installments.size() - 1);
+
+        when(this.loan.getId()).thenReturn(LOAN_ID);
+        when(this.loan.status()).thenReturn(LoanStatus.ACTIVE);
+        when(this.loan.getCurrency()).thenReturn(currency);
+        when(this.loan.hasCurrencyCodeOf("KES")).thenReturn(true);
+        when(this.loan.getDisbursedAmount()).thenReturn(DISBURSED_PRINCIPAL);
+        when(this.loan.getLoanProduct()).thenReturn(loanProduct);
+        when(this.loan.getLoanProductRelatedDetail()).thenReturn(productRelatedDetail);
+        when(this.loan.repaymentScheduleDetail()).thenReturn(productRelatedDetail);
+        when(this.loan.getRepaymentScheduleInstallments()).thenReturn(installments);
+        when(this.loan.fetchRepaymentScheduleInstallment(anyInt())).thenReturn(lastInstallment);
+        when(this.loan.charges()).thenReturn(new HashSet<>());
+        when(this.loan.findExistingTransactionIds()).thenReturn(new ArrayList<>());
+        when(this.loan.findExistingReversedTransactionIds()).thenReturn(new ArrayList<>());
+        when(this.loan.fetchInterestRecalculateFromDate()).thenReturn(businessDate);
+        when(this.loan.reprocessTransactions()).thenReturn(null);
+        when(this.loan.isUpfrontAccrualAccountingEnabledOnLoanProduct()).thenReturn(false);
+
+        final LoanAssembler loanAssembler = mock(LoanAssembler.class);
+        when(loanAssembler.assembleFrom(LOAN_ID)).thenReturn(this.loan);
+
+        this.loanChargeRepository = mock(LoanChargeRepository.class);
+        this.loanDailyLateFeeRepository = mock(LoanDailyLateFeeRepository.class);
+        when(this.loanDailyLateFeeRepository.findByLoanIdAndActiveTrueOrderByPenaltyDateAsc(LOAN_ID)).thenReturn(Collections.emptyList());
+        when(this.loanDailyLateFeeRepository.findByLoanIdAndChargeIdAndPenaltyDate(any(), any(), any())).thenReturn(Optional.empty());
+
+        this.configurationDomainService = mock(ConfigurationDomainService.class);
+        when(this.configurationDomainService.retrievePenaltyWaitPeriod()).thenReturn(5L);
+
+        final ApplicationCurrencyRepositoryWrapper applicationCurrencyRepository = mock(ApplicationCurrencyRepositoryWrapper.class);
+        when(applicationCurrencyRepository.findOneWithNotFoundDetection(any(MonetaryCurrency.class)))
+                .thenReturn(mock(ApplicationCurrency.class));
+
+        this.jdbcTemplate = mock(JdbcTemplate.class);
+        this.principalReductionRows.clear();
+        doAnswer(invocation -> new ArrayList<>(this.principalReductionRows)).when(this.jdbcTemplate).query(anyString(), any(RowMapper.class),
+                any());
+
+        this.businessEventNotifierService = mock(BusinessEventNotifierService.class);
+
+        this.service = new LoanDailyLateFeeService(loanAssembler, mock(LoanRepositoryWrapper.class), mock(LoanTransactionRepository.class),
+                this.loanChargeRepository, this.loanDailyLateFeeRepository, mock(ChargeRepositoryWrapper.class),
+                applicationCurrencyRepository, mock(JournalEntryWritePlatformService.class), this.configurationDomainService,
+                mock(AccountAssociationsReadPlatformService.class), mock(AccountTransferRepository.class),
+                this.businessEventNotifierService, mock(LoanUtilService.class), mock(LoanScheduleHistoryWritePlatformService.class),
+                mock(LoanAccountDomainService.class), this.jdbcTemplate);
     }
 
     /**
