@@ -36,4 +36,7 @@ public final class DisbursementInstructionApiConstants {
     public static final String SUPPLIER_ID = "supplierId";
     public static final String DISBURSEMENT_REQUEST_STATUS = "disbursementRequestStatus";
     public static final String SUCCESS = "success";
+    public static final String INSTRUCTION_ID = "instructionId";
+    public static final String INSTRUCTION_STATUS = "instructionStatus";
+    public static final String IDEMPOTENCY_KEY = "idempotencyKey";
 }

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-670_create_m_loan_disbursement_instruction" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_disbursement_instruction"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_disbursement_instruction">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"
+                             foreignKeyName="fk_loan_disb_instruction_loan"
+                             references="m_loan(id)"/>
+            </column>
+            <column name="disbursement_provider_code" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="supplier_id" type="BIGINT"/>
+            <column name="supplier_external_id" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="idempotency_key" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="request_hash" type="VARCHAR(128)"/>
+            <column name="loan_disbursement_detail_id" type="BIGINT"/>
+            <column name="failure_message" type="VARCHAR(1000)"/>
+            <column name="created_by" type="BIGINT"/>
+            <column name="created_on_date" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_date" type="DATETIME"/>
+        </createTable>
+        <addUniqueConstraint tableName="m_loan_disbursement_instruction"
+                             columnNames="disbursement_provider_code, idempotency_key"
+                             constraintName="uk_loan_disb_instruction_provider_idempotency"/>
+        <createIndex tableName="m_loan_disbursement_instruction" indexName="idx_loan_disb_instruction_loan">
+            <column name="loan_id"/>
+        </createIndex>
+        <createIndex tableName="m_loan_disbursement_instruction" indexName="idx_loan_disb_instruction_provider_status">
+            <column name="disbursement_provider_code"/>
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

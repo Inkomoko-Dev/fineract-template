@@ -24,8 +24,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.ws.rs.Consumes;
+import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -36,38 +38,57 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementInstructionApiConstants;
+import org.apache.fineract.portfolio.loanaccount.data.DisbursementInstructionData;
+import org.apache.fineract.portfolio.loanaccount.service.DisbursementInstructionReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Path("/loans/disbursement-instruction")
 @Component
-@Tag(name = "Loans", description = "Kifiya disbursement instruction callback")
+@Tag(name = "Loans", description = "Partner disbursement instruction callback and status")
 public class DisbursementInstructionApiResource {
 
     private final PlatformSecurityContext context;
     private final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService;
+    private final DisbursementInstructionReadPlatformService readPlatformService;
     private final DefaultToApiJsonSerializer<Map<String, Object>> toApiJsonSerializer;
+    private final DefaultToApiJsonSerializer<DisbursementInstructionData> instructionToApiJsonSerializer;
 
     @Autowired
     public DisbursementInstructionApiResource(final PlatformSecurityContext context,
             final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService,
-            final DefaultToApiJsonSerializer<Map<String, Object>> toApiJsonSerializer) {
+            final DisbursementInstructionReadPlatformService readPlatformService,
+            final DefaultToApiJsonSerializer<Map<String, Object>> toApiJsonSerializer,
+            final DefaultToApiJsonSerializer<DisbursementInstructionData> instructionToApiJsonSerializer) {
         this.context = context;
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
+        this.readPlatformService = readPlatformService;
         this.toApiJsonSerializer = toApiJsonSerializer;
+        this.instructionToApiJsonSerializer = instructionToApiJsonSerializer;
     }
 
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Create Kifiya disbursement instruction",
-            description = "Validates supplier payment details and creates a disbursement request in CBS for the specified loan")
+    @Operation(summary = "Create disbursement instruction",
+            description = "Validates supplier payment details, persists an instruction, and creates a disbursement request in CBS")
     public Response createDisbursementInstruction(@Parameter(hidden = true) final String apiRequestBodyAsJson) {
         this.context.authenticatedUser().validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createDisbursementInstruction().withJson(apiRequestBodyAsJson)
                 .build();
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         return Response.status(Response.Status.CREATED).entity(this.toApiJsonSerializer.serialize(flattenResponse(result))).build();
+    }
+
+    @GET
+    @Path("{instructionId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Retrieve disbursement instruction by id")
+    public String retrieveOne(@PathParam("instructionId") @Parameter(description = "instructionId") final Long instructionId) {
+        this.context.authenticatedUser().validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
+        final DisbursementInstructionData data = this.readPlatformService.retrieveOne(instructionId);
+        return this.instructionToApiJsonSerializer.serialize(data);
     }
 
     private static Map<String, Object> flattenResponse(final CommandProcessingResult result) {

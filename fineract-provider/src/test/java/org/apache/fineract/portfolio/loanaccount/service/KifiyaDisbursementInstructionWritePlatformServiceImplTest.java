@@ -26,6 +26,7 @@ import java.util.Optional;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementInstructionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.serialization.DisbursementInstructionDataValidator;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementPartnerAccessService;
@@ -65,6 +66,8 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
     private DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
     @Mock
     private DisbursementPartnerAccessService disbursementPartnerAccessService;
+    @Mock
+    private LoanDisbursementInstructionRepository loanDisbursementInstructionRepository;
     @Mock
     private Loan loan;
     @Mock
