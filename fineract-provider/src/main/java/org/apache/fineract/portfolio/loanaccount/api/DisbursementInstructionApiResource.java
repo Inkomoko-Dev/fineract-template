@@ -18,23 +18,30 @@
  */
 package org.apache.fineract.portfolio.loanaccount.api;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.commands.domain.CommandWrapper;
 import org.apache.fineract.commands.service.CommandWrapperBuilder;
 import org.apache.fineract.commands.service.PortfolioCommandSourceWritePlatformService;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementInstructionApiConstants;
@@ -71,13 +78,25 @@ public class DisbursementInstructionApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Create disbursement instruction",
-            description = "Validates supplier payment details, persists an instruction, and creates a disbursement request in CBS")
-    public Response createDisbursementInstruction(@Parameter(hidden = true) final String apiRequestBodyAsJson) {
+            description = "Requires Idempotency-Key header. Replays with the same key return HTTP 200 without re-applying side effects.")
+    public Response createDisbursementInstruction(
+            @HeaderParam(DisbursementInstructionApiConstants.IDEMPOTENCY_KEY_HEADER) final String idempotencyKey,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
         this.context.authenticatedUser().validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
-        final CommandWrapper commandRequest = new CommandWrapperBuilder().createDisbursementInstruction().withJson(apiRequestBodyAsJson)
-                .build();
+        final String normalizedKey = StringUtils.trimToNull(idempotencyKey);
+        if (normalizedKey == null) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.idempotencyKey.required",
+                    "Idempotency-Key header is required.",
+                    List.of(ApiParameterError.parameterError("validation.msg.disbursementInstruction.idempotencyKey.required",
+                            "Idempotency-Key header is required.", DisbursementInstructionApiConstants.IDEMPOTENCY_KEY_HEADER)));
+        }
+        final String jsonWithKey = injectIdempotencyKey(apiRequestBodyAsJson, normalizedKey);
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().createDisbursementInstruction().withJson(jsonWithKey).build();
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
-        return Response.status(Response.Status.CREATED).entity(this.toApiJsonSerializer.serialize(flattenResponse(result))).build();
+        final Map<String, Object> body = flattenResponse(result);
+        final boolean replayed = Boolean.TRUE.equals(body.get(DisbursementInstructionApiConstants.REPLAYED));
+        final Response.Status status = replayed ? Response.Status.OK : Response.Status.CREATED;
+        return Response.status(status).entity(this.toApiJsonSerializer.serialize(body)).build();
     }
 
     @GET
@@ -89,6 +108,13 @@ public class DisbursementInstructionApiResource {
         this.context.authenticatedUser().validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
         final DisbursementInstructionData data = this.readPlatformService.retrieveOne(instructionId);
         return this.instructionToApiJsonSerializer.serialize(data);
+    }
+
+    static String injectIdempotencyKey(final String apiRequestBodyAsJson, final String idempotencyKey) {
+        final JsonObject json = StringUtils.isBlank(apiRequestBodyAsJson) ? new JsonObject()
+                : JsonParser.parseString(apiRequestBodyAsJson).getAsJsonObject();
+        json.addProperty(DisbursementInstructionApiConstants.IDEMPOTENCY_KEY, idempotencyKey);
+        return json.toString();
     }
 
     private static Map<String, Object> flattenResponse(final CommandProcessingResult result) {

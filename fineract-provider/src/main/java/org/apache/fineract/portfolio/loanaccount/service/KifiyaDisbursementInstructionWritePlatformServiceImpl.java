@@ -23,8 +23,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
@@ -42,6 +43,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementInstruct
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementInstructionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSubStatus;
+import org.apache.fineract.portfolio.loanaccount.exception.DisbursementInstructionIdempotencyConflictException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
 import org.apache.fineract.portfolio.loanaccount.serialization.DisbursementInstructionDataValidator;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementPartnerAccessService;
@@ -49,6 +51,8 @@ import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderRea
 import org.apache.fineract.portfolio.supplier.domain.Supplier;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -77,9 +81,16 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         final String sourceSystem = normalizeSourceSystem(command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.SOURCE_SYSTEM));
         final String supplierExternalId = command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.SUPPLIER_EXTERNAL_ID)
                 .trim();
+        final String idempotencyKey = StringUtils.trimToNull(command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.IDEMPOTENCY_KEY));
 
         final AppUser currentUser = this.context.getAuthenticatedUserIfPresent();
         assertCallerBoundToSourceSystem(currentUser, sourceSystem);
+
+        final Optional<LoanDisbursementInstruction> existingByKey = this.loanDisbursementInstructionRepository
+                .findByDisbursementProviderCodeAndIdempotencyKey(sourceSystem, idempotencyKey);
+        if (existingByKey.isPresent()) {
+            return replayOrConflict(existingByKey.get(), loanAccountNo, supplierExternalId, command.commandId());
+        }
 
         final LoanAccountData loanAccountData = this.loanReadPlatformService.retrieveLoanByLoanAccount(loanAccountNo);
         final Loan loan = this.loanAssembler.assembleFrom(loanAccountData.getId());
@@ -96,10 +107,18 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
                                 "Loan disbursement details are missing."))));
 
         final Long createdById = currentUser == null ? null : currentUser.getId();
-        final String idempotencyKey = UUID.randomUUID().toString();
         final LoanDisbursementInstruction instruction = LoanDisbursementInstruction.createReceived(loan.getId(), sourceSystem,
                 supplier.getId(), supplierExternalId, idempotencyKey, createdById);
-        this.loanDisbursementInstructionRepository.saveAndFlush(instruction);
+        try {
+            this.loanDisbursementInstructionRepository.saveAndFlush(instruction);
+        } catch (final DataIntegrityViolationException | JpaSystemException ex) {
+            final Optional<LoanDisbursementInstruction> raced = this.loanDisbursementInstructionRepository
+                    .findByDisbursementProviderCodeAndIdempotencyKey(sourceSystem, idempotencyKey);
+            if (raced.isPresent()) {
+                return replayOrConflict(raced.get(), loanAccountNo, supplierExternalId, command.commandId());
+            }
+            throw ex;
+        }
 
         try {
             final SupplierDisbursementSnapshot recipientSnapshotBeforeUpdate = SupplierDisbursementSnapshot.from(disbursementDetail);
@@ -119,7 +138,25 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         }
 
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(instruction.getId())
-                .withLoanId(loan.getId()).with(buildResponseChanges(loan, supplier, instruction)).build();
+                .withLoanId(loan.getId()).with(buildResponseChanges(loan, supplier, instruction, false)).build();
+    }
+
+    CommandProcessingResult replayOrConflict(final LoanDisbursementInstruction existing, final String loanAccountNo,
+            final String supplierExternalId, final Long commandId) {
+        final Loan loan = this.loanAssembler.assembleFrom(existing.getLoanId());
+        if (!Objects.equals(loan.getAccountNumber(), loanAccountNo)
+                || !Objects.equals(existing.getSupplierExternalId(), supplierExternalId)) {
+            throw new DisbursementInstructionIdempotencyConflictException(
+                    "validation.msg.disbursementInstruction.idempotencyKey.payloadConflict",
+                    "Idempotency-Key was already used with a different loan or supplier payload.",
+                    List.of(ApiParameterError.parameterError("validation.msg.disbursementInstruction.idempotencyKey.payloadConflict",
+                            "Idempotency-Key was already used with a different loan or supplier payload.",
+                            DisbursementInstructionApiConstants.IDEMPOTENCY_KEY_HEADER, existing.getIdempotencyKey())));
+        }
+        final Supplier supplier = existing.getSupplierId() == null ? null
+                : this.supplierRepository.findById(existing.getSupplierId()).orElse(null);
+        return new CommandProcessingResultBuilder().withCommandId(commandId).withEntityId(existing.getId()).withLoanId(loan.getId())
+                .with(buildResponseChanges(loan, supplier, existing, true)).build();
     }
 
     void assertCallerBoundToSourceSystem(final AppUser currentUser, final String sourceSystem) {
@@ -183,17 +220,26 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
     }
 
     private static Map<String, Object> buildResponseChanges(final Loan loan, final Supplier supplier,
-            final LoanDisbursementInstruction instruction) {
+            final LoanDisbursementInstruction instruction, final boolean replayed) {
         final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put(DisbursementInstructionApiConstants.INSTRUCTION_ID, instruction.getId());
-        changes.put(DisbursementInstructionApiConstants.INSTRUCTION_STATUS, DisbursementInstructionStatus.PENDING_DISBURSEMENT.name());
+        changes.put(DisbursementInstructionApiConstants.INSTRUCTION_STATUS, instruction.getStatus().name());
         changes.put(DisbursementInstructionApiConstants.IDEMPOTENCY_KEY, instruction.getIdempotencyKey());
+        changes.put(DisbursementInstructionApiConstants.REPLAYED, replayed);
         changes.put(DisbursementInstructionApiConstants.LOAN_ID, loan.getId());
         changes.put(DisbursementInstructionApiConstants.LOAN_ACCOUNT_NO, loan.getAccountNumber());
-        changes.put(DisbursementInstructionApiConstants.SUPPLIER_ID, supplier.getId());
-        changes.put(DisbursementInstructionApiConstants.SUPPLIER_EXTERNAL_ID, supplier.getExternalId());
-        changes.put(DisbursementInstructionApiConstants.SOURCE_SYSTEM, supplier.getSourceSystem());
-        changes.put(DisbursementInstructionApiConstants.DISBURSEMENT_REQUEST_STATUS, LoanSubStatus.PENDINGDISBURSEMENT.name());
+        if (supplier != null) {
+            changes.put(DisbursementInstructionApiConstants.SUPPLIER_ID, supplier.getId());
+            changes.put(DisbursementInstructionApiConstants.SUPPLIER_EXTERNAL_ID, supplier.getExternalId());
+            changes.put(DisbursementInstructionApiConstants.SOURCE_SYSTEM, supplier.getSourceSystem());
+        } else {
+            changes.put(DisbursementInstructionApiConstants.SUPPLIER_ID, instruction.getSupplierId());
+            changes.put(DisbursementInstructionApiConstants.SUPPLIER_EXTERNAL_ID, instruction.getSupplierExternalId());
+            changes.put(DisbursementInstructionApiConstants.SOURCE_SYSTEM, instruction.getDisbursementProviderCode());
+        }
+        if (instruction.getStatus() == DisbursementInstructionStatus.PENDING_DISBURSEMENT) {
+            changes.put(DisbursementInstructionApiConstants.DISBURSEMENT_REQUEST_STATUS, LoanSubStatus.PENDINGDISBURSEMENT.name());
+        }
         changes.put(DisbursementInstructionApiConstants.SUCCESS, Boolean.TRUE);
         return changes;
     }
