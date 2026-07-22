@@ -355,7 +355,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         final Collection<LoanCharge> loanCharges = loan.getLoanCharges();
 
         for (final LoanCharge loanCharge : loanCharges) {
-            if (loanCharge.isDueAtDisbursement() && loanCharge.isChargePending()) {
+            if (loanCharge.isDueAtDisbursement() && loanCharge.isChargePending() && loanCharge.isActive()) {
                 chargeAmount = chargeAmount.add(loanCharge.amount());
             }
         }
