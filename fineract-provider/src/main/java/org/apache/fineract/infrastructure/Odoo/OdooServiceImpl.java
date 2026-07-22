@@ -64,6 +64,7 @@ import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.accounting.journalentry.data.JournalItemData;
+import org.apache.fineract.infrastructure.Odoo.event.JournalEntryEventPublisher;
 import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
@@ -139,6 +140,12 @@ public class OdooServiceImpl implements OdooService {
 
     @Value("${fineract.integrations.integration-layer.api-key}")
     private String integrationLayerApiKey;
+
+    @Value("${fineract.integrations.integration-layer.delivery-mode}")
+    private String integrationLayerDeliveryMode;
+
+    @Autowired
+    private JournalEntryEventPublisher journalEntryEventPublisher;
     private ClientRepositoryWrapper clientRepository;
     private ConfigurationDomainService configurationDomainService;
 
@@ -481,6 +488,11 @@ public class OdooServiceImpl implements OdooService {
             String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
             LOG.info("Journal Entry to Odoo JSON Payload " + jsonPayload);
             if (integrationLayerEnabled) {
+                // ASYNC: broker ack means queued; entries stay unposted until the outcome
+                // listener applies Odoo's response from the outcome topic
+                if ("ASYNC".equalsIgnoreCase(integrationLayerDeliveryMode)) {
+                    return publishJournalEntryEvent(loanTransactionId, jsonPayload);
+                }
                 return sendRequestViaIntegrationLayer(jsonPayload);
             }
             return sendRequest(jsonPayload);
@@ -623,6 +635,18 @@ public class OdooServiceImpl implements OdooService {
                             + getStringField(js, "responseCode") + " -Message From Odoo :-" + getStringField(js, "responseMessage"));
         }
 
+    }
+
+    private JsonObject publishJournalEntryEvent(Long loanTransactionId, String payload) {
+        String eventId = journalEntryEventPublisher.publish(loanTransactionId.toString(), payload);
+
+        JsonObject ack = new JsonObject();
+        ack.addProperty("success", true);
+        ack.addProperty("message", "Queued");
+        ack.addProperty("ack", true);
+        ack.addProperty("queued", true);
+        ack.addProperty("eventId", eventId);
+        return ack;
     }
 
     private JsonObject sendRequestViaIntegrationLayer(String payload) throws IOException {
@@ -809,10 +833,12 @@ public class OdooServiceImpl implements OdooService {
                     String message = getStringField(odooAck, "message");
                     if (success) {
                         if (integrationLayerEnabled) {
-                            // entries were already updated from the synchronous Odoo response in
-                            // applyOdooStatus; re-saving these instances would overwrite that state
+                            // SYNC: entries were already updated from the synchronous Odoo response in
+                            // applyOdooStatus; re-saving these instances would overwrite that state.
+                            // ASYNC: entries stay unposted until the outcome listener applies the response.
                             LOG.info("Journal entries for Loan Transaction Id " + loanTransactionId
-                                    + " posted via integration layer");
+                                    + (getBooleanField(odooAck, "queued") ? " queued to Kafka via integration layer"
+                                            : " posted via integration layer"));
                         } else {
                             for (JournalEntry je : journalEntryDebitCredit) {
                                 je.setOdooAck(ack);
