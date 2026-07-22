@@ -18,21 +18,30 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 
 import java.util.Optional;
+import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.portfolio.loanaccount.data.DisbursementInstructionApiConstants;
+import org.apache.fineract.portfolio.loanaccount.domain.DisbursementInstructionStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementInstruction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementInstructionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
+import org.apache.fineract.portfolio.loanaccount.exception.DisbursementInstructionIdempotencyConflictException;
 import org.apache.fineract.portfolio.loanaccount.serialization.DisbursementInstructionDataValidator;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementPartnerAccessService;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,6 +50,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -78,9 +88,17 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         given(this.loan.isMultiDisburmentLoan()).willReturn(false);
         given(this.loan.isApproved()).willReturn(true);
         given(this.loan.productId()).willReturn(5L);
+        given(this.loan.getId()).willReturn(10L);
+        given(this.loan.getAccountNumber()).willReturn("000000001");
+    }
+
+    @AfterEach
+    void tearDown() {
+        ThreadLocalContextUtil.clearTenant();
     }
 
     @Test
@@ -128,5 +146,33 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
                 .isInstanceOf(PlatformApiDataValidationException.class)
                 .extracting(ex -> ((PlatformApiDataValidationException) ex).getGlobalisationMessageCode())
                 .isEqualTo("validation.msg.disbursementInstruction.partnerBinding.mismatch");
+    }
+
+    @Test
+    void replayReturnsExistingWithoutConflict() {
+        final LoanDisbursementInstruction existing = LoanDisbursementInstruction.createReceived(10L, "KIFIYA", 3L, "SUP-001", "idem-1",
+                1L);
+        ReflectionTestUtils.setField(existing, "id", 55L);
+        existing.markPendingDisbursement(99L);
+        given(this.loanAssembler.assembleFrom(10L)).willReturn(this.loan);
+
+        final CommandProcessingResult result = this.underTest.replayOrConflict(existing, "000000001", "SUP-001", 7L);
+
+        assertThat(result.resourceId()).isEqualTo(55L);
+        assertThat(result.getChanges().get(DisbursementInstructionApiConstants.REPLAYED)).isEqualTo(Boolean.TRUE);
+        assertThat(result.getChanges().get(DisbursementInstructionApiConstants.INSTRUCTION_STATUS))
+                .isEqualTo(DisbursementInstructionStatus.PENDING_DISBURSEMENT.name());
+    }
+
+    @Test
+    void replayRejectsPayloadConflict() {
+        final LoanDisbursementInstruction existing = LoanDisbursementInstruction.createReceived(10L, "KIFIYA", 3L, "SUP-001", "idem-1",
+                1L);
+        given(this.loanAssembler.assembleFrom(10L)).willReturn(this.loan);
+
+        assertThatThrownBy(() -> this.underTest.replayOrConflict(existing, "000000001", "SUP-OTHER", 7L))
+                .isInstanceOf(DisbursementInstructionIdempotencyConflictException.class)
+                .extracting(ex -> ((DisbursementInstructionIdempotencyConflictException) ex).getGlobalisationMessageCode())
+                .isEqualTo("validation.msg.disbursementInstruction.idempotencyKey.payloadConflict");
     }
 }

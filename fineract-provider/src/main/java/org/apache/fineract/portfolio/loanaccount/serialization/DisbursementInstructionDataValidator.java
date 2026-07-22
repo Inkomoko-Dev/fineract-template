@@ -43,7 +43,7 @@ public class DisbursementInstructionDataValidator {
     private static final Set<String> REQUEST_PARAMETERS = new HashSet<>(Arrays.asList(DisbursementInstructionApiConstants.LOAN_ACCOUNT_NO,
             DisbursementInstructionApiConstants.SOURCE_SYSTEM, DisbursementInstructionApiConstants.SUPPLIER_EXTERNAL_ID,
             DisbursementInstructionApiConstants.ACTUAL_DISBURSEMENT_DATE, DisbursementInstructionApiConstants.LOCALE,
-            DisbursementInstructionApiConstants.DATE_FORMAT));
+            DisbursementInstructionApiConstants.DATE_FORMAT, DisbursementInstructionApiConstants.IDEMPOTENCY_KEY));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -76,6 +76,11 @@ public class DisbursementInstructionDataValidator {
         final String supplierExternalId = this.fromApiJsonHelper.extractStringNamed(DisbursementInstructionApiConstants.SUPPLIER_EXTERNAL_ID,
                 element);
         baseDataValidator.reset().parameter(DisbursementInstructionApiConstants.SUPPLIER_EXTERNAL_ID).value(supplierExternalId).notBlank()
+                .notExceedingLengthOf(100);
+
+        final String idempotencyKey = this.fromApiJsonHelper.extractStringNamed(DisbursementInstructionApiConstants.IDEMPOTENCY_KEY,
+                element);
+        baseDataValidator.reset().parameter(DisbursementInstructionApiConstants.IDEMPOTENCY_KEY).value(idempotencyKey).notBlank()
                 .notExceedingLengthOf(100);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);

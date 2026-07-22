@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
@@ -30,8 +31,10 @@ import java.util.HashMap;
 import java.util.Map;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
+import org.apache.fineract.commands.domain.CommandWrapper;
 import org.apache.fineract.commands.service.PortfolioCommandSourceWritePlatformService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.exception.NoAuthorizationException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -86,15 +89,48 @@ class DisbursementInstructionApiResourceTest {
         changes.put(DisbursementInstructionApiConstants.SUCCESS, Boolean.TRUE);
         changes.put(DisbursementInstructionApiConstants.LOAN_ID, 10L);
         changes.put(DisbursementInstructionApiConstants.INSTRUCTION_ID, 55L);
+        changes.put(DisbursementInstructionApiConstants.REPLAYED, Boolean.FALSE);
         final CommandProcessingResult result = CommandProcessingResult.withChanges(55L, changes);
         given(this.commandsSourceWritePlatformService.logCommandSource(any())).willReturn(result);
         given(this.toApiJsonSerializer.serialize(any())).willReturn("{\"success\":true,\"instructionId\":55}");
 
-        final Response response = this.underTest.createDisbursementInstruction(
+        final Response response = this.underTest.createDisbursementInstruction("idem-1",
                 "{\"loanAccountNo\":\"000000001\",\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\"}");
 
         assertThat(response.getStatus()).isEqualTo(Status.CREATED.getStatusCode());
+        verify(this.commandsSourceWritePlatformService).logCommandSource(argThat((CommandWrapper cmd) -> cmd.getJson().contains("idem-1")));
         verify(this.appUser).validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
+    }
+
+    @Test
+    void returnsOkWhenReplay() {
+        doNothing().when(this.appUser).validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
+        final Map<String, Object> changes = new HashMap<>();
+        changes.put(DisbursementInstructionApiConstants.SUCCESS, Boolean.TRUE);
+        changes.put(DisbursementInstructionApiConstants.INSTRUCTION_ID, 55L);
+        changes.put(DisbursementInstructionApiConstants.REPLAYED, Boolean.TRUE);
+        final CommandProcessingResult result = CommandProcessingResult.withChanges(55L, changes);
+        given(this.commandsSourceWritePlatformService.logCommandSource(any())).willReturn(result);
+        given(this.toApiJsonSerializer.serialize(any())).willReturn("{\"replayed\":true}");
+
+        final Response response = this.underTest.createDisbursementInstruction("idem-1",
+                "{\"loanAccountNo\":\"000000001\",\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\"}");
+
+        assertThat(response.getStatus()).isEqualTo(Status.OK.getStatusCode());
+    }
+
+    @Test
+    void rejectsMissingIdempotencyKeyHeader() {
+        doNothing().when(this.appUser).validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
+
+        assertThatThrownBy(() -> this.underTest.createDisbursementInstruction("  ", "{}"))
+                .isInstanceOf(PlatformApiDataValidationException.class);
+    }
+
+    @Test
+    void injectsIdempotencyKeyIntoJson() {
+        assertThat(DisbursementInstructionApiResource.injectIdempotencyKey("{\"loanAccountNo\":\"1\"}", "abc-123"))
+                .contains("\"idempotencyKey\":\"abc-123\"");
     }
 
     @Test
@@ -116,7 +152,7 @@ class DisbursementInstructionApiResourceTest {
         doThrow(new NoAuthorizationException("denied")).when(this.appUser)
                 .validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
 
-        assertThatThrownBy(() -> this.underTest.createDisbursementInstruction("{}"))
+        assertThatThrownBy(() -> this.underTest.createDisbursementInstruction("idem-1", "{}"))
                 .isInstanceOf(NoAuthorizationException.class);
     }
 }
