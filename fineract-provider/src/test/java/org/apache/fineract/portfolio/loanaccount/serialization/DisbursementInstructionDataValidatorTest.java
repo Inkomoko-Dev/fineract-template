@@ -38,19 +38,25 @@ class DisbursementInstructionDataValidatorTest {
 
     @Test
     void acceptsValidRequest() {
-        final String json = "{\"loanAccountNo\":\"000000001\",\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\"}";
+        final String json = "{\"loanAccountNo\":\"000000001\",\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\",\"idempotencyKey\":\"idem-1\"}";
         assertDoesNotThrow(() -> this.validator.validateCreateRequest(json));
     }
 
     @Test
     void rejectsMissingLoanAccountNo() {
-        final String json = "{\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\"}";
+        final String json = "{\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\",\"idempotencyKey\":\"idem-1\"}";
+        assertThrows(PlatformApiDataValidationException.class, () -> this.validator.validateCreateRequest(json));
+    }
+
+    @Test
+    void rejectsMissingIdempotencyKey() {
+        final String json = "{\"loanAccountNo\":\"000000001\",\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\"}";
         assertThrows(PlatformApiDataValidationException.class, () -> this.validator.validateCreateRequest(json));
     }
 
     @Test
     void rejectsUnknownField() {
-        final String json = "{\"loanAccountNo\":\"000000001\",\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\",\"foo\":\"bar\"}";
+        final String json = "{\"loanAccountNo\":\"000000001\",\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\",\"idempotencyKey\":\"idem-1\",\"foo\":\"bar\"}";
         assertThrows(UnsupportedParameterException.class, () -> this.validator.validateCreateRequest(json));
     }
 }
