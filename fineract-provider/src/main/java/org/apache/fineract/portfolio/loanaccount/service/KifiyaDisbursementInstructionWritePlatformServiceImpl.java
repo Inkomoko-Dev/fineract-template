@@ -23,19 +23,23 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementInstructionApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
-import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.SupplierDisbursementSnapshot;
 import org.apache.fineract.portfolio.loanaccount.data.SupplierPaymentDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.DisbursementInstructionStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementInstruction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementInstructionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSubStatus;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
@@ -62,6 +66,7 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
     private final PlatformSecurityContext context;
     private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
     private final DisbursementPartnerAccessService disbursementPartnerAccessService;
+    private final LoanDisbursementInstructionRepository loanDisbursementInstructionRepository;
 
     @Override
     @Transactional
@@ -89,17 +94,32 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
                         "Loan disbursement details are missing.",
                         List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.missingDisbursementDetails",
                                 "Loan disbursement details are missing."))));
-        final SupplierDisbursementSnapshot recipientSnapshotBeforeUpdate = SupplierDisbursementSnapshot.from(disbursementDetail);
 
-        applySupplierPaymentDetails(disbursementDetail, supplier, paymentDetails);
-        this.supplierDisbursementAuditService.recordChange(loan, disbursementDetail, recipientSnapshotBeforeUpdate,
-                SupplierDisbursementSnapshot.from(disbursementDetail), SupplierDisbursementAuditService.CHANGE_SOURCE_DISBURSEMENT_INSTRUCTION,
-                currentUser);
-        loan.handleDisbursementRequest();
-        this.loanRepositoryWrapper.saveAndFlush(loan);
+        final Long createdById = currentUser == null ? null : currentUser.getId();
+        final String idempotencyKey = UUID.randomUUID().toString();
+        final LoanDisbursementInstruction instruction = LoanDisbursementInstruction.createReceived(loan.getId(), sourceSystem,
+                supplier.getId(), supplierExternalId, idempotencyKey, createdById);
+        this.loanDisbursementInstructionRepository.saveAndFlush(instruction);
 
-        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
-                .withLoanId(loan.getId()).with(buildResponseChanges(loan, supplier)).build();
+        try {
+            final SupplierDisbursementSnapshot recipientSnapshotBeforeUpdate = SupplierDisbursementSnapshot.from(disbursementDetail);
+            applySupplierPaymentDetails(disbursementDetail, supplier, paymentDetails);
+            this.supplierDisbursementAuditService.recordChange(loan, disbursementDetail, recipientSnapshotBeforeUpdate,
+                    SupplierDisbursementSnapshot.from(disbursementDetail),
+                    SupplierDisbursementAuditService.CHANGE_SOURCE_DISBURSEMENT_INSTRUCTION, currentUser);
+            loan.handleDisbursementRequest();
+            this.loanRepositoryWrapper.saveAndFlush(loan);
+
+            instruction.markPendingDisbursement(disbursementDetail.getId());
+            this.loanDisbursementInstructionRepository.saveAndFlush(instruction);
+        } catch (final RuntimeException ex) {
+            instruction.markFailed(ex.getMessage());
+            this.loanDisbursementInstructionRepository.saveAndFlush(instruction);
+            throw ex;
+        }
+
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(instruction.getId())
+                .withLoanId(loan.getId()).with(buildResponseChanges(loan, supplier, instruction)).build();
     }
 
     void assertCallerBoundToSourceSystem(final AppUser currentUser, final String sourceSystem) {
@@ -162,8 +182,12 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.VENDOR.name());
     }
 
-    private static Map<String, Object> buildResponseChanges(final Loan loan, final Supplier supplier) {
+    private static Map<String, Object> buildResponseChanges(final Loan loan, final Supplier supplier,
+            final LoanDisbursementInstruction instruction) {
         final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put(DisbursementInstructionApiConstants.INSTRUCTION_ID, instruction.getId());
+        changes.put(DisbursementInstructionApiConstants.INSTRUCTION_STATUS, DisbursementInstructionStatus.PENDING_DISBURSEMENT.name());
+        changes.put(DisbursementInstructionApiConstants.IDEMPOTENCY_KEY, instruction.getIdempotencyKey());
         changes.put(DisbursementInstructionApiConstants.LOAN_ID, loan.getId());
         changes.put(DisbursementInstructionApiConstants.LOAN_ACCOUNT_NO, loan.getAccountNumber());
         changes.put(DisbursementInstructionApiConstants.SUPPLIER_ID, supplier.getId());

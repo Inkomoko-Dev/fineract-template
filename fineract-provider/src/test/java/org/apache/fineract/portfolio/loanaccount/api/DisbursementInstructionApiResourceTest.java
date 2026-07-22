@@ -36,11 +36,13 @@ import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSer
 import org.apache.fineract.infrastructure.security.exception.NoAuthorizationException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementInstructionApiConstants;
+import org.apache.fineract.portfolio.loanaccount.data.DisbursementInstructionData;
+import org.apache.fineract.portfolio.loanaccount.domain.DisbursementInstructionStatus;
+import org.apache.fineract.portfolio.loanaccount.service.DisbursementInstructionReadPlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -57,16 +59,23 @@ class DisbursementInstructionApiResourceTest {
     private PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService;
 
     @Mock
+    private DisbursementInstructionReadPlatformService readPlatformService;
+
+    @Mock
     private DefaultToApiJsonSerializer<Map<String, Object>> toApiJsonSerializer;
+
+    @Mock
+    private DefaultToApiJsonSerializer<DisbursementInstructionData> instructionToApiJsonSerializer;
 
     @Mock
     private AppUser appUser;
 
-    @InjectMocks
     private DisbursementInstructionApiResource underTest;
 
     @BeforeEach
     void setUp() {
+        this.underTest = new DisbursementInstructionApiResource(this.context, this.commandsSourceWritePlatformService,
+                this.readPlatformService, this.toApiJsonSerializer, this.instructionToApiJsonSerializer);
         given(this.context.authenticatedUser()).willReturn(this.appUser);
     }
 
@@ -76,15 +85,30 @@ class DisbursementInstructionApiResourceTest {
         final Map<String, Object> changes = new HashMap<>();
         changes.put(DisbursementInstructionApiConstants.SUCCESS, Boolean.TRUE);
         changes.put(DisbursementInstructionApiConstants.LOAN_ID, 10L);
-        final CommandProcessingResult result = CommandProcessingResult.withChanges(10L, changes);
+        changes.put(DisbursementInstructionApiConstants.INSTRUCTION_ID, 55L);
+        final CommandProcessingResult result = CommandProcessingResult.withChanges(55L, changes);
         given(this.commandsSourceWritePlatformService.logCommandSource(any())).willReturn(result);
-        given(this.toApiJsonSerializer.serialize(any())).willReturn("{\"success\":true}");
+        given(this.toApiJsonSerializer.serialize(any())).willReturn("{\"success\":true,\"instructionId\":55}");
 
         final Response response = this.underTest.createDisbursementInstruction(
                 "{\"loanAccountNo\":\"000000001\",\"sourceSystem\":\"KIFIYA\",\"supplierExternalId\":\"SUP-001\"}");
 
         assertThat(response.getStatus()).isEqualTo(Status.CREATED.getStatusCode());
         verify(this.appUser).validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
+    }
+
+    @Test
+    void retrievesInstructionByIdWhenAuthorized() {
+        doNothing().when(this.appUser).validateHasPermissionTo(DisbursementInstructionApiConstants.PERMISSION_CODE);
+        final DisbursementInstructionData data = new DisbursementInstructionData(55L, 10L, "KIFIYA", 3L, "SUP-001",
+                DisbursementInstructionStatus.PENDING_DISBURSEMENT, "key-1", 9L, null, null, null);
+        given(this.readPlatformService.retrieveOne(55L)).willReturn(data);
+        given(this.instructionToApiJsonSerializer.serialize(data)).willReturn("{\"id\":55,\"status\":\"PENDING_DISBURSEMENT\"}");
+
+        final String response = this.underTest.retrieveOne(55L);
+
+        assertThat(response).contains("PENDING_DISBURSEMENT");
+        verify(this.readPlatformService).retrieveOne(55L);
     }
 
     @Test
