@@ -28,8 +28,10 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.serialization.DisbursementInstructionDataValidator;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementPartnerAccessService;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,7 +64,11 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
     @Mock
     private DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
     @Mock
+    private DisbursementPartnerAccessService disbursementPartnerAccessService;
+    @Mock
     private Loan loan;
+    @Mock
+    private AppUser appUser;
 
     @InjectMocks
     private KifiyaDisbursementInstructionWritePlatformServiceImpl underTest;
@@ -75,18 +81,7 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
     }
 
     @Test
-    void rejectsInactiveProvider() {
-        given(this.disbursementProviderReadPlatformService.isActiveProvider("KIFIYA")).willReturn(false);
-
-        assertThatThrownBy(() -> this.underTest.validateLoanForDisbursementInstruction(this.loan, "KIFIYA"))
-                .isInstanceOf(PlatformApiDataValidationException.class)
-                .extracting(ex -> ((PlatformApiDataValidationException) ex).getDefaultUserMessage())
-                .asString().contains("not registered or inactive");
-    }
-
-    @Test
     void rejectsWhenProductHasNoActiveMapping() {
-        given(this.disbursementProviderReadPlatformService.isActiveProvider("KIFIYA")).willReturn(true);
         given(this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(5L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> this.underTest.validateLoanForDisbursementInstruction(this.loan, "KIFIYA"))
@@ -97,7 +92,6 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
 
     @Test
     void rejectsWhenSourceSystemDoesNotMatchMappedProvider() {
-        given(this.disbursementProviderReadPlatformService.isActiveProvider("KIFIYA")).willReturn(true);
         given(this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(5L)).willReturn(Optional.of("OTHER"));
 
         assertThatThrownBy(() -> this.underTest.validateLoanForDisbursementInstruction(this.loan, "KIFIYA"))
@@ -108,9 +102,28 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
 
     @Test
     void acceptsWhenProviderAndProductMappingMatch() {
-        given(this.disbursementProviderReadPlatformService.isActiveProvider("KIFIYA")).willReturn(true);
         given(this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(5L)).willReturn(Optional.of("KIFIYA"));
 
         assertThatCode(() -> this.underTest.validateLoanForDisbursementInstruction(this.loan, "KIFIYA")).doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsWhenCallerNotBoundToProvider() {
+        given(this.disbursementPartnerAccessService.resolveProviderCodeForUser(this.appUser)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> this.underTest.assertCallerBoundToSourceSystem(this.appUser, "KIFIYA"))
+                .isInstanceOf(PlatformApiDataValidationException.class)
+                .extracting(ex -> ((PlatformApiDataValidationException) ex).getGlobalisationMessageCode())
+                .isEqualTo("validation.msg.disbursementInstruction.partnerBinding.required");
+    }
+
+    @Test
+    void rejectsWhenCallerBindingMismatchesSourceSystem() {
+        given(this.disbursementPartnerAccessService.resolveProviderCodeForUser(this.appUser)).willReturn(Optional.of("OTHER"));
+
+        assertThatThrownBy(() -> this.underTest.assertCallerBoundToSourceSystem(this.appUser, "KIFIYA"))
+                .isInstanceOf(PlatformApiDataValidationException.class)
+                .extracting(ex -> ((PlatformApiDataValidationException) ex).getGlobalisationMessageCode())
+                .isEqualTo("validation.msg.disbursementInstruction.partnerBinding.mismatch");
     }
 }
