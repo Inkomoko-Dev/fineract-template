@@ -40,6 +40,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSubStatus;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
 import org.apache.fineract.portfolio.loanaccount.serialization.DisbursementInstructionDataValidator;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementPartnerAccessService;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.supplier.domain.Supplier;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
@@ -60,6 +61,7 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
     private final SupplierDisbursementAuditService supplierDisbursementAuditService;
     private final PlatformSecurityContext context;
     private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
+    private final DisbursementPartnerAccessService disbursementPartnerAccessService;
 
     @Override
     @Transactional
@@ -70,6 +72,9 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         final String sourceSystem = normalizeSourceSystem(command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.SOURCE_SYSTEM));
         final String supplierExternalId = command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.SUPPLIER_EXTERNAL_ID)
                 .trim();
+
+        final AppUser currentUser = this.context.getAuthenticatedUserIfPresent();
+        assertCallerBoundToSourceSystem(currentUser, sourceSystem);
 
         final LoanAccountData loanAccountData = this.loanReadPlatformService.retrieveLoanByLoanAccount(loanAccountNo);
         final Loan loan = this.loanAssembler.assembleFrom(loanAccountData.getId());
@@ -87,7 +92,6 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         final SupplierDisbursementSnapshot recipientSnapshotBeforeUpdate = SupplierDisbursementSnapshot.from(disbursementDetail);
 
         applySupplierPaymentDetails(disbursementDetail, supplier, paymentDetails);
-        final AppUser currentUser = this.context.getAuthenticatedUserIfPresent();
         this.supplierDisbursementAuditService.recordChange(loan, disbursementDetail, recipientSnapshotBeforeUpdate,
                 SupplierDisbursementSnapshot.from(disbursementDetail), SupplierDisbursementAuditService.CHANGE_SOURCE_DISBURSEMENT_INSTRUCTION,
                 currentUser);
@@ -96,6 +100,24 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
 
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
                 .withLoanId(loan.getId()).with(buildResponseChanges(loan, supplier)).build();
+    }
+
+    void assertCallerBoundToSourceSystem(final AppUser currentUser, final String sourceSystem) {
+        final String boundProvider = this.disbursementPartnerAccessService.resolveProviderCodeForUser(currentUser).orElse(null);
+        if (boundProvider == null) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.partnerBinding.required",
+                    "Authenticated user is not bound to a disbursement provider.",
+                    List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.partnerBinding.required",
+                            "Authenticated user is not bound to a disbursement provider. "
+                                    + "Seed m_disbursement_provider_appuser_mapping for this app user.")));
+        }
+        if (!Objects.equals(boundProvider, sourceSystem)) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.partnerBinding.mismatch",
+                    "Instruction sourceSystem does not match the authenticated partner binding.",
+                    List.of(ApiParameterError.parameterError("validation.msg.disbursementInstruction.partnerBinding.mismatch",
+                            "Instruction sourceSystem does not match the authenticated partner binding.",
+                            DisbursementInstructionApiConstants.SOURCE_SYSTEM, sourceSystem)));
+        }
     }
 
     void validateLoanForDisbursementInstruction(final Loan loan, final String sourceSystem) {
@@ -108,14 +130,6 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
                     "Loan must be approved and not yet disbursed.",
                     List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.loan.notApproved",
                             "Loan must be approved and not yet disbursed.")));
-        }
-
-        if (!this.disbursementProviderReadPlatformService.isActiveProvider(sourceSystem)) {
-            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.provider.notFoundOrInactive",
-                    "Disbursement provider is not registered or inactive.",
-                    List.of(ApiParameterError.parameterError("validation.msg.disbursementInstruction.provider.notFoundOrInactive",
-                            "Disbursement provider is not registered or inactive.",
-                            DisbursementInstructionApiConstants.SOURCE_SYSTEM, sourceSystem)));
         }
 
         final String mappedProvider = this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(loan.productId())
