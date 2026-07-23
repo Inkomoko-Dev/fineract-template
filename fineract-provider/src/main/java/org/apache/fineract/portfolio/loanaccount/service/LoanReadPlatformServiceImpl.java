@@ -4083,11 +4083,60 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(LocalDate fromDate, LocalDate toDate, Long officeId, String currency) {
+        return retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(fromDate, toDate, officeId, currency, null);
+    }
+
+    @Override
+    public List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(LocalDate fromDate, LocalDate toDate, Long officeId, String currency, Long transactionId, Integer limit) {
         final LoanTransactionNotPostedToOdooInstanceMapper rm = new LoanTransactionNotPostedToOdooInstanceMapper(sqlGenerator);
 
         String sql = "select " + rm.loanTransactionNotPostedToOdoo();
         List<Object> params = new ArrayList<>();
 
+        if (transactionId != null) {
+            sql = sql + "AND gl.loan_transaction_id = ? ";
+            params.add(transactionId);
+        }
+        if (fromDate != null) {
+            sql = sql + "AND (mlt.transaction_date >= ? OR gl.correction_date >= ?) ";
+            params.add(fromDate);
+            params.add(fromDate);
+        }
+        if (toDate != null) {
+            sql = sql + "AND (mlt.transaction_date <= ? OR gl.correction_date <= ?) ";
+            params.add(toDate);
+            params.add(toDate);
+        }
+        if (officeId != null) {
+            sql = sql + "AND mc.office_id = ? ";
+            params.add(officeId);
+        }
+        if (currency != null) {
+            sql = sql + "AND ml.currency_code = ? ";
+            params.add(currency);
+        }
+
+        sql = sql + "order by mlt.transaction_date DESC ";
+
+        if (limit != null && limit > 0) {
+            sql = sql + sqlGenerator.limit(limit);
+        }
+
+        return this.jdbcTemplate.query(sql, rm, params.toArray());
+    }
+
+    @Override
+    public List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(LocalDate fromDate,
+            LocalDate toDate, Long officeId, String currency, Long transactionId) {
+        final LoanTransactionNotPostedToOdooInstanceMapper rm = new LoanTransactionNotPostedToOdooInstanceMapper(sqlGenerator);
+
+        String sql = "select " + rm.loanTransactionNotPostedToOdoo();
+        List<Object> params = new ArrayList<>();
+
+        if (transactionId != null) {
+            sql = sql + "AND gl.loan_transaction_id = ? ";
+            params.add(transactionId);
+        }
         if (fromDate != null) {
             sql = sql + "AND (mlt.transaction_date >= ? OR gl.correction_date >= ?) ";
             params.add(fromDate);

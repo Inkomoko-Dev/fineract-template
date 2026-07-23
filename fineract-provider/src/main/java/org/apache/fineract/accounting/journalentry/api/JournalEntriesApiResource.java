@@ -181,6 +181,42 @@ public class JournalEntriesApiResource {
 
     }
 
+    @GET
+    @Path("postToOdooTest")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "TESTING ONLY: post a bounded batch of journal entries to Odoo", description = "Same flow as postToOdoo but always applies a limit (default 5, capped at 50), so a test run can never drain the whole unposted backlog. Pass transactionId to post exactly one loan transaction instead of scanning the date/office/currency range. Use it to verify the integration-layer path end to end.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(array = @ArraySchema(schema = @Schema(implementation = JournalEntryData.class)))) })
+    public String triggerOdooPostingTest(@Context final UriInfo uriInfo,
+                                     @QueryParam("fromDate") @Parameter(description = "fromDate") final DateParam fromDateParam,
+                                     @QueryParam("toDate") @Parameter(description = "toDate") final DateParam toDateParam,
+                                     @QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+                                     @QueryParam("currency") @Parameter(description = "currency") final String currency,
+                                     @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat,
+                                     @QueryParam("locale") @Parameter(description = "locale") final String locale,
+                                     @QueryParam("transactionId") @Parameter(description = "post only this loan transaction id") final Long transactionId,
+                                     @QueryParam("limit") @Parameter(description = "max transactions to post (default 5, capped at 50)") final Integer limit) {
+        this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermission);
+
+        // always bounded: default 5, hard cap 50 — this endpoint exists for testing only
+        final int cappedLimit = (limit == null || limit <= 0) ? 5 : Math.min(limit, 50);
+
+        LocalDate fromDate = null;
+        if (fromDateParam != null) {
+            fromDate = fromDateParam.getDate("fromDate", dateFormat, locale);
+        }
+        LocalDate toDate = null;
+        if (toDateParam != null) {
+            toDate = toDateParam.getDate("toDate", dateFormat, locale);
+        }
+
+        JsonObject response = odooService.postJournalEntryToOddoTest(fromDate, toDate, officeId, currency, transactionId, cappedLimit);
+
+        return response.toString();
+
+    }
+
 
     @GET
     @Path("{journalEntryId}")
