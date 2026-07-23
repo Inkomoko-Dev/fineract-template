@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -71,6 +75,7 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
     private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
     private final DisbursementPartnerAccessService disbursementPartnerAccessService;
     private final LoanDisbursementInstructionRepository loanDisbursementInstructionRepository;
+    private final DisbursementInstructionFailureService disbursementInstructionFailureService;
 
     @Override
     @Transactional
@@ -78,10 +83,13 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         this.validator.validateCreateRequest(command.json());
 
         final String loanAccountNo = command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.LOAN_ACCOUNT_NO);
-        final String sourceSystem = normalizeSourceSystem(command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.SOURCE_SYSTEM));
+        final String sourceSystem = normalizeSourceSystem(
+                command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.SOURCE_SYSTEM));
         final String supplierExternalId = command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.SUPPLIER_EXTERNAL_ID)
                 .trim();
-        final String idempotencyKey = StringUtils.trimToNull(command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.IDEMPOTENCY_KEY));
+        final String idempotencyKey = StringUtils
+                .trimToNull(command.stringValueOfParameterNamed(DisbursementInstructionApiConstants.IDEMPOTENCY_KEY));
+        final String requestHash = hashRequest(sourceSystem, loanAccountNo, supplierExternalId);
 
         final AppUser currentUser = this.context.getAuthenticatedUserIfPresent();
         assertCallerBoundToSourceSystem(currentUser, sourceSystem);
@@ -89,33 +97,32 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         final Optional<LoanDisbursementInstruction> existingByKey = this.loanDisbursementInstructionRepository
                 .findByDisbursementProviderCodeAndIdempotencyKey(sourceSystem, idempotencyKey);
         if (existingByKey.isPresent()) {
-            return replayOrConflict(existingByKey.get(), loanAccountNo, supplierExternalId, command.commandId());
+            return replayOrConflict(existingByKey.get(), loanAccountNo, supplierExternalId, requestHash, command.commandId());
         }
 
         final LoanAccountData loanAccountData = this.loanReadPlatformService.retrieveLoanByLoanAccount(loanAccountNo);
         final Loan loan = this.loanAssembler.assembleFrom(loanAccountData.getId());
         validateLoanForDisbursementInstruction(loan, sourceSystem);
 
-        final Supplier supplier = this.supplierRepository.findBySourceSystemAndExternalId(sourceSystem, supplierExternalId)
-                .orElse(null);
+        final Supplier supplier = this.supplierRepository.findBySourceSystemAndExternalId(sourceSystem, supplierExternalId).orElse(null);
         final SupplierPaymentDetails paymentDetails = this.supplierPaymentDetailsValidator.validateAndExtract(supplier);
 
         final LoanDisbursementDetails disbursementDetail = loan.getDisbursementDetails().stream().findFirst()
-                .orElseThrow(() -> new PlatformApiDataValidationException("validation.msg.disbursementInstruction.missingDisbursementDetails",
-                        "Loan disbursement details are missing.",
+                .orElseThrow(() -> new PlatformApiDataValidationException(
+                        "validation.msg.disbursementInstruction.missingDisbursementDetails", "Loan disbursement details are missing.",
                         List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.missingDisbursementDetails",
                                 "Loan disbursement details are missing."))));
 
         final Long createdById = currentUser == null ? null : currentUser.getId();
         final LoanDisbursementInstruction instruction = LoanDisbursementInstruction.createReceived(loan.getId(), sourceSystem,
-                supplier.getId(), supplierExternalId, idempotencyKey, createdById);
+                supplier.getId(), supplierExternalId, idempotencyKey, requestHash, createdById);
         try {
             this.loanDisbursementInstructionRepository.saveAndFlush(instruction);
         } catch (final DataIntegrityViolationException | JpaSystemException ex) {
             final Optional<LoanDisbursementInstruction> raced = this.loanDisbursementInstructionRepository
                     .findByDisbursementProviderCodeAndIdempotencyKey(sourceSystem, idempotencyKey);
             if (raced.isPresent()) {
-                return replayOrConflict(raced.get(), loanAccountNo, supplierExternalId, command.commandId());
+                return replayOrConflict(raced.get(), loanAccountNo, supplierExternalId, requestHash, command.commandId());
             }
             throw ex;
         }
@@ -132,8 +139,7 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
             instruction.markPendingDisbursement(disbursementDetail.getId());
             this.loanDisbursementInstructionRepository.saveAndFlush(instruction);
         } catch (final RuntimeException ex) {
-            instruction.markFailed(ex.getMessage());
-            this.loanDisbursementInstructionRepository.saveAndFlush(instruction);
+            this.disbursementInstructionFailureService.markFailed(instruction.getId(), ex.getMessage());
             throw ex;
         }
 
@@ -142,10 +148,11 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
     }
 
     CommandProcessingResult replayOrConflict(final LoanDisbursementInstruction existing, final String loanAccountNo,
-            final String supplierExternalId, final Long commandId) {
+            final String supplierExternalId, final String requestHash, final Long commandId) {
         final Loan loan = this.loanAssembler.assembleFrom(existing.getLoanId());
         if (!Objects.equals(loan.getAccountNumber(), loanAccountNo)
-                || !Objects.equals(existing.getSupplierExternalId(), supplierExternalId)) {
+                || !Objects.equals(existing.getSupplierExternalId(), supplierExternalId)
+                || (existing.getRequestHash() != null && !Objects.equals(existing.getRequestHash(), requestHash))) {
             throw new DisbursementInstructionIdempotencyConflictException(
                     "validation.msg.disbursementInstruction.idempotencyKey.payloadConflict",
                     "Idempotency-Key was already used with a different loan or supplier payload.",
@@ -187,6 +194,19 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
                     "Loan must be approved and not yet disbursed.",
                     List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.loan.notApproved",
                             "Loan must be approved and not yet disbursed.")));
+        }
+        if (loan.getLoanSubStatus() != null) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.loan.alreadyPending",
+                    "Loan already has a disbursement sub-status and cannot accept another instruction.",
+                    List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.loan.alreadyPending",
+                            "Loan already has a disbursement sub-status and cannot accept another instruction.")));
+        }
+        if (this.loanDisbursementInstructionRepository.existsByLoanIdAndStatusIn(loan.getId(),
+                List.of(DisbursementInstructionStatus.RECEIVED, DisbursementInstructionStatus.PENDING_DISBURSEMENT))) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.loan.openInstructionExists",
+                    "An open disbursement instruction already exists for this loan.",
+                    List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.loan.openInstructionExists",
+                            "An open disbursement instruction already exists for this loan.")));
         }
 
         final String mappedProvider = this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(loan.productId())
@@ -240,8 +260,21 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         if (instruction.getStatus() == DisbursementInstructionStatus.PENDING_DISBURSEMENT) {
             changes.put(DisbursementInstructionApiConstants.DISBURSEMENT_REQUEST_STATUS, LoanSubStatus.PENDINGDISBURSEMENT.name());
         }
-        changes.put(DisbursementInstructionApiConstants.SUCCESS, Boolean.TRUE);
+        final boolean success = instruction.getStatus() == DisbursementInstructionStatus.PENDING_DISBURSEMENT
+                || instruction.getStatus() == DisbursementInstructionStatus.RECEIVED;
+        changes.put(DisbursementInstructionApiConstants.SUCCESS, success);
         return changes;
+    }
+
+    static String hashRequest(final String sourceSystem, final String loanAccountNo, final String supplierExternalId) {
+        final String canonical = StringUtils.defaultString(sourceSystem) + '|' + StringUtils.defaultString(loanAccountNo) + '|'
+                + StringUtils.defaultString(supplierExternalId);
+        try {
+            final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (final NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 not available", ex);
+        }
     }
 
     private static String normalizeSourceSystem(final String sourceSystem) {

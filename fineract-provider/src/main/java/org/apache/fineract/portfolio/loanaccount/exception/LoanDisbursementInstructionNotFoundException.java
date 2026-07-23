@@ -26,4 +26,8 @@ public class LoanDisbursementInstructionNotFoundException extends AbstractPlatfo
         super("error.msg.loan.disbursement.instruction.id.invalid", "Disbursement instruction with identifier " + id + " does not exist",
                 id);
     }
+
+    public LoanDisbursementInstructionNotFoundException() {
+        super("error.msg.loan.disbursement.instruction.id.invalid", "Disbursement instruction does not exist");
+    }
 }

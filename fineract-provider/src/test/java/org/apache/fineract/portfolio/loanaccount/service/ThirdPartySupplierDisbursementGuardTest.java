@@ -27,6 +27,7 @@ import static org.mockito.Mockito.when;
 
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
+import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartySupplierDisbursementApiConstants;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
@@ -44,7 +45,7 @@ class ThirdPartySupplierDisbursementGuardTest {
     @BeforeEach
     void setUp() {
         this.disbursementProviderReadPlatformService = mock(DisbursementProviderReadPlatformService.class);
-        this.underTest = new ThirdPartySupplierDisbursementGuard(this.disbursementProviderReadPlatformService);
+        this.underTest = new ThirdPartySupplierDisbursementGuard(this.disbursementProviderReadPlatformService, new FromJsonHelper());
         this.loan = mock(Loan.class);
         this.user = mock(AppUser.class);
         when(this.loan.productId()).thenReturn(5L);

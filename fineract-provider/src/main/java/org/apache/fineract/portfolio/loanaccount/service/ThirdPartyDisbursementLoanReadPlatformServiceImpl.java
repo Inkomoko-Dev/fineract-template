@@ -76,9 +76,10 @@ public class ThirdPartyDisbursementLoanReadPlatformServiceImpl implements ThirdP
         sqlBuilder.append(buildSelectColumns());
         sqlBuilder.append(" from m_loan l ");
         sqlBuilder.append(" join m_product_loan lp on lp.id = l.product_id ");
+        sqlBuilder.append(" join m_loan_product_disbursement_provider_mapping lpdpm on lpdpm.loan_product_id = lp.id ");
         sqlBuilder.append(" left join m_client c on c.id = l.client_id ");
-        sqlBuilder.append(" where lp.enable_third_party_disbursement = true ");
-        sqlBuilder.append(" and upper(trim(lp.third_party_disbursement_provider)) = ? ");
+        sqlBuilder.append(" where lpdpm.is_active = true ");
+        sqlBuilder.append(" and upper(trim(lpdpm.disbursement_provider_code)) = ? ");
 
         final List<Object> params = new ArrayList<>();
         params.add(normalizedProvider);
@@ -116,13 +117,16 @@ public class ThirdPartyDisbursementLoanReadPlatformServiceImpl implements ThirdP
                 return loanStatus.getValue();
             }
         }
-        return null;
+        throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.status.invalid",
+                "Unrecognized loan status filter.",
+                List.of(ApiParameterError.parameterError("validation.msg.thirdPartyDisbursementLoan.status.invalid",
+                        "Unrecognized loan status filter.", ThirdPartyDisbursementLoanApiConstants.STATUS, status)));
     }
 
     private static String buildSelectColumns() {
         return " l.id as loanId, l.account_no as loanAccountNo, l.external_id as externalId, "
                 + " l.loan_status_id as loanStatusId, l.loan_sub_status_id as loanSubStatusId, "
-                + " lp.third_party_disbursement_provider as thirdPartyDisbursementProvider, "
+                + " lpdpm.disbursement_provider_code as thirdPartyDisbursementProvider, "
                 + " lp.id as loanProductId, lp.name as loanProductName, "
                 + " l.approved_principal as approvedPrincipal, l.currency_code as currencyCode, "
                 + " l.approvedon_date as approvedOnDate, c.id as clientId, c.display_name as clientName, c.external_id as clientExternalId ";

@@ -74,7 +74,7 @@ public class LoanDisbursementInstruction extends AbstractPersistableCustom {
     protected LoanDisbursementInstruction() {}
 
     public static LoanDisbursementInstruction createReceived(final Long loanId, final String providerCode, final Long supplierId,
-            final String supplierExternalId, final String idempotencyKey, final Long createdBy) {
+            final String supplierExternalId, final String idempotencyKey, final String requestHash, final Long createdBy) {
         final LoanDisbursementInstruction instruction = new LoanDisbursementInstruction();
         instruction.loanId = loanId;
         instruction.disbursementProviderCode = providerCode;
@@ -82,6 +82,7 @@ public class LoanDisbursementInstruction extends AbstractPersistableCustom {
         instruction.supplierExternalId = supplierExternalId;
         instruction.status = DisbursementInstructionStatus.RECEIVED;
         instruction.idempotencyKey = idempotencyKey;
+        instruction.requestHash = requestHash;
         instruction.createdBy = createdBy;
         instruction.createdOnDate = DateUtils.getLocalDateTimeOfTenant();
         instruction.lastModifiedOnDate = instruction.createdOnDate;
@@ -136,6 +137,10 @@ public class LoanDisbursementInstruction extends AbstractPersistableCustom {
 
     public String getIdempotencyKey() {
         return this.idempotencyKey;
+    }
+
+    public String getRequestHash() {
+        return this.requestHash;
     }
 
     public Long getLoanDisbursementDetailId() {

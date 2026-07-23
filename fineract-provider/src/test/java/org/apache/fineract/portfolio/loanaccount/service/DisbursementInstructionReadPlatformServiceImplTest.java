@@ -25,7 +25,6 @@ import static org.mockito.BDDMockito.given;
 import java.util.List;
 import java.util.Optional;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
-import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementInstructionData;
@@ -76,7 +75,7 @@ class DisbursementInstructionReadPlatformServiceImplTest {
     @Test
     void retrieveOneReturnsOwnProviderInstruction() {
         final LoanDisbursementInstruction instruction = LoanDisbursementInstruction.createReceived(10L, "KIFIYA", 3L, "SUP-001", "key-1",
-                1L);
+                "hash", 1L);
         given(this.instructionRepository.findById(55L)).willReturn(Optional.of(instruction));
 
         final DisbursementInstructionData data = this.underTest.retrieveOne(55L);
@@ -89,10 +88,10 @@ class DisbursementInstructionReadPlatformServiceImplTest {
     @Test
     void retrieveOneRejectsOtherProvider() {
         final LoanDisbursementInstruction instruction = LoanDisbursementInstruction.createReceived(10L, "OTHER", 3L, "SUP-001", "key-1",
-                1L);
+                "hash", 1L);
         given(this.instructionRepository.findById(55L)).willReturn(Optional.of(instruction));
 
-        assertThatThrownBy(() -> this.underTest.retrieveOne(55L)).isInstanceOf(PlatformApiDataValidationException.class);
+        assertThatThrownBy(() -> this.underTest.retrieveOne(55L)).isInstanceOf(LoanDisbursementInstructionNotFoundException.class);
     }
 
     @Test
@@ -104,8 +103,10 @@ class DisbursementInstructionReadPlatformServiceImplTest {
 
     @Test
     void retrieveByLoanFiltersToBoundProvider() {
-        final LoanDisbursementInstruction own = LoanDisbursementInstruction.createReceived(10L, "KIFIYA", 3L, "SUP-001", "key-1", 1L);
-        final LoanDisbursementInstruction other = LoanDisbursementInstruction.createReceived(10L, "OTHER", 4L, "SUP-002", "key-2", 1L);
+        final LoanDisbursementInstruction own = LoanDisbursementInstruction.createReceived(10L, "KIFIYA", 3L, "SUP-001", "key-1", "hash",
+                1L);
+        final LoanDisbursementInstruction other = LoanDisbursementInstruction.createReceived(10L, "OTHER", 4L, "SUP-002", "key-2", "hash2",
+                1L);
         given(this.instructionRepository.findByLoanIdOrderByIdDesc(10L)).willReturn(List.of(own, other));
 
         final List<DisbursementInstructionData> data = this.underTest.retrieveByLoanId(10L);
