@@ -62,10 +62,7 @@ public class DisbursementInstructionReadPlatformServiceImpl implements Disbursem
     private void assertCallerCanAccessProvider(final String providerCode) {
         final String boundProvider = requireBoundProvider();
         if (!boundProvider.equals(providerCode)) {
-            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.partnerBinding.mismatch",
-                    "Instruction provider does not match the authenticated partner binding.",
-                    List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.partnerBinding.mismatch",
-                            "Instruction provider does not match the authenticated partner binding.")));
+            throw new LoanDisbursementInstructionNotFoundException();
         }
     }
 
