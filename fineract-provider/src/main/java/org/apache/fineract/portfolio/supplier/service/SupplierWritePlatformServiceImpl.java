@@ -19,12 +19,15 @@
 package org.apache.fineract.portfolio.supplier.service;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.portfolio.supplier.data.SupplierApiConstants;
 import org.apache.fineract.portfolio.supplier.data.SupplierDataValidator;
 import org.apache.fineract.portfolio.supplier.domain.Supplier;
@@ -60,13 +63,14 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
         final String sourceSystem = normalizeSourceSystem(command.stringValueOfParameterNamed(SupplierApiConstants.SOURCE_SYSTEM));
         final String externalId = trimRequired(command.stringValueOfParameterNamed(SupplierApiConstants.EXTERNAL_ID));
         final String name = command.stringValueOfParameterNamed(SupplierApiConstants.NAME);
-        final String displayName = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.DISPLAY_NAME);
-        final String businessLicenseNumber = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.BUSINESS_LICENSE_NUMBER);
-        final String supplierType = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.SUPPLIER_TYPE);
-        final String businessSector = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.BUSINESS_SECTOR);
-        final String category = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.CATEGORY);
-        final String country = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.COUNTRY);
-        final String tin = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.TIN);
+        final String displayName = command.stringValueOfParameterNamed(SupplierApiConstants.DISPLAY_NAME);
+        final String businessLicenseNumber = trimRequired(
+                command.stringValueOfParameterNamed(SupplierApiConstants.BUSINESS_LICENSE_NUMBER));
+        final String supplierType = command.stringValueOfParameterNamed(SupplierApiConstants.SUPPLIER_TYPE);
+        final String businessSector = command.stringValueOfParameterNamed(SupplierApiConstants.BUSINESS_SECTOR);
+        final String category = command.stringValueOfParameterNamed(SupplierApiConstants.CATEGORY);
+        final String country = command.stringValueOfParameterNamed(SupplierApiConstants.COUNTRY);
+        final String tin = trimRequired(command.stringValueOfParameterNamed(SupplierApiConstants.TIN));
         final SupplierStatus status = SupplierStatus.from(command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.STATUS));
 
         Supplier supplier = null;
@@ -81,6 +85,7 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
                 supplier = existing.get();
                 supplier.updateFrom(name, displayName, businessLicenseNumber, supplierType, businessSector, category, country, tin, status);
             }
+            assertUniqueBusinessLicenseAndTin(sourceSystem, businessLicenseNumber, tin, supplier.getId());
             supplier.setRawPayload(command.json());
             this.supplierRepository.saveAndFlush(supplier);
             return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(supplier.getId())
@@ -96,6 +101,26 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
                 }
             }
             throw ex;
+        }
+    }
+
+    void assertUniqueBusinessLicenseAndTin(final String sourceSystem, final String businessLicenseNumber, final String tin,
+            final Long supplierId) {
+        final Long excludeId = supplierId == null ? -1L : supplierId;
+        final List<ApiParameterError> errors = new java.util.ArrayList<>();
+
+        this.supplierRepository.findBySourceSystemAndBusinessLicenseNumberAndIdNot(sourceSystem, businessLicenseNumber, excludeId)
+                .ifPresent(conflict -> errors.add(ApiParameterError.parameterError(
+                        "validation.msg.supplier.businessLicenseNumber.duplicate",
+                        "Business license number is already registered for this source system.",
+                        SupplierApiConstants.BUSINESS_LICENSE_NUMBER, businessLicenseNumber)));
+
+        this.supplierRepository.findBySourceSystemAndTinAndIdNot(sourceSystem, tin, excludeId)
+                .ifPresent(conflict -> errors.add(ApiParameterError.parameterError("validation.msg.supplier.tin.duplicate",
+                        "TIN is already registered for this source system.", SupplierApiConstants.TIN, tin)));
+
+        if (!errors.isEmpty()) {
+            throw new PlatformApiDataValidationException(errors);
         }
     }
 

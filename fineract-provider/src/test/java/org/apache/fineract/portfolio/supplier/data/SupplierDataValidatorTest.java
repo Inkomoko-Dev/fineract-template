@@ -32,6 +32,22 @@ class SupplierDataValidatorTest {
 
     private SupplierDataValidator validator;
 
+    private static final String VALID_PAYLOAD = """
+            {
+              "sourceSystem":"KIFIYA",
+              "externalId":"SUP-001",
+              "name":"Abebe Kebede Trading PLC",
+              "displayName":"Abebe Kebede",
+              "businessLicenseNumber":"BL-998877",
+              "supplierType":"Exclusive",
+              "businessSector":"FMCG",
+              "category":"TECHNOLOGY_AND_ELECTRONICS",
+              "country":"Ethiopia",
+              "tin":"1234567891",
+              "status":"ACTIVE"
+            }
+            """;
+
     @BeforeEach
     void setUp() {
         this.validator = new SupplierDataValidator(new FromJsonHelper());
@@ -56,6 +72,14 @@ class SupplierDataValidatorTest {
     }
 
     @Test
+    void missingProfileFieldsFail() {
+        assertThrows(PlatformApiDataValidationException.class, () -> validator.validateForUpsert(
+                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe Kebede Trading PLC\"}"));
+        assertThrows(PlatformApiDataValidationException.class, () -> validator.validateForUpsert(
+                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe\",\"displayName\":\"Abebe\",\"businessLicenseNumber\":\"BL-1\",\"supplierType\":\"Exclusive\",\"businessSector\":\"FMCG\",\"category\":\"Cat\",\"country\":\"Ethiopia\"}"));
+    }
+
+    @Test
     void blankRequiredFieldsFail() {
         assertThrows(PlatformApiDataValidationException.class, () -> validator
                 .validateForUpsert("{\"sourceSystem\":\"  \",\"externalId\":\"SUP-1\",\"name\":\"Abebe\"}"));
@@ -63,44 +87,46 @@ class SupplierDataValidatorTest {
                 .validateForUpsert("{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"\",\"name\":\"Abebe\"}"));
         assertThrows(PlatformApiDataValidationException.class, () -> validator
                 .validateForUpsert("{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-1\",\"name\":\"   \"}"));
+        assertThrows(PlatformApiDataValidationException.class, () -> validator.validateForUpsert(
+                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-1\",\"name\":\"Abebe\",\"displayName\":\"\",\"businessLicenseNumber\":\"BL-1\",\"supplierType\":\"Exclusive\",\"businessSector\":\"FMCG\",\"category\":\"Cat\",\"country\":\"Ethiopia\",\"tin\":\"123\"}"));
     }
 
     @Test
-    void minimalValidPayloadPasses() {
-        assertDoesNotThrow(() -> validator
-                .validateForUpsert("{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe Kebede\"}"));
+    void fullValidPayloadPasses() {
+        assertDoesNotThrow(() -> validator.validateForUpsert(VALID_PAYLOAD));
     }
 
     @Test
     void statusOmittedPasses() {
-        assertDoesNotThrow(() -> validator
-                .validateForUpsert("{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe\"}"));
+        assertDoesNotThrow(() -> validator.validateForUpsert(
+                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe Kebede Trading PLC\",\"displayName\":\"Abebe Kebede\",\"businessLicenseNumber\":\"BL-998877\",\"supplierType\":\"Exclusive\",\"businessSector\":\"FMCG\",\"category\":\"TECHNOLOGY_AND_ELECTRONICS\",\"country\":\"Ethiopia\",\"tin\":\"1234567891\"}"));
     }
 
     @Test
     void validStatusPasses() {
         assertDoesNotThrow(() -> validator.validateForUpsert(
-                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe\",\"status\":\"ACTIVE\"}"));
+                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe Kebede Trading PLC\",\"displayName\":\"Abebe Kebede\",\"businessLicenseNumber\":\"BL-998877\",\"supplierType\":\"Exclusive\",\"businessSector\":\"FMCG\",\"category\":\"TECHNOLOGY_AND_ELECTRONICS\",\"country\":\"Ethiopia\",\"tin\":\"1234567891\",\"status\":\"ACTIVE\"}"));
         assertDoesNotThrow(() -> validator.validateForUpsert(
-                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe\",\"status\":\"inactive\"}"));
+                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe Kebede Trading PLC\",\"displayName\":\"Abebe Kebede\",\"businessLicenseNumber\":\"BL-998877\",\"supplierType\":\"Exclusive\",\"businessSector\":\"FMCG\",\"category\":\"TECHNOLOGY_AND_ELECTRONICS\",\"country\":\"Ethiopia\",\"tin\":\"1234567891\",\"status\":\"inactive\"}"));
     }
 
     @Test
     void invalidStatusFails() {
         assertThrows(PlatformApiDataValidationException.class, () -> validator.validateForUpsert(
-                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe\",\"status\":\"PENDING\"}"));
+                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe Kebede Trading PLC\",\"displayName\":\"Abebe Kebede\",\"businessLicenseNumber\":\"BL-998877\",\"supplierType\":\"Exclusive\",\"businessSector\":\"FMCG\",\"category\":\"TECHNOLOGY_AND_ELECTRONICS\",\"country\":\"Ethiopia\",\"tin\":\"1234567891\",\"status\":\"PENDING\"}"));
     }
 
     @Test
     void overMaxLengthFails() {
         final String tooLongName = "x".repeat(256);
         assertThrows(PlatformApiDataValidationException.class, () -> validator.validateForUpsert(
-                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"" + tooLongName + "\"}"));
+                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"" + tooLongName
+                        + "\",\"displayName\":\"Abebe\",\"businessLicenseNumber\":\"BL-1\",\"supplierType\":\"Exclusive\",\"businessSector\":\"FMCG\",\"category\":\"Cat\",\"country\":\"Ethiopia\",\"tin\":\"123\"}"));
     }
 
     @Test
     void unsupportedParameterFails() {
         assertThrows(UnsupportedParameterException.class, () -> validator.validateForUpsert(
-                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe\",\"unknownField\":1}"));
+                "{\"sourceSystem\":\"KIFIYA\",\"externalId\":\"SUP-001\",\"name\":\"Abebe Kebede Trading PLC\",\"displayName\":\"Abebe Kebede\",\"businessLicenseNumber\":\"BL-998877\",\"supplierType\":\"Exclusive\",\"businessSector\":\"FMCG\",\"category\":\"TECHNOLOGY_AND_ELECTRONICS\",\"country\":\"Ethiopia\",\"tin\":\"1234567891\",\"unknownField\":1}"));
     }
 }

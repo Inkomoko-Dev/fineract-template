@@ -28,6 +28,10 @@ public interface SupplierRepository extends JpaRepository<Supplier, Long>, JpaSp
 
     Optional<Supplier> findBySourceSystemAndExternalId(String sourceSystem, String externalId);
 
+    Optional<Supplier> findBySourceSystemAndBusinessLicenseNumberAndIdNot(String sourceSystem, String businessLicenseNumber, Long id);
+
+    Optional<Supplier> findBySourceSystemAndTinAndIdNot(String sourceSystem, String tin, Long id);
+
     @Query("SELECT DISTINCT s.businessSector FROM Supplier s WHERE s.businessSector IS NOT NULL ORDER BY s.businessSector")
     List<String> findDistinctBusinessSectors();
 
