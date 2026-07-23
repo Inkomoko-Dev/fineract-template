@@ -35,7 +35,10 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 
 @Entity
 @Table(name = "m_supplier", uniqueConstraints = {
-        @UniqueConstraint(columnNames = { "source_system", "external_id" }, name = "uq_m_supplier_source_system_external_id")
+        @UniqueConstraint(columnNames = { "source_system", "external_id" }, name = "uq_m_supplier_source_system_external_id"),
+        @UniqueConstraint(columnNames = { "source_system", "business_license_number" },
+                name = "uq_m_supplier_source_system_business_license_number"),
+        @UniqueConstraint(columnNames = { "source_system", "tin" }, name = "uq_m_supplier_source_system_tin")
 })
 @Getter
 @Setter
