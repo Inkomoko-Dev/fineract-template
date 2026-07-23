@@ -1635,6 +1635,45 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     feeChargesDueAtTimeOfDisbursement, isDisbursed);
         }
 
+        /**
+         * Disbursement detail rows can store net disbursal, zero, or null principal (common after
+         * insurance-at-disbursement adjustments / schedule repairs) while the repayment schedule still
+         * amortizes approved principal. For single-disbursement loans, prefer the schedule principal
+         * whenever the detail principal is missing or understated so the running loan-balance column
+         * does not go negative.
+         */
+        private BigDecimal principalForLoanBalanceTracking(final DisbursementData data) {
+            final BigDecimal schedulePrincipal = this.disbursement.amount() == null ? BigDecimal.ZERO : this.disbursement.amount();
+            if (this.disbursementData.size() != 1) {
+                return data == null || data.amount() == null ? BigDecimal.ZERO : data.amount();
+            }
+            if (data == null || data.amount() == null) {
+                return schedulePrincipal;
+            }
+            final BigDecimal disbursementDetailPrincipal = data.amount();
+            if (schedulePrincipal.compareTo(disbursementDetailPrincipal) > 0) {
+                return schedulePrincipal;
+            }
+            return disbursementDetailPrincipal;
+        }
+
+        private void applySingleDisbursementPrincipalIfMissing(final Integer period) {
+            if (this.disbursementData.size() != 1 || this.outstandingLoanPrincipalBalance.compareTo(BigDecimal.ZERO) != 0) {
+                return;
+            }
+            if (period != null && period > 1) {
+                return;
+            }
+            final DisbursementData onlyDisbursement = this.disbursementData.iterator().next();
+            if (!onlyDisbursement.isDisbursed()) {
+                return;
+            }
+            final BigDecimal trackedPrincipal = principalForLoanBalanceTracking(onlyDisbursement);
+            if (trackedPrincipal.compareTo(BigDecimal.ZERO) > 0) {
+                this.outstandingLoanPrincipalBalance = trackedPrincipal;
+            }
+        }
+
         public String schema() {
 
             return " ls.loan_id as loanId, ls.installment as period, ls.fromdate as fromDate, ls.duedate as dueDate, ls.obligations_met_on_date as obligationsMetOnDate, ls.completed_derived as complete,"
@@ -1719,7 +1758,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                     data.isDisbursed());
                         }
                         periods.add(periodData);
-                        this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.add(data.amount());
+                        this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance
+                                .add(principalForLoanBalanceTracking(data));
                     } else if (data.isDueForDisbursement(fromDate, dueDate)) {
                         if (!excludePastUndisbursed || data.isDisbursed()
                                 || !data.disbursementDate().isBefore(DateUtils.getBusinessLocalDate())) {
@@ -1733,10 +1773,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                         data.isDisbursed());
                             }
                             periods.add(periodData);
-                            this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.add(data.amount());
+                            this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance
+                                    .add(principalForLoanBalanceTracking(data));
                         }
                     }
                 }
+                // Single-disburse loans can miss the date match after schedule repairs (or when
+                // detail principal is zero), leaving Balance of Loan as a cumulative negative.
+                applySingleDisbursementPrincipalIfMissing(period);
                 totalPrincipalDisbursed = totalPrincipalDisbursed.add(principal);
 
                 Integer daysInPeriod = 0;
@@ -1811,11 +1855,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 if (fromDate == null) {
                     fromDate = this.lastDueDate;
                 }
-                final BigDecimal outstandingPrincipalBalanceOfLoan = this.outstandingLoanPrincipalBalance.subtract(principalDue);
+                BigDecimal outstandingPrincipalBalanceOfLoan = this.outstandingLoanPrincipalBalance.subtract(principalDue);
+                if (outstandingPrincipalBalanceOfLoan.compareTo(BigDecimal.ZERO) < 0) {
+                    outstandingPrincipalBalanceOfLoan = BigDecimal.ZERO;
+                }
 
                 // update based on current period values
                 this.lastDueDate = dueDate;
                 this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.subtract(principalDue);
+                if (this.outstandingLoanPrincipalBalance.compareTo(BigDecimal.ZERO) < 0) {
+                    this.outstandingLoanPrincipalBalance = BigDecimal.ZERO;
+                }
 
                 final LoanSchedulePeriodData periodData = LoanSchedulePeriodData.repaymentPeriodWithPayments(loanId, period, fromDate,
                         dueDate, obligationsMetOnDate, complete, principalDue, principalPaid, principalWrittenOff, principalOutstanding,

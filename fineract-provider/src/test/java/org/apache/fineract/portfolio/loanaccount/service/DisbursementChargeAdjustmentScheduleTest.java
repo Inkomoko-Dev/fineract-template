@@ -222,6 +222,88 @@ class DisbursementChargeAdjustmentScheduleTest {
         assertAmount("5750.00", (BigDecimal) ReflectionTestUtils.getField(schedule, "totalOutstanding"));
     }
 
+    @Test
+    void repaymentScheduleUsesApprovedPrincipalForLoanBalanceWhenDisbursementDetailStoresNetDisbursal() throws Exception {
+        final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
+        when(context.authenticatedUser()).thenReturn(null);
+        stubDisbursementChargeAmounts(jdbcTemplate, new BigDecimal("1200.00"), new BigDecimal("1200.00"), BigDecimal.ZERO);
+        stubRepaymentSchedule(jdbcTemplate, new BigDecimal("5000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("250.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
+
+        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
+                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null);
+
+        final CurrencyData currency = new CurrencyData("KES", 2, 0);
+        final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
+                DISBURSEMENT_DATE, currency, new BigDecimal("5000.00"), BigDecimal.ZERO, new BigDecimal("1200.00"));
+        final Collection<DisbursementData> disbursements = List.of(new DisbursementData(525L, DISBURSEMENT_DATE,
+                DISBURSEMENT_DATE, new BigDecimal("3800.00"), new BigDecimal("3800.00"), null, null, null));
+
+        final LoanScheduleData schedule = service.retrieveRepaymentSchedule(427367L, relatedData, disbursements, false,
+                new BigDecimal("1200.00"));
+
+        final List<LoanSchedulePeriodData> periods = new ArrayList<>(schedule.getPeriods());
+        final LoanSchedulePeriodData repaymentPeriod = periods.get(periods.size() - 1);
+        assertAmount("0.00", repaymentPeriod.principalLoanBalanceOutstanding());
+    }
+
+    @Test
+    void repaymentScheduleUsesApprovedPrincipalWhenDisbursementDetailPrincipalIsZero() throws Exception {
+        final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
+        when(context.authenticatedUser()).thenReturn(null);
+        stubDisbursementChargeAmounts(jdbcTemplate, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        stubRepaymentSchedule(jdbcTemplate, new BigDecimal("200000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("10000.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
+
+        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
+                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null);
+
+        final CurrencyData currency = new CurrencyData("KES", 2, 0);
+        final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
+                DISBURSEMENT_DATE, currency, new BigDecimal("200000.00"), BigDecimal.ZERO, BigDecimal.ZERO);
+        final Collection<DisbursementData> disbursements = List.of(new DisbursementData(974L, DISBURSEMENT_DATE,
+                DISBURSEMENT_DATE, BigDecimal.ZERO, BigDecimal.ZERO, null, null, null));
+
+        final LoanScheduleData schedule = service.retrieveRepaymentSchedule(426974L, relatedData, disbursements, false,
+                BigDecimal.ZERO);
+
+        final List<LoanSchedulePeriodData> periods = new ArrayList<>(schedule.getPeriods());
+        final LoanSchedulePeriodData repaymentPeriod = periods.get(periods.size() - 1);
+        assertAmount("0.00", repaymentPeriod.principalLoanBalanceOutstanding());
+    }
+
+    @Test
+    void repaymentScheduleSeedsBalanceWhenDisbursementDetailDateDoesNotMatchFirstInstallment() throws Exception {
+        final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
+        when(context.authenticatedUser()).thenReturn(null);
+        stubDisbursementChargeAmounts(jdbcTemplate, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        stubRepaymentSchedule(jdbcTemplate, new BigDecimal("200000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("10000.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
+
+        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
+                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null);
+
+        final CurrencyData currency = new CurrencyData("KES", 2, 0);
+        final LocalDate mismatchedDisbursementDate = DISBURSEMENT_DATE.minusDays(1);
+        final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
+                DISBURSEMENT_DATE, currency, new BigDecimal("200000.00"), BigDecimal.ZERO, BigDecimal.ZERO);
+        final Collection<DisbursementData> disbursements = List.of(new DisbursementData(974L, mismatchedDisbursementDate,
+                mismatchedDisbursementDate, BigDecimal.ZERO, BigDecimal.ZERO, null, null, null));
+
+        final LoanScheduleData schedule = service.retrieveRepaymentSchedule(426974L, relatedData, disbursements, false,
+                BigDecimal.ZERO);
+
+        final List<LoanSchedulePeriodData> periods = new ArrayList<>(schedule.getPeriods());
+        final LoanSchedulePeriodData repaymentPeriod = periods.get(periods.size() - 1);
+        assertAmount("0.00", repaymentPeriod.principalLoanBalanceOutstanding());
+    }
+
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private void stubDisbursementChargeAmounts(final JdbcTemplate jdbcTemplate, final BigDecimal amount, final BigDecimal amountPaid,
             final BigDecimal amountOutstanding) throws Exception {
