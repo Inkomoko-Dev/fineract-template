@@ -19,13 +19,13 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
+import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartySupplierDisbursementApiConstants;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -39,6 +39,7 @@ import org.springframework.stereotype.Component;
 public class ThirdPartySupplierDisbursementGuard {
 
     private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
+    private final FromJsonHelper fromJsonHelper;
 
     public boolean isThirdPartyDisbursementProduct(final Loan loan) {
         if (loan == null || loan.productId() == null) {
@@ -87,14 +88,16 @@ public class ThirdPartySupplierDisbursementGuard {
     }
 
     private boolean commandContainsRecipientFields(final JsonCommand command) {
-        if (command == null) {
+        if (command == null || StringUtils.isBlank(command.json())) {
             return false;
         }
-        final String json = StringUtils.defaultString(command.json()).toLowerCase(Locale.ROOT);
-        return json.contains("\"" + LoanApiConstants.paymentToParameterName.toLowerCase(Locale.ROOT) + "\"")
-                || json.contains("\"" + LoanApiConstants.beneficiaryNameParameterName.toLowerCase(Locale.ROOT) + "\"")
-                || json.contains("\"" + LoanApiConstants.disbursementTypeParameterName.toLowerCase(Locale.ROOT) + "\"")
-                || json.contains("\"paymenttypeid\"") || json.contains("\"clientphonenumber\"")
-                || json.contains("\"clientaccountnumber\"") || json.contains("\"clientbankname\"");
+        final com.google.gson.JsonElement element = this.fromJsonHelper.parse(command.json());
+        return this.fromJsonHelper.parameterExists(LoanApiConstants.paymentToParameterName, element)
+                || this.fromJsonHelper.parameterExists(LoanApiConstants.beneficiaryNameParameterName, element)
+                || this.fromJsonHelper.parameterExists(LoanApiConstants.disbursementTypeParameterName, element)
+                || this.fromJsonHelper.parameterExists("paymentTypeId", element)
+                || this.fromJsonHelper.parameterExists("clientPhoneNumber", element)
+                || this.fromJsonHelper.parameterExists("clientAccountNumber", element)
+                || this.fromJsonHelper.parameterExists("clientBankName", element);
     }
 }

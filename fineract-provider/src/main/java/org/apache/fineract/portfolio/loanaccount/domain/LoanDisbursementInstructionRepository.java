@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -28,4 +29,6 @@ public interface LoanDisbursementInstructionRepository extends JpaRepository<Loa
             String idempotencyKey);
 
     List<LoanDisbursementInstruction> findByLoanIdOrderByIdDesc(Long loanId);
+
+    boolean existsByLoanIdAndStatusIn(Long loanId, Collection<DisbursementInstructionStatus> statuses);
 }

@@ -20,7 +20,9 @@ package org.apache.fineract.portfolio.loanaccount.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.junit.jupiter.api.Test;
 
@@ -39,5 +41,11 @@ class ThirdPartyDisbursementLoanReadPlatformServiceImplTest {
     @Test
     void returnsNullForBlankStatus() {
         assertNull(ThirdPartyDisbursementLoanReadPlatformServiceImpl.parseStatusId(" "));
+    }
+
+    @Test
+    void rejectsUnknownStatus() {
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> ThirdPartyDisbursementLoanReadPlatformServiceImpl.parseStatusId("NOT_A_STATUS"));
     }
 }
