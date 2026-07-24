@@ -38,6 +38,7 @@ public class LoanSummaryData {
     private final BigDecimal interestPaid;
     private final BigDecimal interestWaived;
     private final BigDecimal interestWrittenOff;
+    private final BigDecimal interestCancelled;
     private final BigDecimal interestOutstanding;
     private final BigDecimal interestOverdue;
     private final BigDecimal feeChargesCharged;
@@ -73,7 +74,8 @@ public class LoanSummaryData {
     public LoanSummaryData(final CurrencyData currency, final BigDecimal principalDisbursed, final BigDecimal principalPaid,
             final BigDecimal principalWrittenOff, final BigDecimal principalOutstanding, final BigDecimal principalOverdue,
             final BigDecimal interestCharged, final BigDecimal interestPaid, final BigDecimal interestWaived,
-            final BigDecimal interestWrittenOff, final BigDecimal interestOutstanding, final BigDecimal interestOverdue,
+            final BigDecimal interestWrittenOff, final BigDecimal interestCancelled, final BigDecimal interestOutstanding,
+            final BigDecimal interestOverdue,
             final BigDecimal feeChargesCharged, final BigDecimal feeChargesDueAtDisbursementCharged, final BigDecimal feeChargesPaid,
             final BigDecimal feeChargesWaived, final BigDecimal feeChargesWrittenOff, final BigDecimal feeChargesOutstanding,
             final BigDecimal feeChargesOverdue, final BigDecimal penaltyChargesCharged, final BigDecimal penaltyChargesPaid,
@@ -94,6 +96,7 @@ public class LoanSummaryData {
         this.interestPaid = interestPaid;
         this.interestWaived = interestWaived;
         this.interestWrittenOff = interestWrittenOff;
+        this.interestCancelled = interestCancelled;
         this.interestOutstanding = interestOutstanding;
         this.interestOverdue = interestOverdue;
         this.feeChargesCharged = feeChargesCharged;
@@ -129,6 +132,10 @@ public class LoanSummaryData {
 
     public BigDecimal getTotalOutstanding() {
         return this.totalOutstanding;
+    }
+
+    public BigDecimal getInterestCancelled() {
+        return this.interestCancelled;
     }
 
     public BigDecimal getTotalPaidFeeCharges() {

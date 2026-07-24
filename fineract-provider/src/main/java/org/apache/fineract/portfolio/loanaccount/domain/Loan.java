@@ -5235,6 +5235,56 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         this.loanTransactions.add(loanTransaction);
     }
 
+    public Money getTotalInterestCancelled() {
+        Money total = Money.zero(getCurrency());
+        for (final LoanRepaymentScheduleInstallment installment : getRepaymentScheduleInstallments()) {
+            total = total.plus(installment.getInterestCancelled(getCurrency()));
+        }
+        return total;
+    }
+
+    // CGLT-658: future unaccrued interest that would be cancelled if the loan were settled on asOfDate (payoff preview).
+    public Money getFutureInterestToCancelAsOf(final LocalDate asOfDate) {
+        Money total = Money.zero(getCurrency());
+        for (final LoanRepaymentScheduleInstallment installment : getRepaymentScheduleInstallments()) {
+            total = total.plus(installment.getCancellableFutureInterest(getCurrency(), asOfDate));
+        }
+        return total;
+    }
+
+    private Money getActiveFutureInterestCancellationTotal() {
+        Money total = Money.zero(getCurrency());
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isFutureInterestCancellation()) {
+                total = total.plus(transaction.getInterestPortion(getCurrency()));
+            }
+        }
+        return total;
+    }
+
+    // CGLT-658: keep the audit trail's FUTURE_INTEREST_CANCELLATION row(s) in step with the schedule's cancelled
+    // interest, linked to the settling transaction. Idempotent under reprocessing; reverses down on adjustment.
+    public LoanTransaction reconcileFutureInterestCancellation(final LoanTransaction settlingTransaction,
+            final LocalDate cancellationDate) {
+        final Money scheduleCancelled = getTotalInterestCancelled();
+        final Money activeCancelled = getActiveFutureInterestCancellationTotal();
+        if (scheduleCancelled.isEqualTo(activeCancelled)) {
+            return null;
+        }
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isFutureInterestCancellation()) {
+                transaction.reverse();
+            }
+        }
+        if (scheduleCancelled.isGreaterThanZero()) {
+            final LoanTransaction cancellation = LoanTransaction.futureInterestCancellation(this, getOffice(), scheduleCancelled,
+                    cancellationDate, settlingTransaction);
+            addLoanTransaction(cancellation);
+            return cancellation;
+        }
+        return null;
+    }
+
     public void removeLoanTransaction(final LoanTransaction loanTransaction) {
         this.loanTransactions.remove(loanTransaction);
     }

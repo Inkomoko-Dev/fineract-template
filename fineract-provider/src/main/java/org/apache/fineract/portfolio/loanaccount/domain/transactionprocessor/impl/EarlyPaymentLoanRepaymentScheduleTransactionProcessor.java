@@ -36,7 +36,7 @@ public class EarlyPaymentLoanRepaymentScheduleTransactionProcessor extends Abstr
 
     /**
      * For early/'in advance' repayments, pay only accrued interest up to the payment date,
-     * write off unearned interest, then pay principal. This ensures clients are not charged
+     * cancel unearned interest, then pay principal. This ensures clients are not charged
      * interest that has not yet accrued when they prepay.
      */
     @SuppressWarnings("unused")
@@ -84,7 +84,7 @@ public class EarlyPaymentLoanRepaymentScheduleTransactionProcessor extends Abstr
             feeChargesPortion = currentInstallment.payFeeChargesComponent(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortion);
 
-            interestPortion = currentInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, transactionAmountRemaining);
+            interestPortion = currentInstallment.payAccruedInterestComponentAndCancelUnearned(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
 
             principalPortion = currentInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
@@ -98,15 +98,15 @@ public class EarlyPaymentLoanRepaymentScheduleTransactionProcessor extends Abstr
                 currentInstallmentMapped = true;
             }
 
-            // Process remaining installments (future installments) - write off their interest too
+            // Process remaining installments (future installments) - cancel their interest too
             if (transactionAmountRemaining.isGreaterThanZero()) {
                 for (final LoanRepaymentScheduleInstallment futureInstallment : installments) {
                     if (futureInstallment.getInstallmentNumber() > currentInstallment.getInstallmentNumber()
                             && futureInstallment.isNotFullyPaidOff()
                             && transactionAmountRemaining.isGreaterThanZero()) {
 
-                        // For future installments, write off all interest (none has accrued)
-                        futureInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, Money.zero(currency));
+                        // For future installments, cancel all interest (none has accrued)
+                        futureInstallment.payAccruedInterestComponentAndCancelUnearned(transactionDate, Money.zero(currency));
 
                         // Pay principal from future installments
                         Money futurePrincipalPortion = futureInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
