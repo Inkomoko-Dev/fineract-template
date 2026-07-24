@@ -75,38 +75,28 @@ public class SupplierDataValidator {
         final String name = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.NAME, element);
         baseDataValidator.reset().parameter(SupplierApiConstants.NAME).value(name).notBlank().notExceedingLengthOf(255);
 
-        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.DISPLAY_NAME, element)) {
-            final String displayName = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.DISPLAY_NAME, element);
-            baseDataValidator.reset().parameter(SupplierApiConstants.DISPLAY_NAME).value(displayName).ignoreIfNull()
-                    .notExceedingLengthOf(255);
-        }
-        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.BUSINESS_LICENSE_NUMBER, element)) {
-            final String license = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.BUSINESS_LICENSE_NUMBER, element);
-            baseDataValidator.reset().parameter(SupplierApiConstants.BUSINESS_LICENSE_NUMBER).value(license).ignoreIfNull()
-                    .notExceedingLengthOf(100);
-        }
-        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.SUPPLIER_TYPE, element)) {
-            final String supplierType = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.SUPPLIER_TYPE, element);
-            baseDataValidator.reset().parameter(SupplierApiConstants.SUPPLIER_TYPE).value(supplierType).ignoreIfNull()
-                    .notExceedingLengthOf(100);
-        }
-        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.BUSINESS_SECTOR, element)) {
-            final String sector = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.BUSINESS_SECTOR, element);
-            baseDataValidator.reset().parameter(SupplierApiConstants.BUSINESS_SECTOR).value(sector).ignoreIfNull()
-                    .notExceedingLengthOf(100);
-        }
-        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.CATEGORY, element)) {
-            final String category = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.CATEGORY, element);
-            baseDataValidator.reset().parameter(SupplierApiConstants.CATEGORY).value(category).ignoreIfNull().notExceedingLengthOf(100);
-        }
-        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.COUNTRY, element)) {
-            final String country = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.COUNTRY, element);
-            baseDataValidator.reset().parameter(SupplierApiConstants.COUNTRY).value(country).ignoreIfNull().notExceedingLengthOf(100);
-        }
-        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.TIN, element)) {
-            final String tin = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.TIN, element);
-            baseDataValidator.reset().parameter(SupplierApiConstants.TIN).value(tin).ignoreIfNull().notExceedingLengthOf(50);
-        }
+        final String displayName = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.DISPLAY_NAME, element);
+        baseDataValidator.reset().parameter(SupplierApiConstants.DISPLAY_NAME).value(displayName).notBlank().notExceedingLengthOf(255);
+
+        final String license = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.BUSINESS_LICENSE_NUMBER, element);
+        baseDataValidator.reset().parameter(SupplierApiConstants.BUSINESS_LICENSE_NUMBER).value(license).notBlank()
+                .notExceedingLengthOf(100);
+
+        final String supplierType = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.SUPPLIER_TYPE, element);
+        baseDataValidator.reset().parameter(SupplierApiConstants.SUPPLIER_TYPE).value(supplierType).notBlank().notExceedingLengthOf(100);
+
+        final String sector = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.BUSINESS_SECTOR, element);
+        baseDataValidator.reset().parameter(SupplierApiConstants.BUSINESS_SECTOR).value(sector).notBlank().notExceedingLengthOf(100);
+
+        final String category = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.CATEGORY, element);
+        baseDataValidator.reset().parameter(SupplierApiConstants.CATEGORY).value(category).notBlank().notExceedingLengthOf(100);
+
+        final String country = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.COUNTRY, element);
+        baseDataValidator.reset().parameter(SupplierApiConstants.COUNTRY).value(country).notBlank().notExceedingLengthOf(100);
+
+        final String tin = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.TIN, element);
+        baseDataValidator.reset().parameter(SupplierApiConstants.TIN).value(tin).notBlank().notExceedingLengthOf(50);
+
         if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.STATUS, element)) {
             final String status = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.STATUS, element);
             if (StringUtils.isNotBlank(status)) {
