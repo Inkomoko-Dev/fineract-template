@@ -20,7 +20,6 @@ package org.apache.fineract.portfolio.loanproduct.service;
 
 import java.util.Collection;
 import java.util.Optional;
-import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 
 public interface DisbursementProviderReadPlatformService {
 
