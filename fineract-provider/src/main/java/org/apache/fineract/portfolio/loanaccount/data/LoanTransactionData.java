@@ -72,6 +72,9 @@ public class LoanTransactionData {
 
     private Collection<CodeValueData> writeOffReasonOptions = null;
 
+    // CGLT-658: future unaccrued interest the system will cancel on early settlement (payoff-screen breakdown).
+    private BigDecimal futureInterestCancelled = null;
+
     private Integer numberOfRepayments = 0;
 
     // import fields
@@ -511,6 +514,14 @@ public class LoanTransactionData {
 
     public void setWriteOffReasonOptions(Collection<CodeValueData> writeOffReasonOptions) {
         this.writeOffReasonOptions = writeOffReasonOptions;
+    }
+
+    public BigDecimal getFutureInterestCancelled() {
+        return this.futureInterestCancelled;
+    }
+
+    public void setFutureInterestCancelled(final BigDecimal futureInterestCancelled) {
+        this.futureInterestCancelled = futureInterestCancelled;
     }
 
     public void setWriteOffOnDate(final LocalDate writeOffOnDate) {

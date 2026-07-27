@@ -197,6 +197,19 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return loanTransaction;
     }
 
+    // CGLT-658: zero-cash audit transaction recording future unaccrued interest cancelled on early settlement.
+    public static LoanTransaction futureInterestCancellation(final Loan loan, final Office office, final Money cancelledInterest,
+            final LocalDate cancellationDate, final LoanTransaction linkedPayoff) {
+        final LoanTransaction transaction = new LoanTransaction(loan, office, LoanTransactionType.FUTURE_INTEREST_CANCELLATION,
+                cancelledInterest.getAmount(), cancellationDate, null);
+        transaction.updateComponents(Money.zero(cancelledInterest.getCurrency()), cancelledInterest,
+                Money.zero(cancelledInterest.getCurrency()), Money.zero(cancelledInterest.getCurrency()));
+        if (linkedPayoff != null) {
+            transaction.setOriginalTransactionId(linkedPayoff.getId());
+        }
+        return transaction;
+    }
+
     public static LoanTransaction accrueInterest(final Office office, final Loan loan, final Money amount,
             final LocalDate interestAppliedDate) {
         BigDecimal principalPortion = null;
@@ -636,6 +649,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return LoanTransactionType.PAY_OFF.equals(getTypeOf()) && isNotReversed();
     }
 
+    public boolean isFutureInterestCancellation() {
+        return LoanTransactionType.FUTURE_INTEREST_CANCELLATION.equals(getTypeOf()) && isNotReversed();
+    }
+
     public boolean isDepositRedraw() {
         return LoanTransactionType.DEPOSIT_REDRAW.equals(getTypeOf()) && isNotReversed();
     }
@@ -804,7 +821,8 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return isNotReversed() && (LoanTransactionType.CONTRA.equals(getTypeOf())
                 || LoanTransactionType.MARKED_FOR_RESCHEDULING.equals(getTypeOf())
                 || LoanTransactionType.APPROVE_TRANSFER.equals(getTypeOf()) || LoanTransactionType.INITIATE_TRANSFER.equals(getTypeOf())
-                || LoanTransactionType.REJECT_TRANSFER.equals(getTypeOf()) || LoanTransactionType.WITHDRAW_TRANSFER.equals(getTypeOf()));
+                || LoanTransactionType.REJECT_TRANSFER.equals(getTypeOf()) || LoanTransactionType.WITHDRAW_TRANSFER.equals(getTypeOf())
+                || LoanTransactionType.FUTURE_INTEREST_CANCELLATION.equals(getTypeOf()));
     }
 
     public void updateOutstandingLoanBalance(BigDecimal outstandingLoanBalance) {

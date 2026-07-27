@@ -460,6 +460,10 @@ public final class LoanEnumerations {
                         LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getCode(),
                         "Disbursement Charge Adjustment");
             break;
+            case FUTURE_INTEREST_CANCELLATION:
+                optionData = new LoanTransactionEnumData(LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getValue().longValue(),
+                        LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getCode(), "Future Interest Cancellation");
+            break;
         }
         return optionData;
     }

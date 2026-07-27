@@ -50,6 +50,8 @@ public class LoanTransactionEnumData {
     private final boolean refund;
     private final boolean refundForActiveLoans;
     private final boolean creditBalanceRefund;
+    private final boolean payOff;
+    private final boolean futureInterestCancellation;
 
     public LoanTransactionEnumData(final Long id, final String code, final String value) {
         this.id = id;
@@ -75,6 +77,8 @@ public class LoanTransactionEnumData {
         this.chargePayment = Long.valueOf(17).equals(this.id);
         this.refundForActiveLoans = Long.valueOf(18).equals(this.id);
         this.creditBalanceRefund = Long.valueOf(20).equals(this.id);
+        this.payOff = Long.valueOf(28).equals(this.id);
+        this.futureInterestCancellation = Long.valueOf(30).equals(this.id);
     }
 
     public Long id() {
@@ -103,10 +107,19 @@ public class LoanTransactionEnumData {
     }
 
     public boolean isRepaymentType() {
-        if (isRepayment() || isMerchantIssuedRefund() || isPayoutRefund() || isGoodwillCredit()) {
+        // CGLT-658: a payoff is a cash receipt like any other repayment and must be journalled as one.
+        if (isRepayment() || isMerchantIssuedRefund() || isPayoutRefund() || isGoodwillCredit() || isPayOff()) {
             return true;
         }
         return false;
+    }
+
+    public boolean isPayOff() {
+        return this.payOff;
+    }
+
+    public boolean isFutureInterestCancellation() {
+        return this.futureInterestCancellation;
     }
 
     public boolean isDisbursement() {
