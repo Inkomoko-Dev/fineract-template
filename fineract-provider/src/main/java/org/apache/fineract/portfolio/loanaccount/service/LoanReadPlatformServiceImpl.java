@@ -39,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 
 import org.apache.commons.lang3.StringUtils;
@@ -157,6 +158,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanSc
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
@@ -224,6 +226,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final LoanApprovalMatrixRepository loanApprovalMatrixRepository;
     private final LoanDecisionRepository loanDecisionRepository;
     private final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
 
     @Autowired
     public LoanReadPlatformServiceImpl(final PlatformSecurityContext context,
@@ -249,7 +252,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                        @Lazy final LoanDecisionStateUtilService loanDecisionStateUtilService,
                                        final LoanApprovalMatrixRepository loanApprovalMatrixRepository,
                                        final LoanDecisionRepository loanDecisionRepository,
-                                       final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService) {
+                                       final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService,
+                                       final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService) {
         this.context = context;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
         this.applicationCurrencyRepository = applicationCurrencyRepository;
@@ -288,6 +292,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.loanApprovalMatrixRepository = loanApprovalMatrixRepository;
         this.loanDecisionRepository = loanDecisionRepository;
         this.kenyaCapitalDisbursementDefaultsService = kenyaCapitalDisbursementDefaultsService;
+        this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
     }
 
     @Override
@@ -307,10 +312,29 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(" left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
             sqlBuilder.append(" where l.id=? and ( o.hierarchy like ? or transferToOffice.hierarchy like ?)");
 
-            return this.jdbcTemplate.queryForObject(sqlBuilder.toString(), rm, loanId, hierarchySearchString, hierarchySearchString);
+            final LoanAccountData loanAccountData = this.jdbcTemplate.queryForObject(sqlBuilder.toString(), rm, loanId,
+                    hierarchySearchString, hierarchySearchString);
+            return enrichThirdPartyDisbursementFlag(loanAccountData);
         } catch (final EmptyResultDataAccessException e) {
             throw new LoanNotFoundException(loanId, e);
         }
+    }
+
+    private LoanAccountData enrichThirdPartyDisbursementFlag(final LoanAccountData loanAccountData) {
+        if (loanAccountData != null && loanAccountData.loanProductId() != null) {
+            final boolean enabled = this.disbursementProviderReadPlatformService
+                    .isThirdPartyDisbursementEnabled(loanAccountData.loanProductId());
+            loanAccountData.setEnableThirdPartyDisbursement(enabled);
+            if (loanAccountData.getId() != null) {
+                loanAccountData.setThirdPartyDisbursementProvider(this.disbursementProviderReadPlatformService
+                        .findLoanDisbursementProviderCode(loanAccountData.getId()).orElse(null));
+            }
+            if (enabled) {
+                loanAccountData.setThirdPartyDisbursementProviderOptions(
+                        this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+            }
+        }
+        return loanAccountData;
     }
 
     @Override
@@ -1144,6 +1168,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " ds.loan_decision_state as loanDecisionState , ds.next_loan_ic_review_decision_state as nextLoanIcReviewDecisionState, "
                     + " l.description as description , l.kiva_id as kivaId , l.kiva_uuid as kivaUUId , lp.allowable_dscr as allowableDscr, "
                     + " l.loan_with_another_institution_amount as loanWithAnotherInstitutionAmount ,c.legal_form_enum as clientLegalForm, c.external_id as clientUid, "
+                    + " l.third_party_disbursement_provider as thirdPartyDisbursementProvider, "
+                    + " lp.enable_third_party_disbursement as enableThirdPartyDisbursement, "
                     + " lds.expected_disburse_date AS expectedDisburseDate, lds.net_disbursal_amount AS expectedNetDisbursalAmount, lds.payment_type_id AS paymentType "
                     + " from m_loan l" //
                     + " join m_product_loan lp on lp.id = l.product_id" //
@@ -1550,6 +1576,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanAccountData.setPaymentType(paymentType);
             loanAccountData.setExpectedDisburseDate(expectedDisburseDate);
             loanAccountData.setExpectedNetDisbursalAmount(expectedNetDisbursalAmount);
+            loanAccountData.setThirdPartyDisbursementProvider(rs.getString("thirdPartyDisbursementProvider"));
+            loanAccountData.setEnableThirdPartyDisbursement(rs.getBoolean("enableThirdPartyDisbursement"));
             return loanAccountData;
         }
     }
@@ -2135,6 +2163,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         loanAccountData.setCohortOptions(cohortOptions);
         loanAccountData.setCountryOptions(countryOptions);
         loanAccountData.setProgramOptions(programOptions);
+        loanAccountData.setEnableThirdPartyDisbursement(loanProduct.getEnableThirdPartyDisbursement());
+        if (Boolean.TRUE.equals(loanProduct.getEnableThirdPartyDisbursement())) {
+            loanAccountData.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
         return loanAccountData;
     }
 

@@ -114,8 +114,7 @@ public class LoanProductsApiResource {
             LoanProductConstants.CAN_USE_FOR_TOPUP, LoanProductConstants.IS_EQUAL_AMORTIZATION_PARAM, LoanProductConstants.RATES_PARAM_NAME,
             LoanApiConstants.fixedPrincipalPercentagePerInstallmentParamName, LoanProductConstants.LOAN_TERM_INCLUDES_TOPPED_UP_LOAN_TERM,
             LoanProductConstants.maintainInterestOnLoanTermExtensionParamName, LoanProductConstants.IS_ISLAMIC,
-            LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT, LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER,
-            "thirdPartyDisbursementProviderOptions"));
+            LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT));
 
     private final Set<String> productMixDataParameters = new HashSet<>(
             Arrays.asList("productId", "productName", "restrictedProducts", "allowedProducts", "productOptions"));
@@ -404,8 +403,6 @@ public class LoanProductsApiResource {
         loanProductDataResponse.setRequiresEquityContribution(productData.getRequiresEquityContribution());
         loanProductDataResponse.setEquityContributionLoanPercentage(productData.getEquityContributionLoanPercentage());
         loanProductDataResponse.setEnableThirdPartyDisbursement(productData.getEnableThirdPartyDisbursement());
-        loanProductDataResponse.setThirdPartyDisbursementProvider(productData.getThirdPartyDisbursementProvider());
-        loanProductDataResponse.setThirdPartyDisbursementProviderOptions(this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
         return loanProductDataResponse;
     }
 

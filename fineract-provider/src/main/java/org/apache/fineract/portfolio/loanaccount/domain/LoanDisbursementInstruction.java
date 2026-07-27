@@ -108,6 +108,12 @@ public class LoanDisbursementInstruction extends AbstractPersistableCustom {
         this.lastModifiedOnDate = DateUtils.getLocalDateTimeOfTenant();
     }
 
+    public void markDisbursed() {
+        this.status = DisbursementInstructionStatus.DISBURSED;
+        this.failureMessage = null;
+        this.lastModifiedOnDate = DateUtils.getLocalDateTimeOfTenant();
+    }
+
     private static String truncate(final String value, final int max) {
         if (value == null) {
             return null;

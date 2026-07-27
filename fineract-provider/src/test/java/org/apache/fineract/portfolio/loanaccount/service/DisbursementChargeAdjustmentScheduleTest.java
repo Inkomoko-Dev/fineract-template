@@ -293,7 +293,7 @@ class DisbursementChargeAdjustmentScheduleTest {
     private LoanReadPlatformServiceImpl service(final PlatformSecurityContext context, final JdbcTemplate jdbcTemplate) {
         return new LoanReadPlatformServiceImpl(context, null, null, null, null, null, null, null, null, jdbcTemplate, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, mock(DatabaseSpecificSQLGenerator.class), null, null, null,
-                null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })

@@ -253,6 +253,9 @@ public final class LoanAccountData {
     private Collection<PortfolioAccountData> vendorSavingsAccountOptions;
     private Boolean isBnplLoan;
     private Boolean requiresEquityContribution;
+    private Boolean enableThirdPartyDisbursement;
+    private String thirdPartyDisbursementProvider;
+    private Collection<String> thirdPartyDisbursementProviderOptions;
     private BigDecimal equityContributionLoanPercentage;
     private PortfolioAccountData linkedVendorAccount;
     private CodeValueData department;
@@ -830,6 +833,8 @@ public final class LoanAccountData {
                 acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.isRatesEnabled,
                 acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
+        loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
+        loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
         loanAccountData.setVendorClientOptions(clientAcc.vendorClientOptions);
@@ -1414,6 +1419,8 @@ public final class LoanAccountData {
                 acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, rates, isRatesEnabled,
                 acc.fixedPrincipalPercentagePerInstallment, delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
+        loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
+        loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
         loanAccountData.setDepartment(acc.department);
@@ -1446,6 +1453,8 @@ public final class LoanAccountData {
                 acc.linkedAccount, acc.disbursementDetails, acc.emiAmountVariations, acc.overdueCharges, acc.paidInAdvance,
                 acc.interestRatesPeriods, acc.clientActiveLoanOptions, acc.rates, isRatesEnabled, acc.delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
+        loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
+        loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
         loanAccountData.setVendorClientOptions(acc.vendorClientOptions);
@@ -1495,6 +1504,8 @@ public final class LoanAccountData {
                 acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.isRatesEnabled,
                 acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
+        loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
+        loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
         loanAccountData.setVendorClientOptions(acc.vendorClientOptions);
@@ -1617,6 +1628,8 @@ public final class LoanAccountData {
                 acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.isRatesEnabled,
                 acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
+        loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
+        loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
         loanAccountData.setDepartment(acc.department);
@@ -1663,6 +1676,8 @@ public final class LoanAccountData {
                 acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.isRatesEnabled,
                 acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
+        loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
+        loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
         loanAccountData.setDepartment(acc.department);
@@ -2152,6 +2167,30 @@ public final class LoanAccountData {
 
     public void setBnplLoan(Boolean isBnplLoan) {
         this.isBnplLoan = isBnplLoan;
+    }
+
+    public Boolean getEnableThirdPartyDisbursement() {
+        return enableThirdPartyDisbursement;
+    }
+
+    public void setEnableThirdPartyDisbursement(final Boolean enableThirdPartyDisbursement) {
+        this.enableThirdPartyDisbursement = enableThirdPartyDisbursement;
+    }
+
+    public String getThirdPartyDisbursementProvider() {
+        return this.thirdPartyDisbursementProvider;
+    }
+
+    public void setThirdPartyDisbursementProvider(final String thirdPartyDisbursementProvider) {
+        this.thirdPartyDisbursementProvider = thirdPartyDisbursementProvider;
+    }
+
+    public Collection<String> getThirdPartyDisbursementProviderOptions() {
+        return this.thirdPartyDisbursementProviderOptions;
+    }
+
+    public void setThirdPartyDisbursementProviderOptions(final Collection<String> thirdPartyDisbursementProviderOptions) {
+        this.thirdPartyDisbursementProviderOptions = thirdPartyDisbursementProviderOptions;
     }
 
     public Boolean getRequiresEquityContribution() {

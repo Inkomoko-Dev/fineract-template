@@ -61,37 +61,68 @@ public class SupplierPaymentDetailsValidator {
         if (paymentType == null) {
             dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.supplier.paymentTypeId.required",
                     "Supplier payment type is required.", SupplierApiConstants.PAYMENT_TYPE_ID, null));
-        }
-
-        if (paymentType != null) {
-            final boolean isCash = Boolean.TRUE.equals(paymentType.isCashPayment());
-            final boolean isMobileMoney = Boolean.TRUE.equals(paymentType.isMobileMoney());
-            if (!isCash && isMobileMoney && StringUtils.isBlank(supplier.getPaymentPhoneNumber())) {
-                dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.supplier.paymentPhoneNumber.required",
-                        "Supplier phone number is required for mobile money payment type.", SupplierApiConstants.PAYMENT_PHONE_NUMBER,
-                        supplier.getPaymentPhoneNumber()));
-            }
-            if (!isCash && !isMobileMoney) {
-                final boolean missingBankDetails = StringUtils.isBlank(supplier.getPaymentAccountNumber())
-                        || StringUtils.isBlank(supplier.getPaymentBankName());
-                if (missingBankDetails) {
-                    dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.supplier.bank.details.required",
-                            "Supplier bank account and bank name are required for this payment type.",
-                            SupplierApiConstants.PAYMENT_ACCOUNT_NUMBER, supplier.getPaymentAccountNumber()));
-                }
-            }
+        } else {
+            dataValidationErrors.addAll(validatePaymentFields(paymentType, supplier.getPaymentPhoneNumber(),
+                    supplier.getPaymentAccountNumber(), supplier.getPaymentBankName(), supplier.getPaymentAccountName()));
         }
 
         final String beneficiaryName = supplier.resolveBeneficiaryName();
         if (StringUtils.isBlank(beneficiaryName)) {
             dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.supplier.beneficiaryName.required",
-                    "Supplier name is required as beneficiary.", SupplierApiConstants.NAME, beneficiaryName));
+                    "Supplier account name or display name is required as beneficiary.", SupplierApiConstants.PAYMENT_ACCOUNT_NAME,
+                    beneficiaryName));
         }
 
         throwValidationErrors(dataValidationErrors);
 
         return new SupplierPaymentDetails(paymentType, supplier.getPaymentPhoneNumber(), supplier.getPaymentAccountNumber(),
-                supplier.getPaymentBankName(), beneficiaryName);
+                supplier.getPaymentBankName(), supplier.getPaymentAccountName(), beneficiaryName);
+    }
+
+    /**
+     * Shared payment-detail rules for supplier registration and disbursement instruction.
+     * Phone is always required. Bank types also require account number, bank name, and account name.
+     */
+    public List<ApiParameterError> validatePaymentFields(final PaymentType paymentType, final String paymentPhoneNumber,
+            final String paymentAccountNumber, final String paymentBankName, final String paymentAccountName) {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        if (paymentType == null) {
+            dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.supplier.paymentTypeId.required",
+                    "Supplier payment type is required.", SupplierApiConstants.PAYMENT_TYPE_ID, null));
+            return dataValidationErrors;
+        }
+
+        if (StringUtils.isBlank(paymentPhoneNumber)) {
+            dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.supplier.paymentPhoneNumber.required",
+                    "Supplier phone number is required for all payment types.", SupplierApiConstants.PAYMENT_PHONE_NUMBER,
+                    paymentPhoneNumber));
+        }
+
+        final boolean isCash = Boolean.TRUE.equals(paymentType.isCashPayment());
+        final boolean isMobileMoney = Boolean.TRUE.equals(paymentType.isMobileMoney());
+        if (!isCash && !isMobileMoney) {
+            if (StringUtils.isBlank(paymentAccountNumber)) {
+                dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.supplier.paymentAccountNumber.required",
+                        "Supplier bank account number is required for this payment type.", SupplierApiConstants.PAYMENT_ACCOUNT_NUMBER,
+                        paymentAccountNumber));
+            }
+            if (StringUtils.isBlank(paymentBankName)) {
+                dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.supplier.paymentBankName.required",
+                        "Supplier bank name is required for this payment type.", SupplierApiConstants.PAYMENT_BANK_NAME, paymentBankName));
+            }
+            if (StringUtils.isBlank(paymentAccountName)) {
+                dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.supplier.paymentAccountName.required",
+                        "Supplier bank account name is required for this payment type.", SupplierApiConstants.PAYMENT_ACCOUNT_NAME,
+                        paymentAccountName));
+            }
+        }
+        return dataValidationErrors;
+    }
+
+    public void validatePaymentFieldsOrThrow(final PaymentType paymentType, final String paymentPhoneNumber,
+            final String paymentAccountNumber, final String paymentBankName, final String paymentAccountName) {
+        throwValidationErrors(
+                validatePaymentFields(paymentType, paymentPhoneNumber, paymentAccountNumber, paymentBankName, paymentAccountName));
     }
 
     private void throwValidationErrors(final List<ApiParameterError> dataValidationErrors) {

@@ -28,14 +28,16 @@ public class SupplierPaymentDetails {
     private final String phoneNumber;
     private final String accountNumber;
     private final String bankName;
+    private final String accountName;
     private final String beneficiaryName;
 
     public SupplierPaymentDetails(final PaymentType paymentType, final String phoneNumber, final String accountNumber,
-            final String bankName, final String beneficiaryName) {
+            final String bankName, final String accountName, final String beneficiaryName) {
         this.paymentType = paymentType;
         this.phoneNumber = phoneNumber;
         this.accountNumber = accountNumber;
         this.bankName = bankName;
+        this.accountName = accountName;
         this.beneficiaryName = beneficiaryName;
     }
 }

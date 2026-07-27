@@ -135,7 +135,9 @@ import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestRecalculationCompoundingMethod;
+import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanRescheduleStrategyMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanTransactionProcessingStrategy;
@@ -428,6 +430,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     @Column(name = "equity_contribution_loan_percentage", scale = 6, precision = 19)
     private BigDecimal equityContributionLoanPercentage;
+
+    @Column(name = "third_party_disbursement_provider", length = 50)
+    private String thirdPartyDisbursementProvider;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "department_cv_id", nullable = true)
@@ -1571,6 +1576,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             this.kivaId = StringUtils.defaultIfEmpty(newValue, null);
         }
 
+        final String thirdPartyDisbursementProviderParamName = LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER;
+        if (command.isChangeInStringParameterNamed(thirdPartyDisbursementProviderParamName, this.thirdPartyDisbursementProvider)) {
+            final String newValue = ThirdPartyDisbursementProvider
+                    .normalize(command.stringValueOfParameterNamedAllowingNull(thirdPartyDisbursementProviderParamName));
+            actualChanges.put(thirdPartyDisbursementProviderParamName, newValue);
+            this.thirdPartyDisbursementProvider = newValue;
+        }
+
         // add clientId, groupId and loanType changes to actual changes
 
         final String clientIdParamName = "clientId";
@@ -2708,6 +2721,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
         this.loanStatus = statusEnum.getValue();
         actualChanges.put("status", LoanEnumerations.status(this.loanStatus));
+        if (this.loanSubStatus != null && (LoanSubStatus.PENDINGDISBURSEMENT.getValue().equals(this.loanSubStatus)
+                || LoanSubStatus.PENDINGDISBURSEMENTAPPROVAL.getValue().equals(this.loanSubStatus))) {
+            this.loanSubStatus = null;
+        }
 
         this.disbursedBy = currentUser;
         updateLoanScheduleDependentDerivedFields();
@@ -7548,6 +7565,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     public void setEquityContributionLoanPercentage(BigDecimal equityContributionLoanPercentage) {
         this.equityContributionLoanPercentage = equityContributionLoanPercentage;
+    }
+
+    public String getThirdPartyDisbursementProvider() {
+        return this.thirdPartyDisbursementProvider;
+    }
+
+    public void setThirdPartyDisbursementProvider(final String thirdPartyDisbursementProvider) {
+        this.thirdPartyDisbursementProvider = thirdPartyDisbursementProvider;
     }
 
     public void setLoanDecisionState(Integer loanDecisionState) {

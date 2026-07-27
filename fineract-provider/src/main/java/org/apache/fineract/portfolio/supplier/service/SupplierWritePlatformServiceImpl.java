@@ -34,6 +34,7 @@ import org.apache.fineract.portfolio.supplier.domain.Supplier;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
 import org.apache.fineract.portfolio.supplier.domain.SupplierStatus;
 import org.apache.fineract.portfolio.supplier.domain.SupplierSyncStatus;
+import org.apache.fineract.portfolio.loanaccount.service.SupplierPaymentDetailsValidator;
 import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
 import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepositoryWrapper;
 import org.slf4j.Logger;
@@ -50,14 +51,17 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
     private final SupplierDataValidator validator;
     private final SupplierSyncFailureService syncFailureService;
     private final PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper;
+    private final SupplierPaymentDetailsValidator supplierPaymentDetailsValidator;
 
     @Autowired
     public SupplierWritePlatformServiceImpl(final SupplierRepository supplierRepository, final SupplierDataValidator validator,
-            final SupplierSyncFailureService syncFailureService, final PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper) {
+            final SupplierSyncFailureService syncFailureService, final PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper,
+            final SupplierPaymentDetailsValidator supplierPaymentDetailsValidator) {
         this.supplierRepository = supplierRepository;
         this.validator = validator;
         this.syncFailureService = syncFailureService;
         this.paymentTypeRepositoryWrapper = paymentTypeRepositoryWrapper;
+        this.supplierPaymentDetailsValidator = supplierPaymentDetailsValidator;
     }
 
     @Override
@@ -80,6 +84,11 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
         final String paymentPhoneNumber = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.PAYMENT_PHONE_NUMBER);
         final String paymentAccountNumber = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.PAYMENT_ACCOUNT_NUMBER);
         final String paymentBankName = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.PAYMENT_BANK_NAME);
+        final String paymentAccountName = command.stringValueOfParameterNamedAllowingNull(SupplierApiConstants.PAYMENT_ACCOUNT_NAME);
+        if (paymentType != null) {
+            this.supplierPaymentDetailsValidator.validatePaymentFieldsOrThrow(paymentType, paymentPhoneNumber, paymentAccountNumber,
+                    paymentBankName, paymentAccountName);
+        }
 
         Supplier supplier = null;
         final boolean created;
@@ -94,8 +103,9 @@ public class SupplierWritePlatformServiceImpl implements SupplierWritePlatformSe
                 supplier.updateFrom(name, displayName, businessLicenseNumber, supplierType, businessSector, category, country, tin, status);
             }
             assertUniqueBusinessLicenseAndTin(sourceSystem, businessLicenseNumber, tin, supplier.getId());
-            if (paymentType != null || paymentPhoneNumber != null || paymentAccountNumber != null || paymentBankName != null) {
-                supplier.updatePaymentDetails(paymentType, paymentPhoneNumber, paymentAccountNumber, paymentBankName);
+            if (paymentType != null || paymentPhoneNumber != null || paymentAccountNumber != null || paymentBankName != null
+                    || paymentAccountName != null) {
+                supplier.updatePaymentDetails(paymentType, paymentPhoneNumber, paymentAccountNumber, paymentBankName, paymentAccountName);
             }
             supplier.setRawPayload(command.json());
             this.supplierRepository.saveAndFlush(supplier);

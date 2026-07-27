@@ -744,45 +744,17 @@ public final class LoanProductDataValidator {
 
     private void validateThirdPartyDisbursement(final DataValidatorBuilder baseDataValidator, final JsonElement element,
             final LoanProduct existingProduct) {
-        Boolean enabled = null;
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT, element)) {
-            enabled = this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT, element);
+            final Boolean enabled = this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT,
+                    element);
             baseDataValidator.reset().parameter(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT).value(enabled).ignoreIfNull()
                     .validateForBooleanValue();
-        } else if (existingProduct != null) {
-            enabled = existingProduct.isEnableThirdPartyDisbursement();
-        } else {
-            enabled = Boolean.FALSE;
         }
 
-        String provider = null;
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element)) {
-            provider = ThirdPartyDisbursementProvider
-                    .normalize(this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element));
-            baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).value(provider).ignoreIfNull()
-                    .notExceedingLengthOf(ThirdPartyDisbursementProvider.MAX_LENGTH);
-        } else if (existingProduct != null) {
-            provider = existingProduct.getThirdPartyDisbursementProvider();
-        }
-
-        if (Boolean.TRUE.equals(enabled)) {
-            baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).value(provider).notBlank()
-                    .notExceedingLengthOf(ThirdPartyDisbursementProvider.MAX_LENGTH);
-            if (provider != null && !this.disbursementProviderReadPlatformService.isActiveProvider(provider)) {
-                baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
-                        "not.found.or.inactive",
-                        "thirdPartyDisbursementProvider must match an active disbursement provider code in m_disbursement_provider");
-            }
-        } else if (provider != null && this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER,
-                element)) {
-            // Provider sent while flag is/will be off — reject rather than silently ignore when explicitly provided with flag false
-            if (Boolean.FALSE.equals(enabled)
-                    || (enabled == null && this.fromApiJsonHelper.parameterExists(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT,
-                            element))) {
-                baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
-                        "must.be.blank.when.enableThirdPartyDisbursement.is.false",
-                        "thirdPartyDisbursementProvider must be blank when enableThirdPartyDisbursement is false");
-            }
+            baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
+                    "not.supported.on.loan.product",
+                    "thirdPartyDisbursementProvider is configured on the loan account, not on the loan product.");
         }
     }
 
