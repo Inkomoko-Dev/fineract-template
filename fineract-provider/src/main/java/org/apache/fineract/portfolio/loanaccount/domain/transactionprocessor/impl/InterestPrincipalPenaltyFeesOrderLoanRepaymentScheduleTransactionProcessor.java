@@ -37,7 +37,7 @@ public class InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionPr
 
     /**
      * For early/'in advance' repayments, pay only accrued interest up to the payment date,
-     * write off unearned interest, then pay principal. This ensures clients are not charged
+     * cancel unearned interest, then pay principal. This ensures clients are not charged
      * interest that has not yet accrued when they prepay.
      */
     @SuppressWarnings("unused")
@@ -58,8 +58,8 @@ public class InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionPr
     }
 
     /**
-     * Handles advance payment by charging only accrued interest and writing off unearned interest.
-     * Payment allocation order: accrued interest (write off unearned) -> principal -> penalties -> fees
+     * Handles advance payment by charging only earned interest and cancelling unearned interest.
+     * Payment allocation order: earned interest (cancel unearned) -> principal -> penalties -> fees
      */
     private Money handleAdvancePaymentWithAccruedInterest(final LoanRepaymentScheduleInstallment currentInstallment,
             final List<LoanRepaymentScheduleInstallment> installments, final LoanTransaction loanTransaction,
@@ -73,8 +73,8 @@ public class InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionPr
         Money feeChargesPortion = Money.zero(currency);
         Money penaltyChargesPortion = Money.zero(currency);
 
-        // Pay ONLY accrued interest and write off unearned interest for this installment
-        interestPortion = currentInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, transactionAmountRemaining);
+        // Pay ONLY earned interest and cancel the unearned remainder for this installment
+        interestPortion = currentInstallment.payAccruedInterestComponentAndCancelUnearned(transactionDate, transactionAmountRemaining);
         transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
 
         // Pay principal with remaining amount
@@ -96,15 +96,15 @@ public class InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionPr
                     principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion));
         }
 
-        // Process remaining installments (future installments) - write off their interest too
+        // Process remaining installments (future installments) - cancel their interest too
         if (transactionAmountRemaining.isGreaterThanZero()) {
             for (final LoanRepaymentScheduleInstallment futureInstallment : installments) {
                 if (futureInstallment.getInstallmentNumber() > currentInstallment.getInstallmentNumber()
                         && futureInstallment.isNotFullyPaidOff()
                         && transactionAmountRemaining.isGreaterThanZero()) {
 
-                    // For future installments, write off all interest (none has accrued)
-                    futureInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, Money.zero(currency));
+                    // For future installments, cancel all interest (none has accrued)
+                    futureInstallment.payAccruedInterestComponentAndCancelUnearned(transactionDate, Money.zero(currency));
 
                     // Pay principal from future installments
                     Money futurePrincipalPortion = futureInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);

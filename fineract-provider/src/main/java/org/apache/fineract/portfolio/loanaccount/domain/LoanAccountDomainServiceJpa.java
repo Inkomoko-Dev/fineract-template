@@ -261,6 +261,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
         saveLoanTransactionWithDataIntegrityViolationChecks(newRepaymentTransaction);
 
+        // CGLT-658: record any future unaccrued interest cancelled by this settlement as its own audit transaction.
+        final LoanTransaction futureInterestCancellation = loan.reconcileFutureInterestCancellation(newRepaymentTransaction,
+                transactionDate);
+        if (futureInterestCancellation != null) {
+            saveLoanTransactionWithDataIntegrityViolationChecks(futureInterestCancellation);
+        }
+
         /***
          * TODO Vishwas Batch save is giving me a HibernateOptimisticLockingFailureException, looping and saving for the
          * time being, not a major issue for now as this loop is entered only in edge cases (when a payment is made
