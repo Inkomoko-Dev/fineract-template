@@ -46,7 +46,7 @@ public class SupplierDataValidator {
             SupplierApiConstants.BUSINESS_LICENSE_NUMBER, SupplierApiConstants.SUPPLIER_TYPE, SupplierApiConstants.BUSINESS_SECTOR,
             SupplierApiConstants.CATEGORY, SupplierApiConstants.COUNTRY, SupplierApiConstants.TIN, SupplierApiConstants.STATUS,
             SupplierApiConstants.PAYMENT_TYPE_ID, SupplierApiConstants.PAYMENT_PHONE_NUMBER, SupplierApiConstants.PAYMENT_ACCOUNT_NUMBER,
-            SupplierApiConstants.PAYMENT_BANK_NAME));
+            SupplierApiConstants.PAYMENT_BANK_NAME, SupplierApiConstants.PAYMENT_ACCOUNT_NAME));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -125,6 +125,11 @@ public class SupplierDataValidator {
         if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.PAYMENT_BANK_NAME, element)) {
             final String paymentBankName = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.PAYMENT_BANK_NAME, element);
             baseDataValidator.reset().parameter(SupplierApiConstants.PAYMENT_BANK_NAME).value(paymentBankName).ignoreIfNull()
+                    .notExceedingLengthOf(150);
+        }
+        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.PAYMENT_ACCOUNT_NAME, element)) {
+            final String paymentAccountName = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.PAYMENT_ACCOUNT_NAME, element);
+            baseDataValidator.reset().parameter(SupplierApiConstants.PAYMENT_ACCOUNT_NAME).value(paymentAccountName).ignoreIfNull()
                     .notExceedingLengthOf(150);
         }
 

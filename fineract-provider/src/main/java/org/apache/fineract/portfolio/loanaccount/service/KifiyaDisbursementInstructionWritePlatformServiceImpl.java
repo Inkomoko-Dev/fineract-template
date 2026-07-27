@@ -18,9 +18,11 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDate;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -107,11 +109,7 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         final Supplier supplier = this.supplierRepository.findBySourceSystemAndExternalId(sourceSystem, supplierExternalId).orElse(null);
         final SupplierPaymentDetails paymentDetails = this.supplierPaymentDetailsValidator.validateAndExtract(supplier);
 
-        final LoanDisbursementDetails disbursementDetail = loan.getDisbursementDetails().stream().findFirst()
-                .orElseThrow(() -> new PlatformApiDataValidationException(
-                        "validation.msg.disbursementInstruction.missingDisbursementDetails", "Loan disbursement details are missing.",
-                        List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.missingDisbursementDetails",
-                                "Loan disbursement details are missing."))));
+        final LoanDisbursementDetails disbursementDetail = resolveOrCreateDisbursementDetail(loan);
 
         final Long createdById = currentUser == null ? null : currentUser.getId();
         final LoanDisbursementInstruction instruction = LoanDisbursementInstruction.createReceived(loan.getId(), sourceSystem,
@@ -209,20 +207,27 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
                             "An open disbursement instruction already exists for this loan.")));
         }
 
-        final String mappedProvider = this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(loan.productId())
-                .orElse(null);
-        if (mappedProvider == null) {
+        if (!this.disbursementProviderReadPlatformService.isThirdPartyDisbursementEnabled(loan.productId())) {
             throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.loanProduct.notThirdPartyDisbursement",
                     "Loan product is not configured for third-party disbursement.",
                     List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.loanProduct.notThirdPartyDisbursement",
                             "Loan product is not configured for third-party disbursement.")));
         }
 
-        if (!Objects.equals(mappedProvider, sourceSystem)) {
-            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.loanProduct.providerMismatch",
-                    "Loan product disbursement provider does not match the instruction source system.",
-                    List.of(ApiParameterError.parameterError("validation.msg.disbursementInstruction.loanProduct.providerMismatch",
-                            "Loan product disbursement provider does not match the instruction source system.",
+        final String loanProvider = this.disbursementProviderReadPlatformService.findLoanDisbursementProviderCode(loan.getId())
+                .orElse(null);
+        if (loanProvider == null) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.loan.providerRequired",
+                    "Loan does not have a third-party disbursement provider configured.",
+                    List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.loan.providerRequired",
+                            "Loan does not have a third-party disbursement provider configured.")));
+        }
+
+        if (!Objects.equals(loanProvider, sourceSystem)) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.loan.providerMismatch",
+                    "Loan disbursement provider does not match the instruction source system.",
+                    List.of(ApiParameterError.parameterError("validation.msg.disbursementInstruction.loan.providerMismatch",
+                            "Loan disbursement provider does not match the instruction source system.",
                             DisbursementInstructionApiConstants.SOURCE_SYSTEM, sourceSystem)));
         }
     }
@@ -237,6 +242,33 @@ public class KifiyaDisbursementInstructionWritePlatformServiceImpl implements Ki
         disbursementDetail.setBeneficiaryName(paymentDetails.getBeneficiaryName());
         disbursementDetail.setPaymentTo(LoanDisbursementDetails.PaymentToType.SUPPLIER.getValue());
         disbursementDetail.setDisbursementType(LoanDisbursementDetails.DisbursementType.VENDOR.name());
+    }
+
+    /**
+     * Single-disbursement third-party loans may have no detail row yet when approve skipped payment fields.
+     * Create a placeholder so supplier payout details can be applied.
+     */
+    LoanDisbursementDetails resolveOrCreateDisbursementDetail(final Loan loan) {
+        final LoanDisbursementDetails existing = loan.getDisbursementDetails() == null ? null
+                : loan.getDisbursementDetails().stream().findFirst().orElse(null);
+        if (existing != null) {
+            return existing;
+        }
+        if (loan.isMultiDisburmentLoan()) {
+            throw new PlatformApiDataValidationException("validation.msg.disbursementInstruction.missingDisbursementDetails",
+                    "Loan disbursement details are missing.",
+                    List.of(ApiParameterError.generalError("validation.msg.disbursementInstruction.missingDisbursementDetails",
+                            "Loan disbursement details are missing.")));
+        }
+        final LocalDate expectedDate = loan.getExpectedDisbursedOnLocalDate() != null ? loan.getExpectedDisbursedOnLocalDate()
+                : loan.getApprovedOnDate();
+        final BigDecimal principal = loan.getApprovedPrincipal() != null ? loan.getApprovedPrincipal()
+                : (loan.getPrincpal() == null ? null : loan.getPrincpal().getAmount());
+        final BigDecimal netDisbursal = loan.getNetDisbursalAmount() != null ? loan.getNetDisbursalAmount() : principal;
+        final LoanDisbursementDetails created = new LoanDisbursementDetails(expectedDate, null, principal, netDisbursal);
+        created.updateLoan(loan);
+        loan.getDisbursementDetails().add(created);
+        return created;
     }
 
     private static Map<String, Object> buildResponseChanges(final Loan loan, final Supplier supplier,

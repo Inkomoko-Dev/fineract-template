@@ -244,10 +244,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.equity_contribution_loan_percentage as equityContributionLoanPercentage, "
                     + "lp.is_account_level_arrears_tolerance_enable as isAccountLevelArrearsToleranceEnable, "
                     + " lp.is_islamic as isIslamic, "
-                    + " case when lpdpm.id is not null and lpdpm.is_active = true then true else false end as enableThirdPartyDisbursement, "
-                    + " lpdpm.disbursement_provider_code as thirdPartyDisbursementProvider, lp.allowable_dscr as allowableDSCR "
+                    + " lp.enable_third_party_disbursement as enableThirdPartyDisbursement, lp.allowable_dscr as allowableDSCR "
                     + " from m_product_loan lp "
-                    + " left join m_loan_product_disbursement_provider_mapping lpdpm on lpdpm.loan_product_id = lp.id "
                     + " left join m_fund f on f.id = lp.fund_id "
                     + " left join m_product_loan_recalculation_details lpr on lpr.product_id=lp.id "
                     + " left join m_product_loan_guarantee_details lpg on lpg.loan_product_id=lp.id "
@@ -315,7 +313,6 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             final boolean isLinkedToFloatingInterestRates = rs.getBoolean("isLinkedToFloatingInterestRates");
             final Boolean isIslamic = rs.getBoolean("isIslamic");
             final boolean enableThirdPartyDisbursement = rs.getBoolean("enableThirdPartyDisbursement");
-            final String thirdPartyDisbursementProvider = rs.getString("thirdPartyDisbursementProvider");
             final boolean loanTermIncludesToppedUpLoanTerm = rs.getBoolean("loanTermIncludesToppedUpLoanTerm");
             final Integer floatingRateId = JdbcSupport.getIntegerDefaultToNullIfZero(rs, "floatingRateId");
             final String floatingRateName = rs.getString("floatingRateName");
@@ -516,7 +513,6 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             loanProductData.setRequiresEquityContribution(requiresEquityContribution);
             loanProductData.setEquityContributionLoanPercentage(equityContributionLoanPercentage);
             loanProductData.setEnableThirdPartyDisbursement(enableThirdPartyDisbursement);
-            loanProductData.setThirdPartyDisbursementProvider(thirdPartyDisbursementProvider);
             return loanProductData;
         }
     }

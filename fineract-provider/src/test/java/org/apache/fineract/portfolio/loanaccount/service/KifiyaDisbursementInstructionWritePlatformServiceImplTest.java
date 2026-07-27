@@ -113,8 +113,8 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
     }
 
     @Test
-    void rejectsWhenProductHasNoActiveMapping() {
-        given(this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(5L)).willReturn(Optional.empty());
+    void rejectsWhenProductDoesNotEnableThirdPartyDisbursement() {
+        given(this.disbursementProviderReadPlatformService.isThirdPartyDisbursementEnabled(5L)).willReturn(false);
 
         assertThatThrownBy(() -> this.underTest.validateLoanForDisbursementInstruction(this.loan, "KIFIYA"))
                 .isInstanceOf(PlatformApiDataValidationException.class)
@@ -123,8 +123,9 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
     }
 
     @Test
-    void rejectsWhenSourceSystemDoesNotMatchMappedProvider() {
-        given(this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(5L)).willReturn(Optional.of("OTHER"));
+    void rejectsWhenSourceSystemDoesNotMatchLoanProvider() {
+        given(this.disbursementProviderReadPlatformService.isThirdPartyDisbursementEnabled(5L)).willReturn(true);
+        given(this.disbursementProviderReadPlatformService.findLoanDisbursementProviderCode(10L)).willReturn(Optional.of("OTHER"));
 
         assertThatThrownBy(() -> this.underTest.validateLoanForDisbursementInstruction(this.loan, "KIFIYA"))
                 .isInstanceOf(PlatformApiDataValidationException.class)
@@ -133,8 +134,9 @@ class KifiyaDisbursementInstructionWritePlatformServiceImplTest {
     }
 
     @Test
-    void acceptsWhenProviderAndProductMappingMatch() {
-        given(this.disbursementProviderReadPlatformService.findActiveMappedProviderCode(5L)).willReturn(Optional.of("KIFIYA"));
+    void acceptsWhenProviderAndLoanMatch() {
+        given(this.disbursementProviderReadPlatformService.isThirdPartyDisbursementEnabled(5L)).willReturn(true);
+        given(this.disbursementProviderReadPlatformService.findLoanDisbursementProviderCode(10L)).willReturn(Optional.of("KIFIYA"));
 
         assertThatCode(() -> this.underTest.validateLoanForDisbursementInstruction(this.loan, "KIFIYA")).doesNotThrowAnyException();
     }

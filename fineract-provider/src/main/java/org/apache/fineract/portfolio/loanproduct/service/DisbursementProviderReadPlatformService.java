@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanproduct.service;
 
 import java.util.Collection;
 import java.util.Optional;
+import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 
 public interface DisbursementProviderReadPlatformService {
 
@@ -27,11 +28,19 @@ public interface DisbursementProviderReadPlatformService {
 
     boolean isActiveProvider(String providerCode);
 
-    /**
-     * Returns the active disbursement provider code mapped to the loan product, if any.
-     * Uses JDBC so callers do not depend on lazy JPA loading of the mapping entity.
-     */
-    Optional<String> findActiveMappedProviderCode(Long loanProductId);
+    boolean isThirdPartyDisbursementEnabled(Long loanProductId);
 
+    Optional<String> findLoanDisbursementProviderCode(Long loanId);
+
+    /**
+     * @deprecated use {@link #isThirdPartyDisbursementEnabled(Long)}
+     */
+    @Deprecated
     boolean hasActiveThirdPartyDisbursementMapping(Long loanProductId);
+
+    /**
+     * @deprecated use {@link #findLoanDisbursementProviderCode(Long)}
+     */
+    @Deprecated
+    Optional<String> findActiveMappedProviderCode(Long loanProductId);
 }

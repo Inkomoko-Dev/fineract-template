@@ -402,6 +402,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
 
+        this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
+
         this.loanDecisionStateUtilService.validateLoanReviewApplicationStateIsFiredBeforeDisbursal(loan, command);
         if (loan.loanProduct().isDisallowExpectedDisbursements()) {
             // create artificial 'tranche/expected disbursal' as current disburse code expects it for multi-disbursal
@@ -595,6 +597,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
 
             postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+            this.thirdPartySupplierDisbursementGuard.completeOpenInstructionsAfterDisburse(loan);
         }
 
         final Set<LoanCharge> loanCharges = loan.charges();
@@ -3936,6 +3939,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     @Transactional
     public CommandProcessingResult disbursePreApproval(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
         final LocalDate kenyaCapitalDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
         final Map<String, Object> kenyaCapitalChanges = new LinkedHashMap<>();
         this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, kenyaCapitalDisbursementDate, command,
