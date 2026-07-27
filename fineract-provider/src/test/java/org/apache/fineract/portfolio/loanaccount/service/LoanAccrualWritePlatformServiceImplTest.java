@@ -21,17 +21,28 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlatformService;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
+import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleAccrualData;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class LoanAccrualWritePlatformServiceImplTest {
@@ -77,9 +88,62 @@ class LoanAccrualWritePlatformServiceImplTest {
         assertTrue(accrualData.getApplicableCharges().isEmpty());
     }
 
+    @Test
+    void skipsAccrualInsertWhenNonReversedAccrualAlreadyExistsForLoanAndDate() throws Exception {
+        final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        final LoanTransactionRepository loanTransactionRepository = mock(LoanTransactionRepository.class);
+        final DatabaseSpecificSQLGenerator sqlGenerator = mock(DatabaseSpecificSQLGenerator.class);
+        final JournalEntryWritePlatformService journalEntryWritePlatformService = mock(JournalEntryWritePlatformService.class);
+        final LoanAccrualWritePlatformServiceImpl service = new LoanAccrualWritePlatformServiceImpl(jdbcTemplate, null,
+                journalEntryWritePlatformService, null, null, null, null, sqlGenerator, loanTransactionRepository);
+        final LoanScheduleAccrualData accrualData = accrualData(null);
+        accrualData.updateAccruableIncome(new BigDecimal("100.00"));
+        accrualData.updateChargeDetails(java.util.Collections.emptyMap(), null, null);
+
+        when(loanTransactionRepository.existsNonReversedAccrualForLoanAndDate(1L, LoanTransactionType.ACCRUAL, DUE_DATE)).thenReturn(true);
+
+        service.addAccrualAccounting(accrualData);
+
+        verify(loanTransactionRepository).existsNonReversedAccrualForLoanAndDate(1L, LoanTransactionType.ACCRUAL, DUE_DATE);
+        verify(jdbcTemplate, never()).update(org.mockito.ArgumentMatchers.startsWith("INSERT INTO m_loan_transaction"), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any());
+        verify(journalEntryWritePlatformService, never()).createJournalEntriesForLoan(any());
+        // CGLT-672: still sync schedule + accrued_till so partial prior writes cannot stick the loan
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.startsWith("UPDATE m_loan_repayment_schedule SET accrual_interest_derived"),
+                eq(new BigDecimal("100.00")), any(), any(), eq(1L));
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.startsWith("UPDATE m_loan  SET accrued_till"), eq(DUE_DATE), eq(1L));
+    }
+
+    @Test
+    void insertsAccrualWhenNoExistingNonReversedAccrualForLoanAndDate() throws Exception {
+        final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        final LoanTransactionRepository loanTransactionRepository = mock(LoanTransactionRepository.class);
+        final DatabaseSpecificSQLGenerator sqlGenerator = mock(DatabaseSpecificSQLGenerator.class);
+        final JournalEntryWritePlatformService journalEntryWritePlatformService = mock(JournalEntryWritePlatformService.class);
+        final LoanAccrualWritePlatformServiceImpl service = new LoanAccrualWritePlatformServiceImpl(jdbcTemplate, null,
+                journalEntryWritePlatformService, null, null, null, null, sqlGenerator, loanTransactionRepository);
+        final LoanScheduleAccrualData accrualData = accrualData(null);
+        accrualData.updateAccruableIncome(new BigDecimal("100.00"));
+        accrualData.updateChargeDetails(java.util.Collections.emptyMap(), null, null);
+
+        when(loanTransactionRepository.existsNonReversedAccrualForLoanAndDate(1L, LoanTransactionType.ACCRUAL, DUE_DATE)).thenReturn(false);
+        when(sqlGenerator.lastInsertId()).thenReturn("LAST_INSERT_ID()");
+        when(jdbcTemplate.queryForObject(eq("SELECT LAST_INSERT_ID()"), eq(Long.class))).thenReturn(99L);
+
+        service.addAccrualAccounting(accrualData);
+
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.startsWith("INSERT INTO m_loan_transaction"), eq(1L), eq(1L),
+                eq(LoanTransactionType.ACCRUAL.getValue()), eq(DUE_DATE), any(BigDecimal.class), any(BigDecimal.class), any(), any(),
+                any(LocalDate.class));
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.startsWith("UPDATE m_loan_repayment_schedule SET accrual_interest_derived"),
+                eq(new BigDecimal("100.00")), any(), any(), eq(1L));
+        verify(jdbcTemplate).update(org.mockito.ArgumentMatchers.startsWith("UPDATE m_loan  SET accrued_till"), eq(DUE_DATE), eq(1L));
+        verify(journalEntryWritePlatformService).createJournalEntriesForLoan(any());
+    }
+
     private void updateCharges(final LoanChargeData penaltyCharge, final LoanScheduleAccrualData accrualData) {
         final LoanAccrualWritePlatformServiceImpl service = new LoanAccrualWritePlatformServiceImpl(null, null, null, null, null, null,
-                null, null);
+                null, null, null);
 
         ReflectionTestUtils.invokeMethod(service, "updateCharges", List.of(penaltyCharge), accrualData, START_DATE, DUE_DATE);
     }

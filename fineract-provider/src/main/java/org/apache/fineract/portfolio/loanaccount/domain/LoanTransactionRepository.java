@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
+import java.time.LocalDate;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -47,4 +48,16 @@ public interface LoanTransactionRepository extends JpaRepository<LoanTransaction
                 and tx.reversed = false
             """)
     boolean existsActiveCorrectedRecoveryTransaction(@Param("originalTransactionId") Long originalTransactionId);
+
+    @Query("""
+            select case when count(tx) > 0 then true else false end
+            from LoanTransaction tx
+            where tx.loan.id = :loanId
+                and tx.typeOf = :#{#type.value}
+                and tx.dateOf = :transactionDate
+                and tx.reversed = false
+                and tx.reversalTransaction = false
+            """)
+    boolean existsNonReversedAccrualForLoanAndDate(@Param("loanId") Long loanId, @Param("type") LoanTransactionType type,
+            @Param("transactionDate") LocalDate transactionDate);
 }
