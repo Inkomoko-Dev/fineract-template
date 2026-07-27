@@ -44,7 +44,9 @@ public class SupplierDataValidator {
     private static final Set<String> UPSERT_REQUEST_DATA_PARAMETERS = new HashSet<>(Arrays.asList(SupplierApiConstants.SOURCE_SYSTEM,
             SupplierApiConstants.EXTERNAL_ID, SupplierApiConstants.NAME, SupplierApiConstants.DISPLAY_NAME,
             SupplierApiConstants.BUSINESS_LICENSE_NUMBER, SupplierApiConstants.SUPPLIER_TYPE, SupplierApiConstants.BUSINESS_SECTOR,
-            SupplierApiConstants.CATEGORY, SupplierApiConstants.COUNTRY, SupplierApiConstants.TIN, SupplierApiConstants.STATUS));
+            SupplierApiConstants.CATEGORY, SupplierApiConstants.COUNTRY, SupplierApiConstants.TIN, SupplierApiConstants.STATUS,
+            SupplierApiConstants.PAYMENT_TYPE_ID, SupplierApiConstants.PAYMENT_PHONE_NUMBER, SupplierApiConstants.PAYMENT_ACCOUNT_NUMBER,
+            SupplierApiConstants.PAYMENT_BANK_NAME));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -103,6 +105,27 @@ public class SupplierDataValidator {
                 baseDataValidator.reset().parameter(SupplierApiConstants.STATUS).value(status.trim().toUpperCase(Locale.ROOT))
                         .isOneOfEnumValues(SupplierStatus.class);
             }
+        }
+        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.PAYMENT_TYPE_ID, element)) {
+            final Long paymentTypeId = this.fromApiJsonHelper.extractLongNamed(SupplierApiConstants.PAYMENT_TYPE_ID, element);
+            baseDataValidator.reset().parameter(SupplierApiConstants.PAYMENT_TYPE_ID).value(paymentTypeId).ignoreIfNull()
+                    .integerGreaterThanZero();
+        }
+        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.PAYMENT_PHONE_NUMBER, element)) {
+            final String paymentPhoneNumber = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.PAYMENT_PHONE_NUMBER, element);
+            baseDataValidator.reset().parameter(SupplierApiConstants.PAYMENT_PHONE_NUMBER).value(paymentPhoneNumber).ignoreIfNull()
+                    .notExceedingLengthOf(50);
+        }
+        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.PAYMENT_ACCOUNT_NUMBER, element)) {
+            final String paymentAccountNumber = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.PAYMENT_ACCOUNT_NUMBER,
+                    element);
+            baseDataValidator.reset().parameter(SupplierApiConstants.PAYMENT_ACCOUNT_NUMBER).value(paymentAccountNumber).ignoreIfNull()
+                    .notExceedingLengthOf(150);
+        }
+        if (this.fromApiJsonHelper.parameterExists(SupplierApiConstants.PAYMENT_BANK_NAME, element)) {
+            final String paymentBankName = this.fromApiJsonHelper.extractStringNamed(SupplierApiConstants.PAYMENT_BANK_NAME, element);
+            baseDataValidator.reset().parameter(SupplierApiConstants.PAYMENT_BANK_NAME).value(paymentBankName).ignoreIfNull()
+                    .notExceedingLengthOf(150);
         }
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);

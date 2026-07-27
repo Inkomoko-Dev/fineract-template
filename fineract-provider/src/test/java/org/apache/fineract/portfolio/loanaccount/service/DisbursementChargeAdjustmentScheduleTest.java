@@ -88,9 +88,7 @@ class DisbursementChargeAdjustmentScheduleTest {
         stubRepaymentSchedule(jdbcTemplate, new BigDecimal("5000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("250.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
 
-        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
-                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null,null,null,null,null);
+        final LoanReadPlatformServiceImpl service = service(context, jdbcTemplate);
 
         final CurrencyData currency = new CurrencyData("KES", 2, 0);
         final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
@@ -123,9 +121,7 @@ class DisbursementChargeAdjustmentScheduleTest {
         stubRepaymentSchedule(jdbcTemplate, new BigDecimal("5000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("250.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
 
-        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
-                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null,null,null,null,null);
+        final LoanReadPlatformServiceImpl service = service(context, jdbcTemplate);
 
         final CurrencyData currency = new CurrencyData("KES", 2, 0);
         final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
@@ -160,9 +156,7 @@ class DisbursementChargeAdjustmentScheduleTest {
         stubRepaymentSchedule(jdbcTemplate, new BigDecimal("5000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("250.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
 
-        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
-                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null,null,null,null,null);
+        final LoanReadPlatformServiceImpl service = service(context, jdbcTemplate);
 
         final CurrencyData currency = new CurrencyData("KES", 2, 0);
         final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
@@ -194,9 +188,7 @@ class DisbursementChargeAdjustmentScheduleTest {
         stubRepaymentSchedule(jdbcTemplate, new BigDecimal("5000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("250.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
 
-        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
-                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null, null, null, null, null);
+        final LoanReadPlatformServiceImpl service = service(context, jdbcTemplate);
 
         final CurrencyData currency = new CurrencyData("KES", 2, 0);
         final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
@@ -231,9 +223,7 @@ class DisbursementChargeAdjustmentScheduleTest {
         stubRepaymentSchedule(jdbcTemplate, new BigDecimal("5000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("250.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
 
-        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
-                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null);
+        final LoanReadPlatformServiceImpl service = service(context, jdbcTemplate);
 
         final CurrencyData currency = new CurrencyData("KES", 2, 0);
         final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
@@ -258,9 +248,7 @@ class DisbursementChargeAdjustmentScheduleTest {
         stubRepaymentSchedule(jdbcTemplate, new BigDecimal("200000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("10000.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
 
-        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
-                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null);
+        final LoanReadPlatformServiceImpl service = service(context, jdbcTemplate);
 
         final CurrencyData currency = new CurrencyData("KES", 2, 0);
         final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
@@ -285,9 +273,7 @@ class DisbursementChargeAdjustmentScheduleTest {
         stubRepaymentSchedule(jdbcTemplate, new BigDecimal("200000.00"), BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("10000.00"), BigDecimal.ZERO, BigDecimal.ZERO, false);
 
-        final LoanReadPlatformServiceImpl service = new LoanReadPlatformServiceImpl(context, null, null, null, null, null,
-                null, null, null, jdbcTemplate, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null, null, null, null, null);
+        final LoanReadPlatformServiceImpl service = service(context, jdbcTemplate);
 
         final CurrencyData currency = new CurrencyData("KES", 2, 0);
         final LocalDate mismatchedDisbursementDate = DISBURSEMENT_DATE.minusDays(1);
@@ -302,6 +288,12 @@ class DisbursementChargeAdjustmentScheduleTest {
         final List<LoanSchedulePeriodData> periods = new ArrayList<>(schedule.getPeriods());
         final LoanSchedulePeriodData repaymentPeriod = periods.get(periods.size() - 1);
         assertAmount("0.00", repaymentPeriod.principalLoanBalanceOutstanding());
+    }
+
+    private LoanReadPlatformServiceImpl service(final PlatformSecurityContext context, final JdbcTemplate jdbcTemplate) {
+        return new LoanReadPlatformServiceImpl(context, null, null, null, null, null, null, null, null, jdbcTemplate, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, mock(DatabaseSpecificSQLGenerator.class), null, null, null,
+                null, null, null, null, null, null, null, null, null, null);
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
