@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.portfolio.supplier.service;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -46,6 +45,7 @@ import org.apache.fineract.portfolio.supplier.domain.Supplier;
 import org.apache.fineract.portfolio.supplier.domain.SupplierRepository;
 import org.apache.fineract.portfolio.supplier.domain.SupplierStatus;
 import org.apache.fineract.portfolio.supplier.domain.SupplierSyncStatus;
+import org.apache.fineract.portfolio.loanaccount.service.SupplierPaymentDetailsValidator;
 import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepositoryWrapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -91,7 +91,7 @@ class SupplierWritePlatformServiceImplTest {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         final SupplierDataValidator validator = new SupplierDataValidator(new FromJsonHelper());
         this.writeService = new SupplierWritePlatformServiceImpl(this.supplierRepository, validator, this.syncFailureService,
-                this.paymentTypeRepositoryWrapper);
+                this.paymentTypeRepositoryWrapper, new SupplierPaymentDetailsValidator());
     }
 
     @AfterEach
@@ -177,7 +177,7 @@ class SupplierWritePlatformServiceImplTest {
                 .thenReturn(Optional.of(conflict));
 
         assertThatThrownBy(() -> this.writeService.upsert(command(VALID_JSON))).isInstanceOf(PlatformApiDataValidationException.class)
-                .extracting(ex -> ((PlatformApiDataValidationException) ex).getErrors().get(0).getGlobalisationMessageCode())
+                .extracting(ex -> ((PlatformApiDataValidationException) ex).getErrors().get(0).getUserMessageGlobalisationCode())
                 .isEqualTo("validation.msg.supplier.businessLicenseNumber.duplicate");
         verify(this.supplierRepository, never()).saveAndFlush(any());
     }
@@ -193,7 +193,7 @@ class SupplierWritePlatformServiceImplTest {
         when(this.supplierRepository.findBySourceSystemAndTinAndIdNot("KIFIYA", "1234567891", -1L)).thenReturn(Optional.of(conflict));
 
         assertThatThrownBy(() -> this.writeService.upsert(command(VALID_JSON))).isInstanceOf(PlatformApiDataValidationException.class)
-                .extracting(ex -> ((PlatformApiDataValidationException) ex).getErrors().get(0).getGlobalisationMessageCode())
+                .extracting(ex -> ((PlatformApiDataValidationException) ex).getErrors().get(0).getUserMessageGlobalisationCode())
                 .isEqualTo("validation.msg.supplier.tin.duplicate");
         verify(this.supplierRepository, never()).saveAndFlush(any());
     }

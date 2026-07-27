@@ -22,7 +22,7 @@ import java.util.Locale;
 
 /**
  * Normalizes third-party disbursement provider codes stored in m_disbursement_provider
- * and referenced by m_loan_product_disbursement_provider_mapping.disbursement_provider_code.
+ * and referenced by m_loan.third_party_disbursement_provider.
  */
 public final class ThirdPartyDisbursementProvider {
 

@@ -837,6 +837,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
             this.fromApiJsonDeserializer.validateForModify(command.json(), loanProductForValidations, existingLoanApplication);
 
+            this.thirdPartySupplierDisbursementGuard.assertThirdPartyDisbursementProviderChangeAllowed(existingLoanApplication, command,
+                    currentUser);
+
             checkClientOrGroupActive(existingLoanApplication);
 
             final Set<LoanCharge> existingCharges = existingLoanApplication.charges();
@@ -1549,9 +1552,10 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         final AppUser currentUser = getAppUserIfPresent();
         LocalDate expectedDisbursementDate = null;
 
-        this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json());
-
         final Loan loan = retrieveLoanBy(loanId);
+        final boolean requirePaymentTypeId = !this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan);
+        this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json(), requirePaymentTypeId);
+
         this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
 
         final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
@@ -1559,7 +1563,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         if (paymentTypeId != null) {
             paymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(paymentTypeId);
         }
-        if (!this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan)) {
+        if (requirePaymentTypeId) {
             validatePaymentDetails(command, paymentType);
         }
 
@@ -1832,6 +1836,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                             currentUser);
                 }
 
+                } else if (this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan)) {
+                    // Create placeholder detail so partner instruction can attach supplier payout fields.
+                    ensureThirdPartyDisbursementDetailPlaceholder(loan, expectedDisbursementDate);
                 }
 
             }
@@ -1857,6 +1864,21 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 .withLoanId(loanId) //
                 .with(changes) //
                 .build();
+    }
+
+    private void ensureThirdPartyDisbursementDetailPlaceholder(final Loan loan, final LocalDate expectedDisbursementDate) {
+        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
+            return;
+        }
+        final BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
+        final BigDecimal principal = loan.getApprovedPrincipal() != null ? loan.getApprovedPrincipal() : loan.getProposedPrincipal();
+        final BigDecimal netDisbursementAmount = principal.subtract(totalDisbursementCharge);
+        final LocalDate expectedDate = expectedDisbursementDate != null ? expectedDisbursementDate
+                : loan.getExpectedDisbursedOnLocalDate();
+        final LoanDisbursementDetails disbursementDetail = new LoanDisbursementDetails(expectedDate, null, principal,
+                netDisbursementAmount);
+        disbursementDetail.updateLoan(loan);
+        loan.getDisbursementDetails().add(disbursementDetail);
     }
 
     private void validatePaymentDetails(JsonCommand command, PaymentType paymentType) {

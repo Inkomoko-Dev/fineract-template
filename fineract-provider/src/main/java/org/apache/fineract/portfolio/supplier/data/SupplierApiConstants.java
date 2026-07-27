@@ -46,4 +46,5 @@ public final class SupplierApiConstants {
     public static final String PAYMENT_PHONE_NUMBER = "paymentPhoneNumber";
     public static final String PAYMENT_ACCOUNT_NUMBER = "paymentAccountNumber";
     public static final String PAYMENT_BANK_NAME = "paymentBankName";
+    public static final String PAYMENT_ACCOUNT_NAME = "paymentAccountName";
 }

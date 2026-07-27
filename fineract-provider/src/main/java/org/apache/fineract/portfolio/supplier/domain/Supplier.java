@@ -108,6 +108,9 @@ public class Supplier extends AbstractPersistableCustom {
     @Column(name = "payment_bank_name", length = 150)
     private String paymentBankName;
 
+    @Column(name = "payment_account_name", length = 150)
+    private String paymentAccountName;
+
     @Column(name = "created_date")
     private LocalDateTime createdDate;
 
@@ -141,15 +144,19 @@ public class Supplier extends AbstractPersistableCustom {
     }
 
     public void updatePaymentDetails(final PaymentType paymentType, final String paymentPhoneNumber, final String paymentAccountNumber,
-            final String paymentBankName) {
+            final String paymentBankName, final String paymentAccountName) {
         this.paymentType = paymentType;
         this.paymentPhoneNumber = trimOptional(paymentPhoneNumber);
         this.paymentAccountNumber = trimOptional(paymentAccountNumber);
         this.paymentBankName = trimOptional(paymentBankName);
+        this.paymentAccountName = trimOptional(paymentAccountName);
         this.lastModifiedDate = DateUtils.getLocalDateTimeOfTenant();
     }
 
     public String resolveBeneficiaryName() {
+        if (paymentAccountName != null && !paymentAccountName.isBlank()) {
+            return paymentAccountName;
+        }
         if (displayName != null && !displayName.isBlank()) {
             return displayName;
         }
