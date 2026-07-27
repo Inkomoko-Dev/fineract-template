@@ -76,10 +76,10 @@ public class ThirdPartyDisbursementLoanReadPlatformServiceImpl implements ThirdP
         sqlBuilder.append(buildSelectColumns());
         sqlBuilder.append(" from m_loan l ");
         sqlBuilder.append(" join m_product_loan lp on lp.id = l.product_id ");
-        sqlBuilder.append(" join m_loan_product_disbursement_provider_mapping lpdpm on lpdpm.loan_product_id = lp.id ");
         sqlBuilder.append(" left join m_client c on c.id = l.client_id ");
-        sqlBuilder.append(" where lpdpm.is_active = true ");
-        sqlBuilder.append(" and upper(trim(lpdpm.disbursement_provider_code)) = ? ");
+        sqlBuilder.append(" where lp.enable_third_party_disbursement = true ");
+        sqlBuilder.append(" and l.third_party_disbursement_provider is not null ");
+        sqlBuilder.append(" and upper(trim(l.third_party_disbursement_provider)) = ? ");
 
         final List<Object> params = new ArrayList<>();
         params.add(normalizedProvider);
@@ -88,6 +88,8 @@ public class ThirdPartyDisbursementLoanReadPlatformServiceImpl implements ThirdP
 
         if (Boolean.TRUE.equals(readyForInstruction)) {
             sqlBuilder.append(" and l.loan_sub_status_id is null ");
+            sqlBuilder.append(" and not exists (select 1 from m_loan_disbursement_instruction i ");
+            sqlBuilder.append(" where i.loan_id = l.id and i.status in ('RECEIVED', 'PENDING_DISBURSEMENT')) ");
         }
         if (StringUtils.isNotBlank(loanAccountNo)) {
             sqlBuilder.append(" and l.account_no = ? ");
@@ -126,7 +128,7 @@ public class ThirdPartyDisbursementLoanReadPlatformServiceImpl implements ThirdP
     private static String buildSelectColumns() {
         return " l.id as loanId, l.account_no as loanAccountNo, l.external_id as externalId, "
                 + " l.loan_status_id as loanStatusId, l.loan_sub_status_id as loanSubStatusId, "
-                + " lpdpm.disbursement_provider_code as thirdPartyDisbursementProvider, "
+                + " l.third_party_disbursement_provider as thirdPartyDisbursementProvider, "
                 + " lp.id as loanProductId, lp.name as loanProductName, "
                 + " l.approved_principal as approvedPrincipal, l.currency_code as currencyCode, "
                 + " l.approvedon_date as approvedOnDate, c.id as clientId, c.display_name as clientName, c.external_id as clientExternalId ";

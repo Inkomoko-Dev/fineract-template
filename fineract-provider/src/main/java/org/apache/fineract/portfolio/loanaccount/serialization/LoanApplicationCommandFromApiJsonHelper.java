@@ -53,7 +53,9 @@ import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.exception.EqualAmortizationUnsupportedFeatureException;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.savings.domain.SavingsAccount;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -99,19 +101,23 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             LoanApiConstants.linkVendorAccountIdParamName, LoanApiConstants.LOAN_TERM_TO_TOP_UP, LoanApiConstants.isBnplLoanParamName,
             LoanApiConstants.requiresEquityContributionParamName, LoanApiConstants.equityContributionLoanPercentageParamName,
             LoanApiConstants.DEPARTMENT_PARAM, LoanApiConstants.DESCRIPTION_PARAM, LoanApiConstants.KIVA_ID_PARAM,
-            LoanApiConstants.loanWithAnotherInstitution, LoanApiConstants.loanWithAnotherInstitutionAmount, "departmentId"));
+            LoanApiConstants.loanWithAnotherInstitution, LoanApiConstants.loanWithAnotherInstitutionAmount, "departmentId",
+            LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER));
 
     private final FromJsonHelper fromApiJsonHelper;
     private final CalculateLoanScheduleQueryFromApiJsonHelper apiJsonHelper;
     private final ClientCollateralManagementRepositoryWrapper clientCollateralManagementRepositoryWrapper;
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
 
     @Autowired
     public LoanApplicationCommandFromApiJsonHelper(final FromJsonHelper fromApiJsonHelper,
             final CalculateLoanScheduleQueryFromApiJsonHelper apiJsonHelper,
-            final ClientCollateralManagementRepositoryWrapper clientCollateralManagementRepositoryWrapper) {
+            final ClientCollateralManagementRepositoryWrapper clientCollateralManagementRepositoryWrapper,
+            final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService) {
         this.fromApiJsonHelper = fromApiJsonHelper;
         this.apiJsonHelper = apiJsonHelper;
         this.clientCollateralManagementRepositoryWrapper = clientCollateralManagementRepositoryWrapper;
+        this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
     }
 
     public void validateForCreate(final String json, final boolean isMeetingMandatoryForJLGLoans, final LoanProduct loanProduct) {
@@ -579,6 +585,7 @@ public final class LoanApplicationCommandFromApiJsonHelper {
 
         validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal);
         validatePartialPeriodSupport(interestCalculationPeriodType, baseDataValidator, element, loanProduct);
+        validateThirdPartyDisbursementProvider(baseDataValidator, element, loanProduct, null);
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
@@ -609,6 +616,34 @@ public final class LoanApplicationCommandFromApiJsonHelper {
 
         validateBnplValues(baseDataValidator, isBnplLoan == null ? false : isBnplLoan,
                 requiresEquityContribution == null ? false : requiresEquityContribution, equityContributionLoanPercentage);
+    }
+
+    private void validateThirdPartyDisbursementProvider(final DataValidatorBuilder baseDataValidator, final JsonElement element,
+            final LoanProduct loanProduct, final Loan existingLoanApplication) {
+        String provider = null;
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element)) {
+            provider = ThirdPartyDisbursementProvider
+                    .normalize(this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element));
+            baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).value(provider).ignoreIfNull()
+                    .notExceedingLengthOf(ThirdPartyDisbursementProvider.MAX_LENGTH);
+        } else if (existingLoanApplication != null) {
+            provider = existingLoanApplication.getThirdPartyDisbursementProvider();
+        }
+
+        if (loanProduct != null && loanProduct.isEnableThirdPartyDisbursement()) {
+            baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).value(provider).notBlank()
+                    .notExceedingLengthOf(ThirdPartyDisbursementProvider.MAX_LENGTH);
+            if (provider != null && !this.disbursementProviderReadPlatformService.isActiveProvider(provider)) {
+                baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
+                        "not.found.or.inactive",
+                        "thirdPartyDisbursementProvider must match an active disbursement provider code in m_disbursement_provider");
+            }
+        } else if (provider != null && this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER,
+                element)) {
+            baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
+                    "must.be.blank.when.enableThirdPartyDisbursement.is.false",
+                    "thirdPartyDisbursementProvider must be blank when the loan product does not enable third-party disbursement.");
+        }
     }
 
     private void validateBnplValues(final DataValidatorBuilder baseDataValidator, Boolean isBnplLoan, Boolean requiresEquityContribution,
@@ -1143,6 +1178,7 @@ public final class LoanApplicationCommandFromApiJsonHelper {
 
         validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal);
         validatePartialPeriodSupport(interestCalculationPeriodType, baseDataValidator, element, loanProduct);
+        validateThirdPartyDisbursementProvider(baseDataValidator, element, loanProduct, existingLoanApplication);
 
         // bnpl
         Boolean isBnplLoan = null;

@@ -21,7 +21,6 @@ package org.apache.fineract.portfolio.loanproduct.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
@@ -61,30 +60,27 @@ class DisbursementProviderReadPlatformServiceImplTest {
     }
 
     @Test
-    void isActiveProviderFalseWhenMissing() {
-        when(this.disbursementProviderRepository.findActiveByCode("UNKNOWN")).thenReturn(Optional.empty());
+    void isThirdPartyDisbursementEnabledReadsProductFlag() {
+        when(this.jdbcTemplate.queryForList(
+                "select enable_third_party_disbursement from m_product_loan where id = ?", Boolean.class, 5L))
+                .thenReturn(List.of(true));
 
-        assertFalse(this.underTest.isActiveProvider("UNKNOWN"));
+        assertTrue(this.underTest.isThirdPartyDisbursementEnabled(5L));
     }
 
     @Test
-    void findActiveMappedProviderCodeUsesJdbcAndNormalizes() {
-        when(this.jdbcTemplate.queryForList(anyString(), eq(String.class), eq(5L))).thenReturn(List.of("kifiya"));
+    void findLoanDisbursementProviderCodeUsesJdbcAndNormalizes() {
+        when(this.jdbcTemplate.queryForList("select third_party_disbursement_provider from m_loan where id = ?", String.class, 9L))
+                .thenReturn(List.of("kifiya"));
 
-        assertEquals(Optional.of("KIFIYA"), this.underTest.findActiveMappedProviderCode(5L));
-        assertTrue(this.underTest.hasActiveThirdPartyDisbursementMapping(5L));
+        assertEquals(Optional.of("KIFIYA"), this.underTest.findLoanDisbursementProviderCode(9L));
     }
 
     @Test
-    void findActiveMappedProviderCodeEmptyWhenNoRow() {
-        when(this.jdbcTemplate.queryForList(anyString(), eq(String.class), eq(5L))).thenReturn(Collections.emptyList());
+    void findLoanDisbursementProviderCodeEmptyWhenMissing() {
+        when(this.jdbcTemplate.queryForList("select third_party_disbursement_provider from m_loan where id = ?", String.class, 9L))
+                .thenReturn(Collections.emptyList());
 
-        assertEquals(Optional.empty(), this.underTest.findActiveMappedProviderCode(5L));
-        assertFalse(this.underTest.hasActiveThirdPartyDisbursementMapping(5L));
-    }
-
-    @Test
-    void findActiveMappedProviderCodeEmptyForNullProductId() {
-        assertEquals(Optional.empty(), this.underTest.findActiveMappedProviderCode(null));
+        assertEquals(Optional.empty(), this.underTest.findLoanDisbursementProviderCode(9L));
     }
 }

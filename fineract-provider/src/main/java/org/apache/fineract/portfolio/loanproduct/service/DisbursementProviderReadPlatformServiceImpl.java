@@ -51,14 +51,22 @@ public class DisbursementProviderReadPlatformServiceImpl implements Disbursement
     }
 
     @Override
-    public Optional<String> findActiveMappedProviderCode(final Long loanProductId) {
+    public boolean isThirdPartyDisbursementEnabled(final Long loanProductId) {
         if (loanProductId == null) {
+            return false;
+        }
+        final List<Boolean> flags = this.jdbcTemplate.queryForList(
+                "select enable_third_party_disbursement from m_product_loan where id = ?", Boolean.class, loanProductId);
+        return !flags.isEmpty() && Boolean.TRUE.equals(flags.get(0));
+    }
+
+    @Override
+    public Optional<String> findLoanDisbursementProviderCode(final Long loanId) {
+        if (loanId == null) {
             return Optional.empty();
         }
         final List<String> codes = this.jdbcTemplate.queryForList(
-                "select disbursement_provider_code from m_loan_product_disbursement_provider_mapping "
-                        + "where loan_product_id = ? and is_active = true",
-                String.class, loanProductId);
+                "select third_party_disbursement_provider from m_loan where id = ?", String.class, loanId);
         if (codes.isEmpty()) {
             return Optional.empty();
         }
@@ -66,7 +74,14 @@ public class DisbursementProviderReadPlatformServiceImpl implements Disbursement
     }
 
     @Override
+    @Deprecated
     public boolean hasActiveThirdPartyDisbursementMapping(final Long loanProductId) {
-        return findActiveMappedProviderCode(loanProductId).isPresent();
+        return isThirdPartyDisbursementEnabled(loanProductId);
+    }
+
+    @Override
+    @Deprecated
+    public Optional<String> findActiveMappedProviderCode(final Long loanProductId) {
+        return Optional.empty();
     }
 }

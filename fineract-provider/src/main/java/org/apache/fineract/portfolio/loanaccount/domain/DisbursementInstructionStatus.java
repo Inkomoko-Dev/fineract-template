@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 public enum DisbursementInstructionStatus {
     RECEIVED,
     PENDING_DISBURSEMENT,
+    DISBURSED,
     REJECTED,
     FAILED
 }

@@ -31,4 +31,6 @@ public interface LoanDisbursementInstructionRepository extends JpaRepository<Loa
     List<LoanDisbursementInstruction> findByLoanIdOrderByIdDesc(Long loanId);
 
     boolean existsByLoanIdAndStatusIn(Long loanId, Collection<DisbursementInstructionStatus> statuses);
+
+    List<LoanDisbursementInstruction> findByLoanIdAndStatusIn(Long loanId, Collection<DisbursementInstructionStatus> statuses);
 }

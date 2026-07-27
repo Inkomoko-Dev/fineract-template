@@ -18,39 +18,35 @@
  */
 package org.apache.fineract.portfolio.loanproduct.domain;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonParser;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
+import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.junit.jupiter.api.Test;
 
 class LoanProductThirdPartyDisbursementMappingTest {
 
     @Test
-    void enablingThirdPartyDisbursementCreatesMappingRow() {
+    void enablingThirdPartyDisbursementSetsProductFlag() {
         final LoanProduct product = new LoanProduct();
-        final JsonCommand command = jsonCommand("{\"enableThirdPartyDisbursement\":true,\"thirdPartyDisbursementProvider\":\"kifiya\"}");
+        final JsonCommand command = jsonCommand("{\"enableThirdPartyDisbursement\":true}");
 
         product.applyThirdPartyDisbursementSettings(command);
 
         assertTrue(product.isEnableThirdPartyDisbursement());
-        assertEquals("KIFIYA", product.getThirdPartyDisbursementProvider());
     }
 
     @Test
-    void disablingThirdPartyDisbursementRemovesMappingRow() {
+    void disablingThirdPartyDisbursementClearsProductFlag() {
         final LoanProduct product = new LoanProduct();
-        product.applyThirdPartyDisbursementSettings(
-                jsonCommand("{\"enableThirdPartyDisbursement\":true,\"thirdPartyDisbursementProvider\":\"KIFIYA\"}"));
+        product.applyThirdPartyDisbursementSettings(jsonCommand("{\"enableThirdPartyDisbursement\":true}"));
 
         product.applyThirdPartyDisbursementSettings(jsonCommand("{\"enableThirdPartyDisbursement\":false}"));
 
         assertFalse(product.isEnableThirdPartyDisbursement());
-        assertNull(product.getThirdPartyDisbursementProvider());
     }
 
     private static JsonCommand jsonCommand(final String json) {
