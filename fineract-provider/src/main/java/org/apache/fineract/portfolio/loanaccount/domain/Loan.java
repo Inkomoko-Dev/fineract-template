@@ -4051,7 +4051,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     private boolean isOverPaid() {
-        return calculateTotalOverpayment().isGreaterThanZero();
+        // Overpayment is only possible if the loan has been repaid in full and the total overpayment is greater than zero.
+        return this.summary != null
+                && this.summary.isRepaidInFull(loanCurrency())
+                && calculateTotalOverpayment().isGreaterThanZero();
     }
 
     private Money calculateTotalOverpayment() {
