@@ -39,6 +39,7 @@ import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.apache.fineract.organisation.staff.domain.Staff;
@@ -71,6 +72,23 @@ public class EmailNotificationService {
         if (nextStage == null) return;
 
         AppUser nextApprover = getNextApprover(decision, nextStage);
+        String loanOfficerEmail = getLoanOfficerEmail(loan);
+
+        if (nextApprover != null && StringUtils.isNotBlank(nextApprover.getEmail())) {
+            EmailDetail emailDetail;
+            if (nextStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())){
+                emailDetail = getLoanOfficerEmail(loan, nextStage, nextApprover, note);
+            }else {
+                emailDetail = getLoanDecisionApproverEmail(loan, nextStage, nextApprover, note);
+                // Keep the next approver as the primary recipient and copy the loan officer for visibility.
+                emailDetail.setCc(loanOfficerEmail);
+            }
+            sendEmailSafely(emailDetail, nextApprover.getEmail());
+        }
+    }
+
+    @Nullable
+    private String getLoanOfficerEmail(Loan loan) {
         // Resolve the loan officer's email so the officer can be copied on IC review notifications.
         Staff loanOfficer = loan.getLoanOfficer();
         String loanOfficerEmail = null;
@@ -92,18 +110,7 @@ public class EmailNotificationService {
         }else {
             log.warn("Loan {} does not have a loan officer assigned", loan.getId());
         }
-
-        if (nextApprover != null && StringUtils.isNotBlank(nextApprover.getEmail())) {
-            EmailDetail emailDetail;
-            if (nextStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())){
-                emailDetail = getLoanOfficerEmail(loan, nextStage, nextApprover, note);
-            }else {
-                emailDetail = getLoanDecisionApproverEmail(loan, nextStage, nextApprover, note);
-                // Keep the next approver as the primary recipient and copy the loan officer for visibility.
-                emailDetail.setCc(loanOfficerEmail);
-            }
-            sendEmailSafely(emailDetail, nextApprover.getEmail());
-        }
+        return loanOfficerEmail;
     }
 
     private void sendEmailSafely(EmailDetail emailDetail, String recipientEmail) {
@@ -220,10 +227,12 @@ public class EmailNotificationService {
         if (state == null) return;
 
         AppUser approver = getNextApprover(loanDecision,state);
+        String loanOfficerEmail = getLoanOfficerEmail(loan);
 
         if (approver != null && StringUtils.isNotBlank(approver.getEmail())) {
             EmailDetail emailDetail;
             emailDetail = getLoanDecisionRejectEmail(loan, state, approver, note);
+            emailDetail.setCc(loanOfficerEmail);
             sendEmailSafely(emailDetail, approver.getEmail());
         }
     }
