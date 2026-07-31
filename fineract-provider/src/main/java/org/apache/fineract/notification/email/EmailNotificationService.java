@@ -41,6 +41,7 @@ import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.apache.fineract.organisation.staff.domain.Staff;
 
 import javax.annotation.PostConstruct;
 
@@ -70,6 +71,27 @@ public class EmailNotificationService {
         if (nextStage == null) return;
 
         AppUser nextApprover = getNextApprover(decision, nextStage);
+        // Resolve the loan officer's email so the officer can be copied on IC review notifications.
+        Staff loanOfficer = loan.getLoanOfficer();
+        String loanOfficerEmail = null;
+
+        if (loanOfficer != null){
+            // Prefer the email on the staff record and fall back to the linked application user.
+            loanOfficerEmail =  loanOfficer != null ? loanOfficer.emailAddress() : null;
+
+            if(loanOfficerEmail == null) {
+                AppUser loanOfficerAppUser= appUserRepository.findAppUserByStaffId(loanOfficer.getId());
+
+                if(loanOfficerAppUser != null){
+                    loanOfficerEmail = loanOfficerAppUser.getEmail();
+                }
+            }
+            if(loanOfficerEmail == null) {
+                log.warn("Loan officer for loan {} does not have an email address. Cannot send notification.", loan.getId());
+            }
+        }else {
+            log.warn("Loan {} does not have a loan officer assigned", loan.getId());
+        }
 
         if (nextApprover != null && StringUtils.isNotBlank(nextApprover.getEmail())) {
             EmailDetail emailDetail;
@@ -77,6 +99,8 @@ public class EmailNotificationService {
                 emailDetail = getLoanOfficerEmail(loan, nextStage, nextApprover, note);
             }else {
                 emailDetail = getLoanDecisionApproverEmail(loan, nextStage, nextApprover, note);
+                // Keep the next approver as the primary recipient and copy the loan officer for visibility.
+                emailDetail.setCc(loanOfficerEmail);
             }
             sendEmailSafely(emailDetail, nextApprover.getEmail());
         }
@@ -255,5 +279,4 @@ public class EmailNotificationService {
         }
     }
 }
-
 
