@@ -4073,7 +4073,22 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     private boolean isOverPaid() {
-        return calculateTotalOverpayment().isGreaterThanZero();
+        // Overpayment is only possible if the loan has been repaid in full and the total overpayment is greater than zero.
+        if (this.summary == null) {
+            return false;
+        }
+
+        final Money calculatedOverpayment = calculateTotalOverpayment();
+        final Money totalOutstanding = this.summary.getTotalOutstanding(loanCurrency());
+        if (calculatedOverpayment.isGreaterThanZero() && totalOutstanding.isGreaterThanZero()) {
+            LOG.warn("False overpayment detected for loan {} (account {}): calculated overpayment {} while total outstanding is {} "
+                    + "[principal {}, interest {}, fees {}, penalties {}]. Loan remains active.", getId(), getAccountNumber(),
+                    calculatedOverpayment.getAmount(), totalOutstanding.getAmount(), this.summary.getTotalPrincipalOutstanding(),
+                    this.summary.getTotalInterestOutstanding(), this.summary.getTotalFeeChargesOutstanding(),
+                    this.summary.getTotalPenaltyChargesOutstanding());
+        }
+
+        return totalOutstanding.isZero() && calculatedOverpayment.isGreaterThanZero();
     }
 
     private Money calculateTotalOverpayment() {
