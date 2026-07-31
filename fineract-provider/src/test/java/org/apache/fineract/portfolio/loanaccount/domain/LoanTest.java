@@ -494,6 +494,27 @@ public class LoanTest {
         assertFalse(loan.isGenuineOverpaymentReadyForRedraw());
     }
 
+    @Test
+    public void falseOverpaymentDoesNotMarkLoanAsOverpaidWhileBalanceIsOutstanding() {
+        final Loan loan = new Loan();
+        final LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 1,
+                LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 31), new BigDecimal("100.00"), BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("125.00")),
+                null, LocalDate.of(2026, 5, 25), null);
+        final LoanSummary summary = LoanSummary.create(BigDecimal.ZERO);
+        ReflectionTestUtils.setField(summary, "totalOutstanding", new BigDecimal("100.00"));
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", mutableScheduleDetail(new BigDecimal("100.00")));
+        ReflectionTestUtils.setField(loan, "summary", summary);
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.singletonList(installment));
+        ReflectionTestUtils.setField(loan, "loanTransactions", new ArrayList<>(Collections.singletonList(repayment)));
+
+        final Money calculatedOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
+
+        assertTrue(calculatedOverpayment.isGreaterThanZero());
+        assertFalse(ReflectionTestUtils.invokeMethod(loan, "isOverPaid"));
+    }
+
     private Loan redrawGateLoan(final BigDecimal totalOutstanding, final BigDecimal totalOverpaid) {
         final Loan loan = new Loan();
         final LoanSummary summary = LoanSummary.create(BigDecimal.ZERO);
