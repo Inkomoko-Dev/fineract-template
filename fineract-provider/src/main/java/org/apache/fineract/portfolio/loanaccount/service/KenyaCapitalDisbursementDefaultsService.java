@@ -18,13 +18,17 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import com.google.common.base.Splitter;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
 import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
@@ -32,10 +36,12 @@ import org.apache.fineract.infrastructure.configuration.service.ConfigurationRea
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.KenyaCapitalDisbursementDefaultsResult;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -66,24 +72,50 @@ public class KenyaCapitalDisbursementDefaultsService {
         }
     }
 
+    public boolean isKenyaCapitalOfficeName(final String officeName) {
+        if (!isEnabled() || StringUtils.isBlank(officeName)) {
+            return false;
+        }
+        final String normalizedOffice = officeName.trim();
+        for (final String candidate : getKenyaCapitalOfficeNames()) {
+            // Exact match, or office name contains the full configured Kenya Capital name.
+            // Do NOT match the reverse (e.g. "Inkomoko Kenya" must not match "Inkomoko Kenya Capital").
+            if (candidate.equalsIgnoreCase(normalizedOffice) || StringUtils.containsIgnoreCase(normalizedOffice, candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public boolean isKenyaCapitalLoan(final Loan loan) {
         if (!isEnabled() || loan == null) {
             return false;
         }
-        final Office office = loan.getOffice();
-        return office != null && getKenyaCapitalOfficeName().equalsIgnoreCase(office.getName());
+        // Prefer explicit loan entity office (m_loan.office_id), then client office.
+        // LoanAssembler currently leaves office null, so client office is the common path.
+        if (isKenyaCapitalOffice(loan.getOffice())) {
+            return true;
+        }
+        final Client client = loan.client();
+        return client != null && isKenyaCapitalOffice(client.getOffice());
+    }
+
+    public boolean isKenyaCapitalOffice(final Office office) {
+        return office != null && isKenyaCapitalOfficeName(office.getName());
     }
 
     public KenyaCapitalDisbursementDefaultsResult resolve(final Loan loan, final LocalDate disbursementDate) {
-        if (!isKenyaCapitalLoan(loan)) {
+        return resolve(loan, null, disbursementDate);
+    }
+
+    public KenyaCapitalDisbursementDefaultsResult resolve(final Loan loan, final Office journalOffice, final LocalDate disbursementDate) {
+        final boolean kenyaCapital = isKenyaCapitalLoan(loan) || isKenyaCapitalOffice(journalOffice);
+        if (!kenyaCapital) {
             return KenyaCapitalDisbursementDefaultsResult.notApplicable();
         }
         final LocalDate effectiveDate = disbursementDate != null ? disbursementDate : DateUtils.getBusinessLocalDate();
-        CodeValue department = loan.getDepartment();
-        if (department == null) {
-            department = codeValueRepository.findOneByCodeNameAndLabelWithNotFoundDetection(DEPARTMENT_CODE_NAME,
-                    getDefaultDepartmentName());
-        }
+        final CodeValue department = codeValueRepository.findOneByCodeNameAndLabelWithNotFoundDetection(DEPARTMENT_CODE_NAME,
+                getDefaultDepartmentName());
         final String budgetLocation = formatBudgetLocation(effectiveDate);
         final boolean budgetReviewRequired = !isBudgetConfigured(budgetLocation);
         return KenyaCapitalDisbursementDefaultsResult.applicable(department, budgetLocation, budgetReviewRequired);
@@ -93,6 +125,8 @@ public class KenyaCapitalDisbursementDefaultsService {
             final JsonCommand command, final Map<String, Object> changes) {
         final KenyaCapitalDisbursementDefaultsResult defaults = resolve(loan, disbursementDate);
         if (!defaults.isKenyaCapital()) {
+            log.debug("CGLT-653: Skipping Kenya Capital defaults for loan {} (office='{}')", loan != null ? loan.getId() : null,
+                    loan != null && loan.getOffice() != null ? loan.getOffice().getName() : null);
             return defaults;
         }
 
@@ -106,12 +140,59 @@ public class KenyaCapitalDisbursementDefaultsService {
         return defaults;
     }
 
+    /**
+     * Enrich the CBS→Odoo journal payload for Kenya Capital disbursements.
+     * Odoo/Celery historically uses {@code location} as the budget analytic; department is sent as an explicit field.
+     */
+    public void enrichOdooJournalData(final JournalData journalData, final Loan loan, final LoanTransaction loanTransaction,
+            final Office journalOffice) {
+        if (journalData == null || loanTransaction == null || !loanTransaction.isDisbursement()) {
+            return;
+        }
+
+        String budgetLocation = findPersistedBudgetLocation(loan, loanTransaction);
+        Boolean budgetReviewRequired = findPersistedBudgetReviewRequired(loan, loanTransaction);
+
+        final KenyaCapitalDisbursementDefaultsResult defaults = resolve(loan, journalOffice, loanTransaction.getTransactionDate());
+        if (!defaults.isKenyaCapital()) {
+            log.info(
+                    "CGLT-653: Odoo payload not enriched for loanTxn {} / loan {} (not Kenya Capital). loanOffice='{}', journalOffice='{}'",
+                    loanTransaction.getId(), loan != null ? loan.getId() : null,
+                    loan != null && loan.getOffice() != null ? loan.getOffice().getName() : null,
+                    journalOffice != null ? journalOffice.getName() : null);
+            return;
+        }
+
+        if (StringUtils.isBlank(budgetLocation)) {
+            budgetLocation = defaults.getBudgetLocation();
+            budgetReviewRequired = defaults.isBudgetReviewRequired();
+        }
+        if (budgetReviewRequired == null) {
+            budgetReviewRequired = defaults.isBudgetReviewRequired();
+        }
+
+        if (StringUtils.isNotBlank(budgetLocation)) {
+            journalData.setLocation(budgetLocation);
+        }
+        journalData.setBudgetReviewRequired(budgetReviewRequired);
+
+        final String departmentName = defaults.getDepartmentName() != null ? defaults.getDepartmentName()
+                : (loan.getDepartment() != null ? loan.getDepartment().label() : getDefaultDepartmentName());
+        journalData.setDepartment(departmentName);
+
+        log.info(
+                "CGLT-653: Enriched Odoo journal for loanTxn {} / loan {} with department='{}', location='{}', budgetReviewRequired={}",
+                loanTransaction.getId(), loan.getId(), departmentName, budgetLocation, budgetReviewRequired);
+    }
+
     public String formatBudgetLocation(final LocalDate disbursementDate) {
         return BUDGET_LOCATION_PREFIX + BUDGET_MONTH_FORMATTER.format(disbursementDate);
     }
 
     private void applyDepartmentDefault(final Loan loan, final JsonCommand command, final Map<String, Object> changes,
             final KenyaCapitalDisbursementDefaultsResult defaults) {
+        // Explicit request override wins; otherwise force Investment for Kenya Capital
+        // (department is required at application, so "only if null" never ran in practice).
         if (command != null && command.parameterExists(LoanApiConstants.DEPARTMENT_PARAM)) {
             final Long departmentId = command.longValueOfParameterNamed(LoanApiConstants.DEPARTMENT_PARAM);
             if (departmentId != null) {
@@ -121,9 +202,12 @@ public class KenyaCapitalDisbursementDefaultsService {
             }
             return;
         }
-        if (loan.getDepartment() == null && defaults.getDepartment() != null) {
-            loan.updateDepartment(defaults.getDepartment());
-            changes.put(LoanApiConstants.DEPARTMENT_PARAM, defaults.getDepartment().getId());
+        if (defaults.getDepartment() != null) {
+            final CodeValue current = loan.getDepartment();
+            if (current == null || !defaults.getDepartment().getId().equals(current.getId())) {
+                loan.updateDepartment(defaults.getDepartment());
+                changes.put(LoanApiConstants.DEPARTMENT_PARAM, defaults.getDepartment().getId());
+            }
         }
     }
 
@@ -165,12 +249,53 @@ public class KenyaCapitalDisbursementDefaultsService {
         targetDetail.setBudgetReviewRequired(budgetReviewRequired);
     }
 
+    private String findPersistedBudgetLocation(final Loan loan, final LoanTransaction loanTransaction) {
+        final LoanDisbursementDetails detail = findMatchingDisbursementDetail(loan, loanTransaction);
+        return detail != null ? detail.getBudgetLocation() : null;
+    }
+
+    private Boolean findPersistedBudgetReviewRequired(final Loan loan, final LoanTransaction loanTransaction) {
+        final LoanDisbursementDetails detail = findMatchingDisbursementDetail(loan, loanTransaction);
+        return detail != null ? detail.getBudgetReviewRequired() : null;
+    }
+
+    private LoanDisbursementDetails findMatchingDisbursementDetail(final Loan loan, final LoanTransaction loanTransaction) {
+        if (loan == null || loan.getDisbursementDetails() == null || loan.getDisbursementDetails().isEmpty()) {
+            return null;
+        }
+        LoanDisbursementDetails byDate = null;
+        for (final LoanDisbursementDetails detail : loan.getDisbursementDetails()) {
+            if (detail.getActualDisbursementDate() != null
+                    && detail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())) {
+                if (detail.getPrincipal() != null && loanTransaction.getAmount(loan.getCurrency()) != null
+                        && detail.getPrincipal().compareTo(loanTransaction.getAmount(loan.getCurrency()).getAmount()) == 0) {
+                    return detail;
+                }
+                if (byDate == null) {
+                    byDate = detail;
+                }
+            }
+            if (StringUtils.isNotBlank(detail.getBudgetLocation()) && byDate == null) {
+                byDate = detail;
+            }
+        }
+        return byDate != null ? byDate : loan.getDisbursementDetails().iterator().next();
+    }
+
     private boolean isBudgetConfigured(final String budgetLocation) {
         return codeValueRepository.findOneByCodeNameAndLabelOptional(getBudgetCodeName(), budgetLocation) != null;
     }
 
-    private String getKenyaCapitalOfficeName() {
-        return getConfigString(CONFIG_OFFICE_NAME, DEFAULT_OFFICE_NAME);
+    private List<String> getKenyaCapitalOfficeNames() {
+        final String raw = getConfigString(CONFIG_OFFICE_NAME, DEFAULT_OFFICE_NAME);
+        final List<String> names = new ArrayList<>();
+        for (final String part : Splitter.on(',').trimResults().omitEmptyStrings().split(raw)) {
+            names.add(part);
+        }
+        if (names.isEmpty()) {
+            names.add(DEFAULT_OFFICE_NAME);
+        }
+        return names;
     }
 
     private String getDefaultDepartmentName() {

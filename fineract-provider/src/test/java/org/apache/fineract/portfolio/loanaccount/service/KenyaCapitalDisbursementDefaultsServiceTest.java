@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -32,15 +33,18 @@ import java.time.LocalDate;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
 import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
 import org.apache.fineract.infrastructure.configuration.service.ConfigurationReadPlatformService;
 import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.KenyaCapitalDisbursementDefaultsResult;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -80,14 +84,26 @@ class KenyaCapitalDisbursementDefaultsServiceTest {
     }
 
     @Test
-    void resolveDefaultsDepartmentAndFlagsMissingBudget() {
+    void detectKenyaCapitalViaClientOfficeWhenLoanOfficeMissing() {
         enableDefaults();
         when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_OFFICE_NAME))
                 .thenReturn(configWithString("Inkomoko Kenya Capital"));
-        when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_DEPARTMENT_NAME))
-                .thenReturn(configWithString("Investment"));
-        when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_BUDGET_CODE_NAME))
-                .thenReturn(configWithString("InvestmentsBudget"));
+
+        final Loan loan = mock(Loan.class);
+        final Client client = mock(Client.class);
+        final Office clientOffice = mock(Office.class);
+        when(loan.getOffice()).thenReturn(null);
+        when(loan.client()).thenReturn(client);
+        when(client.getOffice()).thenReturn(clientOffice);
+        when(clientOffice.getName()).thenReturn("Inkomoko Kenya Capital");
+
+        assertTrue(service.isKenyaCapitalLoan(loan));
+    }
+
+    @Test
+    void resolveDefaultsDepartmentAndFlagsMissingBudget() {
+        enableDefaults();
+        stubKenyaCapitalConfigs();
 
         final CodeValue investment = mock(CodeValue.class);
         when(investment.label()).thenReturn("Investment");
@@ -98,7 +114,6 @@ class KenyaCapitalDisbursementDefaultsServiceTest {
         final Office office = mock(Office.class);
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko Kenya Capital");
-        when(loan.getDepartment()).thenReturn(null);
 
         final KenyaCapitalDisbursementDefaultsResult result = service.resolve(loan, LocalDate.of(2026, 7, 31));
 
@@ -109,19 +124,17 @@ class KenyaCapitalDisbursementDefaultsServiceTest {
     }
 
     @Test
-    void applyDisbursementDefaultsPersistsBudgetOnDetail() {
+    void applyDisbursementDefaultsForcesInvestmentEvenWhenDepartmentAlreadySet() {
         enableDefaults();
-        when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_OFFICE_NAME))
-                .thenReturn(configWithString("Inkomoko Kenya Capital"));
-        when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_DEPARTMENT_NAME))
-                .thenReturn(configWithString("Investment"));
-        when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_BUDGET_CODE_NAME))
-                .thenReturn(configWithString("InvestmentsBudget"));
+        stubKenyaCapitalConfigs();
 
         final CodeValue investment = mock(CodeValue.class);
         when(investment.getId()).thenReturn(11L);
         when(investment.label()).thenReturn("Investment");
         when(codeValueRepository.findOneByCodeNameAndLabelWithNotFoundDetection("Department", "Investment")).thenReturn(investment);
+
+        final CodeValue existingDepartment = mock(CodeValue.class);
+        when(existingDepartment.getId()).thenReturn(99L);
 
         final CodeValue budget = mock(CodeValue.class);
         when(codeValueRepository.findOneByCodeNameAndLabelOptional("InvestmentsBudget", "Investments - July 2026")).thenReturn(budget);
@@ -131,7 +144,7 @@ class KenyaCapitalDisbursementDefaultsServiceTest {
         final LoanDisbursementDetails detail = new LoanDisbursementDetails(LocalDate.of(2026, 7, 16), null, BigDecimal.TEN, null);
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko Kenya Capital");
-        when(loan.getDepartment()).thenReturn(null);
+        when(loan.getDepartment()).thenReturn(existingDepartment);
         when(loan.getDisbursementDetails()).thenReturn(Collections.singletonList(detail));
 
         final Map<String, Object> changes = new LinkedHashMap<>();
@@ -146,10 +159,75 @@ class KenyaCapitalDisbursementDefaultsServiceTest {
         assertEquals(false, changes.get(LoanApiConstants.BUDGET_REVIEW_REQUIRED_PARAM));
     }
 
+    @Test
+    void enrichOdooJournalDataOverridesLocationAndSetsDepartment() {
+        enableDefaults();
+        stubKenyaCapitalConfigs();
+
+        final CodeValue investment = mock(CodeValue.class);
+        when(investment.label()).thenReturn("Investment");
+        when(codeValueRepository.findOneByCodeNameAndLabelWithNotFoundDetection("Department", "Investment")).thenReturn(investment);
+        when(codeValueRepository.findOneByCodeNameAndLabelOptional("InvestmentsBudget", "Investments - August 2026")).thenReturn(null);
+
+        final Loan loan = mock(Loan.class);
+        final Office office = mock(Office.class);
+        final LoanTransaction txn = mock(LoanTransaction.class);
+        when(loan.getOffice()).thenReturn(office);
+        when(office.getName()).thenReturn("Inkomoko Kenya Capital");
+        when(txn.isDisbursement()).thenReturn(true);
+        when(txn.getTransactionDate()).thenReturn(LocalDate.of(2026, 8, 2));
+        when(txn.getId()).thenReturn(55L);
+        when(loan.getId()).thenReturn(100L);
+        when(loan.getDisbursementDetails()).thenReturn(Collections.emptyList());
+
+        final JournalData journalData = new JournalData();
+        journalData.setLocation("Nairobi");
+
+        service.enrichOdooJournalData(journalData, loan, txn, office);
+
+        assertEquals("Investments - August 2026", journalData.getLocation());
+        assertEquals("Investment", journalData.getDepartment());
+        assertTrue(journalData.getBudgetReviewRequired());
+    }
+
+    @Test
+    void enrichOdooJournalDataSkipsNonKenyaCapital() {
+        enableDefaults();
+        when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_OFFICE_NAME))
+                .thenReturn(configWithString("Inkomoko Kenya Capital"));
+
+        final Loan loan = mock(Loan.class);
+        final Office office = mock(Office.class);
+        final LoanTransaction txn = mock(LoanTransaction.class);
+        when(loan.getOffice()).thenReturn(office);
+        when(office.getName()).thenReturn("Inkomoko Kenya");
+        when(txn.isDisbursement()).thenReturn(true);
+        when(txn.getTransactionDate()).thenReturn(LocalDate.of(2026, 8, 2));
+        when(txn.getId()).thenReturn(55L);
+        when(loan.getId()).thenReturn(100L);
+
+        final JournalData journalData = new JournalData();
+        journalData.setLocation("Nairobi");
+
+        service.enrichOdooJournalData(journalData, loan, txn, office);
+
+        assertEquals("Nairobi", journalData.getLocation());
+        assertNull(journalData.getDepartment());
+    }
+
     private void enableDefaults() {
         when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_ENABLED))
                 .thenReturn(new GlobalConfigurationPropertyData(KenyaCapitalDisbursementDefaultsService.CONFIG_ENABLED, true, null, null,
                         null, "enabled", false));
+    }
+
+    private void stubKenyaCapitalConfigs() {
+        when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_OFFICE_NAME))
+                .thenReturn(configWithString("Inkomoko Kenya Capital"));
+        when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_DEPARTMENT_NAME))
+                .thenReturn(configWithString("Investment"));
+        when(configurationReadPlatformService.retrieveGlobalConfiguration(KenyaCapitalDisbursementDefaultsService.CONFIG_BUDGET_CODE_NAME))
+                .thenReturn(configWithString("InvestmentsBudget"));
     }
 
     private GlobalConfigurationPropertyData configWithString(final String value) {
