@@ -2096,26 +2096,53 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     }
 
     @Override
-    public Collection<OverdueLoanScheduleData> retrieveAllLoansWithOverdueInstallments(final Long penaltyWaitPeriod,
-            final Boolean backdatePenalties, Long startLoanId, Long endLoanId) {
+    public Collection<OverdueLoanScheduleData> retrieveAllLoansWithOverdueInstallments(
+            final Long penaltyWaitPeriod, final Boolean backdatePenalties,
+            final Long startLoanId, final Long endLoanId) {
+
         final MusoniOverdueLoanScheduleMapper rm = new MusoniOverdueLoanScheduleMapper();
 
         final StringBuilder sqlBuilder = new StringBuilder(400);
+
         sqlBuilder.append("select ").append(rm.schema())
-                .append(" where " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day") + " > ls.duedate ")
-                .append(" and ls.completed_derived <> true and mc.charge_applies_to_enum =1 ")
+                .append(" where ")
+                .append(sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day"))
+                .append(" > ls.duedate ")
+                .append(" and ls.completed_derived <> true ")
+                .append(" and mc.charge_applies_to_enum = 1 ")
                 .append(" and ls.recalculated_interest_component <> true ")
-                .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ")
-                .append(" and ml.id >= ? and ml.id <= ? order by ls.installment asc");
+                .append(" and mc.charge_time_enum = 9 ")
+                .append(" and ml.loan_status_id = 300 ")
+                .append(" and ml.id >= ? ")
+                .append(" and ml.id <= ? ");
 
         if (backdatePenalties) {
-            return this.jdbcTemplate.query(sqlBuilder.toString(), rm, penaltyWaitPeriod, startLoanId, endLoanId);
-        }
-        // Only apply for duedate = yesterday (so that we don't apply
-        // penalties on the duedate itself)
-        sqlBuilder.append(" and ls.duedate >= " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "(? + 1)", "day"));
+            sqlBuilder.append(" order by ls.installment asc");
 
-        return this.jdbcTemplate.query(sqlBuilder.toString(), rm, penaltyWaitPeriod, penaltyWaitPeriod, startLoanId, endLoanId);
+            return this.jdbcTemplate.query(
+                    sqlBuilder.toString(),
+                    rm,
+                    penaltyWaitPeriod,
+                    startLoanId,
+                    endLoanId
+            );
+        }
+
+        sqlBuilder.append(" and ls.duedate >= ")
+                .append(sqlGenerator.subDate(
+                        sqlGenerator.currentBusinessDate(),
+                        "(? + 1)",
+                        "day"))
+                .append(" order by ls.installment asc");
+
+        return this.jdbcTemplate.query(
+                sqlBuilder.toString(),
+                rm,
+                penaltyWaitPeriod,
+                startLoanId,
+                endLoanId,
+                penaltyWaitPeriod
+        );
     }
 
     @Override
@@ -2130,21 +2157,26 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 .append(" where " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day") + " > ls.duedate ")
                 .append(" and ml.id > ? ").append(" and ls.completed_derived <> true and mc.charge_applies_to_enum =1 ")
                 .append(" and ls.recalculated_interest_component <> true ")
-                .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ").append(" order by ml.id asc limit ? ");
+                .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ");
 
-        if (backdatePenalties) {
-            try {
-                return Collections.synchronizedList(
-                        this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod, maxLoanIdInList, pageSize));
-            } catch (final EmptyResultDataAccessException e) {
-                return new ArrayList<Long>();
-            }
+        if (!backdatePenalties) {
+            sqlBuilder.append(" and ls.duedate >= ")
+                    .append(sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "(? + 1)", "day"));
         }
 
+        sqlBuilder.append(" order by ml.id asc limit ? ");
+
         try {
-            return Collections.synchronizedList(this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod, maxLoanIdInList, pageSize));
+            if (backdatePenalties) {
+                return Collections.synchronizedList(this.jdbcTemplate.queryForList(
+                        sqlBuilder.toString(), Long.class, penaltyWaitPeriod, maxLoanIdInList, pageSize));
+            }
+
+            return Collections.synchronizedList(this.jdbcTemplate.queryForList(
+                    sqlBuilder.toString(), Long.class, penaltyWaitPeriod, maxLoanIdInList,
+                    penaltyWaitPeriod, pageSize));
         } catch (final EmptyResultDataAccessException e) {
-            return null;
+            return new ArrayList<>();
         }
     }
 
@@ -2158,14 +2190,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 .append(" where " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day") + " > ls.duedate ")
                 .append(" and ls.completed_derived <> true and mc.charge_applies_to_enum =1 ")
                 .append(" and ls.recalculated_interest_component <> true ").append(" and ls.loan_id = " + loanId)
-                .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 order by ls.installment asc");
+                .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ");
 
         if (backdatePenalties) {
+            sqlBuilder.append(" order by ls.installment asc");
             return this.jdbcTemplate.query(sqlBuilder.toString(), rm, penaltyWaitPeriod);
         }
         // Only apply for duedate = yesterday (so that we don't apply
         // penalties on the duedate itself)
-        sqlBuilder.append(" and ls.duedate >= " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "(? + 1)", "day"));
+        sqlBuilder.append(" and ls.duedate >= ")
+                .append(sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "(? + 1)", "day"))
+                .append(" order by ls.installment asc");
 
         return this.jdbcTemplate.query(sqlBuilder.toString(), rm, penaltyWaitPeriod, penaltyWaitPeriod);
     }
