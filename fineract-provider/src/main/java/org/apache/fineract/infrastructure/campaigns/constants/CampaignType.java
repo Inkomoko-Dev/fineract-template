@@ -22,7 +22,8 @@ import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 
 public enum CampaignType {
 
-    INVALID(0, "campaignType.invalid"), SMS(1, "campaignType.sms"), NOTIFICATION(2, "campaignType.notification");
+    INVALID(0, "campaignType.invalid"), SMS(1, "campaignType.sms"), NOTIFICATION(2, "campaignType.notification"),
+    WHATSAPP(3, "campaignType.whatsapp");
 
     private final Integer value;
     private final String code;
@@ -52,6 +53,9 @@ public enum CampaignType {
             case 2:
                 type = NOTIFICATION;
             break;
+            case 3:
+                type = WHATSAPP;
+            break;
         }
         return type;
     }
@@ -74,6 +78,9 @@ public enum CampaignType {
                 optionData = new EnumOptionData(CampaignType.NOTIFICATION.getValue().longValue(), CampaignType.NOTIFICATION.getCode(),
                         "NOTIFICATION");
             break;
+            case WHATSAPP:
+                optionData = new EnumOptionData(CampaignType.WHATSAPP.getValue().longValue(), CampaignType.WHATSAPP.getCode(), "WHATSAPP");
+            break;
         }
         return optionData;
     }
@@ -84,5 +91,9 @@ public enum CampaignType {
 
     public boolean isNotificaion() {
         return this.value.equals(CampaignType.NOTIFICATION.getValue());
+    }
+
+    public boolean isWhatsApp() {
+        return this.value.equals(CampaignType.WHATSAPP.getValue());
     }
 }

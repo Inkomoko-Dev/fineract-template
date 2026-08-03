@@ -20,6 +20,7 @@ package org.apache.fineract.accounting.provisioning.service;
 
 import java.time.LocalDate;
 import java.util.Collection;
+import org.apache.fineract.accounting.provisioning.data.LoanProvisioningCandidateData;
 import org.apache.fineract.accounting.provisioning.data.LoanProductProvisioningEntryData;
 import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryData;
 import org.apache.fineract.infrastructure.core.service.Page;
@@ -27,7 +28,7 @@ import org.apache.fineract.infrastructure.core.service.SearchParameters;
 
 public interface ProvisioningEntriesReadPlatformService {
 
-    Collection<LoanProductProvisioningEntryData> retrieveLoanProductsProvisioningData(LocalDate date);
+    Collection<LoanProvisioningCandidateData> retrieveLoanProductsProvisioningData(LocalDate date);
 
     ProvisioningEntryData retrieveProvisioningEntryData(Long entryId);
 

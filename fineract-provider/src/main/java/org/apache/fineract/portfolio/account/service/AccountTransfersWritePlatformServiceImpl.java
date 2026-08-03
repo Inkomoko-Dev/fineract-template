@@ -221,14 +221,14 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
 
                             chargeAmount = charge.getAmount(toLoanAccount.getCurrency()).getAmount();
 
-                            loanRepaymentTransaction = this.loanAccountDomainService.makeRepayment(LoanTransactionType.REPAYMENT,
-                                    toLoanAccount, new CommandProcessingResultBuilder(), transactionDate, chargeAmount, paymentDetail, null,
-                                    null, isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
+                            loanRepaymentTransaction = makeRepayment(LoanTransactionType.REPAYMENT, toLoanAccount,
+                                    new CommandProcessingResultBuilder(), transactionDate, chargeAmount, paymentDetail, null, null,
+                                    isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
                         }
                     }
                 }
             } else {
-                loanRepaymentTransaction = this.loanAccountDomainService.makeRepayment(LoanTransactionType.REPAYMENT, toLoanAccount,
+                loanRepaymentTransaction = makeRepayment(LoanTransactionType.REPAYMENT, toLoanAccount,
                         new CommandProcessingResultBuilder(), transactionDate, transactionAmount, paymentDetail, null, null,
                         isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
             }
@@ -414,10 +414,10 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
                 final boolean isRecoveryRepayment = false;
                 final Boolean isHolidayValidationDone = false;
                 final HolidayDetailDTO holidayDetailDto = null;
-                loanTransaction = this.loanAccountDomainService.makeRepayment(LoanTransactionType.REPAYMENT, toLoanAccount,
+                loanTransaction = makeRepayment(LoanTransactionType.REPAYMENT, toLoanAccount,
                         new CommandProcessingResultBuilder(), accountTransferDTO.getTransactionDate(),
-                        accountTransferDTO.getTransactionAmount(), accountTransferDTO.getPaymentDetail(), null, null, isRecoveryRepayment,
-                        isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
+                        accountTransferDTO.getTransactionAmount(), accountTransferDTO.getPaymentDetail(), null, null,
+                        isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone);
             }
 
             accountTransferDetails = this.accountTransferAssembler.assembleSavingsToLoanTransfer(accountTransferDTO, fromSavingsAccount,
@@ -575,7 +575,7 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
                 accountTransferDTO.getTransactionDate(), accountTransferDTO.getTransactionAmount(), accountTransferDTO.getPaymentDetail(),
                 accountTransferDTO.getNoteText(), accountTransferDTO.getTxnExternalId(), true);
 
-        LoanTransaction repayTransaction = this.loanAccountDomainService.makeRepayment(
+        LoanTransaction repayTransaction = makeRepayment(
                 LoanTransactionType.REPAYMENT,
                 toLoanAccount,
                 new CommandProcessingResultBuilder(), // required by 1.8.2
@@ -614,6 +614,25 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
 
     private boolean isSavingsToLoanAccountTransfer(final PortfolioAccountType fromAccountType, final PortfolioAccountType toAccountType) {
         return fromAccountType.isSavingsAccount() && toAccountType.isLoanAccount();
+    }
+
+    private LoanTransaction makeRepayment(final LoanTransactionType repaymentTransactionType, final Loan loan,
+            final CommandProcessingResultBuilder builderResult, final LocalDate transactionDate, final BigDecimal transactionAmount,
+            final PaymentDetail paymentDetail, final String noteText, final String txnExternalId, final boolean isRecoveryRepayment,
+            final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto, final Boolean isHolidayValidationDone) {
+        return makeRepayment(repaymentTransactionType, loan, builderResult, transactionDate, transactionAmount,
+                paymentDetail, noteText, txnExternalId, isRecoveryRepayment, isAccountTransfer, holidayDetailDto,
+                isHolidayValidationDone, false);
+    }
+
+    private LoanTransaction makeRepayment(final LoanTransactionType repaymentTransactionType, final Loan loan,
+            final CommandProcessingResultBuilder builderResult, final LocalDate transactionDate, final BigDecimal transactionAmount,
+            final PaymentDetail paymentDetail, final String noteText, final String txnExternalId, final boolean isRecoveryRepayment,
+            final boolean isAccountTransfer, final HolidayDetailDTO holidayDetailDto, final Boolean isHolidayValidationDone,
+            final boolean isLoanToLoanTransfer) {
+        return this.loanAccountDomainService.makeRepayment(repaymentTransactionType, loan, builderResult,
+                transactionDate, transactionAmount, paymentDetail, noteText, txnExternalId, isRecoveryRepayment, isAccountTransfer,
+                holidayDetailDto, isHolidayValidationDone, isLoanToLoanTransfer);
     }
 
     private boolean isSavingsToSavingsAccountTransfer(final PortfolioAccountType fromAccountType,

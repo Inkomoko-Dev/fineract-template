@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -80,6 +81,10 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     @Column(name = "interest_writtenoff_derived", scale = 6, precision = 19, nullable = true)
     private BigDecimal interestWrittenOff;
+
+    /** CGLT-658: future unaccrued interest dropped from the schedule on early settlement. Never a write-off. */
+    @Column(name = "interest_cancelled_derived", scale = 6, precision = 19, nullable = true)
+    private BigDecimal interestCancelled;
 
     @Column(name = "accrual_interest_derived", scale = 6, precision = 19, nullable = true)
     private BigDecimal interestAccrued;
@@ -266,9 +271,13 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return Money.of(currency, this.interestWrittenOff);
     }
 
+    public Money getInterestCancelled(final MonetaryCurrency currency) {
+        return Money.of(currency, this.interestCancelled);
+    }
+
     public Money getInterestOutstanding(final MonetaryCurrency currency) {
         final Money interestAccountedFor = getInterestPaid(currency).plus(getInterestWaived(currency))
-                .plus(getInterestWrittenOff(currency));
+                .plus(getInterestWrittenOff(currency)).plus(getInterestCancelled(currency));
         return getInterestCharged(currency).minus(interestAccountedFor);
     }
 
@@ -376,6 +385,7 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         this.interestPaid = null;
         this.interestWaived = null;
         this.interestWrittenOff = null;
+        this.interestCancelled = null;
         this.feeChargesPaid = null;
         this.feeChargesWaived = null;
         this.feeChargesWrittenOff = null;
@@ -475,6 +485,55 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return interestPortionOfTransaction;
     }
 
+    // CGLT-658: pay only interest earned to date; cancel the future unaccrued remainder (no GL impact).
+    public Money payAccruedInterestComponentAndCancelUnearned(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money interestPortionOfTransaction = Money.zero(currency);
+
+        final Money interestPayable = getInterestPayableOnEarlySettlement(currency, transactionDate);
+        final Money cancellableInterest = getCancellableFutureInterest(currency, transactionDate);
+
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(interestPayable)) {
+            this.interestPaid = getInterestPaid(currency).plus(interestPayable).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(interestPayable);
+        } else {
+            this.interestPaid = getInterestPaid(currency).plus(transactionAmountRemaining).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(transactionAmountRemaining);
+        }
+
+        this.interestPaid = defaultToNullIfZero(this.interestPaid);
+
+        // Only cancel once the earned interest has been settled in full.
+        if (interestPortionOfTransaction.isGreaterThanOrEqualTo(interestPayable) && cancellableInterest.isGreaterThanZero()) {
+            this.interestCancelled = getInterestCancelled(currency).plus(cancellableInterest).getAmount();
+            this.interestCancelled = defaultToNullIfZero(this.interestCancelled);
+        }
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        trackAdvanceAndLateTotalsForRepaymentPeriod(transactionDate, currency, interestPortionOfTransaction);
+
+        return interestPortionOfTransaction;
+    }
+
+    // Interest payable on early settlement: greater of pro-rata earned and interest already accrued to the GL.
+    public Money getInterestPayableOnEarlySettlement(final MonetaryCurrency currency, final LocalDate asOfDate) {
+        final Money interestOutstanding = getInterestOutstanding(currency);
+        final Money proRataEarned = calculateAccruedInterestToDate(currency, asOfDate);
+        final Money recognisedInGl = getAccruedInterestOutstanding(currency);
+        final Money payable = recognisedInGl.isGreaterThan(proRataEarned) ? recognisedInGl : proRataEarned;
+        if (payable.isLessThanZero()) {
+            return Money.zero(currency);
+        }
+        return payable.isGreaterThan(interestOutstanding) ? interestOutstanding : payable;
+    }
+
+    public Money getCancellableFutureInterest(final MonetaryCurrency currency, final LocalDate asOfDate) {
+        final Money cancellable = getInterestOutstanding(currency).minus(getInterestPayableOnEarlySettlement(currency, asOfDate));
+        return cancellable.isLessThanZero() ? Money.zero(currency) : cancellable;
+    }
+
     public Money payPrincipalComponent(final LocalDate transactionDate, final Money transactionAmountRemaining) {
 
         final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
@@ -496,6 +555,132 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         trackAdvanceAndLateTotalsForRepaymentPeriod(transactionDate, currency, principalPortionOfTransaction);
 
         return principalPortionOfTransaction;
+    }
+
+    public Money applyPrincipalBalanceCredit(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money principalPortionOfTransaction = Money.zero(currency);
+
+        final Money principalDue = getPrincipalOutstanding(currency);
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(principalDue)) {
+            this.principalCompleted = getPrincipalCompleted(currency).plus(principalDue).getAmount();
+            principalPortionOfTransaction = principalPortionOfTransaction.plus(principalDue);
+        } else {
+            this.principalCompleted = getPrincipalCompleted(currency).plus(transactionAmountRemaining).getAmount();
+            principalPortionOfTransaction = principalPortionOfTransaction.plus(transactionAmountRemaining);
+        }
+
+        this.principalCompleted = defaultToNullIfZero(this.principalCompleted);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return principalPortionOfTransaction;
+    }
+
+    public Money applyInterestBalanceCredit(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money interestPortionOfTransaction = Money.zero(currency);
+
+        final Money interestDue = getInterestOutstanding(currency);
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(interestDue)) {
+            this.interestPaid = getInterestPaid(currency).plus(interestDue).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(interestDue);
+        } else {
+            this.interestPaid = getInterestPaid(currency).plus(transactionAmountRemaining).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(transactionAmountRemaining);
+        }
+
+        this.interestPaid = defaultToNullIfZero(this.interestPaid);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return interestPortionOfTransaction;
+    }
+
+    public Money applyPenaltyBalanceCredit(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money penaltyPortionOfTransaction = Money.zero(currency);
+
+        final Money penaltyChargesDue = getPenaltyChargesOutstanding(currency);
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(penaltyChargesDue)) {
+            this.penaltyChargesPaid = getPenaltyChargesPaid(currency).plus(penaltyChargesDue).getAmount();
+            penaltyPortionOfTransaction = penaltyPortionOfTransaction.plus(penaltyChargesDue);
+        } else {
+            this.penaltyChargesPaid = getPenaltyChargesPaid(currency).plus(transactionAmountRemaining).getAmount();
+            penaltyPortionOfTransaction = penaltyPortionOfTransaction.plus(transactionAmountRemaining);
+        }
+
+        this.penaltyChargesPaid = defaultToNullIfZero(this.penaltyChargesPaid);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return penaltyPortionOfTransaction;
+    }
+
+    public Money restorePrincipalBalanceCredit(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money principalPortionOfTransactionRestored = Money.zero(currency);
+
+        final Money principalCompleted = getPrincipalCompleted(currency);
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(principalCompleted)) {
+            this.principalCompleted = Money.zero(currency).getAmount();
+            principalPortionOfTransactionRestored = principalCompleted;
+        } else {
+            this.principalCompleted = principalCompleted.minus(transactionAmountRemaining).getAmount();
+            principalPortionOfTransactionRestored = transactionAmountRemaining;
+        }
+
+        this.principalCompleted = defaultToNullIfZero(this.principalCompleted);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return principalPortionOfTransactionRestored;
+    }
+
+    public Money restoreInterestBalanceCredit(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money interestPortionOfTransactionRestored = Money.zero(currency);
+
+        final Money interestPaid = getInterestPaid(currency);
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(interestPaid)) {
+            this.interestPaid = Money.zero(currency).getAmount();
+            interestPortionOfTransactionRestored = interestPaid;
+        } else {
+            this.interestPaid = interestPaid.minus(transactionAmountRemaining).getAmount();
+            interestPortionOfTransactionRestored = transactionAmountRemaining;
+        }
+
+        this.interestPaid = defaultToNullIfZero(this.interestPaid);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return interestPortionOfTransactionRestored;
+    }
+
+    public Money restorePenaltyBalanceCredit(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money penaltyPortionOfTransactionRestored = Money.zero(currency);
+
+        final Money penaltyChargesPaid = getPenaltyChargesPaid(currency);
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(penaltyChargesPaid)) {
+            this.penaltyChargesPaid = Money.zero(currency).getAmount();
+            penaltyPortionOfTransactionRestored = penaltyChargesPaid;
+        } else {
+            this.penaltyChargesPaid = penaltyChargesPaid.minus(transactionAmountRemaining).getAmount();
+            penaltyPortionOfTransactionRestored = transactionAmountRemaining;
+        }
+
+        this.penaltyChargesPaid = defaultToNullIfZero(this.penaltyChargesPaid);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return penaltyPortionOfTransactionRestored;
     }
 
     public Money waiveInterestComponent(final LocalDate transactionDate, final Money transactionAmountRemaining) {
@@ -699,6 +884,10 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         this.obligationsMetOnDate = obligationsMetOnDate;
     }
 
+    public void updateInterestCancelled(final BigDecimal interestCancelled) {
+        this.interestCancelled = interestCancelled;
+    }
+
     public void updateInterestWrittenOff(final BigDecimal interestWrittenOff) {
         this.interestWrittenOff = interestWrittenOff;
     }
@@ -846,7 +1035,7 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     public Money getAccruedInterestOutstanding(final MonetaryCurrency currency) {
         final Money interestAccountedFor = getInterestPaid(currency).plus(getInterestWaived(currency))
-                .plus(getInterestWrittenOff(currency));
+                .plus(getInterestWrittenOff(currency)).plus(getInterestCancelled(currency));
         return getInterestAccrued(currency).minus(interestAccountedFor);
     }
 
@@ -899,6 +1088,7 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         setInterestPaid(installment.getInterestPaid());
         setInterestWaived(installment.getInterestWaived());
         setInterestWrittenOff(installment.getInterestWrittenOff());
+        setInterestCancelled(installment.getInterestCancelled());
         setRescheduleInterestPortion(installment.getRescheduleInterestPortion());
         setRecalculatedInterestComponent(installment.isRecalculatedInterestComponent());
         // Fee
@@ -920,5 +1110,97 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     private static boolean nonNullAndEqual(Object a, Object b) {
         return a != null && b != null && Objects.equals(a, b);
+    }
+
+    /**
+     * Calculates the pro-rata accrued interest for this installment up to a given date.
+     * This method is used for prepayment/early settlement calculations to ensure
+     * only accrued (earned) interest is charged, not future/unearned interest.
+     *
+     * @param currency the monetary currency
+     * @param toDate the date up to which interest should be calculated
+     * @return the pro-rata accrued interest amount
+     */
+    public Money calculateAccruedInterestToDate(final MonetaryCurrency currency, final LocalDate toDate) {
+        if (toDate == null || this.fromDate == null || this.dueDate == null) {
+            return getInterestOutstanding(currency);
+        }
+
+        // If the installment is already fully paid, return zero
+        if (this.obligationsMet) {
+            return Money.zero(currency);
+        }
+
+        // If toDate is on or after the due date, return full outstanding interest
+        if (!toDate.isBefore(this.dueDate)) {
+            return getInterestOutstanding(currency);
+        }
+
+        // If toDate is on or before the from date, no interest has accrued for this installment
+        if (!toDate.isAfter(this.fromDate)) {
+            return Money.zero(currency);
+        }
+
+        // Calculate pro-rata interest for partial period
+        final long totalDaysInPeriod = java.time.temporal.ChronoUnit.DAYS.between(this.fromDate, this.dueDate);
+        if (totalDaysInPeriod <= 0) {
+            return getInterestOutstanding(currency);
+        }
+
+        final long accruedDays = java.time.temporal.ChronoUnit.DAYS.between(this.fromDate, toDate);
+
+        // Get total interest charged for this period
+        final Money totalInterestForPeriod = getInterestCharged(currency);
+
+        // Calculate pro-rata portion based on days elapsed
+        final BigDecimal proRataFraction = BigDecimal.valueOf(accruedDays)
+                .divide(BigDecimal.valueOf(totalDaysInPeriod), 10, RoundingMode.HALF_UP);
+
+        final Money proRataInterest = totalInterestForPeriod.multipliedBy(proRataFraction);
+
+        // Subtract any interest already paid/waived/written-off/cancelled
+        final Money interestAccountedFor = getInterestPaid(currency)
+                .plus(getInterestWaived(currency))
+                .plus(getInterestWrittenOff(currency))
+                .plus(getInterestCancelled(currency));
+
+        // Return the lesser of pro-rata accrued or remaining outstanding
+        // (in case some interest was already paid)
+        final Money accruedOutstanding = proRataInterest.minus(interestAccountedFor);
+
+        // Don't return negative amount
+        if (accruedOutstanding.isLessThanZero()) {
+            return Money.zero(currency);
+        }
+
+        final Money interestOutstanding = getInterestOutstanding(currency);
+        return accruedOutstanding.isGreaterThan(interestOutstanding) ? interestOutstanding : accruedOutstanding;
+    }
+
+    /**
+     * Checks if this installment's interest period includes the given date.
+     *
+     * @param date the date to check
+     * @return true if the date falls within this installment's period (from date exclusive, due date inclusive)
+     */
+    public boolean isInterestPeriodIncludesDate(final LocalDate date) {
+        if (date == null || this.fromDate == null || this.dueDate == null) {
+            return false;
+        }
+        return date.isAfter(this.fromDate) && !date.isAfter(this.dueDate);
+    }
+
+    /**
+     * Checks if this installment is a future installment relative to the given date.
+     * A future installment is one where the entire period (from date) starts after the given date.
+     *
+     * @param date the reference date
+     * @return true if this installment period starts after the given date
+     */
+    public boolean isFutureInstallment(final LocalDate date) {
+        if (date == null || this.fromDate == null) {
+            return false;
+        }
+        return this.fromDate.isAfter(date) || this.fromDate.isEqual(date);
     }
 }

@@ -36,8 +36,9 @@ public class PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionPr
         extends AbstractLoanRepaymentScheduleTransactionProcessor {
 
     /**
-     * For early/'in advance' repayments, pay off in the same way as on-time payments, interest first, principal,
-     * penalties and charges.
+     * For early/'in advance' repayments, pay only accrued interest up to the payment date,
+     * cancel unearned interest, then pay principal. This ensures clients are not charged
+     * interest that has not yet accrued when they prepay.
      */
     @SuppressWarnings("unused")
     @Override
@@ -46,8 +47,77 @@ public class PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionPr
             final LocalDate transactionDate, final Money paymentInAdvance,
             List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {
 
-        return handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment, loanTransaction, paymentInAdvance,
-                transactionMappings);
+        // A waiver must never be treated as an advance principal prepayment; route it through the on-time handler
+        // (waives interest/charges only), mirroring handleTransactionThatIsALateRepaymentOfInstallment.
+        if (loanTransaction.isWaiver()) {
+            return handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment, loanTransaction, paymentInAdvance,
+                    transactionMappings);
+        }
+        return handleAdvancePaymentWithAccruedInterest(currentInstallment, installments, loanTransaction,
+                transactionDate, paymentInAdvance, transactionMappings);
+    }
+
+    /**
+     * Handles advance payment by charging only earned interest and cancelling unearned interest.
+     * Payment allocation order for prepayment: penalties -> fees -> earned interest (cancel unearned) -> principal
+     */
+    private Money handleAdvancePaymentWithAccruedInterest(final LoanRepaymentScheduleInstallment currentInstallment,
+            final List<LoanRepaymentScheduleInstallment> installments, final LoanTransaction loanTransaction,
+            final LocalDate transactionDate, final Money paymentInAdvance,
+            List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {
+
+        final MonetaryCurrency currency = paymentInAdvance.getCurrency();
+        Money transactionAmountRemaining = paymentInAdvance;
+        Money principalPortion = Money.zero(currency);
+        Money interestPortion = Money.zero(currency);
+        Money feeChargesPortion = Money.zero(currency);
+        Money penaltyChargesPortion = Money.zero(currency);
+
+        penaltyChargesPortion = currentInstallment.payPenaltyChargesComponent(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(penaltyChargesPortion);
+
+        feeChargesPortion = currentInstallment.payFeeChargesComponent(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortion);
+
+        interestPortion = currentInstallment.payAccruedInterestComponentAndCancelUnearned(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
+
+        principalPortion = currentInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
+        transactionAmountRemaining = transactionAmountRemaining.minus(principalPortion);
+
+        loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+
+        if (principalPortion.plus(interestPortion).plus(feeChargesPortion).plus(penaltyChargesPortion).isGreaterThanZero()) {
+            transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, currentInstallment,
+                    principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion));
+        }
+
+        // Process remaining installments (future installments) - cancel their interest too
+        if (transactionAmountRemaining.isGreaterThanZero()) {
+            for (final LoanRepaymentScheduleInstallment futureInstallment : installments) {
+                if (futureInstallment.getInstallmentNumber() > currentInstallment.getInstallmentNumber()
+                        && futureInstallment.isNotFullyPaidOff()
+                        && transactionAmountRemaining.isGreaterThanZero()) {
+
+                    // For future installments, cancel all interest (none has accrued)
+                    futureInstallment.payAccruedInterestComponentAndCancelUnearned(transactionDate, Money.zero(currency));
+
+                    // Pay principal from future installments
+                    Money futurePrincipalPortion = futureInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
+                    transactionAmountRemaining = transactionAmountRemaining.minus(futurePrincipalPortion);
+
+                    if (futurePrincipalPortion.isGreaterThanZero()) {
+                        principalPortion = principalPortion.plus(futurePrincipalPortion);
+                        loanTransaction.updateComponents(futurePrincipalPortion, Money.zero(currency), Money.zero(currency),
+                                Money.zero(currency));
+                        transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, futureInstallment,
+                                futurePrincipalPortion, Money.zero(currency), Money.zero(currency), Money.zero(currency)));
+                    }
+                }
+            }
+        }
+
+        return transactionAmountRemaining;
     }
 
     /**

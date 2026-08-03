@@ -56,8 +56,10 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriInfo;
 
+import java.time.LocalDate;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.accounting.journalentry.api.DateParam;
 import org.apache.fineract.commands.domain.CommandWrapper;
 import org.apache.fineract.commands.service.CommandWrapperBuilder;
 import org.apache.fineract.commands.service.PortfolioCommandSourceWritePlatformService;
@@ -239,7 +241,8 @@ public class LoansApiResource {
             LoanApiConstants.EMI_AMOUNT_VARIATIONS_PARAMNAME, LoanApiConstants.COLLECTION_PARAMNAME, LoanApiConstants.DEPARTMENT_PARAM,
             "departmentOptions", "loanDecisionState", "loanDueDiligenceData", LoanApiConstants.linkedVendorAccountAssociateParamName));
 
-    private final Set<String> loanApprovalDataParameters = new HashSet<>(Arrays.asList("approvalDate", "approvalAmount"));
+    private final Set<String> loanApprovalDataParameters = new HashSet<>(
+            Arrays.asList("approvalDate", "approvalAmount", "netDisbursalAmount", "paymentTypeOptions", "currency", "fxRate", "fxTimestamp", "fxSource"));
     final Set<String> glimAccountsDataParameters = new HashSet<>(Arrays.asList("glimId", "groupId", "clientId", "parentLoanAccountNo",
             "parentPrincipalAmount", "childLoanAccountNo", "childPrincipalAmount", "clientName"));
 
@@ -378,17 +381,24 @@ public class LoansApiResource {
     public String retrieveApprovalTemplate(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
             @QueryParam("templateType") @Parameter(description = "templateType") final String templateType,
             @QueryParam("approvingLevelNumber") @Parameter(description = "approvingLevelNumber") final Integer approvingLevelNumber,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat,
+            @QueryParam("disbursementDate") @Parameter(description = "disbursementDate") final DateParam disbursementDateParam,
+            @QueryParam("locale") @Parameter(description = "locale") final String locale,
             @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
         LoanApprovalData loanApprovalTemplate = null;
+        LocalDate disbursementDate = null;
+        if (disbursementDateParam != null) {
+            disbursementDate = disbursementDateParam.getDate("disbursementDate", dateFormat, locale);
+        }
 
         if (templateType == null) {
             final String errorMsg = "Loan template type must be provided";
             throw new LoanTemplateTypeRequiredException(errorMsg);
         } else if (templateType.equals("approval")) {
-            loanApprovalTemplate = this.loanReadPlatformService.retrieveApprovalTemplate(loanId, true);
+            loanApprovalTemplate = this.loanReadPlatformService.retrieveApprovalTemplate(loanId, true, disbursementDate);
         } else if (templateType.equals("icreview")) {
             loanApprovalTemplate = this.loanReadPlatformService.retrieveICReviewTemplate(loanId, approvingLevelNumber);
         }

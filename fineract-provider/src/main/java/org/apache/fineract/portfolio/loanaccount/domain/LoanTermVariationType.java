@@ -30,7 +30,9 @@ public enum LoanTermVariationType {
             "loanTermType.graceOnPrincipal"), EXTEND_REPAYMENT_PERIOD(9,
                     "loanTermType.extendRepaymentPeriod"), INTEREST_RATE_FROM_INSTALLMENT(10,
                             "loanTermType.interestRateFromInstallment"), PRINCIPAL_DUE_FIXED_AMOUNT(11,
-                                    "loanTermType.fixedPrincipalPerInstallmentAmount"),;
+                                    "loanTermType.fixedPrincipalPerInstallmentAmount"),
+    REPAYMENT_FREQUENCY(12, "loanTermType.repaymentFrequency"), //
+    REPAYMENT_EVERY(13, "loanTermType.repaymentEvery");
 
     private final Integer value;
     private final String code;
@@ -85,6 +87,12 @@ public enum LoanTermVariationType {
             case 11:
                 enumeration = LoanTermVariationType.PRINCIPAL_DUE_FIXED_AMOUNT;
             break;
+            case 12:
+                enumeration = LoanTermVariationType.REPAYMENT_FREQUENCY;
+            break;
+            case 13:
+                enumeration = LoanTermVariationType.REPAYMENT_EVERY;
+            break;
         }
         return enumeration;
     }
@@ -127,5 +135,13 @@ public enum LoanTermVariationType {
 
     public boolean isInterestRateFromInstallment() {
         return this.value.equals(LoanTermVariationType.INTEREST_RATE_FROM_INSTALLMENT.getValue());
+    }
+
+    public boolean isRepaymentFrequencyVariation() {
+        return this.value.equals(LoanTermVariationType.REPAYMENT_FREQUENCY.getValue());
+    }
+
+    public boolean isRepaymentEveryVariation() {
+        return this.value.equals(LoanTermVariationType.REPAYMENT_EVERY.getValue());
     }
 }

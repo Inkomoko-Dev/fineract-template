@@ -79,7 +79,9 @@ import org.apache.fineract.portfolio.loanaccount.exception.MultiDisbursementData
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleAssembler;
+import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanTransactionProcessingStrategy;
@@ -383,6 +385,11 @@ public class LoanAssembler {
             final BigDecimal loanWithAnotherInstitutionAmount = this.fromApiJsonHelper
                     .extractBigDecimalWithLocaleNamed(LoanApiConstants.loanWithAnotherInstitutionAmount, element);
             loanApplication.setLoanWithAnotherInstitutionAmount(loanWithAnotherInstitutionAmount);
+        }
+        if (loanProduct.isEnableThirdPartyDisbursement()) {
+            final String providerCode = ThirdPartyDisbursementProvider.normalize(this.fromApiJsonHelper
+                    .extractStringNamed(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element));
+            loanApplication.setThirdPartyDisbursementProvider(providerCode);
         }
         return loanApplication;
     }

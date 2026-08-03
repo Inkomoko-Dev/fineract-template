@@ -197,6 +197,19 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return loanTransaction;
     }
 
+    // CGLT-658: zero-cash audit transaction recording future unaccrued interest cancelled on early settlement.
+    public static LoanTransaction futureInterestCancellation(final Loan loan, final Office office, final Money cancelledInterest,
+            final LocalDate cancellationDate, final LoanTransaction linkedPayoff) {
+        final LoanTransaction transaction = new LoanTransaction(loan, office, LoanTransactionType.FUTURE_INTEREST_CANCELLATION,
+                cancelledInterest.getAmount(), cancellationDate, null);
+        transaction.updateComponents(Money.zero(cancelledInterest.getCurrency()), cancelledInterest,
+                Money.zero(cancelledInterest.getCurrency()), Money.zero(cancelledInterest.getCurrency()));
+        if (linkedPayoff != null) {
+            transaction.setOriginalTransactionId(linkedPayoff.getId());
+        }
+        return transaction;
+    }
+
     public static LoanTransaction accrueInterest(final Office office, final Loan loan, final Money amount,
             final LocalDate interestAppliedDate) {
         BigDecimal principalPortion = null;
@@ -395,6 +408,20 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         this.outstandingLoanBalance = null;
     }
 
+    public void resetDerivedComponentsPreservingFeeCharges(final MonetaryCurrency currency) {
+        final Money feeCharges = getFeeChargesPortion(currency);
+        resetDerivedComponents();
+        this.feeChargesPortion = feeCharges.getAmountDefaultedToNullIfZero();
+    }
+
+    public void resetDerivedComponentsPreservingChargeComponents(final MonetaryCurrency currency) {
+        final Money feeCharges = getFeeChargesPortion(currency);
+        final Money penaltyCharges = getPenaltyChargesPortion(currency);
+        resetDerivedComponents();
+        this.feeChargesPortion = feeCharges.getAmountDefaultedToNullIfZero();
+        this.penaltyChargesPortion = penaltyCharges.getAmountDefaultedToNullIfZero();
+    }
+
     public void updateLoan(final Loan loan) {
         this.loan = loan;
     }
@@ -451,9 +478,27 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
                 .plus(getPenaltyChargesPortion(currency)).getAmount();
     }
 
+    public void updateRepaymentAtDisbursementComponents(final Money feeCharges, final Money penaltyCharges) {
+        updateRepaymentAtDisbursementComponents(feeCharges, penaltyCharges, Money.zero(feeCharges.getCurrency()));
+    }
+
+    public void updateRepaymentAtDisbursementComponents(final Money feeCharges, final Money penaltyCharges,
+            final Money overPayment) {
+        this.principalPortion = null;
+        this.interestPortion = null;
+        this.feeChargesPortion = feeCharges.getAmountDefaultedToNullIfZero();
+        this.penaltyChargesPortion = penaltyCharges.getAmountDefaultedToNullIfZero();
+        this.overPaymentPortion = overPayment.getAmountDefaultedToNullIfZero();
+        this.amount = feeCharges.plus(penaltyCharges).plus(overPayment).getAmount();
+    }
+
     public void updateOverPayments(final Money overPayment) {
         final MonetaryCurrency currency = overPayment.getCurrency();
         this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(overPayment).getAmount());
+    }
+
+    public void replaceOverPaymentPortion(final Money overPayment) {
+        this.overPaymentPortion = overPayment.getAmountDefaultedToNullIfZero();
     }
 
     public Money getPrincipalPortion(final MonetaryCurrency currency) {
@@ -604,6 +649,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return LoanTransactionType.PAY_OFF.equals(getTypeOf()) && isNotReversed();
     }
 
+    public boolean isFutureInterestCancellation() {
+        return LoanTransactionType.FUTURE_INTEREST_CANCELLATION.equals(getTypeOf()) && isNotReversed();
+    }
+
     public boolean isDepositRedraw() {
         return LoanTransactionType.DEPOSIT_REDRAW.equals(getTypeOf()) && isNotReversed();
     }
@@ -680,6 +729,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
                 this.getCreatedDateTime().toLocalDateTime());
         data.setOriginalTransactionId(this.originalTxnId);
         data.setReversalTransaction(this.reversalTransaction);
+        // Pure mapping of m_loan_transaction.is_reversed. This is distinct from manuallyReversed
+        // (manual reversals set both, system reversals like undo-disbursal set only is_reversed) and from
+        // reversalTransaction (is_reversal — a row that itself IS a reversal entry of another txn).
+        data.setReversed(isReversed());
         data.setCorrectionDate(this.correctionDate);
         return data;
     }
@@ -699,7 +752,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         thisTransactionData.put("netDisbursalAmount", this.loan.getNetDisbursalAmount());
         thisTransactionData.put("principalPortion", this.principalPortion);
         thisTransactionData.put("interestPortion", this.interestPortion);
-        thisTransactionData.put("feeChargesPortion", this.feeChargesPortion);
+        thisTransactionData.put("feeChargesPortion", displayFeeChargesPortion(transactionType));
         thisTransactionData.put("penaltyChargesPortion", this.penaltyChargesPortion);
         thisTransactionData.put("overPaymentPortion", this.overPaymentPortion);
         thisTransactionData.put("correctionDate", this.correctionDate);
@@ -723,6 +776,13 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         return thisTransactionData;
+    }
+
+    private BigDecimal displayFeeChargesPortion(final LoanTransactionEnumData transactionType) {
+        if (transactionType != null && transactionType.isDisbursementChargeAdjustment() && this.feeChargesPortion != null) {
+            return this.feeChargesPortion.abs();
+        }
+        return this.feeChargesPortion;
     }
 
     public Loan getLoan() {
@@ -761,7 +821,8 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return isNotReversed() && (LoanTransactionType.CONTRA.equals(getTypeOf())
                 || LoanTransactionType.MARKED_FOR_RESCHEDULING.equals(getTypeOf())
                 || LoanTransactionType.APPROVE_TRANSFER.equals(getTypeOf()) || LoanTransactionType.INITIATE_TRANSFER.equals(getTypeOf())
-                || LoanTransactionType.REJECT_TRANSFER.equals(getTypeOf()) || LoanTransactionType.WITHDRAW_TRANSFER.equals(getTypeOf()));
+                || LoanTransactionType.REJECT_TRANSFER.equals(getTypeOf()) || LoanTransactionType.WITHDRAW_TRANSFER.equals(getTypeOf())
+                || LoanTransactionType.FUTURE_INTEREST_CANCELLATION.equals(getTypeOf()));
     }
 
     public void updateOutstandingLoanBalance(BigDecimal outstandingLoanBalance) {
@@ -863,6 +924,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return this.paymentDetail;
     }
 
+    public void updatePaymentDetail(final PaymentDetail paymentDetail) {
+        this.paymentDetail = paymentDetail;
+    }
+
     public Long getOriginalTransactionId() {
         return this.originalTxnId;
     }
@@ -889,7 +954,7 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
 
     public boolean isPaymentTransaction() {
         return this.isNotReversed() && !(this.isDisbursement() || this.isAccrual() || this.isRepaymentAtDisbursement()
-                || this.isNonMonetaryTransaction() || this.isIncomePosting());
+                || this.isDisbursementChargeAdjustment() || this.isNonMonetaryTransaction() || this.isIncomePosting());
     }
 
     public Set<LoanCollateralManagement> getLoanCollateralManagementSet() {
@@ -898,6 +963,35 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
 
     public LocalDate getSubmittedOnDate() {
         return submittedOnDate;
+    }
+
+    public void updateTransactionDate(final LocalDate transactionDate) {
+        this.dateOf = transactionDate;
+    }
+
+
+    public static LoanTransaction disbursementChargeAdjustment(
+            final Loan loan,
+            final Office office,
+            final Money amount,
+            final LocalDate transactionDate,
+            final boolean isCredit) {
+        final LoanTransaction loanTransaction = new LoanTransaction();
+        loanTransaction.loan = loan;
+        loanTransaction.office = office;
+        loanTransaction.typeOf = LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue();
+        loanTransaction.principalPortion = BigDecimal.ZERO;
+        loanTransaction.interestPortion = BigDecimal.ZERO;
+        loanTransaction.penaltyChargesPortion = BigDecimal.ZERO;
+        loanTransaction.dateOf = transactionDate;
+        loanTransaction.submittedOnDate = DateUtils.getBusinessLocalDate();
+        final BigDecimal adjustmentAmount = amount.getAmount().abs();
+        loanTransaction.amount = adjustmentAmount;
+        loanTransaction.feeChargesPortion = isCredit ? adjustmentAmount.negate() : adjustmentAmount;
+        loanTransaction.reversed = false;
+        loanTransaction.manuallyAdjustedOrReversed = false;
+        loanTransaction.reversalTransaction = false;
+        return loanTransaction;
     }
 
     // TODO missing hashCode(), equals(Object obj), but probably OK as long as

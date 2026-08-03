@@ -60,7 +60,9 @@ public enum LoanTransactionType {
     BNPL_VENDOR_TRANSFER(24, "loanTransactionType.bnplVendorTransfer"), WITHDRAWAL_REDRAW(26, "loanTransactionType.withdrawalRedraw"),
 
     DEPOSIT_REDRAW(27, "loanTransactionType.depositRedraw"), PAY_OFF(28, "loanTransactionType.payOff"),
-    DISBURSEMENT_CHARGE_ADJUSTMENT(29, "loanTransactionType.disbursementChargeAdjustment");
+    DISBURSEMENT_CHARGE_ADJUSTMENT(29, "loanTransactionType.disbursementChargeAdjustment"),
+    FUTURE_INTEREST_CANCELLATION(30, "loanTransactionType.futureInterestCancellation");
+
 
 
     private final Integer value;
@@ -171,6 +173,9 @@ public enum LoanTransactionType {
             case 29:
                 loanTransactionType = LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT;
                 break;
+            case 30:
+                loanTransactionType = LoanTransactionType.FUTURE_INTEREST_CANCELLATION;
+                break;
             default:
                 loanTransactionType = LoanTransactionType.INVALID;
             break;
@@ -236,6 +241,10 @@ public enum LoanTransactionType {
 
     public boolean isIncomePosting() {
         return this.value.equals(LoanTransactionType.INCOME_POSTING.getValue());
+    }
+
+    public boolean isFutureInterestCancellation() {
+        return this.value.equals(LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getValue());
     }
 
     public boolean isPayOff() {

@@ -245,6 +245,7 @@ public class ClientApiConstants {
     public static final String NATIONAL_IDENTIFICATION_NUMBER = "nationalIdentificationNumber";
     public static final String BANK_ACCOUNT_NUMBER = "bankAccountNumber";
     public static final String BANK_NAME = "bankName";
+    public static final String BANK_ID = "bankId";
     public static final String PASSPORT_NUMBER = "passportNumber";
     public static final String STRATA = "Strata";
     public static final String YEAR_ARRIVED_IN_HOST_COUNTRY = "YearArrivedInHostCountry";

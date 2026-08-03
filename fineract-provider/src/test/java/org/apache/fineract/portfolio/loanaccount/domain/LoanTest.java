@@ -20,20 +20,36 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.google.gson.JsonParser;
 import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
+import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
+import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
+import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
+import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
@@ -56,11 +72,25 @@ import org.springframework.test.util.ReflectionTestUtils;
  */
 public class LoanTest {
 
+    private static final MonetaryCurrency KES = new MonetaryCurrency("KES", 2, 0);
+    private RoundingMode originalRoundingMode;
+    private MathContext originalMathContext;
+
     @BeforeEach
     public void init() {
+        this.originalRoundingMode = (RoundingMode) ReflectionTestUtils.getField(MoneyHelper.class, "roundingMode");
+        this.originalMathContext = (MathContext) ReflectionTestUtils.getField(MoneyHelper.class, "mathContext");
+        ReflectionTestUtils.setField(MoneyHelper.class, "roundingMode", RoundingMode.HALF_EVEN);
+        ReflectionTestUtils.setField(MoneyHelper.class, "mathContext", new MathContext(12, RoundingMode.HALF_EVEN));
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         ThreadLocalContextUtil
                 .setBusinessDates(new HashMap<>(Map.of(BusinessDateType.BUSINESS_DATE, LocalDate.of(2026, 5, 25))));
+    }
+
+    @AfterEach
+    public void resetMoneyHelper() {
+        ReflectionTestUtils.setField(MoneyHelper.class, "roundingMode", this.originalRoundingMode);
+        ReflectionTestUtils.setField(MoneyHelper.class, "mathContext", this.originalMathContext);
     }
 
     /**
@@ -99,6 +129,51 @@ public class LoanTest {
         final Collection<LoanCharge> chargeIds = loan.getCharges();
 
         assertEquals(0, chargeIds.size());
+    }
+
+    @Test
+    public void updateLoanScheduleRejectsDuplicateInstallmentNumbersInCollection() {
+        final Loan loan = new Loan();
+        final LoanRepaymentScheduleInstallment firstInstallment = new LoanRepaymentScheduleInstallment(null, 1,
+                LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 31), BigDecimal.TEN, BigDecimal.ONE, BigDecimal.ZERO,
+                BigDecimal.ZERO, false, null);
+        final LoanRepaymentScheduleInstallment duplicateInstallment = new LoanRepaymentScheduleInstallment(null, 1,
+                LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 30), BigDecimal.TEN, BigDecimal.ONE, BigDecimal.ZERO,
+                BigDecimal.ZERO, false, null);
+
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> loan.updateLoanSchedule(Arrays.asList(firstInstallment, duplicateInstallment)));
+    }
+
+    @Test
+    public void updateLoanScheduleRejectsDuplicateInstallmentNumbersInModel() {
+        final Loan loan = new Loan();
+        final LoanScheduleModelPeriod firstPeriod = mock(LoanScheduleModelPeriod.class);
+        when(firstPeriod.isRepaymentPeriod()).thenReturn(true);
+        when(firstPeriod.periodNumber()).thenReturn(1);
+        when(firstPeriod.periodFromDate()).thenReturn(LocalDate.of(2026, 5, 1));
+        when(firstPeriod.periodDueDate()).thenReturn(LocalDate.of(2026, 5, 31));
+        when(firstPeriod.principalDue()).thenReturn(BigDecimal.TEN);
+        when(firstPeriod.interestDue()).thenReturn(BigDecimal.ONE);
+        when(firstPeriod.feeChargesDue()).thenReturn(BigDecimal.ZERO);
+        when(firstPeriod.penaltyChargesDue()).thenReturn(BigDecimal.ZERO);
+        when(firstPeriod.isRecalculatedInterestComponent()).thenReturn(false);
+
+        final LoanScheduleModelPeriod duplicatePeriod = mock(LoanScheduleModelPeriod.class);
+        when(duplicatePeriod.isRepaymentPeriod()).thenReturn(true);
+        when(duplicatePeriod.periodNumber()).thenReturn(1);
+        when(duplicatePeriod.periodFromDate()).thenReturn(LocalDate.of(2026, 6, 1));
+        when(duplicatePeriod.periodDueDate()).thenReturn(LocalDate.of(2026, 6, 30));
+        when(duplicatePeriod.principalDue()).thenReturn(BigDecimal.TEN);
+        when(duplicatePeriod.interestDue()).thenReturn(BigDecimal.ONE);
+        when(duplicatePeriod.feeChargesDue()).thenReturn(BigDecimal.ZERO);
+        when(duplicatePeriod.penaltyChargesDue()).thenReturn(BigDecimal.ZERO);
+        when(duplicatePeriod.isRecalculatedInterestComponent()).thenReturn(false);
+
+        final LoanScheduleModel loanScheduleModel = LoanScheduleModel.from(Arrays.asList(firstPeriod, duplicatePeriod), null, 0, null,
+                null, null, null, null, null, null, null);
+
+        assertThrows(PlatformApiDataValidationException.class, () -> loan.updateLoanSchedule(loanScheduleModel));
     }
 
     @Test
@@ -324,6 +399,111 @@ public class LoanTest {
     }
 
     @Test
+    public void calculateTotalOverpaymentTreatsDepositRedrawAsConsumedOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        when(loanProductRelatedDetail.getPrincipal()).thenReturn(Money.of(KES, new BigDecimal("100.00")));
+        final LocalDate disbursementDate = LocalDate.of(2026, 5, 8);
+        final LocalDate repaymentDate = LocalDate.of(2026, 6, 8);
+        final LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 1, disbursementDate,
+                repaymentDate, new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        installment.payPrincipalComponent(repaymentDate, Money.of(KES, new BigDecimal("100.00")));
+        final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("125.00")), null,
+                repaymentDate, null);
+        final LoanTransaction depositRedraw = LoanTransaction.applyRedrawRepayment(mock(Office.class), Money.of(KES, new BigDecimal("25.00")),
+                null, repaymentDate, null, loan);
+        repayment.updateLoan(loan);
+        depositRedraw.updateLoan(loan);
+
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.singletonList(installment));
+        ReflectionTestUtils.setField(loan, "loanTransactions", Arrays.asList(repayment, depositRedraw));
+
+        final Money totalOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(totalOverpayment.getAmount()));
+    }
+
+    @Test
+    public void updateLoanSummaryAndStatusClosesLoanAfterDepositRedrawConsumesOverpayment() {
+        final Loan loan = new Loan();
+        final LoanProductRelatedDetail loanProductRelatedDetail = mock(LoanProductRelatedDetail.class);
+        when(loanProductRelatedDetail.getCurrency()).thenReturn(KES);
+        when(loanProductRelatedDetail.getPrincipal()).thenReturn(Money.of(KES, new BigDecimal("100.00")));
+        final LocalDate disbursementDate = LocalDate.of(2026, 5, 8);
+        final LocalDate repaymentDate = LocalDate.of(2026, 6, 8);
+        final LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 1, disbursementDate,
+                repaymentDate, new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        installment.payPrincipalComponent(repaymentDate, Money.of(KES, new BigDecimal("100.00")));
+        final LoanTransaction disbursement = LoanTransaction.disbursement(mock(Office.class), Money.of(KES, new BigDecimal("100.00")), null,
+                disbursementDate, null);
+        final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("125.00")), null,
+                repaymentDate, null);
+        final LoanTransaction depositRedraw = LoanTransaction.applyRedrawRepayment(mock(Office.class), Money.of(KES, new BigDecimal("25.00")),
+                null, repaymentDate, null, loan);
+        disbursement.updateLoan(loan);
+        repayment.updateLoan(loan);
+        depositRedraw.updateLoan(loan);
+
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.ACTIVE.getValue());
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "actualDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", loanProductRelatedDetail);
+        ReflectionTestUtils.setField(loan, "summary", LoanSummary.create(BigDecimal.ZERO));
+        ReflectionTestUtils.setField(loan, "loanSummaryWrapper", new LoanSummaryWrapper());
+        ReflectionTestUtils.setField(loan, "loanLifecycleStateMachine",
+                new DefaultLoanLifecycleStateMachine(Arrays.asList(LoanStatus.values())));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.singletonList(installment));
+        ReflectionTestUtils.setField(loan, "loanTransactions", new ArrayList<>(Collections.singletonList(disbursement)));
+        loan.addLoanTransaction(repayment);
+        loan.addLoanTransaction(depositRedraw);
+        ReflectionTestUtils.setField(loan, "charges", Collections.emptySet());
+
+        loan.updateLoanSummarAndStatus();
+
+        assertEquals(LoanStatus.CLOSED_OBLIGATIONS_MET.getValue(), ReflectionTestUtils.getField(loan, "loanStatus"));
+        assertEquals(repaymentDate, ReflectionTestUtils.getField(loan, "closedOnDate"));
+        assertEquals(null, ReflectionTestUtils.getField(loan, "totalOverpaid"));
+    }
+
+    // CGLT-592: the "closed with arrears" defect. A payment that leaves a balance outstanding must not be swept
+    // into a deposit redraw, so an active loan can never be flipped to OVERPAID and closed while it still owes.
+
+    @Test
+    public void redrawSweepIsBlockedWhileTheLoanStillHasAnOutstandingBalance() {
+        final Loan loan = redrawGateLoan(new BigDecimal("40.00"), new BigDecimal("40.00"));
+        assertFalse(loan.isGenuineOverpaymentReadyForRedraw());
+    }
+
+    @Test
+    public void redrawSweepIsAllowedOnlyWhenTheLoanIsFullySettledAndGenuinelyOverpaid() {
+        final Loan loan = redrawGateLoan(BigDecimal.ZERO, new BigDecimal("25.00"));
+        assertTrue(loan.isGenuineOverpaymentReadyForRedraw());
+    }
+
+    @Test
+    public void redrawSweepIsBlockedWhenSettledButNotOverpaid() {
+        final Loan loan = redrawGateLoan(BigDecimal.ZERO, null);
+        assertFalse(loan.isGenuineOverpaymentReadyForRedraw());
+    }
+
+    @Test
+    public void redrawSweepIsBlockedWhenThereIsNoOverpaymentEvenWithZeroOutstanding() {
+        final Loan loan = redrawGateLoan(BigDecimal.ZERO, BigDecimal.ZERO);
+        assertFalse(loan.isGenuineOverpaymentReadyForRedraw());
+    }
+
+    private Loan redrawGateLoan(final BigDecimal totalOutstanding, final BigDecimal totalOverpaid) {
+        final Loan loan = new Loan();
+        final LoanSummary summary = LoanSummary.create(BigDecimal.ZERO);
+        ReflectionTestUtils.setField(summary, "totalOutstanding", totalOutstanding);
+        ReflectionTestUtils.setField(loan, "summary", summary);
+        ReflectionTestUtils.setField(loan, "totalOverpaid", totalOverpaid);
+        return loan;
+    }
+
+    @Test
     public void disbursementChargeAdjustmentRecomputesPaidAndOutstandingAmounts() {
         final LoanCharge loanCharge = buildLoanCharge();
 
@@ -431,5 +611,27 @@ public class LoanTest {
         return new LoanCharge(mock(Loan.class), mock(Charge.class), new BigDecimal(100), new BigDecimal(100),
                 ChargeTimeType.TRANCHE_DISBURSEMENT, ChargeCalculationType.FLAT, LocalDate.of(2022, 6, 27), ChargePaymentMode.REGULAR, 1,
                 new BigDecimal(100));
+    }
+
+    private LoanCharge buildDisbursementLoanCharge(final Loan loan, final BigDecimal amount) {
+        return new LoanCharge(loan, mock(Charge.class), amount, amount, ChargeTimeType.DISBURSEMENT, ChargeCalculationType.FLAT,
+                LocalDate.of(2026, 6, 8), ChargePaymentMode.REGULAR, 1, amount);
+    }
+
+    private LoanProductRelatedDetail mutableScheduleDetail(final BigDecimal initialPrincipal) {
+        final AtomicReference<BigDecimal> principal = new AtomicReference<>(initialPrincipal);
+        final LoanProductRelatedDetail scheduleDetail = mock(LoanProductRelatedDetail.class);
+        when(scheduleDetail.getCurrency()).thenReturn(KES);
+        when(scheduleDetail.getPrincipal()).thenAnswer(invocation -> Money.of(KES, principal.get()));
+        doAnswer(invocation -> {
+            principal.set(invocation.getArgument(0));
+            return null;
+        }).when(scheduleDetail).setPrincipal(any(BigDecimal.class));
+        return scheduleDetail;
+    }
+
+    private JsonCommand jsonCommand(final String json) {
+        return JsonCommand.from(json, JsonParser.parseString(json), new FromJsonHelper(), null, null, null, null, null, null, null,
+                null, null, null, null, null);
     }
 }

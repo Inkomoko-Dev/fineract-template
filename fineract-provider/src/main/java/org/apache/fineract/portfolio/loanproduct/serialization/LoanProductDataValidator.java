@@ -53,6 +53,7 @@ import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductValueConditionType;
 import org.apache.fineract.portfolio.loanproduct.domain.RecalculationFrequencyType;
 import org.apache.fineract.portfolio.loanproduct.exception.EqualAmortizationUnsupportedFeatureException;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.savings.DepositsApiConstants;
 import org.apache.fineract.portfolio.savings.data.DepositProductDataValidator;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -119,7 +120,8 @@ public final class LoanProductDataValidator {
             LoanProductConstants.isBnplLoanProductParamName, LoanProductConstants.requiresEquityContributionParamName,
             LoanProductConstants.equityContributionLoanPercentageParamName, LoanProductConstants.LOAN_PRODUCT_CATEGORY,
             LoanProductConstants.LOAN_PRODUCT_TYPE, LoanProductConstants.maintainInterestOnLoanTermExtensionParamName,
-            LoanProductConstants.IS_ISLAMIC, LoanProductConstants.allowableDSCR));
+            LoanProductConstants.IS_ISLAMIC, LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT,
+            LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, LoanProductConstants.allowableDSCR));
 
     private static final String[] supportedloanConfigurableAttributes = { LoanProductConstants.amortizationTypeParamName,
             LoanProductConstants.interestTypeParamName, LoanProductConstants.transactionProcessingStrategyIdParamName,
@@ -131,10 +133,14 @@ public final class LoanProductDataValidator {
 
     private final DepositProductDataValidator depositProductDataValidator;
 
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
+
     @Autowired
-    public LoanProductDataValidator(final FromJsonHelper fromApiJsonHelper, DepositProductDataValidator depositProductDataValidator) {
+    public LoanProductDataValidator(final FromJsonHelper fromApiJsonHelper, DepositProductDataValidator depositProductDataValidator,
+            final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService) {
         this.fromApiJsonHelper = fromApiJsonHelper;
         this.depositProductDataValidator = depositProductDataValidator;
+        this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
     }
 
     public void validateForCreate(final String json) {
@@ -712,6 +718,8 @@ public final class LoanProductDataValidator {
         final Boolean isIslamic = this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.IS_ISLAMIC, element);
         baseDataValidator.reset().parameter(LoanProductConstants.IS_ISLAMIC).value(isIslamic).ignoreIfNull().validateForBooleanValue();
 
+        validateThirdPartyDisbursement(baseDataValidator, element, null);
+
         validateBnplValues(baseDataValidator, isBnplLoanProduct, requiresEquityContribution, equityContributionLoanPercentage);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
@@ -730,6 +738,22 @@ public final class LoanProductDataValidator {
             baseDataValidator.reset().parameter(LoanProductConstants.equityContributionLoanPercentageParamName).failWithCode(
                     "ContributionLoanPercentage.cannot.be.null.when.requiresEquityContribution.is.true",
                     "ContributionLoanPercentage cannot be null or zero when requiresEquityContribution is true");
+        }
+    }
+
+    private void validateThirdPartyDisbursement(final DataValidatorBuilder baseDataValidator, final JsonElement element,
+            final LoanProduct existingProduct) {
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT, element)) {
+            final Boolean enabled = this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT,
+                    element);
+            baseDataValidator.reset().parameter(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT).value(enabled).ignoreIfNull()
+                    .validateForBooleanValue();
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element)) {
+            baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
+                    "not.supported.on.loan.product",
+                    "thirdPartyDisbursementProvider is configured on the loan account, not on the loan product.");
         }
     }
 
@@ -1618,6 +1642,9 @@ public final class LoanProductDataValidator {
             final Boolean isIslamic = this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.IS_ISLAMIC, element);
             baseDataValidator.reset().parameter(LoanProductConstants.IS_ISLAMIC).value(isIslamic).ignoreIfNull().validateForBooleanValue();
         }
+
+        validateThirdPartyDisbursement(baseDataValidator, element, loanProduct);
+
         // set with persisted value if not coming from API call
         isBnplLoanProduct = isBnplLoanProduct == null ? loanProduct.getBnplLoanProduct() : isBnplLoanProduct;
         requiresEquityContribution = requiresEquityContribution == null ? loanProduct.isRequiresEquityContribution()

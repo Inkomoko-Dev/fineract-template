@@ -46,6 +46,8 @@ public final class ExternalServicesConstants {
     public static final String SMS_PORT = "port_number";
     public static final String SMS_END_POINT = "end_point";
     public static final String SMS_TENANT_APP_KEY = "tenant_app_key";
+    public static final String SMS_WHITELIST = "sms_whitelist";
+    public static final String SMS_WHITELIST_ENABLED = "sms_whitelist_enabled";
 
     public static final String NOTIFICATION_SERVICE_NAME = "NOTIFICATION";
     public static final String NOTIFICATION_SERVER_KEY = "server_key";
@@ -119,7 +121,8 @@ public final class ExternalServicesConstants {
 
     public enum SMSJSONinputParams {
 
-        HASTNAME("host_name"), PORT("port_number"), END_POINT("end_point"), TENANT_APP_KEY("tenant_app_key");
+        HASTNAME("host_name"), PORT("port_number"), END_POINT("end_point"), TENANT_APP_KEY("tenant_app_key"), SMS_WHITELIST(
+                "sms_whitelist"), SMS_WHITELIST_ENABLED("sms_whitelist_enabled");
 
         private final String value;
 

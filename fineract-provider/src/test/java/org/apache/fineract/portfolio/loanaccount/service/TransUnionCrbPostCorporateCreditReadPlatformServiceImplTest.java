@@ -27,6 +27,7 @@ import static org.mockito.Mockito.verify;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
 import org.apache.fineract.portfolio.loanaccount.data.TransUnionRwandaCorporateCreditData;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
     private DatabaseTypeResolver databaseTypeResolver;
 
     @Test
-    void retrieveAllCorporateCreditsPageUsesSelectedActiveAddressCountryInMySqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicAndSelectedActiveAddressCountryInMySqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(true);
 
@@ -73,7 +74,7 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
     }
 
     @Test
-    void retrieveAllCorporateCreditsPageUsesSelectedActiveAddressCountryInPostgreSqlQuery() {
+    void retrieveAllCorporateCreditsPageUsesNullSafeArrearsLogicAndSelectedActiveAddressCountryInPostgreSqlQuery() {
         mockQueryResult();
         given(databaseTypeResolver.isMySQL()).willReturn(false);
 
@@ -115,5 +116,13 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
         assertTrue(sql.contains("LEFT JOIN m_code_value country_cv ON ra.country_id = country_cv.id"));
         assertFalse(sql.contains("WHERE ca.is_active = true"));
         assertFalse(sql.contains("m_client_recruitment_survey"));
+    }
+
+    private void assertContainsPattern(String sql, String regex) {
+        assertTrue(Pattern.compile(regex).matcher(sql).find(), "Expected SQL to contain pattern: " + regex);
+    }
+
+    private void assertDoesNotContainPattern(String sql, String regex) {
+        assertFalse(Pattern.compile(regex).matcher(sql).find(), "Expected SQL not to contain pattern: " + regex);
     }
 }

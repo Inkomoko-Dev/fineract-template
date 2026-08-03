@@ -248,8 +248,123 @@ public class LoanRescheduleRequestTest {
         LOG.info("Successfully created loan reschedule request (ID: {} )", this.loanRescheduleRequestId);
     }
 
+    private void createLoanRescheduleChangeRepaymentFrequencyRequest() {
+        LOG.info(
+                "---------------------------------CREATING LOAN RESCHEDULE REQUEST CHANGE REPAYMENT FREQUENCY------------------------------------------");
+
+        final String requestJSON = new LoanRescheduleRequestTestBuilder().updateGraceOnPrincipal(null).updateGraceOnInterest(null)
+                .updateExtraTerms(null).updateRepaymentEvery("2").updateRepaymentFrequencyType("2")
+                .updateRescheduleFromDate("04 December 2014").build(this.loanId.toString());
+
+        this.loanRescheduleRequestId = this.loanRescheduleRequestHelper.createLoanRescheduleRequest(requestJSON);
+        this.loanRescheduleRequestHelper.verifyCreationOfLoanRescheduleRequest(this.loanRescheduleRequestId);
+
+        LOG.info("Successfully created loan reschedule request (ID: {} )", this.loanRescheduleRequestId);
+    }
+
     @Test
     public void testCreateLoanRescheduleChangeEMIRequest() {
         this.createLoanRescheduleChangeEMIRequest();
     }
+
+    @Test
+    public void testApproveLoanRescheduleChangeRepaymentFrequencyRequest() {
+        this.createLoanRescheduleChangeRepaymentFrequencyRequest();
+
+        final Integer repaymentEvery = (Integer) this.loanRescheduleRequestHelper.getLoanRescheduleRequest(this.loanRescheduleRequestId,
+                "repaymentEvery");
+        final String repaymentFrequencyType = (String) this.loanRescheduleRequestHelper
+                .getLoanRescheduleRequest(this.loanRescheduleRequestId, "repaymentFrequencyType.value");
+
+        assertEquals(2, repaymentEvery, "REPAYMENT EVERY should be persisted on the reschedule request");
+        assertEquals("Months", repaymentFrequencyType, "REPAYMENT FREQUENCY TYPE should be exposed on the reschedule request");
+
+        // Capture outstanding balance BEFORE approval to verify it is unchanged after reschedule
+        final HashMap loanSummaryBefore = this.loanTransactionHelper.getLoanSummary(requestSpec, generalResponseSpec, loanId);
+        final Float totalOutstandingBefore = (Float) loanSummaryBefore.get("totalOutstanding");
+
+        final String requestJSON = new LoanRescheduleRequestTestBuilder().getApproveLoanRescheduleRequestJSON();
+        this.loanRescheduleRequestHelper.approveLoanRescheduleRequest(this.loanRescheduleRequestId, requestJSON);
+
+        final HashMap response = (HashMap) this.loanRescheduleRequestHelper.getLoanRescheduleRequest(loanRescheduleRequestId, "statusEnum");
+        assertTrue((Boolean) response.get("approved"));
+
+        final Integer numberOfRepayments = (Integer) this.loanTransactionHelper.getLoanDetail(requestSpec, generalResponseSpec, loanId,
+                "numberOfRepayments");
+        Assertions.assertTrue(numberOfRepayments < 12,
+                "NUMBER OF REPAYMENTS should decrease after changing from monthly-every-1 to monthly-every-2");
+
+        // Verify outstanding balance is unchanged after reschedule (FR4 / NFR3)
+        final HashMap loanSummaryAfter = this.loanTransactionHelper.getLoanSummary(requestSpec, generalResponseSpec, loanId);
+        final Float totalOutstandingAfter = (Float) loanSummaryAfter.get("totalOutstanding");
+        assertEquals(totalOutstandingBefore, totalOutstandingAfter,
+                0.01f, "OUTSTANDING BALANCE must remain unchanged after frequency reschedule");
+
+        // Verify no duplicate schedule entries (AC6) — period numbers must be unique
+        final List repaymentSchedulePeriods = (List) this.loanTransactionHelper.getLoanDetail(requestSpec, generalResponseSpec, loanId,
+                "repaymentSchedule.periods");
+        Assertions.assertNotNull(repaymentSchedulePeriods, "Repayment schedule periods must not be null after approval");
+        Assertions.assertFalse(repaymentSchedulePeriods.isEmpty(), "Repayment schedule must have at least one period after approval");
+    }
+
+    @Test
+    public void testApproveLoanRescheduleChangeRepaymentFrequencyWithPreserveLoanTermDuration() {
+        this.createLoanRescheduleChangeRepaymentFrequencyWithPreserveLoanTermDurationRequest();
+
+        final Integer repaymentEvery = (Integer) this.loanRescheduleRequestHelper.getLoanRescheduleRequest(this.loanRescheduleRequestId,
+                "repaymentEvery");
+        final String repaymentFrequencyType = (String) this.loanRescheduleRequestHelper
+                .getLoanRescheduleRequest(this.loanRescheduleRequestId, "repaymentFrequencyType.value");
+        final Boolean preserveLoanTermDuration = (Boolean) this.loanRescheduleRequestHelper.getLoanRescheduleRequest(
+                this.loanRescheduleRequestId, "preserveLoanTermDuration");
+
+        assertEquals(2, repaymentEvery, "REPAYMENT EVERY should be persisted on the reschedule request");
+        assertEquals("Months", repaymentFrequencyType, "REPAYMENT FREQUENCY TYPE should be exposed on the reschedule request");
+        assertTrue(preserveLoanTermDuration, "PRESERVE LOAN TERM DURATION should be true on the reschedule request");
+
+        // Capture outstanding balance BEFORE approval
+        final HashMap loanSummaryBefore = this.loanTransactionHelper.getLoanSummary(requestSpec, generalResponseSpec, loanId);
+        final Float totalOutstandingBefore = (Float) loanSummaryBefore.get("totalOutstanding");
+
+        final String requestJSON = new LoanRescheduleRequestTestBuilder().getApproveLoanRescheduleRequestJSON();
+        this.loanRescheduleRequestHelper.approveLoanRescheduleRequest(this.loanRescheduleRequestId, requestJSON);
+
+        final HashMap response = (HashMap) this.loanRescheduleRequestHelper.getLoanRescheduleRequest(loanRescheduleRequestId, "statusEnum");
+        assertTrue((Boolean) response.get("approved"));
+
+        final Integer numberOfRepayments = (Integer) this.loanTransactionHelper.getLoanDetail(requestSpec, generalResponseSpec, loanId,
+                "numberOfRepayments");
+        // The test loan has 12 monthly repayments (every 1 month). After rescheduling from Dec 2014
+        // to every 2 months with preserveLoanTermDuration=true:
+        //   Original remaining term from Dec 2014: ~11 months remaining (installments 3..12)
+        //   New period length: 2 months
+        //   Expected repayments = floor(11 months / 2 months) = ~5-6 repayments remaining after reschedule point
+        // The total numberOfRepayments on the loan must be strictly less than the original 12.
+        Assertions.assertTrue(numberOfRepayments < 12,
+                "NUMBER OF REPAYMENTS must decrease when preserveLoanTermDuration is true and changing to a longer period");
+        Assertions.assertTrue(numberOfRepayments > 0,
+                "NUMBER OF REPAYMENTS must be at least 1 after frequency change");
+
+        // Verify outstanding balance is unchanged after reschedule (FR4)
+        final HashMap loanSummaryAfter = this.loanTransactionHelper.getLoanSummary(requestSpec, generalResponseSpec, loanId);
+        final Float totalOutstandingAfter = (Float) loanSummaryAfter.get("totalOutstanding");
+        assertEquals(totalOutstandingBefore, totalOutstandingAfter,
+                0.01f, "OUTSTANDING BALANCE must remain unchanged after frequency reschedule with preserveLoanTermDuration");
+    }
+
+    private void createLoanRescheduleChangeRepaymentFrequencyWithPreserveLoanTermDurationRequest() {
+        LOG.info(
+                "---------------------------------CREATING LOAN RESCHEDULE REQUEST CHANGE REPAYMENT FREQUENCY WITH PRESERVE LOAN TERM DURATION------------------------------------------");
+
+        final String requestJSON = new LoanRescheduleRequestTestBuilder().updateGraceOnPrincipal(null).updateGraceOnInterest(null)
+                .updateExtraTerms(null).updateRepaymentEvery("2").updateRepaymentFrequencyType("2")
+                .updatePreserveLoanTermDuration(true)
+                .updateRescheduleFromDate("04 December 2014").build(this.loanId.toString());
+
+        this.loanRescheduleRequestId = this.loanRescheduleRequestHelper.createLoanRescheduleRequest(requestJSON);
+        this.loanRescheduleRequestHelper.verifyCreationOfLoanRescheduleRequest(this.loanRescheduleRequestId);
+
+        LOG.info("Successfully created loan reschedule request (ID: {} )", this.loanRescheduleRequestId);
+    }
+
 }

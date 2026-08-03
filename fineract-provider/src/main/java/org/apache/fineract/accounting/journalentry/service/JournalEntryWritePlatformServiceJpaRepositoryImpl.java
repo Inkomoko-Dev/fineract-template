@@ -55,6 +55,7 @@ import org.apache.fineract.accounting.journalentry.exception.JournalEntryRuntime
 import org.apache.fineract.accounting.journalentry.serialization.JournalEntryCommandFromApiJsonDeserializer;
 import org.apache.fineract.accounting.producttoaccountmapping.domain.PortfolioProductType;
 import org.apache.fineract.accounting.provisioning.domain.LoanProductProvisioningEntry;
+import org.apache.fineract.accounting.provisioning.domain.ProvisioningClassificationType;
 import org.apache.fineract.accounting.provisioning.domain.ProvisioningEntry;
 import org.apache.fineract.accounting.rule.domain.AccountingRule;
 import org.apache.fineract.accounting.rule.domain.AccountingRuleRepository;
@@ -441,6 +442,10 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
             expenseMap.clear();
             List<LoanProductProvisioningEntry> entries = officeMap.get(key);
             for (LoanProductProvisioningEntry entry : entries) {
+                if (entry.getClassificationType() != ProvisioningClassificationType.PROVISION_BUCKET
+                        || entry.getLiabilityAccount() == null || entry.getExpenseAccount() == null) {
+                    continue;
+                }
                 if (liabilityMap.containsKey(entry.getLiabilityAccount())) {
                     BigDecimal amount = liabilityMap.get(entry.getLiabilityAccount());
                     amount = amount.add(entry.getReservedAmount());
@@ -459,8 +464,10 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
                     expenseMap.put(entry.getExpenseAccount(), amount);
                 }
             }
-            createJournalEntry(provisioningEntry.getCreatedDate(), provisioningEntry.getId(), key.office, key.currency, liabilityMap,
-                    expenseMap);
+            if (!liabilityMap.isEmpty() || !expenseMap.isEmpty()) {
+                createJournalEntry(provisioningEntry.getCreatedDate(), provisioningEntry.getId(), key.office, key.currency, liabilityMap,
+                        expenseMap);
+            }
         }
         return "P" + provisioningEntry.getId();
     }

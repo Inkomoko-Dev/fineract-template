@@ -795,6 +795,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder adjustLoanDisbursementCharge(final Long loanId, final Long loanChargeId) {
+        this.actionName = "ADJUSTDISBURSEMENTCHARGE";
+        this.entityName = "LOANCHARGE";
+        this.loanId = loanId;
+        this.entityId = loanChargeId;
+        this.href = "/loans/" + loanId + "/charges/" + loanChargeId;
+        return this;
+    }
+
     public CommandWrapperBuilder deleteLoanCharge(final Long loanId, final Long loanChargeId) {
         this.actionName = "DELETE";
         this.entityName = "LOANCHARGE";
@@ -909,6 +918,15 @@ public class CommandWrapperBuilder {
         this.entityId = transactionId;
         this.loanId = loanId;
         this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=reverserecoverypayment";
+        return this;
+    }
+
+    public CommandWrapperBuilder editDisbursementChargeTransaction(final Long loanId, final Long transactionId) {
+        this.actionName = "ADJUST";
+        this.entityName = "LOAN";
+        this.entityId = transactionId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=editDisbursementCharge";
         return this;
     }
 
@@ -2901,6 +2919,22 @@ public class CommandWrapperBuilder {
         this.entityName = PaymentTypeApiResourceConstants.ENTITY_NAME;
         this.entityId = null;
         this.href = "/" + PaymentTypeApiResourceConstants.RESOURCE_NAME;
+        return this;
+    }
+
+    public CommandWrapperBuilder createSupplier() {
+        this.actionName = "CREATE";
+        this.entityName = "SUPPLIER";
+        this.entityId = null;
+        this.href = "/suppliers/callback";
+        return this;
+    }
+
+    public CommandWrapperBuilder createDisbursementInstruction() {
+        this.actionName = "DISBURSEMENTINSTRUCTION";
+        this.entityName = "LOAN";
+        this.entityId = null;
+        this.href = "/loans/disbursement-instruction";
         return this;
     }
 

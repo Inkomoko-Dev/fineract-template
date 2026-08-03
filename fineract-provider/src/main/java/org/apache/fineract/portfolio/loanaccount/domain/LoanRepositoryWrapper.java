@@ -282,6 +282,28 @@ public class LoanRepositoryWrapper {
         saveAndFlush(existingLoanApplication);
     }
 
+    /**
+     * CGLT-649: Symmetric counterpart to {@link #updateRedrawAmount}. Unwinds every live deposit-redraw a
+     * reversed/adjusted repayment left orphaned (see {@link Loan#reversePhantomDepositRedraws()}) and zeroes the
+     * redraw account so the loan is not stranded in OVERPAID with a withdrawable balance it never funded. No-op
+     * when nothing was reversed (or the unwind was skipped because a withdrawal-redraw is live).
+     *
+     * @return the total deposit-redraw amount reversed
+     */
+    public BigDecimal reversePhantomRedrawsAndZeroAccount(final Loan loan, final AppUser user, final Long loanId) {
+        final BigDecimal reversedAmount = loan.reversePhantomDepositRedraws().getAmount();
+        if (reversedAmount.compareTo(BigDecimal.ZERO) > 0) {
+            loanRedrawAccountRepository.findByLoanId(loanId).ifPresent(loanRedrawAccount -> {
+                loanRedrawAccount.setRedrawBalance(BigDecimal.ZERO);
+                loanRedrawAccount.setLastModifiedBy(user.getId());
+                loanRedrawAccount.setLastModifiedDate(DateUtils.getLocalDateTimeOfTenant());
+                loanRedrawAccountRepository.saveAndFlush(loanRedrawAccount);
+            });
+            saveAndFlush(loan);
+        }
+        return reversedAmount;
+    }
+
     private LoanRedrawAccount getOrInstantiateLoanRedrawAccount(Optional<LoanRedrawAccount> loanRedrawAccountOptional,
             final Loan existingLoanApplication, final AppUser user) {
         LoanRedrawAccount loanRedrawAccount;

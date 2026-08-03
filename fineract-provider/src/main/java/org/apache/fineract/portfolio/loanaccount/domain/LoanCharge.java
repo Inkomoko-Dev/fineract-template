@@ -339,6 +339,13 @@ public class LoanCharge extends AbstractPersistableCustom {
         this.paid = true;
     }
 
+    public void updateAmountPaidForDisbursementChargeAdjustment(final BigDecimal amount, final BigDecimal amountPaid) {
+        this.amount = amount;
+        this.amountPaid = amountPaid == null ? BigDecimal.ZERO : amountPaid;
+        this.amountOutstanding = calculateOutstanding();
+        this.paid = BigDecimal.ZERO.compareTo(this.amountOutstanding) == 0;
+    }
+
     public boolean isFullyPaid() {
         return this.paid;
     }
@@ -383,11 +390,12 @@ public class LoanCharge extends AbstractPersistableCustom {
             }
             return amountWaived;
         }
-        this.amountWaived = this.amountOutstanding;
+        final Money amountWaived = getAmountOutstanding(currency);
+        this.amountWaived = getAmountWaived(currency).plus(amountWaived).getAmount();
         this.amountOutstanding = BigDecimal.ZERO;
         this.paid = false;
         this.waived = true;
-        return getAmountWaived(currency);
+        return amountWaived;
 
     }
 

@@ -52,7 +52,7 @@ public final class ClientOtherInfoCommandFromApiJsonDeserializer {
     private final Set<String> supportedParameters = new HashSet<>(Arrays.asList("id", "clientId", "strataId", "nationalityId",
             "numberOfChildren", "numberOfDependents", "yearArrivedInHostCountry", "coSignorsName", "guarantor", "locale", "dateFormat",
             "businessLocation", "taxIdentificationNumber", "incomeGeneratingActivity", "incomeGeneratingActivityMonthlyAmount",
-            "telephoneNo", "nationalIdentificationNumber", "passportNumber", "bankAccountNumber", "bankName"));
+            "telephoneNo", "nationalIdentificationNumber", "passportNumber", "bankAccountNumber", "bankId"));
 
     @Autowired
     public ClientOtherInfoCommandFromApiJsonDeserializer(final FromJsonHelper fromApiJsonHelper,
@@ -89,9 +89,9 @@ public final class ClientOtherInfoCommandFromApiJsonDeserializer {
             baseDataValidator.reset().parameter(ClientApiConstants.BANK_ACCOUNT_NUMBER).value(bankAccountNumber).notNull().notBlank();
         }
 
-        if (this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.BANK_NAME, element) != null) {
-            final String bankName = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.BANK_NAME, element);
-            baseDataValidator.reset().parameter(ClientApiConstants.BANK_NAME).value(bankName).notNull().notBlank();
+        if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.BANK_ID, element)) {
+            final Long bankId = this.fromApiJsonHelper.extractLongNamed(ClientApiConstants.BANK_ID, element);
+            baseDataValidator.reset().parameter(ClientApiConstants.BANK_ID).value(bankId).ignoreIfNull().longGreaterThanZero();
         }
 
         if (LegalForm.fromInt(legalFormId).isPerson()) {
@@ -214,12 +214,15 @@ public final class ClientOtherInfoCommandFromApiJsonDeserializer {
         }
 
         if (this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.BANK_ACCOUNT_NUMBER, element) != null) {
+            atLeastOneParameterPassedForUpdate = true;
             final String bankAccountNumber = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.BANK_ACCOUNT_NUMBER, element);
             baseDataValidator.reset().parameter(ClientApiConstants.BANK_ACCOUNT_NUMBER).value(bankAccountNumber).notNull().notBlank();
         }
-        if (this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.BANK_NAME, element) != null) {
-            final String bankName = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.BANK_NAME, element);
-            baseDataValidator.reset().parameter(ClientApiConstants.BANK_NAME).value(bankName).notNull().notBlank();
+
+        if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.BANK_ID, element)) {
+            atLeastOneParameterPassedForUpdate = true;
+            final Long bankId = this.fromApiJsonHelper.extractLongNamed(ClientApiConstants.BANK_ID, element);
+            baseDataValidator.reset().parameter(ClientApiConstants.BANK_ID).value(bankId).ignoreIfNull().longGreaterThanZero();
         }
 
         if (LegalForm.fromInt(legalFormId).isPerson()) {

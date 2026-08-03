@@ -47,6 +47,7 @@ import okhttp3.Response;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.fineract.infrastructure.core.exception.CrbBusinessRuleException;
 import org.apache.fineract.infrastructure.core.exception.CrbLocalValidationException;
+import org.apache.fineract.infrastructure.core.exception.CrbPreSubmissionValidationException;
 import org.apache.fineract.infrastructure.core.exception.CrbSystemException;
 import org.apache.fineract.infrastructure.core.exception.CrbValidationException;
 import org.apache.fineract.infrastructure.core.service.IntegrationHttpRetryService;
@@ -104,8 +105,6 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
     @Override
     @CronTarget(jobName = JobName.POST_RWANDA_CONSUMER_CREDIT_TO_TRANSUNION_CRB)
     public void ConsumerCreditDataUploadToTransUnion() {
-
-        System.out.println("Starting Corporate Credit Data Upload To TransUnion CRB");
 
         LOG.info("Starting Consumer Credit Data Upload To TransUnion CRB");
         final AppUser currentUser = this.context.authenticatedUser();
@@ -274,6 +273,7 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
                         payload = convertConsumerCreditPayloadToJson(rwandaCorporateCreditData);
 
+                        validateCorporateCreditRecord(creditData);
                         String callbackId = postRwandaCorporateCreditToTransUnion(token, payload);
 
                         // success
@@ -381,6 +381,31 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
             return "CRB posting skipped because " + detail;
         }
         return "Loan " + accountNumber + " cannot be posted to CRB because " + detail;
+    }
+
+    void validateCorporateCreditRecord(TransUnionRwandaCorporateCreditData creditData) {
+        final String indicator = Objects.toString(creditData.getCurrentBalanceIndicator(), "");
+        final int daysInArrears = Objects.requireNonNullElse(creditData.getDaysInArrears(), 0);
+
+        if (!DEFAULT_BALANCE_INDICATOR.equals(indicator) || daysInArrears > MAX_DAYS_IN_ARREARS_FOR_CURRENT_INDICATOR) {
+            return;
+        }
+
+        final String loanReference = Objects.toString(creditData.getAccountNumber(), String.valueOf(creditData.getLoanId()));
+        final String message = String.format(
+                "Corporate CRB submission blocked before sending for Loan %s. Invalid Current Balance Indicator / Days in Arrears combination: indicator '%s' requires days in arrears greater than %d, but the payload has %d. Review the corporate CRB mapping and source arrears data before retrying.",
+                loanReference,
+                indicator,
+                MAX_DAYS_IN_ARREARS_FOR_CURRENT_INDICATOR,
+                daysInArrears
+        );
+
+        throw new CrbPreSubmissionValidationException(
+                loanReference,
+                "Current Balance Indicator / Days in Arrears",
+                indicator + " / " + daysInArrears,
+                message
+        );
     }
 
 

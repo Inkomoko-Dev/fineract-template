@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.accounting.provisioning.domain;
 
-
 public enum ProvisioningClassificationType {
     PROVISION_BUCKET,
     WRITTEN_OFF_PORTFOLIO

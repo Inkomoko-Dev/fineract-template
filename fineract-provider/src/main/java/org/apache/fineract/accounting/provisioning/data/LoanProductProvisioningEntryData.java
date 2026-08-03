@@ -18,10 +18,9 @@
  */
 package org.apache.fineract.accounting.provisioning.data;
 
-import lombok.Getter;
-
 import java.math.BigDecimal;
 import java.util.List;
+import lombok.Getter;
 
 @Getter
 public class LoanProductProvisioningEntryData {
@@ -33,7 +32,9 @@ public class LoanProductProvisioningEntryData {
     private final Long productId;
     private final String productName;
     private final Long categoryId;
+    private final String categoryCode;
     private final String categoryName;
+    private final String classificationType;
     private final Long overdueInDays;
     private final BigDecimal percentage;
     private final BigDecimal balance;
@@ -45,6 +46,8 @@ public class LoanProductProvisioningEntryData {
     private final String expenseAccountCode;
     private final String expenseAccountName;
     private final Long criteriaId;
+    private final Long criteriaVersionId;
+    private final Integer criteriaVersionNo;
     private final Long criteriaDefinitionId;
     private final Long loanId;
 
@@ -52,12 +55,22 @@ public class LoanProductProvisioningEntryData {
 
     public LoanProductProvisioningEntryData(final Long historyId, final Long officeId, final String currencyCode, final Long productId,
             final Long categoryId, final Long overdueInDays, final BigDecimal percentage, final BigDecimal balance, Long liablityAccount,
-            Long expenseAccount, final Long criteriaId, final Long criteriaDefinitionId, final Long loanId) {
+            Long expenseAccount, final Long criteriaId, final Long loanId) {
+        this(historyId, officeId, currencyCode, productId, categoryId, null, null, overdueInDays, percentage, balance, liablityAccount,
+                expenseAccount, criteriaId, null, null, loanId);
+    }
+
+    public LoanProductProvisioningEntryData(final Long historyId, final Long officeId, final String currencyCode, final Long productId,
+            final Long categoryId, final String categoryCode, final String classificationType, final Long overdueInDays,
+            final BigDecimal percentage, final BigDecimal balance, Long liablityAccount, Long expenseAccount, final Long criteriaId,
+            final Long criteriaVersionId, final Long criteriaDefinitionId, final Long loanId) {
         this.historyId = historyId;
         this.officeId = officeId;
         this.currencyCode = currencyCode;
         this.productId = productId;
         this.categoryId = categoryId;
+        this.categoryCode = categoryCode;
+        this.classificationType = classificationType;
         this.overdueInDays = overdueInDays;
         this.percentage = percentage;
         this.balance = balance;
@@ -72,22 +85,39 @@ public class LoanProductProvisioningEntryData {
         this.expenseAccountCode = null;
         this.expenseAccountName = null;
         this.criteriaId = criteriaId;
+        this.criteriaVersionId = criteriaVersionId;
+        this.criteriaVersionNo = null;
+        this.criteriaDefinitionId = criteriaDefinitionId;
         this.loanId = loanId;
         this.loans = null;
-        this.criteriaDefinitionId = criteriaDefinitionId;
-
     }
 
     public LoanProductProvisioningEntryData(final Long historyId, final Long officeId, final String officeName, final String currencyCode,
-            final Long productId, final String productName, final Long categoryId, final String categoryName, final Long overdueInDays,
-            final BigDecimal amountreserved, Long liablityAccount, String liabilityAccountglCode, String liabilityAccountName,
-            Long expenseAccount, String expenseAccountglCode, String expenseAccountName, final Long criteriaId, final Long criteriaDefinitionId, final List<LoanData> loans) {
+            final Long productId, final String productName, final Long categoryId, final String categoryCode, final String categoryName,
+            final String classificationType, final Long overdueInDays, final BigDecimal amountreserved, Long liablityAccount,
+            String liabilityAccountglCode, String liabilityAccountName, Long expenseAccount, String expenseAccountglCode,
+            String expenseAccountName, final Long criteriaId, final Long criteriaVersionId, final Long criteriaDefinitionId,
+            final List<LoanData> loans) {
+        this(historyId, officeId, officeName, currencyCode, productId, productName, categoryId, categoryCode, categoryName,
+                classificationType, overdueInDays, amountreserved, liablityAccount, liabilityAccountglCode, liabilityAccountName,
+                expenseAccount, expenseAccountglCode, expenseAccountName, criteriaId, criteriaVersionId, null, criteriaDefinitionId,
+                loans);
+    }
+
+    public LoanProductProvisioningEntryData(final Long historyId, final Long officeId, final String officeName, final String currencyCode,
+            final Long productId, final String productName, final Long categoryId, final String categoryCode, final String categoryName,
+            final String classificationType, final Long overdueInDays, final BigDecimal amountreserved, Long liablityAccount,
+            String liabilityAccountglCode, String liabilityAccountName, Long expenseAccount, String expenseAccountglCode,
+            String expenseAccountName, final Long criteriaId, final Long criteriaVersionId, final Integer criteriaVersionNo,
+            final Long criteriaDefinitionId, final List<LoanData> loans) {
         this.historyId = historyId;
         this.officeId = officeId;
         this.currencyCode = currencyCode;
         this.productId = productId;
         this.categoryId = categoryId;
+        this.categoryCode = categoryCode;
         this.categoryName = categoryName;
+        this.classificationType = classificationType;
         this.overdueInDays = overdueInDays;
         this.percentage = null;
         this.balance = null;
@@ -101,6 +131,8 @@ public class LoanProductProvisioningEntryData {
         this.expenseAccountCode = expenseAccountglCode;
         this.expenseAccountName = expenseAccountName;
         this.criteriaId = criteriaId;
+        this.criteriaVersionId = criteriaVersionId;
+        this.criteriaVersionNo = criteriaVersionNo;
         this.criteriaDefinitionId = criteriaDefinitionId;
         this.loanId = null;
         this.loans = loans;

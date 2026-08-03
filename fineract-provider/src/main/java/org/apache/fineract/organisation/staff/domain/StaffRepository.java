@@ -23,6 +23,8 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
+
 public interface StaffRepository extends JpaRepository<Staff, Long>, JpaSpecificationExecutor<Staff> {
 
     String FIND_BY_OFFICE_QUERY = "select s from Staff s where s.id = :id AND s.office.id = :officeId";
@@ -32,5 +34,8 @@ public interface StaffRepository extends JpaRepository<Staff, Long>, JpaSpecific
      */
     @Query(FIND_BY_OFFICE_QUERY)
     Staff findByOffice(@Param("id") Long id, @Param("officeId") Long officeId);
+
+    @Query("select s from Staff s where s.mobileNo in :mobileNumbers")
+    List<Staff> findByMobileNumbers(@Param("mobileNumbers") List<String> mobileNumbers);
 
 }

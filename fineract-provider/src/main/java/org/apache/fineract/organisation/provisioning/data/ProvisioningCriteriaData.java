@@ -19,11 +19,15 @@
 package org.apache.fineract.organisation.provisioning.data;
 
 import java.io.Serializable;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+
+import lombok.Getter;
 import org.apache.fineract.accounting.glaccount.data.GLAccountData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 
+@Getter
 @SuppressWarnings("unused")
 public final class ProvisioningCriteriaData implements Comparable<ProvisioningCriteriaData>, Serializable {
 
@@ -33,56 +37,106 @@ public final class ProvisioningCriteriaData implements Comparable<ProvisioningCr
     private final Collection<LoanProductData> loanProducts;
     private Collection<LoanProductData> selectedLoanProducts;
     private final Collection<ProvisioningCriteriaDefinitionData> definitions;
+    private final Collection<ProvisioningCategoryData> categories;
     private final Collection<GLAccountData> glAccounts;
+    private final Long activeVersionId;
+    private final Integer versionNo;
+    private final LocalDate effectiveFrom;
+    private final String policyChangeReason;
+    private final Long effectiveForTodayVersionId;
+    private final Integer effectiveForTodayVersionNo;
+    private final LocalDate effectiveForTodayFrom;
+    private final String versionDisplayStatus;
+    private final Collection<ProvisioningCriteriaDefinitionData> effectiveDefinitions;
 
     private ProvisioningCriteriaData(final Long criteriaId, final String criteriaName, final Collection<LoanProductData> loanProducts,
-            Collection<ProvisioningCriteriaDefinitionData> definitions, Collection<GLAccountData> glAccounts, final String createdBy) {
+            Collection<ProvisioningCriteriaDefinitionData> definitions, Collection<ProvisioningCategoryData> categories,
+            Collection<GLAccountData> glAccounts, final String createdBy, final Long activeVersionId, final Integer versionNo,
+            final LocalDate effectiveFrom, final String policyChangeReason, final Long effectiveForTodayVersionId,
+            final Integer effectiveForTodayVersionNo, final LocalDate effectiveForTodayFrom, final String versionDisplayStatus,
+            final Collection<ProvisioningCriteriaDefinitionData> effectiveDefinitions) {
         this.criteriaId = criteriaId;
         this.criteriaName = criteriaName;
         this.loanProducts = loanProducts;
         this.definitions = definitions;
+        this.categories = categories;
         this.glAccounts = glAccounts;
         this.createdBy = createdBy;
+        this.activeVersionId = activeVersionId;
+        this.versionNo = versionNo;
+        this.effectiveFrom = effectiveFrom;
+        this.policyChangeReason = policyChangeReason;
+        this.effectiveForTodayVersionId = effectiveForTodayVersionId;
+        this.effectiveForTodayVersionNo = effectiveForTodayVersionNo;
+        this.effectiveForTodayFrom = effectiveForTodayFrom;
+        this.versionDisplayStatus = versionDisplayStatus;
+        this.effectiveDefinitions = effectiveDefinitions;
     }
 
     private ProvisioningCriteriaData(ProvisioningCriteriaData data, final Collection<LoanProductData> loanProducts,
-            Collection<GLAccountData> glAccounts) {
+            Collection<ProvisioningCategoryData> categories, Collection<GLAccountData> glAccounts) {
         this.criteriaId = data.criteriaId;
         this.criteriaName = data.criteriaName;
         this.selectedLoanProducts = data.loanProducts;
         this.loanProducts = loanProducts;
         this.loanProducts.removeAll(selectedLoanProducts);
         this.definitions = data.definitions;
+        this.categories = categories;
         this.glAccounts = glAccounts;
         this.createdBy = data.createdBy;
+        this.activeVersionId = data.activeVersionId;
+        this.versionNo = data.versionNo;
+        this.effectiveFrom = data.effectiveFrom;
+        this.policyChangeReason = data.policyChangeReason;
+        this.effectiveForTodayVersionId = data.effectiveForTodayVersionId;
+        this.effectiveForTodayVersionNo = data.effectiveForTodayVersionNo;
+        this.effectiveForTodayFrom = data.effectiveForTodayFrom;
+        this.versionDisplayStatus = data.versionDisplayStatus;
+        this.effectiveDefinitions = data.effectiveDefinitions;
     }
 
     public static ProvisioningCriteriaData toLookup(final Long criteriaId, final String criteriaName,
-            final Collection<LoanProductData> loanProducts, final List<ProvisioningCriteriaDefinitionData> definitions) {
+            final Collection<LoanProductData> loanProducts, final List<ProvisioningCriteriaDefinitionData> definitions,
+            final Long activeVersionId, final Integer versionNo, final LocalDate effectiveFrom, final String policyChangeReason,
+            final Long effectiveForTodayVersionId, final Integer effectiveForTodayVersionNo, final LocalDate effectiveForTodayFrom,
+            final String versionDisplayStatus, final Collection<ProvisioningCriteriaDefinitionData> effectiveDefinitions) {
         Collection<GLAccountData> glAccounts = null;
+        Collection<ProvisioningCategoryData> categories = null;
         String createdBy = null;
-        return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, glAccounts, createdBy);
+        return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, categories, glAccounts, createdBy,
+                activeVersionId, versionNo, effectiveFrom, policyChangeReason, effectiveForTodayVersionId, effectiveForTodayVersionNo,
+                effectiveForTodayFrom, versionDisplayStatus, effectiveDefinitions);
     }
 
     public static ProvisioningCriteriaData toLookup(final Long criteriaId, final String criteriaName, String createdBy) {
         Collection<GLAccountData> glAccounts = null;
         Collection<LoanProductData> loanProducts = null;
         List<ProvisioningCriteriaDefinitionData> definitions = null;
-        return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, glAccounts, createdBy);
+        Collection<ProvisioningCategoryData> categories = null;
+        Long activeVersionId = null;
+        Integer versionNo = null;
+        LocalDate effectiveFrom = null;
+        return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, categories, glAccounts, createdBy,
+                activeVersionId, versionNo, effectiveFrom, null, null, null, null, null, null);
     }
 
-    public static ProvisioningCriteriaData toTemplate(final Collection<ProvisioningCriteriaDefinitionData> definitions,
-            final Collection<LoanProductData> loanProducts, final Collection<GLAccountData> glAccounts) {
+    public static ProvisioningCriteriaData toTemplate(final Collection<ProvisioningCategoryData> categories,
+            final Collection<ProvisioningCriteriaDefinitionData> definitions, final Collection<LoanProductData> loanProducts,
+            final Collection<GLAccountData> glAccounts) {
         Long criteriaId = null;
         String criteriaName = null;
         String createdBy = null;
-        return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, glAccounts, createdBy);
+        Long activeVersionId = null;
+        Integer versionNo = null;
+        LocalDate effectiveFrom = null;
+        return new ProvisioningCriteriaData(criteriaId, criteriaName, loanProducts, definitions, categories, glAccounts, createdBy,
+                activeVersionId, versionNo, effectiveFrom, null, null, null, null, null, null);
     }
 
     public static ProvisioningCriteriaData toTemplate(final ProvisioningCriteriaData data,
-            final Collection<ProvisioningCriteriaDefinitionData> definitions, final Collection<LoanProductData> loanProducts,
+            final Collection<ProvisioningCategoryData> categories, final Collection<LoanProductData> loanProducts,
             final Collection<GLAccountData> glAccounts) {
-        return new ProvisioningCriteriaData(data, loanProducts, glAccounts);
+        return new ProvisioningCriteriaData(data, loanProducts, categories, glAccounts);
     }
 
     @Override

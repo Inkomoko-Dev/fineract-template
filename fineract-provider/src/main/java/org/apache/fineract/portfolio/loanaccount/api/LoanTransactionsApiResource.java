@@ -318,6 +318,8 @@ public class LoanTransactionsApiResource {
         final CommandWrapper commandRequest;
         if (is(commandParam, "reverseRecoveryPayment")) {
             commandRequest = builder.reverseRecoveryPaymentTransaction(loanId, transactionId).build();
+        } else if (is(commandParam, "editDisbursementCharge")) {
+            commandRequest = builder.editDisbursementChargeTransaction(loanId, transactionId).build();
         } else {
             commandRequest = builder.adjustTransaction(loanId, transactionId).build();
         }

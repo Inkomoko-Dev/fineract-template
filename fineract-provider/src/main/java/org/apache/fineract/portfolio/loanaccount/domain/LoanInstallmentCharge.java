@@ -91,11 +91,12 @@ public class LoanInstallmentCharge extends AbstractPersistableCustom implements 
     }
 
     public Money waive(final MonetaryCurrency currency) {
-        this.amountWaived = this.amountOutstanding;
+        final Money amountWaived = Money.of(currency, this.amountOutstanding);
+        this.amountWaived = getAmountWaived(currency).plus(amountWaived).getAmount();
         this.amountOutstanding = BigDecimal.ZERO;
         this.paid = false;
         this.waived = true;
-        return getAmountWaived(currency);
+        return amountWaived;
     }
 
     public Money getAmountWaived(final MonetaryCurrency currency) {
