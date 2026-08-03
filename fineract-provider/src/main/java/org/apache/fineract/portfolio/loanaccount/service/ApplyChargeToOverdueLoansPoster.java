@@ -84,12 +84,6 @@ public class ApplyChargeToOverdueLoansPoster implements Callable<Void> {
         if (!loanIds.isEmpty()) {
             final Collection<OverdueLoanScheduleData> overdueLoanScheduledInstallments = loanReadPlatformService
                     .retrieveAllLoansWithOverdueInstallments(penaltyWaitPeriodValue, backdatePenalties, loanIds);
-            for (OverdueLoanScheduleData overdueLoanScheduleData : overdueLoanScheduledInstallments) {
-                if (List.of(420389L, 423736L, 419911L, 420780L,
-                        420677L, 420779L, 413468L).contains(overdueLoanScheduleData.getLoanId())) {
-                    LOG.info("Loan ID {} installment {}", overdueLoanScheduleData.getLoanId(), overdueLoanScheduleData.getDueDate());
-                }
-            }
             Map<Long, List<OverdueLoanScheduleData>> groupedOverdueData = overdueLoanScheduledInstallments.stream()
                     .collect(Collectors.groupingBy(OverdueLoanScheduleData::getLoanId));
 
