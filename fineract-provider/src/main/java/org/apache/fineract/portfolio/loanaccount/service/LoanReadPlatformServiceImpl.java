@@ -2146,6 +2146,44 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     }
 
     @Override
+    public Collection<OverdueLoanScheduleData> retrieveAllLoansWithOverdueInstallments(
+            final Long penaltyWaitPeriod, final Boolean backdatePenalties, final Collection<Long> loanIds) {
+
+        if (loanIds == null || loanIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        final MusoniOverdueLoanScheduleMapper rm = new MusoniOverdueLoanScheduleMapper();
+        final String loanIdPlaceholders = String.join(",", Collections.nCopies(loanIds.size(), "?"));
+        final StringBuilder sqlBuilder = new StringBuilder(400);
+
+        sqlBuilder.append("select ").append(rm.schema())
+                .append(" where ")
+                .append(sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day"))
+                .append(" > ls.duedate ")
+                .append(" and ls.completed_derived <> true ")
+                .append(" and mc.charge_applies_to_enum = 1 ")
+                .append(" and ls.recalculated_interest_component <> true ")
+                .append(" and mc.charge_time_enum = 9 ")
+                .append(" and ml.loan_status_id = 300 ")
+                .append(" and ml.id in (").append(loanIdPlaceholders).append(") ");
+
+        final List<Object> parameters = new ArrayList<>();
+        parameters.add(penaltyWaitPeriod);
+        parameters.addAll(loanIds);
+
+        if (!backdatePenalties) {
+            sqlBuilder.append(" and ls.duedate >= ")
+                    .append(sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "(? + 1)", "day"));
+            parameters.add(penaltyWaitPeriod);
+        }
+
+        sqlBuilder.append(" order by ml.id asc, ls.installment asc");
+
+        return this.jdbcTemplate.query(sqlBuilder.toString(), rm, parameters.toArray());
+    }
+
+    @Override
     public List<Long> retrieveAllLoanIdsWithOverdueInstallments(final Long penaltyWaitPeriod, final Boolean backdatePenalties,
                                                                 Long maxLoanIdInList, int pageSize) {
         final MusoniOverdueLoanScheduleMapper rm = new MusoniOverdueLoanScheduleMapper();
