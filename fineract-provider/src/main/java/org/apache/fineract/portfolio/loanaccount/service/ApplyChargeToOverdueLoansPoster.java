@@ -83,18 +83,22 @@ public class ApplyChargeToOverdueLoansPoster implements Callable<Void> {
         int i = 0;
         if (!loanIds.isEmpty()) {
             final Collection<OverdueLoanScheduleData> overdueLoanScheduledInstallments = loanReadPlatformService
-                    .retrieveAllLoansWithOverdueInstallments(penaltyWaitPeriodValue, backdatePenalties, loanIds.get(0),
-                            loanIds.get(loanIds.size() - 1));
+                    .retrieveAllLoansWithOverdueInstallments(penaltyWaitPeriodValue, backdatePenalties, loanIds);
             Map<Long, List<OverdueLoanScheduleData>> groupedOverdueData = overdueLoanScheduledInstallments.stream()
                     .collect(Collectors.groupingBy(OverdueLoanScheduleData::getLoanId));
 
             List<Throwable> errors = new ArrayList<>();
             for (Long loanId : loanIds) {
                 LOG.info("Loan ID {}", loanId);
+                final Collection<OverdueLoanScheduleData> overdueData = groupedOverdueData.get(loanId);
+                if (overdueData == null || overdueData.isEmpty()) {
+                    LOG.warn("No overdue schedule data found for loan {}. Skipping it.", loanId);
+                    continue;
+                }
                 Integer numberOfRetries = 0;
                 while (numberOfRetries <= maxNumberOfRetries) {
                     try {
-                        this.loanWritePlatformService.applyOverdueChargesForLoan(loanId, groupedOverdueData.get(loanId));
+                        this.loanWritePlatformService.applyOverdueChargesForLoan(loanId, overdueData);
                         numberOfRetries = maxNumberOfRetries + 1;
                     } catch (CannotAcquireLockException | ObjectOptimisticLockingFailureException exception) {
                         LOG.info("Recalulate interest job has been retried {} time(s)", numberOfRetries);
