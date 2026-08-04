@@ -4039,6 +4039,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         ChangedTransactionDetail changedTransactionDetail = loanRepaymentScheduleTransactionProcessor.handleTransaction(
                 getDisbursementDate(), allNonContraTransactionsPostDisbursement, getCurrency(), getRepaymentScheduleInstallments(),
                 charges());
+        // CGLT-632: the reprocess reinstates the cancelled interest, so unwind its audit transaction too.
+        reconcileFutureInterestCancellation(writeOffTransaction, writeOffTransaction.getTransactionDate());
         updateLoanSummaryDerivedFields();
         return changedTransactionDetail;
     }
@@ -5248,6 +5250,15 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         Money total = Money.zero(getCurrency());
         for (final LoanRepaymentScheduleInstallment installment : getRepaymentScheduleInstallments()) {
             total = total.plus(installment.getCancellableFutureInterest(getCurrency(), asOfDate));
+        }
+        return total;
+    }
+
+    // CGLT-632: interest earned/recognised by asOfDate, i.e. the interest a write-off on that date would write off.
+    public Money getInterestRecognisedAsOf(final LocalDate asOfDate) {
+        Money total = Money.zero(getCurrency());
+        for (final LoanRepaymentScheduleInstallment installment : getRepaymentScheduleInstallments()) {
+            total = total.plus(installment.getInterestPayableOnEarlySettlement(getCurrency(), asOfDate));
         }
         return total;
     }

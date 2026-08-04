@@ -763,6 +763,24 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return interestDue;
     }
 
+    // CGLT-632: write off only interest earned by the write-off date; cancel the unearned remainder (no GL impact).
+    public Money writeOffOutstandingInterestAndCancelUnearned(final LocalDate writeOffDate, final MonetaryCurrency currency) {
+
+        final Money recognisedInterest = getInterestPayableOnEarlySettlement(currency, writeOffDate);
+        final Money cancellableInterest = getCancellableFutureInterest(currency, writeOffDate);
+
+        this.interestWrittenOff = defaultToNullIfZero(recognisedInterest.getAmount());
+
+        if (cancellableInterest.isGreaterThanZero()) {
+            this.interestCancelled = getInterestCancelled(currency).plus(cancellableInterest).getAmount();
+            this.interestCancelled = defaultToNullIfZero(this.interestCancelled);
+        }
+
+        checkIfRepaymentPeriodObligationsAreMet(writeOffDate, currency);
+
+        return recognisedInterest;
+    }
+
     public Money writeOffOutstandingFeeCharges(final LocalDate transactionDate, final MonetaryCurrency currency) {
         final Money feeChargesOutstanding = getFeeChargesOutstanding(currency);
         this.feeChargesWrittenOff = defaultToNullIfZero(feeChargesOutstanding.getAmount());
