@@ -156,6 +156,8 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanSc
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
@@ -2593,7 +2595,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     }
 
     @Override
-    public LoanTransactionData retrieveLoanWriteoffTemplate(final Long loanId) {
+    public LoanTransactionData retrieveLoanWriteoffTemplate(final Long loanId, final LocalDate writeOffDate) {
 
         final LoanAccountData loan = this.retrieveOne(loanId);
         final BigDecimal outstandingLoanBalance = null;
@@ -2601,11 +2603,35 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final BigDecimal unrecognizedIncomePortion = null;
         final List<CodeValueData> writeOffReasonOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(LoanApiConstants.WRITEOFFREASONS));
+
+        // CGLT-632: break the write-off down as at the selected date so the user sees what will actually be written
+        // off (principal + interest earned by then) versus cancelled (future unaccrued interest, no GL impact).
+        final LocalDate effectiveDate = writeOffDate == null ? DateUtils.getBusinessLocalDate() : writeOffDate;
+        final Loan loanAccount = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final BigDecimal recognisedInterest = loanAccount.getInterestRecognisedAsOf(effectiveDate).getAmount();
+        final BigDecimal futureInterestCancelled = loanAccount.getFutureInterestToCancelAsOf(effectiveDate).getAmount();
+        final BigDecimal principalOutstanding = loanAccount.getSummary().getTotalPrincipalOutstanding();
+        final BigDecimal feesOutstanding = loanAccount.getSummary().getTotalFeeChargesOutstanding();
+        final BigDecimal penaltiesOutstanding = loanAccount.getSummary().getTotalPenaltyChargesOutstanding();
+        final BigDecimal writeOffAmount = principalOutstanding.add(recognisedInterest).add(feesOutstanding).add(penaltiesOutstanding);
+
         LoanTransactionData loanTransactionData = new LoanTransactionData(null, null, null, transactionType, null, loan.currency(),
-                DateUtils.getBusinessLocalDate(), loan.getTotalOutstandingAmount(), loan.getNetDisbursalAmount(), null, null, null, null,
-                null, null, null, null, outstandingLoanBalance, unrecognizedIncomePortion, false, null);
+                effectiveDate, writeOffAmount, loan.getNetDisbursalAmount(), principalOutstanding, recognisedInterest, feesOutstanding,
+                penaltiesOutstanding, null, null, null, null, outstandingLoanBalance, unrecognizedIncomePortion, false, null);
         loanTransactionData.setWriteOffReasonOptions(writeOffReasonOptions);
+        loanTransactionData.setFutureInterestCancelled(futureInterestCancelled);
+        loanTransactionData.setProductBasis(productBasisOf(loanAccount.loanProduct()));
         return loanTransactionData;
+    }
+
+    private String productBasisOf(final LoanProduct loanProduct) {
+        if (loanProduct.isCashBasedAccountingEnabled()) {
+            return "Cash";
+        }
+        if (loanProduct.isAccrualBasedAccountingEnabled()) {
+            return "Accrual";
+        }
+        return "None";
     }
 
     @Override
