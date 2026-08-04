@@ -819,18 +819,21 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
     public void updateLoanTransactionToRepaymentScheduleMappings(final Collection<LoanTransactionToRepaymentScheduleMapping> mappings) {
         Collection<LoanTransactionToRepaymentScheduleMapping> retainMappings = new ArrayList<>();
         for (LoanTransactionToRepaymentScheduleMapping updatedrepaymentScheduleMapping : mappings) {
-            updateMapingDetail(retainMappings, updatedrepaymentScheduleMapping);
+            updateMappingDetail(retainMappings, updatedrepaymentScheduleMapping);
         }
         this.loanTransactionToRepaymentScheduleMappings.retainAll(retainMappings);
     }
 
-    private boolean updateMapingDetail(final Collection<LoanTransactionToRepaymentScheduleMapping> retainMappings,
+    private boolean updateMappingDetail(final Collection<LoanTransactionToRepaymentScheduleMapping> retainMappings,
             final LoanTransactionToRepaymentScheduleMapping updatedrepaymentScheduleMapping) {
         boolean isMappingUpdated = false;
         for (LoanTransactionToRepaymentScheduleMapping repaymentScheduleMapping : this.loanTransactionToRepaymentScheduleMappings) {
+            // CGLT-682: Match by primary key ID instead of dueDate to prevent incorrect installment matching
+            // when multiple installments have the same due date
             if (updatedrepaymentScheduleMapping.getLoanRepaymentScheduleInstallment().getId() != null
-                    && repaymentScheduleMapping.getLoanRepaymentScheduleInstallment().getDueDate()
-                            .equals(updatedrepaymentScheduleMapping.getLoanRepaymentScheduleInstallment().getDueDate())) {
+                    && repaymentScheduleMapping.getLoanRepaymentScheduleInstallment().getId() != null
+                    && repaymentScheduleMapping.getLoanRepaymentScheduleInstallment().getId()
+                            .equals(updatedrepaymentScheduleMapping.getLoanRepaymentScheduleInstallment().getId())) {
                 repaymentScheduleMapping.setComponents(updatedrepaymentScheduleMapping.getPrincipalPortion(),
                         updatedrepaymentScheduleMapping.getInterestPortion(), updatedrepaymentScheduleMapping.getFeeChargesPortion(),
                         updatedrepaymentScheduleMapping.getPenaltyChargesPortion());
