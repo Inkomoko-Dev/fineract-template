@@ -84,7 +84,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
-import org.apache.fineract.portfolio.loanaccount.service.KenyaCapitalDisbursementDefaultsService;
+import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
@@ -134,7 +134,7 @@ public class OdooServiceImpl implements OdooService {
     private final LoanReadPlatformService loanReadPlatformService;
     private final LoanTransactionRepository loanTransactionRepository;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
-    private final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
+    private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
     private ExecutorService genericExecutorService;
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
     private FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository;
@@ -144,7 +144,7 @@ public class OdooServiceImpl implements OdooService {
     public OdooServiceImpl(ClientRepositoryWrapper clientRepository, ConfigurationDomainService configurationDomainService,
             JournalEntryRepository journalEntryRepository, LoanReadPlatformService loanReadPlatformService,
             LoanTransactionRepository loanTransactionRepository, LoanRepositoryWrapper loanRepositoryWrapper,
-            KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService,
+            EntityDisbursementDefaultsService entityDisbursementDefaultsService,
             FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository,
             FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository,
             FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository) {
@@ -154,7 +154,7 @@ public class OdooServiceImpl implements OdooService {
         this.loanReadPlatformService = loanReadPlatformService;
         this.loanTransactionRepository = loanTransactionRepository;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
-        this.kenyaCapitalDisbursementDefaultsService = kenyaCapitalDisbursementDefaultsService;
+        this.entityDisbursementDefaultsService = entityDisbursementDefaultsService;
         this.failedClientCreationOnDataMigrationRepository = failedClientCreationOnDataMigrationRepository;
         this.failedLoanCreationOnDataMigrationRepository = failedLoanCreationOnDataMigrationRepository;
         this.failedLoanRepaymentOnDataMigrationRepository = failedLoanRepaymentOnDataMigrationRepository;
@@ -459,9 +459,9 @@ public class OdooServiceImpl implements OdooService {
                             break;
                         }
                     }
-                    // Override location with investments budget and send department for Kenya Capital.
+                    // Override location with investments budget and send department for configured entities.
                     // Celery/Odoo uses location as the budget analytic; without this override posts look unchanged.
-                    this.kenyaCapitalDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
+                    this.entityDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
                 }
             }
 

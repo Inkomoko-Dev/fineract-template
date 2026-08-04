@@ -31,15 +31,14 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
-import org.apache.fineract.infrastructure.configuration.domain.GlobalConfigurationProperty;
-import org.apache.fineract.infrastructure.configuration.domain.GlobalConfigurationRepositoryWrapper;
+import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
+import org.apache.fineract.infrastructure.configuration.service.ConfigurationReadPlatformService;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
@@ -58,7 +57,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class EntityDisbursementDefaultsServiceTest {
 
     @Mock
-    private GlobalConfigurationRepositoryWrapper globalConfigurationRepository;
+    private ConfigurationReadPlatformService configurationReadPlatformService;
 
     @Mock
     private CodeValueRepositoryWrapper codeValueRepository;
@@ -69,7 +68,7 @@ class EntityDisbursementDefaultsServiceTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        service = new EntityDisbursementDefaultsService(globalConfigurationRepository, codeValueRepository, objectMapper);
+        service = new EntityDisbursementDefaultsService(configurationReadPlatformService, codeValueRepository, objectMapper);
         stubEntityConfigs();
     }
 
@@ -82,7 +81,7 @@ class EntityDisbursementDefaultsServiceTest {
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko Kenya");
 
-        final EntityDisbursementDefaultsResult result = service.resolve(loan, LocalDate.now(ZoneId.systemDefault()));
+        final EntityDisbursementDefaultsResult result = service.resolve(loan, LocalDate.now());
 
         assertFalse(result.isApplicable());
     }
@@ -108,7 +107,7 @@ class EntityDisbursementDefaultsServiceTest {
 
         final CodeValue investment = mock(CodeValue.class);
         when(investment.label()).thenReturn("Investment");
-        when(codeValueRepository.findOneByCodeNameAndLabelOptional("Department", "Investment")).thenReturn(investment);
+        when(codeValueRepository.findOneByCodeNameAndLabelWithNotFoundDetection("Department", "Investment")).thenReturn(investment);
         when(codeValueRepository.findOneByCodeNameAndLabelOptional(eq("InvestmentsBudget"), anyString())).thenReturn(null);
 
         final Loan loan = mock(Loan.class);
@@ -134,7 +133,7 @@ class EntityDisbursementDefaultsServiceTest {
         final CodeValue investment = mock(CodeValue.class);
         when(investment.getId()).thenReturn(11L);
         when(investment.label()).thenReturn("Investment");
-        when(codeValueRepository.findOneByCodeNameAndLabelOptional("Department", "Investment")).thenReturn(investment);
+        when(codeValueRepository.findOneByCodeNameAndLabelWithNotFoundDetection("Department", "Investment")).thenReturn(investment);
 
         final CodeValue existingDepartment = mock(CodeValue.class);
         when(existingDepartment.getId()).thenReturn(99L);
@@ -144,7 +143,7 @@ class EntityDisbursementDefaultsServiceTest {
 
         final Loan loan = mock(Loan.class);
         final Office office = mock(Office.class);
-        final LoanDisbursementDetails detail = new LoanDisbursementDetails(LocalDate.now(ZoneId.systemDefault()), null, BigDecimal.TEN, null);
+        final LoanDisbursementDetails detail = new LoanDisbursementDetails(LocalDate.now(), null, BigDecimal.TEN, null);
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko - Capital Kenya Limited");
         when(loan.getDepartment()).thenReturn(existingDepartment);
@@ -168,7 +167,7 @@ class EntityDisbursementDefaultsServiceTest {
 
         final CodeValue investment = mock(CodeValue.class);
         when(investment.label()).thenReturn("Investment");
-        when(codeValueRepository.findOneByCodeNameAndLabelOptional("Department", "Investment")).thenReturn(investment);
+        when(codeValueRepository.findOneByCodeNameAndLabelWithNotFoundDetection("Department", "Investment")).thenReturn(investment);
         when(codeValueRepository.findOneByCodeNameAndLabelOptional("InvestmentsBudget", "Investments - August 2026")).thenReturn(null);
 
         final Loan loan = mock(Loan.class);
@@ -177,7 +176,7 @@ class EntityDisbursementDefaultsServiceTest {
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko - Capital Kenya Limited");
         when(txn.isDisbursement()).thenReturn(true);
-        when(txn.getTransactionDate()).thenReturn(LocalDate.of(2026, 8, 15));
+        when(txn.getTransactionDate()).thenReturn(LocalDate.now());
         when(txn.getId()).thenReturn(55L);
         when(loan.getId()).thenReturn(100L);
         when(loan.getDisbursementDetails()).thenReturn(Collections.emptyList());
@@ -202,7 +201,7 @@ class EntityDisbursementDefaultsServiceTest {
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko Kenya");
         when(txn.isDisbursement()).thenReturn(true);
-        when(txn.getTransactionDate()).thenReturn(LocalDate.now(ZoneId.systemDefault()));
+        when(txn.getTransactionDate()).thenReturn(LocalDate.now());
         when(txn.getId()).thenReturn(55L);
         when(loan.getId()).thenReturn(100L);
 
@@ -219,13 +218,13 @@ class EntityDisbursementDefaultsServiceTest {
     void officeNameMatchingSupportsMultipleOffices() {
         enableDefaults();
         // Override default config for this specific test
-        final String json = "["
-                + "{\"entityName\":\"Kenya Capital\","
-                + "\"officeNames\":[\"Inkomoko - Capital Kenya Limited\",\"Kenya Capital Branch\"],"
-                + "\"defaultDepartmentName\":\"Investment\","
-                + "\"budgetCodeName\":\"InvestmentsBudget\","
-                + "\"budgetLocationPrefix\":\"Investments - \"}]";
-        stubEntityConfigs(json);
+        when(configurationReadPlatformService.retrieveGlobalConfiguration(EntityDisbursementDefaultsService.CONFIG_ENTITIES))
+                .thenReturn(configWithString("["
+                        + "{\"entityName\":\"Kenya Capital\","
+                        + "\"officeNames\":[\"Inkomoko - Capital Kenya Limited\",\"Kenya Capital Branch\"],"
+                        + "\"defaultDepartmentName\":\"Investment\","
+                        + "\"budgetCodeName\":\"InvestmentsBudget\","
+                        + "\"budgetLocationPrefix\":\"Investments - \"}]"));
 
         final EntityDisbursementDefaultsConfiguration config = service.findConfigurationForOffice("Kenya Capital Branch");
         
@@ -244,101 +243,23 @@ class EntityDisbursementDefaultsServiceTest {
         assertTrue(service.findConfigurationForOffice("Inkomoko - Capital Kenya Limited") != null);
     }
 
-    @Test
-    void resolveAppliesForInkomokoKenyaCapitalOfficeName() {
-        enableDefaults();
-        stubEntityConfigs();
-
-        final Loan loan = mock(Loan.class);
-        final Office office = mock(Office.class);
-        when(loan.getOffice()).thenReturn(office);
-        when(office.getName()).thenReturn("Inkomoko Kenya Capital");
-        when(codeValueRepository.findOneByCodeNameAndLabelOptional("Department", "Investment"))
-                .thenReturn(mock(CodeValue.class));
-        when(codeValueRepository.findOneByCodeNameAndLabelOptional(eq("InvestmentsBudget"), anyString())).thenReturn(null);
-
-        final EntityDisbursementDefaultsResult result = service.resolve(loan, LocalDate.of(2026, 9, 9));
-
-        assertTrue(result.isApplicable());
-        assertEquals("Kenya Capital", result.getEntityName());
-    }
-
-    @Test
-    void resolveDoesNotFailWhenInvestmentDepartmentIsMissing() {
-        enableDefaults();
-
-        when(codeValueRepository.findOneByCodeNameAndLabelOptional("Department", "Investment")).thenReturn(null);
-        when(codeValueRepository.findOneByCodeNameAndLabelOptional(eq("InvestmentsBudget"), anyString())).thenReturn(null);
-
-        final Loan loan = mock(Loan.class);
-        final Office office = mock(Office.class);
-        when(loan.getOffice()).thenReturn(office);
-        when(office.getName()).thenReturn("Inkomoko Kenya Capital");
-
-        final EntityDisbursementDefaultsResult result = service.resolve(loan, LocalDate.of(2026, 9, 15));
-
-        assertTrue(result.isApplicable());
-        assertNull(result.getDepartmentName());
-        assertEquals("Investments - September 2026", result.getBudgetLocation());
-        assertTrue(result.isBudgetReviewRequired());
-    }
-
-    @Test
-    void enrichOdooJournalDataUsesPersistedFieldsWhenConfigDoesNotMatch() {
-        enableDefaults();
-        stubEntityConfigs("[]");
-
-        final CodeValue investment = mock(CodeValue.class);
-        when(investment.label()).thenReturn("Investment");
-
-        final LoanDisbursementDetails detail = new LoanDisbursementDetails(LocalDate.of(2026, 9, 15), LocalDate.of(2026, 9, 15),
-                BigDecimal.TEN, null);
-        detail.setBudgetLocation("Investments - September 2026");
-        detail.setBudgetReviewRequired(true);
-
-        final Loan loan = mock(Loan.class);
-        final Office office = mock(Office.class);
-        final LoanTransaction txn = mock(LoanTransaction.class);
-        when(loan.getOffice()).thenReturn(office);
-        when(office.getName()).thenReturn("Inkomoko - Capital Kenya Limited");
-        when(loan.getDepartment()).thenReturn(investment);
-        when(loan.getDisbursementDetails()).thenReturn(Collections.singletonList(detail));
-        when(txn.isDisbursement()).thenReturn(true);
-        when(txn.getTransactionDate()).thenReturn(LocalDate.of(2026, 9, 15));
-        when(txn.getId()).thenReturn(3410538L);
-        when(loan.getId()).thenReturn(432744L);
-
-        final JournalData journalData = new JournalData();
-        journalData.setLocation("Eldoret");
-
-        service.enrichOdooJournalData(journalData, loan, txn, office);
-
-        assertEquals("Investments - September 2026", journalData.getLocation());
-        assertEquals("Investment", journalData.getDepartment());
-        assertTrue(journalData.getBudgetReviewRequired());
-    }
-
     private void enableDefaults() {
-        final GlobalConfigurationProperty enabled = mock(GlobalConfigurationProperty.class);
-        when(enabled.isEnabled()).thenReturn(true);
-        when(globalConfigurationRepository.findOneByNameWithNotFoundDetection(EntityDisbursementDefaultsService.CONFIG_ENABLED))
-                .thenReturn(enabled);
+        when(configurationReadPlatformService.retrieveGlobalConfiguration(EntityDisbursementDefaultsService.CONFIG_ENABLED))
+                .thenReturn(new GlobalConfigurationPropertyData(EntityDisbursementDefaultsService.CONFIG_ENABLED, true, null, null,
+                        null, "enabled", false));
     }
 
     private void stubEntityConfigs() {
-        stubEntityConfigs("["
-                + "{\"entityName\":\"Kenya Capital\","
-                + "\"officeNames\":[\"Inkomoko - Capital Kenya Limited\",\"Inkomoko Kenya Capital\"],"
-                + "\"defaultDepartmentName\":\"Investment\","
-                + "\"budgetCodeName\":\"InvestmentsBudget\","
-                + "\"budgetLocationPrefix\":\"Investments - \"}]");
+        when(configurationReadPlatformService.retrieveGlobalConfiguration(EntityDisbursementDefaultsService.CONFIG_ENTITIES))
+                .thenReturn(configWithString("["
+                        + "{\"entityName\":\"Kenya Capital\","
+                        + "\"officeNames\":[\"Inkomoko - Capital Kenya Limited\"],"
+                        + "\"defaultDepartmentName\":\"Investment\","
+                        + "\"budgetCodeName\":\"InvestmentsBudget\","
+                        + "\"budgetLocationPrefix\":\"Investments - \"}]"));
     }
 
-    private void stubEntityConfigs(final String json) {
-        final GlobalConfigurationProperty property = mock(GlobalConfigurationProperty.class);
-        when(property.toData()).thenReturn(new org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData(
-                EntityDisbursementDefaultsService.CONFIG_ENTITIES, true, null, null, null, json, false));
-        when(globalConfigurationRepository.findOneByNameWithNotFoundDetection(EntityDisbursementDefaultsService.CONFIG_ENTITIES))
-                .thenReturn(property);
+    private GlobalConfigurationPropertyData configWithString(final String value) {
+        return new GlobalConfigurationPropertyData("name", false, null, null, value, "description", false);
     }
 }

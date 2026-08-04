@@ -35,7 +35,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnData
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
-import org.apache.fineract.portfolio.loanaccount.service.KenyaCapitalDisbursementDefaultsService;
+import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,7 +68,7 @@ public class OdooServiceImplTest {
     private LoanRepositoryWrapper loanRepositoryWrapper;
 
     @Mock
-    private KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
+    private EntityDisbursementDefaultsService entityDisbursementDefaultsService;
 
     @Mock
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
