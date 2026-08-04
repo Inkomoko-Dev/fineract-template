@@ -804,6 +804,31 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder historicalWaiveLoanCharge(final Long loanId, final Long loanChargeId) {
+        this.actionName = "HISTORICALWAIVE";
+        this.entityName = "LOANCHARGE";
+        this.loanId = loanId;
+        this.entityId = loanChargeId;
+        this.href = "/loans/" + loanId + "/charges/" + loanChargeId;
+        return this;
+    }
+
+    public CommandWrapperBuilder approveHistoricalPenaltyWaiver(final Long waiverId) {
+        this.actionName = "APPROVE";
+        this.entityName = "HISTORICALPENALTYWAIVER";
+        this.entityId = waiverId;
+        this.href = "/loans/historicalpenaltywaivers/" + waiverId;
+        return this;
+    }
+
+    public CommandWrapperBuilder rejectHistoricalPenaltyWaiver(final Long waiverId) {
+        this.actionName = "REJECT";
+        this.entityName = "HISTORICALPENALTYWAIVER";
+        this.entityId = waiverId;
+        this.href = "/loans/historicalpenaltywaivers/" + waiverId;
+        return this;
+    }
+
     public CommandWrapperBuilder deleteLoanCharge(final Long loanId, final Long loanChargeId) {
         this.actionName = "DELETE";
         this.entityName = "LOANCHARGE";
