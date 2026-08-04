@@ -57,6 +57,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursementRequestException;
+import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
 import org.apache.fineract.portfolio.note.domain.Note;
@@ -92,7 +93,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
     private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
 
-    private final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
+    private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
 
     private OkHttpClient client = new OkHttpClient();
     private Gson gson = new Gson();
@@ -173,12 +174,12 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         final String location = clientAddressRepositoryWrapper.findAddressesForClient(loan.getClient().getId()).stream().findFirst()
                 .map(address -> address.getAddress().getLocation()).orElse("N/A");
         String resolvedLocation = location;
-        if (this.kenyaCapitalDisbursementDefaultsService.isKenyaCapitalLoan(loan)) {
-            final LocalDate disbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        final LocalDate disbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        if (this.entityDisbursementDefaultsService.resolve(loan, disbursementDate).isApplicable()) {
             if (disbursementDetail != null && StringUtils.isNotBlank(disbursementDetail.getBudgetLocation())) {
                 resolvedLocation = disbursementDetail.getBudgetLocation();
             } else {
-                resolvedLocation = this.kenyaCapitalDisbursementDefaultsService.resolve(loan, disbursementDate).getBudgetLocation();
+                resolvedLocation = this.entityDisbursementDefaultsService.resolve(loan, disbursementDate).getBudgetLocation();
             }
         }
 

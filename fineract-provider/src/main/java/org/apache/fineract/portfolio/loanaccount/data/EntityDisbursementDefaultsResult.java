@@ -21,29 +21,34 @@ package org.apache.fineract.portfolio.loanaccount.data;
 import lombok.Getter;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 
+/**
+ * Generic result for entity-specific disbursement defaults.
+ */
 @Getter
-public class KenyaCapitalDisbursementDefaultsResult {
+public class EntityDisbursementDefaultsResult {
 
-    private final boolean kenyaCapital;
+    private final boolean applicable;
+    private final String entityName;
     private final CodeValue department;
     private final String budgetLocation;
     private final boolean budgetReviewRequired;
 
-    private KenyaCapitalDisbursementDefaultsResult(final boolean kenyaCapital, final CodeValue department, final String budgetLocation,
-            final boolean budgetReviewRequired) {
-        this.kenyaCapital = kenyaCapital;
+    private EntityDisbursementDefaultsResult(final boolean applicable, final String entityName, final CodeValue department,
+            final String budgetLocation, final boolean budgetReviewRequired) {
+        this.applicable = applicable;
+        this.entityName = entityName;
         this.department = department;
         this.budgetLocation = budgetLocation;
         this.budgetReviewRequired = budgetReviewRequired;
     }
 
-    public static KenyaCapitalDisbursementDefaultsResult notApplicable() {
-        return new KenyaCapitalDisbursementDefaultsResult(false, null, null, false);
+    public static EntityDisbursementDefaultsResult notApplicable() {
+        return new EntityDisbursementDefaultsResult(false, null, null, null, false);
     }
 
-    public static KenyaCapitalDisbursementDefaultsResult applicable(final CodeValue department, final String budgetLocation,
-            final boolean budgetReviewRequired) {
-        return new KenyaCapitalDisbursementDefaultsResult(true, department, budgetLocation, budgetReviewRequired);
+    public static EntityDisbursementDefaultsResult applicable(final String entityName, final CodeValue department,
+            final String budgetLocation, final boolean budgetReviewRequired) {
+        return new EntityDisbursementDefaultsResult(true, entityName, department, budgetLocation, budgetReviewRequired);
     }
 
     public Long getDepartmentId() {
