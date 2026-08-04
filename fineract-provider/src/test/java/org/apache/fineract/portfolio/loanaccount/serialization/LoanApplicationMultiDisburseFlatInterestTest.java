@@ -49,7 +49,7 @@ public class LoanApplicationMultiDisburseFlatInterestTest {
     private static final int DECLINING_BALANCE = 0;
 
     private final LoanApplicationCommandFromApiJsonHelper helper = new LoanApplicationCommandFromApiJsonHelper(new FromJsonHelper(), null,
-            null);
+            null, null);
 
     private String multiDisburseJson(final int interestType) {
         return "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"interestType\":" + interestType + ","
