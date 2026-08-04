@@ -488,7 +488,9 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
 
             if (currentInstallment.isNotFullyPaidOff()) {
                 principalPortion = principalPortion.plus(currentInstallment.writeOffOutstandingPrincipal(transactionDate, currency));
-                interestPortion = interestPortion.plus(currentInstallment.writeOffOutstandingInterest(transactionDate, currency));
+                // CGLT-632: written off here so a replayed write-off reproduces the same split.
+                interestPortion = interestPortion
+                        .plus(currentInstallment.writeOffOutstandingInterestAndCancelUnearned(transactionDate, currency));
                 feeChargesPortion = feeChargesPortion.plus(currentInstallment.writeOffOutstandingFeeCharges(transactionDate, currency));
                 penaltychargesPortion = penaltychargesPortion
                         .plus(currentInstallment.writeOffOutstandingPenaltyCharges(transactionDate, currency));
