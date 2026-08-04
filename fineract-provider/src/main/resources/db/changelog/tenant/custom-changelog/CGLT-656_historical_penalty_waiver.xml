@@ -25,7 +25,7 @@
                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
     <!-- Request, approval record, audit trail and status machine for a historical penalty waiver, in one row. -->
-    <changeSet id="CGLT-656_create_m_loan_historical_penalty_waiver" author="willy">
+    <changeSet id="CGLT-656_create_m_loan_historical_penalty_waiver" author="wilfredn@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <not>
                 <tableExists tableName="m_loan_historical_penalty_waiver"/>
@@ -106,7 +106,7 @@
         </createTable>
     </changeSet>
 
-    <changeSet id="CGLT-656_index_m_loan_historical_penalty_waiver" author="willy">
+    <changeSet id="CGLT-656_index_m_loan_historical_penalty_waiver" author="wilfredn@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <not>
                 <indexExists indexName="idx_hpw_loan"/>
@@ -129,7 +129,7 @@
     </changeSet>
 
     <!-- The transactions each correction touched. Makes the Odoo completion sweep a join rather than a text search. -->
-    <changeSet id="CGLT-656_create_m_loan_historical_penalty_waiver_txn" author="willy">
+    <changeSet id="CGLT-656_create_m_loan_historical_penalty_waiver_txn" author="wilfredn@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <not>
                 <tableExists tableName="m_loan_historical_penalty_waiver_txn"/>
@@ -171,7 +171,7 @@
         Product-scoped approvers. Fineract permissions are role and office scoped with no product dimension, so this
         mapping is the only way to restrict who may approve a correction on a given loan product.
     -->
-    <changeSet id="CGLT-656_create_m_historical_correction_product_approver" author="willy">
+    <changeSet id="CGLT-656_create_m_historical_correction_product_approver" author="wilfredn@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <not>
                 <tableExists tableName="m_historical_correction_product_approver"/>
@@ -192,7 +192,7 @@
                              columnNames="loan_product_id, appuser_id" constraintName="uq_hcpa_product_user"/>
     </changeSet>
 
-    <changeSet id="CGLT-656_add_historical_penalty_waiver_permissions" author="willy">
+    <changeSet id="CGLT-656_add_historical_penalty_waiver_permissions" author="wilfredn@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM m_permission WHERE code = 'HISTORICALWAIVE_LOANCHARGE'
@@ -243,7 +243,7 @@
         </insert>
     </changeSet>
 
-    <changeSet id="CGLT-656_add_historical_penalty_waiver_configuration" author="willy">
+    <changeSet id="CGLT-656_add_historical_penalty_waiver_configuration" author="wilfredn@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM c_configuration WHERE name = 'historical-penalty-waiver-approval-amount-threshold'
@@ -273,6 +273,36 @@
             <column name="is_trap_door" valueBoolean="false"/>
             <column name="description"
                     value="Hours a correction may sit awaiting approval before it is escalated to the parent office."/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="wilfredn@inkomoko.com" id="CGLT-656_add_escalate_pending_historical_corrections_job">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(1) FROM job WHERE name = 'Escalate Pending Historical Corrections'
+                </sqlCheck>
+            </not>
+        </preConditions>
+
+        <insert tableName="job">
+            <column name="name" value="Escalate Pending Historical Corrections"/>
+            <column name="display_name" value="Escalate Pending Historical Corrections"/>
+            <column name="cron_expression" value="0 30 6 1/1 * ? *"/>
+            <column name="create_time" value="now()"/>
+            <column name="task_priority" value="5"/>
+            <column name="group_name" value="null"/>
+            <column name="previous_run_start_time" value="null"/>
+            <column name="next_run_time" value="null"/>
+            <column name="job_key" value="Escalate Pending Historical Corrections _ DEFAULT"/>
+            <column name="initializing_errorlog" value="null"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="currently_running" valueBoolean="false"/>
+            <column name="updates_allowed" valueBoolean="true"/>
+            <column name="scheduler_group" value="1"/>
+            <column name="is_misfired" valueBoolean="false"/>
+            <column name="node_id" value="0"/>
+            <column name="is_mismatched_job" valueBoolean="false"/>
         </insert>
     </changeSet>
 

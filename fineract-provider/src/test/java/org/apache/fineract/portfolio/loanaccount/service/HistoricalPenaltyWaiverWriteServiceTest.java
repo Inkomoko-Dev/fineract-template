@@ -120,6 +120,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         private final JournalEntryWritePlatformService journalEntryWritePlatformService = mock(JournalEntryWritePlatformService.class);
         private final LoanRepositoryWrapper loanRepositoryWrapper = mock(LoanRepositoryWrapper.class);
         private final LoanRepaymentReminderRepository loanRepaymentReminderRepository = mock(LoanRepaymentReminderRepository.class);
+        private final HistoricalPenaltyWaiverNotificationService notificationService = mock(HistoricalPenaltyWaiverNotificationService.class);
 
         private final Loan loan = mock(Loan.class);
         private final LoanCharge penalty = mock(LoanCharge.class);
@@ -165,7 +166,8 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
             return new HistoricalPenaltyWaiverService(this.loanAssembler, this.loanChargeRepository, this.loanTransactionRepository,
                     this.waiverRepository, this.waiverTxnRepository, this.approverRepository, this.approvalPolicy, this.noteRepository,
                     this.businessEventNotifierService, this.loanChargeReadPlatformService, this.journalEntryWritePlatformService,
-                    this.applicationCurrencyRepository, this.loanRepositoryWrapper, this.loanRepaymentReminderRepository);
+                    this.applicationCurrencyRepository, this.loanRepositoryWrapper, this.loanRepaymentReminderRepository,
+                    this.notificationService);
         }
 
         private void requiresApproval(final boolean required) {

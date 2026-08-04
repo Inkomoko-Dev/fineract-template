@@ -96,6 +96,7 @@ public class HistoricalPenaltyWaiverService {
     private final ApplicationCurrencyRepositoryWrapper applicationCurrencyRepository;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
     private final LoanRepaymentReminderRepository loanRepaymentReminderRepository;
+    private final HistoricalPenaltyWaiverNotificationService notificationService;
 
     @Transactional
     public CommandProcessingResult submit(final Long loanId, final Long loanChargeId, final HistoricalPenaltyWaiverRequest request,
@@ -149,6 +150,7 @@ public class HistoricalPenaltyWaiverService {
         waiver.assignCorrectionReference();
 
         if (requirement.isRequired()) {
+            this.notificationService.notifyApprovalRequested(waiver);
             return resultFor(request.getCommandId(), loan, waiver);
         }
         return execute(waiver, loan, loanCharge, request.getCommandId());
@@ -167,7 +169,9 @@ public class HistoricalPenaltyWaiverService {
         final LoanCharge loanCharge = retrieveLoanChargeBy(waiver.getLoanId(), waiver.getLoanChargeId());
         validateWaivable(loan, loanCharge, loan.getCurrency());
 
-        return execute(waiver, loan, loanCharge, null);
+        final CommandProcessingResult result = execute(waiver, loan, loanCharge, null);
+        this.notificationService.notifyApproved(waiver);
+        return result;
     }
 
     @Transactional
@@ -184,6 +188,7 @@ public class HistoricalPenaltyWaiverService {
 
         waiver.markRejected(rejectedByUserId, rejectedOn, decisionReason);
         this.waiverRepository.save(waiver);
+        this.notificationService.notifyRejected(waiver);
 
         return new CommandProcessingResultBuilder().withEntityId(waiverId).withLoanId(waiver.getLoanId()).build();
     }
