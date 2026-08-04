@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Table;
+import lombok.Getter;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 
 /**
@@ -29,6 +30,7 @@ import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
  * rather than as text is what lets the Odoo completion sweep be a join.
  */
 @Entity
+@Getter
 @Table(name = "m_loan_historical_penalty_waiver_txn")
 public class LoanHistoricalPenaltyWaiverTxn extends AbstractPersistableCustom {
 
@@ -93,11 +95,4 @@ public class LoanHistoricalPenaltyWaiverTxn extends AbstractPersistableCustom {
         return row;
     }
 
-    public Long getLoanTransactionId() {
-        return this.loanTransactionId;
-    }
-
-    public String getTxnRole() {
-        return this.txnRole;
-    }
 }

@@ -26,6 +26,7 @@ import javax.persistence.Entity;
 import javax.persistence.EnumType;
 import javax.persistence.Enumerated;
 import javax.persistence.Table;
+import lombok.Getter;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 
 /**
@@ -34,6 +35,7 @@ import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
  * a rollback trick.
  */
 @Entity
+@Getter
 @Table(name = "m_loan_historical_penalty_waiver")
 public class LoanHistoricalPenaltyWaiver extends AbstractPersistableCustom {
 
@@ -288,67 +290,4 @@ public class LoanHistoricalPenaltyWaiver extends AbstractPersistableCustom {
         this.performedByRoles = roles;
     }
 
-    public Long getLoanId() {
-        return this.loanId;
-    }
-
-    public Long getLoanChargeId() {
-        return this.loanChargeId;
-    }
-
-    public Long getProductId() {
-        return this.productId;
-    }
-
-    public Long getOfficeId() {
-        return this.officeId;
-    }
-
-    public Long getNextApproverId() {
-        return this.nextApproverId;
-    }
-
-    public Long getSubmittedById() {
-        return this.submittedById;
-    }
-
-    public OffsetDateTime getSubmittedOnDate() {
-        return this.submittedOnDate;
-    }
-
-    public HistoricalPenaltyWaiverStatus getStatus() {
-        return this.status;
-    }
-
-    public String getCorrectionReference() {
-        return this.correctionReference;
-    }
-
-    public BigDecimal getWaiverAmount() {
-        return this.waiverAmount;
-    }
-
-    public LocalDate getWaiverEffectiveDate() {
-        return this.waiverEffectiveDate;
-    }
-
-    public Integer getInstallmentNumber() {
-        return this.installmentNumber;
-    }
-
-    public String getReason() {
-        return this.reason;
-    }
-
-    public boolean isRequiresApproval() {
-        return this.requiresApproval;
-    }
-
-    public String getApprovalTrigger() {
-        return this.approvalTrigger;
-    }
-
-    public LocalDate getChargeDueDate() {
-        return this.chargeDueDate;
-    }
 }
