@@ -505,6 +505,27 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
         return property.isEnabled();
     }
 
+    /** A disabled row switches the trigger off entirely, rather than meaning "threshold of zero". */
+    @Override
+    public Long retrieveHistoricalPenaltyWaiverApprovalAmountThreshold() {
+        return enabledConfigurationValue("historical-penalty-waiver-approval-amount-threshold");
+    }
+
+    @Override
+    public Long retrieveHistoricalPenaltyWaiverApprovalAgeDays() {
+        return enabledConfigurationValue("historical-penalty-waiver-approval-age-days");
+    }
+
+    @Override
+    public Long retrieveHistoricalPenaltyWaiverEscalationHours() {
+        return enabledConfigurationValue("historical-penalty-waiver-escalation-hours");
+    }
+
+    private Long enabledConfigurationValue(final String propertyName) {
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(propertyName);
+        return property.isEnabled() ? property.getValue() : null;
+    }
+
     @Override
     public boolean isPostTransferCorrectionsEnabled() {
         final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(POST_TRANSFER_CORRECTIONS_ENABLED);
