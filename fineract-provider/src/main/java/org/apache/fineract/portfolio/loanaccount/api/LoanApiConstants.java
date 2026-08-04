@@ -164,6 +164,12 @@ public interface LoanApiConstants {
     String expectedResidualAmountParamName = "expectedResidualAmount";
     String reasonParamName = "reason";
 
+    // historical penalty waiver (CGLT-656)
+    String waiverAmountParamName = "waiverAmount";
+    String waiverEffectiveDateParamName = "waiverEffectiveDate";
+    String expectedPaidAmountParamName = "expectedPaidAmount";
+    String nextApproverUserIdParamName = "nextApproverUserId";
+
     String canUseForTopup = "canUseForTopup";
     String clientActiveLoanOptions = "clientActiveLoanOptions";
     String isTopup = "isTopup";
