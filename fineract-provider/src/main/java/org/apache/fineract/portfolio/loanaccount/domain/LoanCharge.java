@@ -403,21 +403,14 @@ public class LoanCharge extends AbstractPersistableCustom {
     }
 
     /**
-     * Waives a caller-specified portion of the outstanding balance rather than the whole of it, for the historical
-     * penalty waiver (CGLT-656).
-     *
-     * <p>
-     * Differs from {@link #waive(MonetaryCurrency, Integer)} in one behaviourally important way: {@code waived} is set
-     * only when nothing remains outstanding. A charge that is partially waived therefore stays an ordinary payable
-     * charge with a reduced balance, and is not mistaken for a CGLT-624 residual penalty (which is detected as
-     * {@code isWaived() && amountOutstanding > 0}).
-     * </p>
+     * Waives part of the outstanding balance rather than all of it. Unlike {@link #waive(MonetaryCurrency, Integer)},
+     * {@code waived} is set only once nothing remains outstanding, so a partially waived charge is not mistaken for a
+     * CGLT-624 residual penalty ({@code isWaived() && amountOutstanding > 0}).
      */
     public Money waivePartially(final MonetaryCurrency currency, final Integer loanInstallmentNumber, final BigDecimal amountToWaive) {
 
         if (isInstalmentFee()) {
-            // Spreading a partial waiver across the individual LoanInstallmentCharge rows is a distinct allocation
-            // problem; the historical penalty waiver targets specified-due-date penalties only.
+            // Spreading a partial waiver across LoanInstallmentCharge rows is a separate allocation problem.
             throw partialWaiverError("error.msg.loan.charge.partial.waiver.not.supported.for.instalment.fee",
                     "A partial waiver is not supported for an instalment fee charge.", amountToWaive);
         }

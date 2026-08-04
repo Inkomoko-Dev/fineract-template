@@ -44,13 +44,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * Pins the amount arithmetic that the historical penalty waiver (CGLT-656) depends on.
- *
- * <p>
- * The feature rests on a single ordering: {@link LoanCharge#resetPaidAmount} frees the cash a repayment had allocated
- * to the charge (while preserving {@code amountWaived}), and only then does a waive have anything to act on. Without
- * the reset, {@link LoanCharge#waive} returns zero for a fully paid charge, because it waives the outstanding balance.
- * </p>
+ * Pins the arithmetic the historical penalty waiver depends on: {@link LoanCharge#resetPaidAmount} frees the cash a
+ * repayment allocated to the charge (preserving {@code amountWaived}), and only then does a waive have anything to act
+ * on.
  */
 public class LoanChargePartialWaiverTest {
 
@@ -103,9 +99,8 @@ public class LoanChargePartialWaiverTest {
         assertFalse(charge.isPaid());
         assertTrue(charge.isWaived());
 
-        // The transaction replay calls resetPaidAmount on every charge before re-processing repayments. Because it
-        // preserves amountWaived, the waived penalty must still have nothing outstanding - otherwise the freed cash
-        // would flow straight back onto it and the correction would be a no-op.
+        // The replay resets every charge before re-processing. If that resurrected a balance, the freed cash would
+        // flow straight back onto the waived penalty and the correction would be a no-op.
         charge.resetPaidAmount(KES);
 
         assertEquals(0, BigDecimal.ZERO.compareTo(charge.getAmountOutstanding(KES).getAmount()),
@@ -126,8 +121,7 @@ public class LoanChargePartialWaiverTest {
         assertEquals(0, BigDecimal.valueOf(4000).compareTo(charge.getAmountWaived(KES).getAmount()));
         assertEquals(0, BigDecimal.valueOf(6000).compareTo(charge.getAmountOutstanding(KES).getAmount()));
         assertFalse(charge.isPaid());
-        // Deliberately false: a partially waived charge must stay an ordinary payable charge, otherwise
-        // isResidualPenaltyWaiver (isWaived() && outstanding > 0) would misread it as a CGLT-624 residual.
+        // Otherwise isResidualPenaltyWaiver (isWaived() && outstanding > 0) would misread it as a CGLT-624 residual.
         assertFalse(charge.isWaived(), "a partially waived charge must not be flagged as waived");
 
         charge.resetPaidAmount(KES);
@@ -206,8 +200,7 @@ public class LoanChargePartialWaiverTest {
     }
 
     private LoanCharge instalmentFeeCharge() {
-        // An instalment-fee charge spreads itself across the schedule at construction time, which reads the loan's
-        // currency and installments.
+        // Spreading across the schedule at construction time reads the loan's currency and installments.
         final Loan loan = mock(Loan.class);
         when(loan.getCurrency()).thenReturn(KES);
         when(loan.getRepaymentScheduleInstallments()).thenReturn(java.util.Collections.emptyList());

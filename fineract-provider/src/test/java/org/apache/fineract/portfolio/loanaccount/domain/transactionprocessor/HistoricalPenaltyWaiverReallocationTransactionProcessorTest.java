@@ -63,15 +63,8 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * Proves the premise the whole historical penalty waiver (CGLT-656) rests on: once a paid penalty is reset and waived,
- * a full transaction replay reverses the repayment that had settled it and reallocates the freed cash to the remaining
- * obligations, without the user undoing any later repayment by hand.
- *
- * <p>
- * {@code Loan.waiveLoanCharge} already runs this replay for paid charges but discards the {@link
- * ChangedTransactionDetail} it returns ("TODO Vishwas ... getting the list of affected Transactions"). These tests pin
- * the engine behaviour that the new domain method will expose.
- * </p>
+ * Proves the premise the historical penalty waiver rests on: once a paid penalty is reset and waived, a full replay
+ * reverses the repayment that settled it and reallocates the freed cash, with no repayment undone by hand.
  */
 public class HistoricalPenaltyWaiverReallocationTransactionProcessorTest {
 
@@ -162,9 +155,8 @@ public class HistoricalPenaltyWaiverReallocationTransactionProcessorTest {
         // Nothing is allocated to the penalty anywhere across the surviving allocations.
         assertAmount("0.00", totalPenaltyAllocated(transactions, changed));
 
-        // The freed 5,000 is not lost: it moves wholesale onto the client's other obligations (principal, interest,
-        // fees) or emerges as surplus. This is the conservation identity the correction must satisfy, and it holds
-        // whatever allocation order the loan product is configured with.
+        // The freed 5,000 moves wholesale onto the other obligations or emerges as surplus - the conservation
+        // identity the correction must satisfy under any configured allocation order.
         assertAmount(nonPenaltyAllocatedBefore.add(new BigDecimal("5000.00")).toPlainString(),
                 totalNonPenaltyAllocated(transactions, changed));
 
@@ -204,9 +196,8 @@ public class HistoricalPenaltyWaiverReallocationTransactionProcessorTest {
     }
 
     /**
-     * Runs a replay and then does what the write service does with the result: persists each replacement transaction
-     * (here, simply giving it an identity) and drops the reversed originals it supersedes. Without this step a second
-     * replay would be handed transactions that are already reversed, and would allocate nothing.
+     * Replays, then does what the write service does with the result: gives each replacement an identity and drops the
+     * reversed originals. Without this a second replay would be handed already-reversed transactions.
      */
     private List<LoanTransaction> replayAndPersist(final AbstractLoanRepaymentScheduleTransactionProcessor processor,
             final List<LoanTransaction> transactions, final List<LoanRepaymentScheduleInstallment> installments,
@@ -235,7 +226,7 @@ public class HistoricalPenaltyWaiverReallocationTransactionProcessorTest {
         return total;
     }
 
-    /** Everything the client's money went to other than the penalty: principal, interest, fees and surplus. */
+    /** Everything the money went to other than the penalty: principal, interest, fees and surplus. */
     private BigDecimal totalNonPenaltyAllocated(final List<LoanTransaction> originals, final ChangedTransactionDetail changed) {
         BigDecimal total = BigDecimal.ZERO;
         for (final LoanTransaction survivor : survivingTransactions(originals, changed)) {
@@ -249,10 +240,7 @@ public class HistoricalPenaltyWaiverReallocationTransactionProcessorTest {
         return totalPenaltyAllocated(originals, changed).add(totalNonPenaltyAllocated(originals, changed));
     }
 
-    /**
-     * The replacement transactions carry the allocations; the reversed originals must be ignored so that amounts are
-     * not double counted.
-     */
+    /** Replacements carry the allocations; reversed originals must be ignored to avoid double counting. */
     private List<LoanTransaction> survivingTransactions(final List<LoanTransaction> originals, final ChangedTransactionDetail changed) {
         final List<LoanTransaction> surviving = new ArrayList<>();
         for (final LoanTransaction original : originals) {
@@ -290,7 +278,7 @@ public class HistoricalPenaltyWaiverReallocationTransactionProcessorTest {
     private LoanTransaction repayment(final Long id, final LocalDate date, final String amount) {
         final LoanTransaction transaction = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal(amount)), null, date,
                 null);
-        // The replay only produces reversal/replacement mappings for transactions that already exist.
+        // The replay only produces mappings for transactions that already exist.
         ReflectionTestUtils.setField(transaction, "id", id);
         return transaction;
     }

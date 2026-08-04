@@ -1159,6 +1159,120 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return waiveLoanChargeTransaction;
     }
 
+    /**
+     * Waives a penalty an earlier repayment already settled, reprocessing every dependent repayment in the same action.
+     * Unlike {@link #waiveLoanCharge}, the replay's {@link ChangedTransactionDetail} is returned rather than discarded,
+     * so the caller can persist the replacements and post the correcting journal entries.
+     *
+     * @param waiverAmount
+     *            portion to waive, or {@code null} for all of it
+     * @param effectiveDate
+     *            date to record the waiver on, or {@code null} to derive it as the ordinary waive path does
+     */
+    public HistoricalPenaltyWaiverResult waiveLoanChargeHistorically(final LoanCharge loanCharge, final Map<String, Object> changes,
+            final List<Long> existingTransactionIds, final List<Long> existingReversedTransactionIds, final Integer loanInstallmentNumber,
+            final BigDecimal waiverAmount, final LocalDate effectiveDate, final Money accruedCharge) {
+
+        // waive() acts on the outstanding balance, which is zero once a repayment has paid the charge. Releasing the
+        // paid amount first (this preserves amountWaived) is what gives both the waiver and the replay something to
+        // work with.
+        loanCharge.resetPaidAmount(loanCurrency());
+
+        final Money amountWaived = waiverAmount == null ? loanCharge.waive(loanCurrency(), loanInstallmentNumber)
+                : loanCharge.waivePartially(loanCurrency(), loanInstallmentNumber, waiverAmount);
+
+        changes.put("amount", amountWaived.getAmount());
+
+        final Money[] components = splitWaivedChargeIntoAccrualComponents(loanCharge, loanInstallmentNumber, amountWaived, accruedCharge);
+        final Money chargeComponent = components[0];
+        final Money unrecognizedIncome = components[1];
+
+        Money feeChargesWaived = chargeComponent;
+        Money penaltyChargesWaived = Money.zero(loanCurrency());
+        if (loanCharge.isPenaltyCharge()) {
+            penaltyChargesWaived = chargeComponent;
+            feeChargesWaived = Money.zero(loanCurrency());
+        }
+
+        final LocalDate transactionDate = effectiveDate != null ? effectiveDate
+                : deriveChargeWaiverTransactionDate(loanCharge, loanInstallmentNumber);
+
+        updateSummaryWithTotalFeeChargesDueAtDisbursement(deriveSumTotalOfChargesDueAtDisbursement());
+
+        // Snapshot before the replay reverses anything, so deriveAccountingBridgeData can tell reversals from new
+        // entries.
+        existingTransactionIds.addAll(findExistingTransactionIds());
+        existingReversedTransactionIds.addAll(findExistingReversedTransactionIds());
+
+        final LoanTransaction waiveLoanChargeTransaction = LoanTransaction.waiveLoanCharge(this, getOffice(), amountWaived, transactionDate,
+                feeChargesWaived, penaltyChargesWaived, unrecognizedIncome);
+        final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(waiveLoanChargeTransaction, loanCharge,
+                waiveLoanChargeTransaction.getAmount(getCurrency()).getAmount(), loanInstallmentNumber);
+        waiveLoanChargeTransaction.getLoanChargesPaid().add(loanChargePaidBy);
+        addLoanTransaction(waiveLoanChargeTransaction);
+
+        final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
+                .determineProcessor(this.transactionProcessingStrategy);
+        final List<LoanTransaction> allNonContraTransactionsPostDisbursement = retreiveListOfTransactionsPostDisbursement();
+        final ChangedTransactionDetail changedTransactionDetail = loanRepaymentScheduleTransactionProcessor.handleTransaction(
+                getDisbursementDate(), allNonContraTransactionsPostDisbursement, getCurrency(), getRepaymentScheduleInstallments(),
+                charges());
+
+        // As reprocessTransactions(): replacements must be visible to the summary calculation, but the caller
+        // persists them rather than this method adding them to the collection.
+        for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
+            mapEntry.getValue().updateLoan(this);
+        }
+        this.loanTransactions.addAll(changedTransactionDetail.getNewTransactionMappings().values());
+        updateLoanSummaryDerivedFields();
+        this.loanTransactions.removeAll(changedTransactionDetail.getNewTransactionMappings().values());
+
+        return new HistoricalPenaltyWaiverResult(waiveLoanChargeTransaction, changedTransactionDetail);
+    }
+
+    /**
+     * Splits a waived charge into the already-accrued receivable and the income never recognised, which decides how the
+     * waiver posts to the ledger.
+     *
+     * @return {charge component, unrecognized income}
+     */
+    private Money[] splitWaivedChargeIntoAccrualComponents(final LoanCharge loanCharge, final Integer loanInstallmentNumber,
+            final Money amountWaived, final Money accruedCharge) {
+
+        Money unrecognizedIncome = amountWaived.zero();
+        Money chargeComponent = amountWaived;
+        if (isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            Money receivableCharge;
+            if (loanInstallmentNumber != null) {
+                receivableCharge = accruedCharge
+                        .minus(loanCharge.getInstallmentLoanCharge(loanInstallmentNumber).getAmountPaid(getCurrency()));
+            } else {
+                receivableCharge = accruedCharge.minus(loanCharge.getAmountPaid(getCurrency()));
+            }
+            if (receivableCharge.isLessThanZero()) {
+                receivableCharge = amountWaived.zero();
+            }
+            if (amountWaived.isGreaterThan(receivableCharge)) {
+                chargeComponent = receivableCharge;
+                unrecognizedIncome = amountWaived.minus(receivableCharge);
+            }
+        }
+        return new Money[] { chargeComponent, unrecognizedIncome };
+    }
+
+    /** The date the ordinary waive path would record a charge waiver on. */
+    private LocalDate deriveChargeWaiverTransactionDate(final LoanCharge loanCharge, final Integer loanInstallmentNumber) {
+        if (loanCharge.isDueDateCharge()) {
+            if (loanCharge.getDueLocalDate().isAfter(DateUtils.getBusinessLocalDate())) {
+                return DateUtils.getBusinessLocalDate();
+            }
+            return loanCharge.getDueLocalDate();
+        } else if (loanCharge.isInstalmentFee()) {
+            return loanCharge.getInstallmentLoanCharge(loanInstallmentNumber).getRepaymentInstallment().getDueDate();
+        }
+        return getDisbursementDate();
+    }
+
     public Client client() {
         return this.client;
     }
