@@ -529,16 +529,18 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
             Long fundSource = loanDTO.getFundId();
 
 
+            // continue, not return: skipping one transaction must not abandon the rest of the batch. CGLT-656 posts
+            // a waiver alongside a reversal and a replacement for every repayment it reallocates.
             if(!Arrays.asList(new Long[]{1L, 2L, 4L, 5L, 6L, 8L, 9L, 10L, 19L, 26L, 27L}).contains(paymentTypeId.id()))
-                return; // not a transaction to post
+                continue; // not a transaction to post
 
             List<JournalEntry> journalEntries = glJournalEntryRepository.findJournalEntriesByLoanTransactionId("L" + transactionId);
 
             if (journalEntries.isEmpty())
-                return;
+                continue;
 
             if(Objects.equals(journalEntries.get(0).getCurrencyCode(), "ETB"))
-                return;
+                continue;
 
             JournalItemData journalItemData;
 
