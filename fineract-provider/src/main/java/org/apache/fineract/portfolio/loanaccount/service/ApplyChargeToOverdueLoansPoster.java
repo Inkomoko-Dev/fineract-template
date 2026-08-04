@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -44,6 +45,7 @@ public class ApplyChargeToOverdueLoansPoster implements Callable<Void> {
 
     private static final Logger LOG = LoggerFactory.getLogger(ApplyChargeToOverdueLoansPoster.class);
     private static final SecureRandom random = new SecureRandom();
+    private static final Set<Long> LOANS_TO_TRACE = Set.of(420389L, 423736L, 419911L, 420780L, 420677L, 420779L, 413468L);
     private List<Long> loanIds;
     private LoanWritePlatformService loanWritePlatformService;
     private ConfigurationDomainService configurationDomainService;
@@ -78,7 +80,8 @@ public class ApplyChargeToOverdueLoansPoster implements Callable<Void> {
         Integer maxNumberOfRetries = this.context.getTenantContext().getConnection().getMaxRetriesOnDeadlock();
         Integer maxIntervalBetweenRetries = this.context.getTenantContext().getConnection().getMaxIntervalBetweenRetries();
         final Long penaltyWaitPeriodValue = configurationDomainService.retrievePenaltyWaitPeriod();
-        final Boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();
+//        final Boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();
+        final Boolean backdatePenalties = true;
 
         int i = 0;
         if (!loanIds.isEmpty()) {
@@ -86,6 +89,15 @@ public class ApplyChargeToOverdueLoansPoster implements Callable<Void> {
                     .retrieveAllLoansWithOverdueInstallments(penaltyWaitPeriodValue, backdatePenalties, loanIds);
             Map<Long, List<OverdueLoanScheduleData>> groupedOverdueData = overdueLoanScheduledInstallments.stream()
                     .collect(Collectors.groupingBy(OverdueLoanScheduleData::getLoanId));
+
+            for (Long loanId : LOANS_TO_TRACE) {
+                if (loanIds.contains(loanId)) {
+                    final int detailCount = groupedOverdueData.getOrDefault(loanId, List.of()).size();
+                    LOG.info("Overdue penalty trace: loanId={}, selectedInBatch={}, detailRowsReturned={}, "
+                            + "penaltyWaitPeriod={}, backdatePenalties={}", loanId, true, detailCount,
+                            penaltyWaitPeriodValue, backdatePenalties);
+                }
+            }
 
             List<Throwable> errors = new ArrayList<>();
             for (Long loanId : loanIds) {
