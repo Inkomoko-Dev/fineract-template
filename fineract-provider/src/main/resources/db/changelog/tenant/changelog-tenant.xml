@@ -158,4 +158,5 @@
     <include file="parts/CGLT-527_standardize_bank_name_in_reports.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-588_kiva_posting_logger.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-658_future_interest_cancellation.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-653_migrate_to_generic_entity_disbursement_defaults.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
