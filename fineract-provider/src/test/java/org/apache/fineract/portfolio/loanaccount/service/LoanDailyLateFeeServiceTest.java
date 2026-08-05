@@ -34,6 +34,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
@@ -70,6 +71,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDailyLateFee;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDailyLateFeeRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
@@ -260,6 +262,81 @@ class LoanDailyLateFeeServiceTest {
 
         assertEquals(0, DISBURSED_PRINCIPAL.compareTo(totalDailyLateFees.setScale(2, MoneyHelper.getRoundingMode())),
                 "long-run accrual must stop exactly at the 5,000 disbursed-principal cap, but accrued " + totalDailyLateFees);
+    }
+
+    /**
+     * CGLT-658: a repayment can only ever hand out the installment roll-up, so if the charge row and its installment
+     * allocations disagree the residue is left on the charge, keeps it unpaid and blocks the loan from closing at zero
+     * outstanding. Every daily late fee must therefore be stored at currency precision and equal the sum of its
+     * allocations exactly.
+     */
+    @Test
+    void dailyLateFeeChargeAmountEqualsSumOfInstallmentAllocationsAtCurrencyPrecision() {
+        setUpMultiInstallmentLoanFixture(LocalDate.of(2031, 12, 31));
+
+        this.service.syncDailyLateFeesForLoan(LOAN_ID, LocalDate.of(2031, 12, 31));
+
+        final ArgumentCaptor<LoanCharge> chargeCaptor = ArgumentCaptor.forClass(LoanCharge.class);
+        verify(this.loanChargeRepository, atLeastOnce()).saveAndFlush(chargeCaptor.capture());
+        for (LoanCharge dailyLateFeeCharge : chargeCaptor.getAllValues()) {
+            assertTrue(dailyLateFeeCharge.amount().stripTrailingZeros().scale() <= 2,
+                    "daily late fee must be stored at currency precision, but was " + dailyLateFeeCharge.amount());
+            BigDecimal allocatedToInstallments = BigDecimal.ZERO;
+            for (LoanInstallmentCharge installmentCharge : dailyLateFeeCharge.installmentCharges()) {
+                assertTrue(installmentCharge.getAmount().stripTrailingZeros().scale() <= 2,
+                        "installment allocation must be at currency precision, but was " + installmentCharge.getAmount());
+                allocatedToInstallments = allocatedToInstallments.add(installmentCharge.getAmount());
+            }
+            assertEquals(0, dailyLateFeeCharge.amount().compareTo(allocatedToInstallments),
+                    "charge amount " + dailyLateFeeCharge.amount() + " must equal the installment roll-up "
+                            + allocatedToInstallments);
+        }
+    }
+
+    /**
+     * CGLT-658: the same invariant must hold even when the daily amounts arrive at a finer scale than the currency
+     * supports - that is the state of any environment still computing late fees at storage precision (6 dp on a 2 dp
+     * currency). The charge sink normalises, so no sub-cent residue can reach m_loan_charge.
+     */
+    @Test
+    void chargeCreationNormalisesSubCurrencyPrecisionAllocations() throws Exception {
+        setUpMultiInstallmentLoanFixture(LocalDate.of(2031, 12, 31));
+        final List<LoanRepaymentScheduleInstallment> installments = this.loan.getRepaymentScheduleInstallments();
+
+        final LoanCharge dailyLateFeeCharge = createDailyLateFeeCharge(new BigDecimal("107.526877"),
+                List.of(allocation(installments.get(0), new BigDecimal("55.555553")),
+                        allocation(installments.get(1), new BigDecimal("51.971324"))));
+
+        assertEquals(0, new BigDecimal("107.53").compareTo(dailyLateFeeCharge.amount()),
+                "charge must be rounded to currency precision, but was " + dailyLateFeeCharge.amount());
+        assertTrue(dailyLateFeeCharge.amount().stripTrailingZeros().scale() <= 2,
+                "charge must carry no sub-cent precision, but was " + dailyLateFeeCharge.amount());
+        BigDecimal allocatedToInstallments = BigDecimal.ZERO;
+        for (LoanInstallmentCharge installmentCharge : dailyLateFeeCharge.installmentCharges()) {
+            assertTrue(installmentCharge.getAmount().stripTrailingZeros().scale() <= 2,
+                    "installment allocation must be at currency precision, but was " + installmentCharge.getAmount());
+            allocatedToInstallments = allocatedToInstallments.add(installmentCharge.getAmount());
+        }
+        assertEquals(0, dailyLateFeeCharge.amount().compareTo(allocatedToInstallments),
+                "charge amount " + dailyLateFeeCharge.amount() + " must equal the installment roll-up " + allocatedToInstallments);
+    }
+
+    private LoanCharge createDailyLateFeeCharge(final BigDecimal dailyPenaltyAmount, final List<Object> installmentAllocations)
+            throws Exception {
+        final Method createCharge = LoanDailyLateFeeService.class.getDeclaredMethod("createDailyLateFeeCharge", Loan.class, Charge.class,
+                LocalDate.class, BigDecimal.class, List.class);
+        createCharge.setAccessible(true);
+        final Charge chargeDefinition = this.loan.getLoanProduct().getLoanProductCharges().get(0);
+        return (LoanCharge) createCharge.invoke(this.service, this.loan, chargeDefinition, LocalDate.of(2024, 2, 7), dailyPenaltyAmount,
+                installmentAllocations);
+    }
+
+    private Object allocation(final LoanRepaymentScheduleInstallment installment, final BigDecimal penaltyAmount) throws Exception {
+        final Class<?> allocationClass = Class
+                .forName("org.apache.fineract.portfolio.loanaccount.service.LoanDailyLateFeeService$DailyLateFeeInstallmentAllocation");
+        final Constructor<?> constructor = allocationClass.getDeclaredConstructor(LoanRepaymentScheduleInstallment.class, BigDecimal.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(installment, penaltyAmount);
     }
 
     private BigDecimal capturedTotalDailyLateFees() {

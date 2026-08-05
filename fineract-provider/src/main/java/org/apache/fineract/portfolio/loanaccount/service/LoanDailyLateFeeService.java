@@ -454,17 +454,36 @@ public class LoanDailyLateFeeService {
         }
     }
 
+    /**
+     * The charge row and its installment allocations must agree to the cent. A repayment can only ever hand out the
+     * installment roll-up, so any sub-cent difference is left behind on the charge, keeps it unpaid and blocks the loan
+     * from closing. Normalising here rather than at the caller keeps the invariant
+     * {@code charge.amount == sum(installment allocations)}, both at currency precision, regardless of the scale the
+     * daily amounts were computed at.
+     */
     private LoanCharge createDailyLateFeeCharge(final Loan loan, final Charge chargeDefinition, final LocalDate penaltyDate,
             final BigDecimal dailyPenaltyAmount, final List<DailyLateFeeInstallmentAllocation> installmentAllocations) {
-        final LoanCharge loanCharge = new LoanCharge(loan, chargeDefinition, BigDecimal.ZERO, dailyPenaltyAmount,
+        final int currencyScale = loan.getCurrency().getDigitsAfterDecimal();
+        final BigDecimal chargeAmount = dailyPenaltyAmount.setScale(currencyScale, MoneyHelper.getRoundingMode());
+        final LoanCharge loanCharge = new LoanCharge(loan, chargeDefinition, BigDecimal.ZERO, chargeAmount,
                 ChargeTimeType.OVERDUE_INSTALLMENT,
                 ChargeCalculationType.FLAT, penaltyDate, null, null, BigDecimal.ZERO);
         final List<LoanInstallmentCharge> installmentCharges = new ArrayList<>();
-        for (DailyLateFeeInstallmentAllocation allocation : installmentAllocations) {
-            final LoanInstallmentCharge installmentCharge = new LoanInstallmentCharge(allocation.penaltyAmount, loanCharge,
+        BigDecimal unallocatedAmount = chargeAmount;
+        for (int index = 0; index < installmentAllocations.size(); index++) {
+            final DailyLateFeeInstallmentAllocation allocation = installmentAllocations.get(index);
+            BigDecimal installmentPenaltyAmount = allocation.penaltyAmount.setScale(currencyScale, MoneyHelper.getRoundingMode());
+            if (index == installmentAllocations.size() - 1 || installmentPenaltyAmount.compareTo(unallocatedAmount) > 0) {
+                installmentPenaltyAmount = unallocatedAmount;
+            }
+            if (installmentPenaltyAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            final LoanInstallmentCharge installmentCharge = new LoanInstallmentCharge(installmentPenaltyAmount, loanCharge,
                     allocation.installment);
             installmentCharges.add(installmentCharge);
             allocation.installment.getInstallmentCharges().add(installmentCharge);
+            unallocatedAmount = unallocatedAmount.subtract(installmentPenaltyAmount);
         }
         loanCharge.addLoanInstallmentCharges(installmentCharges);
         return loanCharge;
@@ -598,12 +617,12 @@ public class LoanDailyLateFeeService {
                             installmentAllocations);
                     final boolean appliedOnBackDate = addCharge(loan, chargeDefinition, dailyLateFeeCharge);
                     upsertDailyLateFeeMetadata(loan, chargeDefinition, dailyLateFeeCharge, penaltyDate, overduePrincipalAmount,
-                            monthlyRate, dailyRate, penaltyAmount);
+                            monthlyRate, dailyRate, dailyLateFeeCharge.amount());
                     processingState.markChanged();
                     processingState.runInterestRecalculation = processingState.runInterestRecalculation || appliedOnBackDate;
                     processingState.includeRecalculateFrom(penaltyDate);
                     processingState.includeLastChargeDate(penaltyDate);
-                    cumulativePenaltyAmount = cumulativePenaltyAmount.add(penaltyAmount);
+                    cumulativePenaltyAmount = cumulativePenaltyAmount.add(dailyLateFeeCharge.amount());
                 }
             }
             applyPrincipalReductionsForDate(installmentStates, penaltyDate);
