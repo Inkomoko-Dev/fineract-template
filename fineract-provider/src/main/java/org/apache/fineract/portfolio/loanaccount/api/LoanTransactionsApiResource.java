@@ -152,7 +152,10 @@ public class LoanTransactionsApiResource {
         } else if (is(commandParam, "waiveinterest")) {
             transactionData = this.loanReadPlatformService.retrieveWaiveInterestDetails(loanId);
         } else if (is(commandParam, "writeoff")) {
-            transactionData = this.loanReadPlatformService.retrieveLoanWriteoffTemplate(loanId);
+            // CGLT-632: the breakdown must reflect the date the user picked, not the business date.
+            final LocalDate writeOffDate = transactionDateParam == null ? DateUtils.getBusinessLocalDate()
+                    : transactionDateParam.getDate("transactionDate", dateFormat, locale);
+            transactionData = this.loanReadPlatformService.retrieveLoanWriteoffTemplate(loanId, writeOffDate);
         } else if (is(commandParam, "payoff")) {
             transactionData = this.loanReadPlatformService.retrieveLoanPayoffTemplate(loanId);
         } else if (is(commandParam, "close-rescheduled")) {
