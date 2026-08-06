@@ -102,7 +102,7 @@ import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.CollectionData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
-import org.apache.fineract.portfolio.loanaccount.data.KenyaCapitalDisbursementDefaultsResult;
+import org.apache.fineract.portfolio.loanaccount.data.EntityDisbursementDefaultsResult;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApplicationTimelineData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
@@ -224,7 +224,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
     private final LoanApprovalMatrixRepository loanApprovalMatrixRepository;
     private final LoanDecisionRepository loanDecisionRepository;
-    private final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
+    private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
     private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
 
     @Autowired
@@ -251,7 +251,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                        @Lazy final LoanDecisionStateUtilService loanDecisionStateUtilService,
                                        final LoanApprovalMatrixRepository loanApprovalMatrixRepository,
                                        final LoanDecisionRepository loanDecisionRepository,
-                                       final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService,
+                                       final EntityDisbursementDefaultsService entityDisbursementDefaultsService,
                                        final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService) {
         this.context = context;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
@@ -290,7 +290,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.loanDecisionStateUtilService = loanDecisionStateUtilService;
         this.loanApprovalMatrixRepository = loanApprovalMatrixRepository;
         this.loanDecisionRepository = loanDecisionRepository;
-        this.kenyaCapitalDisbursementDefaultsService = kenyaCapitalDisbursementDefaultsService;
+        this.entityDisbursementDefaultsService = entityDisbursementDefaultsService;
         this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
     }
 
@@ -1005,15 +1005,16 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         final LocalDate templateDisbursementDate = loan.getExpectedDisbursedOnLocalDateForTemplate();
-        final KenyaCapitalDisbursementDefaultsResult kenyaCapitalDefaults = this.kenyaCapitalDisbursementDefaultsService
+        final EntityDisbursementDefaultsResult entityDefaults = this.entityDisbursementDefaultsService
                 .resolve(loan, templateDisbursementDate);
-        if (kenyaCapitalDefaults.isKenyaCapital()) {
+        if (entityDefaults.isApplicable()) {
+            // Field name kept for API compatibility but now represents any entity-specific disbursement defaults
             loanTransactionData.setKenyaCapitalDisbursementDefaults(true);
-            loanTransactionData.setDefaultDepartmentId(kenyaCapitalDefaults.getDepartmentId());
-            loanTransactionData.setDefaultDepartmentName(kenyaCapitalDefaults.getDepartmentName());
-            loanTransactionData.setDefaultBudgetLocation(kenyaCapitalDefaults.getBudgetLocation());
-            loanTransactionData.setBudgetReviewRequired(kenyaCapitalDefaults.isBudgetReviewRequired());
-            loanTransactionData.setBudgetLocation(kenyaCapitalDefaults.getBudgetLocation());
+            loanTransactionData.setDefaultDepartmentId(entityDefaults.getDepartmentId());
+            loanTransactionData.setDefaultDepartmentName(entityDefaults.getDepartmentName());
+            loanTransactionData.setDefaultBudgetLocation(entityDefaults.getBudgetLocation());
+            loanTransactionData.setBudgetReviewRequired(entityDefaults.isBudgetReviewRequired());
+            loanTransactionData.setBudgetLocation(entityDefaults.getBudgetLocation());
         }
 
         return loanTransactionData;

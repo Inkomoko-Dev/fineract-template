@@ -324,7 +324,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
     private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
     private final PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper;
-    private final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
+    private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -482,7 +482,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final Map<String, Object> changes = new LinkedHashMap<>();
 
-        this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command, changes);
+        this.entityDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command, changes);
 
         final PaymentDetail paymentDetail = this.paymentDetailWritePlatformService.createAndPersistPaymentDetail(command, changes);
         if (paymentDetail != null && paymentDetail.getPaymentType() != null && paymentDetail.getPaymentType().isCashPayment()) {
@@ -823,7 +823,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final Loan loan = this.loanAssembler.assembleFrom(singleLoanDisbursalCommand.getLoanId());
             final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
 
-            this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command, changes);
+            this.entityDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command, changes);
 
             // validate ActualDisbursement Date Against Expected Disbursement
             // Date
@@ -3882,10 +3882,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     public CommandProcessingResult disbursePreApproval(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
         this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
-        final LocalDate kenyaCapitalDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
-        final Map<String, Object> kenyaCapitalChanges = new LinkedHashMap<>();
-        this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, kenyaCapitalDisbursementDate, command,
-                kenyaCapitalChanges);
+        final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        final Map<String, Object> entityChanges = new LinkedHashMap<>();
+        this.entityDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command,
+                entityChanges);
         final AppUser currentUser = getAppUserIfPresent();
         this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
         
@@ -4022,9 +4022,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
         this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
         final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
-        final Map<String, Object> kenyaCapitalChanges = new LinkedHashMap<>();
-        this.kenyaCapitalDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command,
-                kenyaCapitalChanges);
+        final Map<String, Object> entityChanges = new LinkedHashMap<>();
+        this.entityDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command,
+                entityChanges);
         final AppUser currentUser = getAppUserIfPresent();
         this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
         if(!loan.isMultiDisburmentLoan()){
