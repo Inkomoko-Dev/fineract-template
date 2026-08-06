@@ -1731,14 +1731,14 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     public CommandProcessingResult partialWriteOff(final Long loanId, final JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
 
-        this.loanEventApiJsonValidator.validatePartialWriteOffTransaction(command.json());
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        
+        this.loanEventApiJsonValidator.validatePartialWriteOffTransactionForLoan(command.json(), loan);
 
         final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
         changes.put("locale", command.locale());
         changes.put("dateFormat", command.dateFormat());
-        
-        final Loan loan = this.loanAssembler.assembleFrom(loanId);
         
         // Extract write-off components
         final BigDecimal principalPortion = command.bigDecimalValueOfParameterNamed("principalPortion");
@@ -1790,6 +1790,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         
         // Capture loan balance after write-off
         final Money loanBalanceAfter = loan.getLoanSummary().getTotalOutstanding(loan.getCurrency());
+
+        // Verify loan status remains active after partial write-off
+        if (!loan.isActive() && !loan.isOverdue()) {
+            throw new GeneralPlatformDomainRuleException("error.loan.status.changed.after.partial.writeoff",
+                    "Loan status changed unexpectedly after partial write-off. Loan must remain active or overdue.");
+        }
 
         // Create audit record
         final PartialWriteOffAudit audit = PartialWriteOffAudit.create(loan, partialWriteOffTransaction, writeOffDate,

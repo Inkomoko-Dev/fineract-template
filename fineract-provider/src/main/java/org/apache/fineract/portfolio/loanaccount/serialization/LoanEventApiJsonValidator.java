@@ -385,6 +385,116 @@ public final class LoanEventApiJsonValidator {
                     "At least one write-off portion (principal, interest, fees, or penalties) must be provided");
         }
 
+        // Validate that total write-off amount is positive
+        final BigDecimal totalWriteOffAmount = (principalPortion != null ? principalPortion : BigDecimal.ZERO)
+                .add(interestPortion != null ? interestPortion : BigDecimal.ZERO)
+                .add(feeChargesPortion != null ? feeChargesPortion : BigDecimal.ZERO)
+                .add(penaltyChargesPortion != null ? penaltyChargesPortion : BigDecimal.ZERO);
+        
+        if (totalWriteOffAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            baseDataValidator.reset().parameter("totalWriteOffAmount").failWithCode("total.write.off.amount.must.be.positive",
+                    "Total write-off amount must be greater than zero");
+        }
+
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    public void validatePartialWriteOffTransactionForLoan(final String json, final Loan loan) {
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> partialWriteOffParameters = new HashSet<>(
+                Arrays.asList("transactionDate", "note", "locale", "dateFormat", "externalId",
+                        "principalPortion", "interestPortion", "feeChargesPortion", "penaltyChargesPortion", "reason"));
+
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, partialWriteOffParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
+
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed("transactionDate", element);
+        baseDataValidator.reset().parameter("transactionDate").value(transactionDate).notNull();
+
+        final String note = this.fromApiJsonHelper.extractStringNamed("note", element);
+        baseDataValidator.reset().parameter("note").value(note).ignoreIfNull().notExceedingLengthOf(1000);
+
+        final String reason = this.fromApiJsonHelper.extractStringNamed("reason", element);
+        baseDataValidator.reset().parameter("reason").value(reason).notNull().notExceedingLengthOf(500);
+
+        final Locale locale = this.fromApiJsonHelper.extractLocaleParameter(element.getAsJsonObject());
+
+        final BigDecimal principalPortion = this.fromApiJsonHelper.extractBigDecimalNamed("principalPortion", element, locale);
+        baseDataValidator.reset().parameter("principalPortion").value(principalPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal interestPortion = this.fromApiJsonHelper.extractBigDecimalNamed("interestPortion", element, locale);
+        baseDataValidator.reset().parameter("interestPortion").value(interestPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal feeChargesPortion = this.fromApiJsonHelper.extractBigDecimalNamed("feeChargesPortion", element, locale);
+        baseDataValidator.reset().parameter("feeChargesPortion").value(feeChargesPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal penaltyChargesPortion = this.fromApiJsonHelper.extractBigDecimalNamed("penaltyChargesPortion", element, locale);
+        baseDataValidator.reset().parameter("penaltyChargesPortion").value(penaltyChargesPortion).ignoreIfNull().positiveAmount();
+
+        // Validate that at least one portion is provided
+        if (principalPortion == null && interestPortion == null && feeChargesPortion == null && penaltyChargesPortion == null) {
+            baseDataValidator.reset().parameter("writeOffPortions").failWithCode("at.least.one.portion.required",
+                    "At least one write-off portion (principal, interest, fees, or penalties) must be provided");
+        }
+
+        // Validate loan status - only active loans can have partial write-offs
+        if (!loan.isActive() && !loan.isOverdue()) {
+            baseDataValidator.reset().parameter("loanStatus").failWithCode("loan.not.active",
+                    "Partial write-off can only be performed on active or overdue loans");
+        }
+
+        // Validate amounts don't exceed outstanding balance
+        final BigDecimal totalWriteOffAmount = (principalPortion != null ? principalPortion : BigDecimal.ZERO)
+                .add(interestPortion != null ? interestPortion : BigDecimal.ZERO)
+                .add(feeChargesPortion != null ? feeChargesPortion : BigDecimal.ZERO)
+                .add(penaltyChargesPortion != null ? penaltyChargesPortion : BigDecimal.ZERO);
+        
+        final BigDecimal outstandingBalance = loan.getLoanSummary().getTotalOutstanding(loan.getCurrency()).getAmount();
+        if (totalWriteOffAmount.compareTo(outstandingBalance) > 0) {
+            baseDataValidator.reset().parameter("totalWriteOffAmount").failWithCode("amount.exceeds.outstanding.balance",
+                    "Total write-off amount cannot exceed outstanding loan balance of " + outstandingBalance);
+        }
+
+        // Validate individual components don't exceed their respective outstanding amounts
+        if (principalPortion != null) {
+            final BigDecimal outstandingPrincipal = loan.getLoanSummary().getTotalPrincipalOutstanding(loan.getCurrency()).getAmount();
+            if (principalPortion.compareTo(outstandingPrincipal) > 0) {
+                baseDataValidator.reset().parameter("principalPortion").failWithCode("principal.exceeds.outstanding",
+                        "Principal write-off amount cannot exceed outstanding principal of " + outstandingPrincipal);
+            }
+        }
+
+        if (interestPortion != null) {
+            final BigDecimal outstandingInterest = loan.getLoanSummary().getTotalInterestOutstanding(loan.getCurrency()).getAmount();
+            if (interestPortion.compareTo(outstandingInterest) > 0) {
+                baseDataValidator.reset().parameter("interestPortion").failWithCode("interest.exceeds.outstanding",
+                        "Interest write-off amount cannot exceed outstanding interest of " + outstandingInterest);
+            }
+        }
+
+        if (feeChargesPortion != null) {
+            final BigDecimal outstandingFees = loan.getLoanSummary().getTotalFeeChargesOutstanding(loan.getCurrency()).getAmount();
+            if (feeChargesPortion.compareTo(outstandingFees) > 0) {
+                baseDataValidator.reset().parameter("feeChargesPortion").failWithCode("fees.exceeds.outstanding",
+                        "Fee charges write-off amount cannot exceed outstanding fees of " + outstandingFees);
+            }
+        }
+
+        if (penaltyChargesPortion != null) {
+            final BigDecimal outstandingPenalties = loan.getLoanSummary().getTotalPenaltyChargesOutstanding(loan.getCurrency()).getAmount();
+            if (penaltyChargesPortion.compareTo(outstandingPenalties) > 0) {
+                baseDataValidator.reset().parameter("penaltyChargesPortion").failWithCode("penalties.exceeds.outstanding",
+                        "Penalty charges write-off amount cannot exceed outstanding penalties of " + outstandingPenalties);
+            }
+        }
+
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
 

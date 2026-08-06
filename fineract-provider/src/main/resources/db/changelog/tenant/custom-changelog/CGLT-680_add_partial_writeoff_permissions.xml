@@ -30,8 +30,16 @@
             <column name="code" value="PARTIALWRITEOFF_LOAN"/>
             <column name="entity_name" value="LOAN"/>
             <column name="action_name" value="PARTIALWRITEOFF"/>
-            <column name="can_maker_checker" valueBoolean="false"/>
+            <column name="can_maker_checker" valueBoolean="true"/>
         </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-680-3" author="inkomoko">
+        <comment>Update partial write-off permission to enable maker-checker workflow</comment>
+        <update tableName="m_permission">
+            <column name="can_maker_checker" valueBoolean="true"/>
+            <where>code = 'PARTIALWRITEOFF_LOAN'</where>
+        </update>
     </changeSet>
 
 </databaseChangeLog>
