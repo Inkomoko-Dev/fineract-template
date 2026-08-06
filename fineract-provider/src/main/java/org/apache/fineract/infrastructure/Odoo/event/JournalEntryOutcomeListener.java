@@ -31,12 +31,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
-/**
- * Applies Odoo journal entry outcomes arriving on the outcome topic — the async replacement for the response body the
- * SYNC path applied inline. The payload is the same Odoo response shape updateJournalEntryWithOdooStatus already
- * parses, so a lost or failed outcome self-heals: the posting cron republishes the still-unposted transaction and Odoo
- * answers EXISTING with full journal details.
- */
+// async replacement for the response body the SYNC path applied inline; a lost outcome self-heals via the posting cron's retry
 @Service
 public class JournalEntryOutcomeListener {
 
@@ -77,9 +72,7 @@ public class JournalEntryOutcomeListener {
         }
 
         try {
-            // Kafka listener threads carry no tenant/business-date context; bootstrap it the
-            // same way scheduler job threads do. Repository audit fields fall back to the
-            // super user when no authentication is present (AuditorAwareImpl).
+            // Kafka listener threads carry no tenant/business-date context — bootstrap it like scheduler job threads do
             FineractPlatformTenant tenant = tenantDetailsService.loadTenantById(tenantIdentifier);
             ThreadLocalContextUtil.setTenant(tenant);
             ThreadLocalContextUtil.setBusinessDates(businessDateReadPlatformService.getBusinessDates());

@@ -381,8 +381,7 @@ public class OdooServiceImpl implements OdooService {
     }
 
     @Override
-    // no loginToOddo() gate here on purpose: this method never uses the XML-RPC session (unlike
-    // createCustomerToOddo/updateCustomerToOddo) — an Odoo outage must not block the Kafka publish in ASYNC mode
+    // unlike createCustomerToOddo/updateCustomerToOddo, no loginToOddo() gate — must not block the ASYNC Kafka publish
     public JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo, String location,Long fundSource)
             throws IOException, NoSuchAlgorithmException, KeyManagementException {
 
@@ -416,7 +415,6 @@ public class OdooServiceImpl implements OdooService {
             }
         }
 
-        // Create journal entry
         journalEntryToOdooData.setResourceId(loanTransactionId.toString());
 
         String ref = isReversed ? "Reversal of Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId :
@@ -457,7 +455,7 @@ public class OdooServiceImpl implements OdooService {
             journalData.setCurrencyCode(loan.getCurrencyCode());
             journalData.setExternalId(loanTransaction.getExternalId());
 
-            if (loanTransaction.isDisbursement()) { // Disbursement
+            if (loanTransaction.isDisbursement()) {
                 for (LoanDisbursementDetails disbursementDetail : loan.getDisbursementDetails()) {
                     if (disbursementDetail.getActualDisbursementDate() != null
                             && disbursementDetail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())
@@ -487,8 +485,7 @@ public class OdooServiceImpl implements OdooService {
         String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
         LOG.info("Journal Entry to Odoo JSON Payload " + jsonPayload);
         if (integrationLayerEnabled) {
-            // ASYNC: broker ack means queued; entries stay unposted until the outcome
-            // listener applies Odoo's response from the outcome topic
+            // ASYNC: entries stay unposted until the outcome listener applies Odoo's response
             if ("ASYNC".equalsIgnoreCase(integrationLayerDeliveryMode)) {
                 return publishJournalEntryEvent(loanTransactionId, jsonPayload);
             }
@@ -739,9 +736,7 @@ public class OdooServiceImpl implements OdooService {
         return response;
     }
 
-    // testing-only path (journalentries/postToOdooTest): identical flow to
-    // postJournalEntryToOddo but always bounded by limit, so a test run can
-    // never drain the whole unposted backlog
+    // testing-only: same flow as postJournalEntryToOddo, always bounded by limit
     @Override
     public JsonObject postJournalEntryToOddoTest(LocalDate fromDate, LocalDate toDate, Long officeId, String currency, Long transactionId, int limit) {
         Boolean isOdooEnabled = this.configurationDomainService.isOdooIntegrationEnabled();
@@ -876,9 +871,7 @@ public class OdooServiceImpl implements OdooService {
                     String message = getStringField(odooAck, "message");
                     if (success) {
                         if (integrationLayerEnabled) {
-                            // SYNC: entries were already updated from the synchronous Odoo response in
-                            // applyOdooStatus; re-saving these instances would overwrite that state.
-                            // ASYNC: entries stay unposted until the outcome listener applies the response.
+                            // SYNC already updated these entries via applyOdooStatus; don't re-save and overwrite that state
                             LOG.info("Journal entries for Loan Transaction Id " + loanTransactionId
                                     + (getBooleanField(odooAck, "queued") ? " queued to Kafka via integration layer"
                                             : " posted via integration layer"));

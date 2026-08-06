@@ -30,11 +30,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
-/**
- * Publishes journal entries to the integration platform's Kafka topic (deliveryMode ASYNC). The envelope mirrors the
- * integration-system EventEnvelope contract; the partition key is the resourceId (loan transaction id) so a create and
- * its reversal stay ordered on one partition.
- */
+// partition key is resourceId (loan transaction id) so a create and its reversal stay ordered on one partition
 @Service
 public class JournalEntryEventPublisher {
 
@@ -42,8 +38,7 @@ public class JournalEntryEventPublisher {
 
     private static final String EVENT_TYPE = "CBS_JOURNAL_ENTRY";
     private static final String SOURCE = "CBS";
-    // broker ack replaces the SYNC path's HTTP 200 as the durability point; kept just
-    // above delivery.timeout.ms so the broker-side timeout fires first
+    // kept just above delivery.timeout.ms so the broker-side timeout fires first
     private static final long SEND_TIMEOUT_SECONDS = 20;
 
     private final KafkaTemplate<Object, Object> kafkaTemplate;
