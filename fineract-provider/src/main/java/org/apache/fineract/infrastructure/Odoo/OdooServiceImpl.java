@@ -58,7 +58,6 @@ import okhttp3.Response;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.accounting.journalentry.data.JournalItemData;
 import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
@@ -77,7 +76,6 @@ import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigration;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
-import org.apache.fineract.portfolio.loanaccount.data.KenyaCapitalDisbursementDefaultsResult;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionNotPostedToOdooInstanceData;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigration;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
@@ -88,7 +86,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
-import org.apache.fineract.portfolio.loanaccount.service.KenyaCapitalDisbursementDefaultsService;
+import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
@@ -138,7 +136,7 @@ public class OdooServiceImpl implements OdooService {
     private final LoanReadPlatformService loanReadPlatformService;
     private final LoanTransactionRepository loanTransactionRepository;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
-    private final KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService;
+    private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
     private final LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository;
     private ExecutorService genericExecutorService;
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
@@ -149,7 +147,7 @@ public class OdooServiceImpl implements OdooService {
     public OdooServiceImpl(ClientRepositoryWrapper clientRepository, ConfigurationDomainService configurationDomainService,
             JournalEntryRepository journalEntryRepository, LoanReadPlatformService loanReadPlatformService,
             LoanTransactionRepository loanTransactionRepository, LoanRepositoryWrapper loanRepositoryWrapper,
-            KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService,
+            EntityDisbursementDefaultsService entityDisbursementDefaultsService,
             LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository,
             FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository,
             FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository,
@@ -160,7 +158,7 @@ public class OdooServiceImpl implements OdooService {
         this.loanReadPlatformService = loanReadPlatformService;
         this.loanTransactionRepository = loanTransactionRepository;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
-        this.kenyaCapitalDisbursementDefaultsService = kenyaCapitalDisbursementDefaultsService;
+        this.entityDisbursementDefaultsService = entityDisbursementDefaultsService;
         this.loanHistoricalPenaltyWaiverRepository = loanHistoricalPenaltyWaiverRepository;
         this.failedClientCreationOnDataMigrationRepository = failedClientCreationOnDataMigrationRepository;
         this.failedLoanCreationOnDataMigrationRepository = failedLoanCreationOnDataMigrationRepository;
@@ -450,8 +448,6 @@ public class OdooServiceImpl implements OdooService {
                 journalData.setExternalId(loanTransaction.getExternalId());
 
                 if (loanTransaction.isDisbursement()) { // Disbursement
-                    String budgetLocation = null;
-                    Boolean budgetReviewRequired = null;
                     for (LoanDisbursementDetails disbursementDetail : loan.getDisbursementDetails()) {
                         if (disbursementDetail.getActualDisbursementDate() != null
                                 && disbursementDetail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())
@@ -465,26 +461,12 @@ public class OdooServiceImpl implements OdooService {
                             if (disbursementDetail.getFxTimestamp() != null) {
                                 journalData.setFxTimestamp(disbursementDetail.getFxTimestamp().toString());
                             }
-                            budgetLocation = disbursementDetail.getBudgetLocation();
-                            budgetReviewRequired = disbursementDetail.getBudgetReviewRequired();
                             break;
                         }
                     }
-                    if (this.kenyaCapitalDisbursementDefaultsService.isKenyaCapitalLoan(loan)) {
-                        if (StringUtils.isBlank(budgetLocation)) {
-                            final KenyaCapitalDisbursementDefaultsResult kenyaCapitalDefaults = this.kenyaCapitalDisbursementDefaultsService
-                                    .resolve(loan, loanTransaction.getTransactionDate());
-                            budgetLocation = kenyaCapitalDefaults.getBudgetLocation();
-                            budgetReviewRequired = kenyaCapitalDefaults.isBudgetReviewRequired();
-                        }
-                        if (StringUtils.isNotBlank(budgetLocation)) {
-                            journalData.setLocation(budgetLocation);
-                        }
-                        journalData.setBudgetReviewRequired(budgetReviewRequired);
-                        if (loan.getDepartment() != null) {
-                            journalData.setDepartment(loan.getDepartment().label());
-                        }
-                    }
+                    // Override location with investments budget and send department for configured entities.
+                    // Celery/Odoo uses location as the budget analytic; without this override posts look unchanged.
+                    this.entityDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
                 }
             }
 
