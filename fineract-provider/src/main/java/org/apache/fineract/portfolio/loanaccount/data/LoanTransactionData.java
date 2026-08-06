@@ -75,6 +75,9 @@ public class LoanTransactionData {
     // CGLT-658: future unaccrued interest the system will cancel on early settlement (payoff-screen breakdown).
     private BigDecimal futureInterestCancelled = null;
 
+    // CGLT-632: "Accrual" or "Cash" - which interest recognition basis the loan product operates on.
+    private String productBasis = null;
+
     private Integer numberOfRepayments = 0;
 
     // import fields
@@ -522,6 +525,14 @@ public class LoanTransactionData {
 
     public void setFutureInterestCancelled(final BigDecimal futureInterestCancelled) {
         this.futureInterestCancelled = futureInterestCancelled;
+    }
+
+    public String getProductBasis() {
+        return this.productBasis;
+    }
+
+    public void setProductBasis(final String productBasis) {
+        this.productBasis = productBasis;
     }
 
     public void setWriteOffOnDate(final LocalDate writeOffOnDate) {
