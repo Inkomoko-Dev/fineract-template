@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.6.xsd">
+
+    <changeSet id="CGLT-680-3" author="inkomoko">
+        <comment>Create audit table for partial write-off transactions</comment>
+        <createTable tableName="m_partial_writeoff_audit">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_transaction_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="transaction_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="principal_portion" type="DECIMAL(19,6)"/>
+            <column name="interest_portion" type="DECIMAL(19,6)"/>
+            <column name="fee_charges_portion" type="DECIMAL(19,6)"/>
+            <column name="penalty_charges_portion" type="DECIMAL(19,6)"/>
+            <column name="total_amount" type="DECIMAL(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_balance_before" type="DECIMAL(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_balance_after" type="DECIMAL(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reason" type="VARCHAR(500)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="initiated_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="initiated_on" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="approved_by" type="BIGINT"/>
+            <column name="approved_on" type="TIMESTAMP"/>
+            <column name="office_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="note" type="VARCHAR(1000)"/>
+            <column name="external_id" type="VARCHAR(100)"/>
+            <column name="created_date" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_date" type="TIMESTAMP"/>
+            <column name="created_by" type="BIGINT"/>
+            <column name="last_modified_by" type="BIGINT"/>
+        </createTable>
+        
+        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="loan_id" 
+                                 constraintName="fk_partial_writeoff_audit_loan" 
+                                 referencedTableName="m_loan" referencedColumnNames="id"/>
+        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="loan_transaction_id" 
+                                 constraintName="fk_partial_writeoff_audit_loan_transaction" 
+                                 referencedTableName="m_loan_transaction" referencedColumnNames="id"/>
+        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="initiated_by" 
+                                 constraintName="fk_partial_writeoff_audit_initiated_by" 
+                                 referencedTableName="m_appuser" referencedColumnNames="id"/>
+        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="approved_by" 
+                                 constraintName="fk_partial_writeoff_audit_approved_by" 
+                                 referencedTableName="m_appuser" referencedColumnNames="id"/>
+        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="office_id" 
+                                 constraintName="fk_partial_writeoff_audit_office" 
+                                 referencedTableName="m_office" referencedColumnNames="id"/>
+    </changeSet>
+
+    <changeSet id="CGLT-680-4" author="inkomoko">
+        <comment>Add unique constraint on external_id for partial write-off audit</comment>
+        <addUniqueConstraint tableName="m_partial_writeoff_audit" columnNames="external_id" 
+                            constraintName="unique_partial_writeoff_audit_external_id"/>
+    </changeSet>
+
+</databaseChangeLog>

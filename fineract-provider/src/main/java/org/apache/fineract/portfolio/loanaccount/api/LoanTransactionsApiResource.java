@@ -117,7 +117,7 @@ public class LoanTransactionsApiResource {
             + "loans/1/transactions/template?command=repayment" + "loans/1/transactions/template?command=merchantIssuedRefund"
             + "loans/1/transactions/template?command=payoutRefund" + "loans/1/transactions/template?command=goodwillCredit" + "\n"
             + "loans/1/transactions/template?command=waiveinterest" + "\n" + "loans/1/transactions/template?command=writeoff" + "\n"
-            + "loans/1/transactions/template?command=close-rescheduled" + "\n" + "loans/1/transactions/template?command=close" + "\n"
+            + "loans/1/transactions/template?command=partialwriteoff" + "\n" + "loans/1/transactions/template?command=close-rescheduled" + "\n" + "loans/1/transactions/template?command=close" + "\n"
             + "loans/1/transactions/template?command=disburse" + "\n" + "loans/1/transactions/template?command=disburseToSavings" + "\n"
             + "loans/1/transactions/template?command=recoverypayment" + "\n" + "loans/1/transactions/template?command=prepayLoan" + "\n"
             + "loans/1/transactions/template?command=refundbycash" + "\n" + "loans/1/transactions/template?command=refundbytransfer" + "\n"
@@ -156,6 +156,8 @@ public class LoanTransactionsApiResource {
             final LocalDate writeOffDate = transactionDateParam == null ? DateUtils.getBusinessLocalDate()
                     : transactionDateParam.getDate("transactionDate", dateFormat, locale);
             transactionData = this.loanReadPlatformService.retrieveLoanWriteoffTemplate(loanId, writeOffDate);
+        } else if (is(commandParam, "partialwriteoff")) {
+            transactionData = this.loanReadPlatformService.retrieveLoanPartialWriteoffTemplate(loanId);
         } else if (is(commandParam, "payoff")) {
             transactionData = this.loanReadPlatformService.retrieveLoanPayoffTemplate(loanId);
         } else if (is(commandParam, "close-rescheduled")) {
@@ -234,7 +236,8 @@ public class LoanTransactionsApiResource {
             + "loans/1/transactions?command=merchantIssuedRefund" + " | Merchant Issued Refund | \n"
             + "loans/1/transactions?command=payoutRefund" + " | Payout Refund | \n" + "loans/1/transactions?command=goodwillCredit"
             + " | Goodwil Credit | \n" + "loans/1/transactions?command=waiveinterest" + " | Waive Interest | \n"
-            + "loans/1/transactions?command=writeoff" + " | Write-off Loan | \n" + "loans/1/transactions?command=close-rescheduled"
+            + "loans/1/transactions?command=writeoff" + " | Write-off Loan | \n" + "loans/1/transactions?command=partialwriteoff"
+            + " | Partial Write-off Loan | \n" + "loans/1/transactions?command=close-rescheduled"
             + " | Close Rescheduled Loan | \n" + "loans/1/transactions?command=close" + " | Close Loan | \n"
             + "loans/1/transactions?command=undowriteoff" + " | Undo Loan Write-off | \n" + "loans/1/transactions?command=recoverypayment"
             + " | Make Recovery Payment | \n" + "loans/1/transactions?command=refundByCash"
@@ -268,6 +271,9 @@ public class LoanTransactionsApiResource {
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else if (is(commandParam, "writeoff")) {
             final CommandWrapper commandRequest = builder.writeOffLoanTransaction(loanId).build();
+            result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        } else if (is(commandParam, "partialwriteoff")) {
+            final CommandWrapper commandRequest = builder.partialWriteOffLoanTransaction(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else if (is(commandParam, "close-rescheduled")) {
             final CommandWrapper commandRequest = builder.closeLoanAsRescheduledTransaction(loanId).build();

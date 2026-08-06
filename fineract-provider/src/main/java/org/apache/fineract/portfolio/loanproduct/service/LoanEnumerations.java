@@ -376,14 +376,6 @@ public final class LoanEnumerations {
                 optionData = new LoanTransactionEnumData(LoanTransactionType.PARTIAL_WRITEOFF.getValue().longValue(),
                         LoanTransactionType.PARTIAL_WRITEOFF.getCode(), "Partial Write-off");
             break;
-            case RESIDUAL_BALANCE_ADJUSTMENT:
-                optionData = new LoanTransactionEnumData(LoanTransactionType.RESIDUAL_BALANCE_ADJUSTMENT.getValue().longValue(),
-                        LoanTransactionType.RESIDUAL_BALANCE_ADJUSTMENT.getCode(), "Residual Balance Adjustment");
-            break;
-            case WRITEOFF_REVERSAL:
-                optionData = new LoanTransactionEnumData(LoanTransactionType.WRITEOFF_REVERSAL.getValue().longValue(),
-                        LoanTransactionType.WRITEOFF_REVERSAL.getCode(), "Write-off Reversal");
-            break;
             case RECOVERY_REPAYMENT:
                 optionData = new LoanTransactionEnumData(LoanTransactionType.RECOVERY_REPAYMENT.getValue().longValue(),
                         LoanTransactionType.RECOVERY_REPAYMENT.getCode(), "Repayment (after write-off)");

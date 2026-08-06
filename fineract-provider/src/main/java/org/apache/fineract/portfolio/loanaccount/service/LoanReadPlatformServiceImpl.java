@@ -2883,11 +2883,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final LoanAccountData loan = this.retrieveOne(loanId);
         final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.PARTIAL_WRITEOFF);
         final BigDecimal unrecognizedIncomePortion = null;
-
+        
         LoanTransactionData loanTransactionData = new LoanTransactionData(null, null, null, transactionType, null, loan.currency(),
                 DateUtils.getBusinessLocalDate(), loan.getTotalOutstandingAmount(), loan.getNetDisbursalAmount(), null, null, null, null,
                 null, null, null, null, loan.getTotalOutstandingAmount(), unrecognizedIncomePortion, false, null);
-
+        
         return loanTransactionData;
     }
 
