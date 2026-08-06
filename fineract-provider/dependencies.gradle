@@ -41,6 +41,7 @@ dependencies {
 
             'org.springframework:spring-jms',
             'org.springframework:spring-context-support',
+            'org.springframework.kafka:spring-kafka',
 
             'com.google.guava:guava',
             'com.google.code.gson:gson',

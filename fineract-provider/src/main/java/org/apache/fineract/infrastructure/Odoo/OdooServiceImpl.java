@@ -34,6 +34,8 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -41,8 +43,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Base64;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
@@ -60,6 +64,7 @@ import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.accounting.journalentry.data.JournalItemData;
+import org.apache.fineract.infrastructure.Odoo.event.JournalEntryEventPublisher;
 import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
@@ -127,6 +132,21 @@ public class OdooServiceImpl implements OdooService {
 
     @Value("${app.local-ip}")
     private String localIpAddress;
+
+    @Value("${fineract.integrations.integration-layer.enabled}")
+    private Boolean integrationLayerEnabled;
+
+    @Value("${fineract.integrations.integration-layer.base-url}")
+    private String integrationLayerBaseUrl;
+
+    @Value("${fineract.integrations.integration-layer.api-key}")
+    private String integrationLayerApiKey;
+
+    @Value("${fineract.integrations.integration-layer.delivery-mode}")
+    private String integrationLayerDeliveryMode;
+
+    @Autowired
+    private JournalEntryEventPublisher journalEntryEventPublisher;
     private ClientRepositoryWrapper clientRepository;
     private ConfigurationDomainService configurationDomainService;
 
@@ -365,115 +385,120 @@ public class OdooServiceImpl implements OdooService {
     }
 
     @Override
+    // unlike createCustomerToOddo/updateCustomerToOddo, no loginToOddo() gate — must not block the ASYNC Kafka publish
     public JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo, String location,Long fundSource)
             throws IOException, NoSuchAlgorithmException, KeyManagementException {
 
-        final Integer uid = loginToOddo();
-        if (uid > 0) {
+        JournalItemData journalEntry;
+        List<JournalItemData> journalItems = new ArrayList<>();
 
-            JournalItemData journalEntry;
-            List<JournalItemData> journalItems = new ArrayList<>();
+        JournalEntryToOdooData journalEntryToOdooData = new JournalEntryToOdooData();
+        JournalData journalData = new JournalData();
+        Client client = null;
+        Office office = null;
 
-            JournalEntryToOdooData journalEntryToOdooData = new JournalEntryToOdooData();
-            JournalData journalData = new JournalData();
-            Client client = null;
-            Office office = null;
+        for (JournalEntry entry : list) {
 
-            for (JournalEntry entry : list) {
+            Integer accountId = extractGlCode(entry.getGlAccount().getGlCode());
+            client = entry.getClient();
+            office = entry.getOffice();
 
-                Integer accountId = extractGlCode(entry.getGlAccount().getGlCode());
-                client = entry.getClient();
-                office = entry.getOffice();
-
-                if (entry.isCorrection()){
-                    journalData.setIsCorrection(true);
-                    journalData.setCorrectionDate(entry.getCorrectionDate().toString());
-                }
-
-                journalEntry = new JournalItemData(entry, entry.getGlAccount().getGlCode());
-                journalItems.add(journalEntry);
-                if (accountId == null) {
-                    throw new GeneralPlatformDomainRuleException(
-                            "error.posting.journal.entries.to.odoo.has.failed.due.missing.gl.account.id",
-                            "Error occurred while creating Journal Entry to Odoo with Loan Transaction Id  " + loanTransactionId
-                                    + " and Type " + transactionType + " Error: GL Account  not found. GL Account ID on CBS  =: "
-                                    + entry.getGlAccount().getId());
-                }
+            if (entry.isCorrection()){
+                journalData.setIsCorrection(true);
+                journalData.setCorrectionDate(entry.getCorrectionDate().toString());
             }
 
-            // Create journal entry
-            journalEntryToOdooData.setResourceId(loanTransactionId.toString());
-
-            String ref = isReversed ? "Reversal of Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId :
-                    "Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId ;
-
-            if (journalData.getIsCorrection() != null && journalData.getIsCorrection())
-                ref = ref + "; Original Transaction Date: " + journalData.getCorrectionDate();
-
-            Integer partnerId = client.getOdooCustomerId();
-            if (partnerId == null) {
+            journalEntry = new JournalItemData(entry, entry.getGlAccount().getGlCode());
+            journalItems.add(journalEntry);
+            if (accountId == null) {
                 throw new GeneralPlatformDomainRuleException(
-                        "error.posting.journal.entries.to.odoo.has.failed.due.to.missing.client.id.or.partner.id",
+                        "error.posting.journal.entries.to.odoo.has.failed.due.missing.gl.account.id",
                         "Error occurred while creating Journal Entry to Odoo with Loan Transaction Id  " + loanTransactionId
-                                + " and Type " + transactionType + " Error: Client or Partner id not found. Client is Posted =  : "
-                                + client.isOdooCustomerPosted());
+                                + " and Type " + transactionType + " Error: GL Account  not found. GL Account ID on CBS  =: "
+                                + entry.getGlAccount().getId());
             }
+        }
 
-            journalData.setRef(ref);
-            journalData.setTransactionId(loanTransactionId.toString());
-            journalData.setTransactionTypeName(LoanTransactionType.fromInt(transactionType.intValue()).name());
-            journalData.setTransactionTypeUniqueId(transactionType.toString());
-            journalData.setReversed(isReversed);
-            journalData.setClientId(client.getOdooCustomerId().longValue());
-            journalData.setClientDisplayName(client.getDisplayName());
-            journalData.setEntryDate(list.get(0).getTransactionDate().toString());
-            journalData.setOfficeId(office.getId());
-            journalData.setJournalItems(journalItems);
-            journalData.setLocation(location);
+        journalEntryToOdooData.setResourceId(loanTransactionId.toString());
 
-            if (fundSource != null) {
-                journalData.setFundSource(fundSource);
-            }
+        String ref = isReversed ? "Reversal of Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId :
+                "Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId ;
 
-            LoanTransaction loanTransaction = this.loanTransactionRepository.findById(loanTransactionId).orElse(null);
-            if (loanTransaction != null) {
-                Loan loan = loanTransaction.getLoan();
-                journalData.setLoanId(loan.getAccountNumber());
-                journalData.setCurrencyCode(loan.getCurrencyCode());
-                journalData.setExternalId(loanTransaction.getExternalId());
+        if (journalData.getIsCorrection() != null && journalData.getIsCorrection())
+            ref = ref + "; Original Transaction Date: " + journalData.getCorrectionDate();
 
-                if (loanTransaction.isDisbursement()) { // Disbursement
-                    for (LoanDisbursementDetails disbursementDetail : loan.getDisbursementDetails()) {
-                        if (disbursementDetail.getActualDisbursementDate() != null
-                                && disbursementDetail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())
-                                && disbursementDetail.getPrincipal().compareTo(loanTransaction.getAmount(loan.getCurrency()).getAmount()) == 0) {
+        Integer partnerId = client.getOdooCustomerId();
+        if (partnerId == null) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.posting.journal.entries.to.odoo.has.failed.due.to.missing.client.id.or.partner.id",
+                    "Error occurred while creating Journal Entry to Odoo with Loan Transaction Id  " + loanTransactionId
+                            + " and Type " + transactionType + " Error: Client or Partner id not found. Client is Posted =  : "
+                            + client.isOdooCustomerPosted());
+        }
 
-                            journalData.setDisbursementType(disbursementDetail.getDisbursementType());
-                            journalData.setFxRate(disbursementDetail.getFxRate());
-                            journalData.setUsdAmount(disbursementDetail.getUsdAmount());
-                            journalData.setFxSource(disbursementDetail.getFxSource());
-                            journalData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
-                            if (disbursementDetail.getFxTimestamp() != null) {
-                                journalData.setFxTimestamp(disbursementDetail.getFxTimestamp().toString());
-                            }
-                            break;
+        journalData.setRef(ref);
+        journalData.setTransactionId(loanTransactionId.toString());
+        journalData.setTransactionTypeName(LoanTransactionType.fromInt(transactionType.intValue()).name());
+        journalData.setTransactionTypeUniqueId(transactionType.toString());
+        journalData.setReversed(isReversed);
+        journalData.setClientId(client.getOdooCustomerId().longValue());
+        journalData.setClientDisplayName(client.getDisplayName());
+        journalData.setEntryDate(list.get(0).getTransactionDate().toString());
+        journalData.setOfficeId(office.getId());
+        journalData.setJournalItems(journalItems);
+        journalData.setLocation(location);
+
+        if (fundSource != null) {
+            journalData.setFundSource(fundSource);
+        }
+
+        LoanTransaction loanTransaction = this.loanTransactionRepository.findById(loanTransactionId).orElse(null);
+        if (loanTransaction != null) {
+            Loan loan = loanTransaction.getLoan();
+            journalData.setLoanId(loan.getAccountNumber());
+            journalData.setCurrencyCode(loan.getCurrencyCode());
+            journalData.setExternalId(loanTransaction.getExternalId());
+
+            if (loanTransaction.isDisbursement()) {
+                for (LoanDisbursementDetails disbursementDetail : loan.getDisbursementDetails()) {
+                    if (disbursementDetail.getActualDisbursementDate() != null
+                            && disbursementDetail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())
+                            && disbursementDetail.getPrincipal().compareTo(loanTransaction.getAmount(loan.getCurrency()).getAmount()) == 0) {
+
+                        journalData.setDisbursementType(disbursementDetail.getDisbursementType());
+                        journalData.setFxRate(disbursementDetail.getFxRate());
+                        journalData.setUsdAmount(disbursementDetail.getUsdAmount());
+                        journalData.setFxSource(disbursementDetail.getFxSource());
+                        journalData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
+                        if (disbursementDetail.getFxTimestamp() != null) {
+                            journalData.setFxTimestamp(disbursementDetail.getFxTimestamp().toString());
                         }
+                        break;
                     }
                     // Override location with investments budget and send department for configured entities.
                     // Celery/Odoo uses location as the budget analytic; without this override posts look unchanged.
                     this.entityDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
                 }
             }
-
-            journalEntryToOdooData.setResource(journalData);
-            journalEntryToOdooData.setLocalIp(localIpAddress);
-
-            LOG.info("Journal Entry to Odoo " + journalEntryToOdooData);
-            String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
-            LOG.info("Journal Entry to Odoo JSON Payload " + jsonPayload);
-            return sendRequest(jsonPayload);
         }
-        return null;
+
+        journalEntryToOdooData.setResource(journalData);
+        if (!integrationLayerEnabled) {
+            // localIp only exists to drive the legacy middleware's ip_temp() routing
+            journalEntryToOdooData.setLocalIp(localIpAddress);
+        }
+
+        LOG.info("Journal Entry to Odoo " + journalEntryToOdooData);
+        String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
+        LOG.info("Journal Entry to Odoo JSON Payload " + jsonPayload);
+        if (integrationLayerEnabled) {
+            // ASYNC: entries stay unposted until the outcome listener applies Odoo's response
+            if ("ASYNC".equalsIgnoreCase(integrationLayerDeliveryMode)) {
+                return publishJournalEntryEvent(loanTransactionId, jsonPayload);
+            }
+            return sendRequestViaIntegrationLayer(jsonPayload);
+        }
+        return sendRequest(jsonPayload);
     }
 
     @Override
@@ -481,6 +506,11 @@ public class OdooServiceImpl implements OdooService {
         LOG.info("Received Odoo Journal entry response: {}", stringRequest);
 
         JsonObject odooRequest = JsonParser.parseString(stringRequest).getAsJsonObject();
+
+        return applyOdooStatus(odooRequest).toString();
+    }
+
+    private JsonObject applyOdooStatus(JsonObject odooRequest) {
         JsonObject response = new JsonObject();
 
         String responseCode = getStringField(odooRequest, "responseCode");
@@ -491,9 +521,9 @@ public class OdooServiceImpl implements OdooService {
             LOG.warn("Odoo response missing 'cbs_journal_entry_id'");
             response.addProperty("success", false);
             response.addProperty("message", "cbs_journal_entry_id not found");
-            response.addProperty("data", stringRequest);
+            response.addProperty("data", odooRequest.toString());
             response.addProperty("ack", true);
-            return response.toString();
+            return response;
         }
 
         List<JournalEntry> journalEntries = journalEntryRepository.findJournalEntriesByLoanTransactionId("L" + transactionId);
@@ -552,7 +582,7 @@ public class OdooServiceImpl implements OdooService {
         response.addProperty("success", true);
         response.addProperty("message", "Successful");
         response.addProperty("ack", true);
-        return response.toString();
+        return response;
     }
 
     private JsonObject sendRequest(String payload) throws IOException, NoSuchAlgorithmException, KeyManagementException {
@@ -608,8 +638,76 @@ public class OdooServiceImpl implements OdooService {
 
     }
 
+    private JsonObject publishJournalEntryEvent(Long loanTransactionId, String payload) {
+        String eventId = journalEntryEventPublisher.publish(loanTransactionId.toString(), payload);
+
+        JsonObject ack = new JsonObject();
+        ack.addProperty("success", true);
+        ack.addProperty("message", "Queued");
+        ack.addProperty("ack", true);
+        ack.addProperty("queued", true);
+        ack.addProperty("eventId", eventId);
+        return ack;
+    }
+
+    private JsonObject sendRequestViaIntegrationLayer(String payload) throws IOException {
+
+        // read timeout must exceed the integration layer's own 30s Odoo timeout
+        OkHttpClient httpClient = new OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).build();
+
+        JsonObject envelope = new JsonObject();
+        envelope.addProperty("id", UUID.randomUUID().toString());
+        envelope.addProperty("creationDate", OffsetDateTime.now(ZoneOffset.UTC).toString());
+        envelope.addProperty("requester", "CBS");
+        envelope.addProperty("target", "ODOO");
+        envelope.addProperty("serviceName", "CBS_JOURNAL_ENTRY");
+        envelope.addProperty("version", "1.0");
+        envelope.addProperty("deliveryMode", "SYNC");
+        envelope.add("payload", JsonParser.parseString(payload));
+
+        RequestBody requestBody = RequestBody.create(MediaType.parse("application/json"), envelope.toString());
+        Request request = new Request.Builder()
+                .url(integrationLayerBaseUrl + "/api/v1/integration")
+                .post(requestBody)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer " + integrationLayerApiKey)
+                .build();
+
+        Response response = httpClient.newCall(request).execute();
+        String resObject = response.body().string();
+        LOG.info("Integration layer response on Odoo Journal Entry posting: " + resObject);
+
+        // the integration layer returns a parseable IntegrationResponse body on both 200 and 502
+        JsonObject integrationResponse = JsonParser.parseString(resObject).getAsJsonObject();
+
+        if (!getBooleanField(integrationResponse, "success")) {
+            throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.posting.to.odoo.failed",
+                    " Failed to post Journal Entries to Odoo via integration layer: " + response.code() + " -Cause :-"
+                            + getStringField(integrationResponse, "errorCause"));
+        }
+
+        if (!integrationResponse.has("data") || !integrationResponse.get("data").isJsonObject()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.posting.to.odoo.failed",
+                    " Integration layer returned success without the Odoo response body");
+        }
+
+        // the synchronous Odoo response replaces the legacy updateOdooStatus callback
+        applyOdooStatus(integrationResponse.getAsJsonObject("data"));
+
+        JsonObject ack = new JsonObject();
+        ack.addProperty("success", true);
+        ack.addProperty("message", "Successful");
+        ack.addProperty("ack", true);
+        return ack;
+    }
+
     @Override
     public JsonObject postJournalEntryToOddo(LocalDate fromDate, LocalDate toDate, Long officeId, String currency) {
+        return postJournalEntryToOddo(fromDate, toDate, officeId, currency, null);
+    }
+
+    @Override
+    public JsonObject postJournalEntryToOddo(LocalDate fromDate, LocalDate toDate, Long officeId, String currency, Long transactionId) {
         Boolean isOdooEnabled = this.configurationDomainService.isOdooIntegrationEnabled();
         List<Throwable> errors = new ArrayList<>();
         JsonObject response = new JsonObject();
@@ -617,7 +715,7 @@ public class OdooServiceImpl implements OdooService {
         if (isOdooEnabled) {
             // get loan accounts with transactions not posted to Odoo
             List<LoanTransactionNotPostedToOdooInstanceData> loanTransactionNotPostedToOdooInstanceData = loanReadPlatformService
-                    .retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(fromDate, toDate, officeId, currency);
+                    .retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(fromDate, toDate, officeId, currency, transactionId);
             if (!CollectionUtils.isEmpty(loanTransactionNotPostedToOdooInstanceData)) {
                 transactions = getTransactions(loanTransactionNotPostedToOdooInstanceData, errors, transactions);
                 response.addProperty("responseMessage", "Posted Entries");
@@ -630,6 +728,45 @@ public class OdooServiceImpl implements OdooService {
             if (errors.size() > 0) {
                 List<String> errorMessages = new ArrayList<>();
                 for( Throwable error : errors) {
+                    errorMessages.add(error.getMessage());
+                }
+                Gson gson = new Gson();
+                response.add("errors", gson.toJsonTree(errorMessages));
+            }
+            response.addProperty("responseCode", "DONE");
+            return response;
+        }
+
+        response.addProperty("responseMessage", "Odoo not Enabled");
+        response.addProperty("responseCode", "ERROR");
+
+        return response;
+    }
+
+    // testing-only: same flow as postJournalEntryToOddo, always bounded by limit
+    @Override
+    public JsonObject postJournalEntryToOddoTest(LocalDate fromDate, LocalDate toDate, Long officeId, String currency, Long transactionId, int limit) {
+        Boolean isOdooEnabled = this.configurationDomainService.isOdooIntegrationEnabled();
+        List<Throwable> errors = new ArrayList<>();
+        JsonObject response = new JsonObject();
+        response.addProperty("testMode", true);
+        response.addProperty("limitApplied", limit);
+        int transactions = 0;
+        if (isOdooEnabled) {
+            List<LoanTransactionNotPostedToOdooInstanceData> notPostedTransactions = loanReadPlatformService
+                    .retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(fromDate, toDate, officeId, currency, transactionId, limit);
+            if (!CollectionUtils.isEmpty(notPostedTransactions)) {
+                transactions = getTransactions(notPostedTransactions, errors, transactions);
+                response.addProperty("responseMessage", "Posted Entries");
+            } else {
+                response.addProperty("responseMessage", "No entries to post");
+            }
+
+            response.addProperty("numberOfTransactions", transactions);
+
+            if (errors.size() > 0) {
+                List<String> errorMessages = new ArrayList<>();
+                for (Throwable error : errors) {
                     errorMessages.add(error.getMessage());
                 }
                 Gson gson = new Gson();
@@ -740,9 +877,16 @@ public class OdooServiceImpl implements OdooService {
                     boolean success = getBooleanField (odooAck,"success");
                     String message = getStringField(odooAck, "message");
                     if (success) {
-                        for (JournalEntry je : journalEntryDebitCredit) {
-                            je.setOdooAck(ack);
-                            this.journalEntryRepository.saveAndFlush(je);
+                        if (integrationLayerEnabled) {
+                            // SYNC already updated these entries via applyOdooStatus; don't re-save and overwrite that state
+                            LOG.info("Journal entries for Loan Transaction Id " + loanTransactionId
+                                    + (getBooleanField(odooAck, "queued") ? " queued to Kafka via integration layer"
+                                            : " posted via integration layer"));
+                        } else {
+                            for (JournalEntry je : journalEntryDebitCredit) {
+                                je.setOdooAck(ack);
+                                this.journalEntryRepository.saveAndFlush(je);
+                            }
                         }
                     }
                     else {
