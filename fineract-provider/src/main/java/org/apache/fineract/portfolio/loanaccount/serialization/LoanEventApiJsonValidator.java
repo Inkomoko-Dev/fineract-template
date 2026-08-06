@@ -519,6 +519,62 @@ public final class LoanEventApiJsonValidator {
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
 
+    /**
+     * CGLT-656. A whitelist of its own rather than a widening of
+     * {@link #validateInstallmentChargeTransaction(String)}, so the standard waive endpoint keeps rejecting these
+     * parameters. Whether the effective date falls inside the loan's own window is checked by the write service, which
+     * has the loan.
+     */
+    public void validateHistoricalPenaltyWaiver(final String json) {
+
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> supportedParameters = new HashSet<>(Arrays.asList("locale", "dateFormat", "installmentNumber",
+                LoanApiConstants.waiverAmountParamName, LoanApiConstants.waiverEffectiveDateParamName,
+                LoanApiConstants.expectedPaidAmountParamName, LoanApiConstants.nextApproverUserIdParamName,
+                LoanApiConstants.reasonParamName, LoanApiConstants.noteParamName));
+
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, supportedParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors)
+                .resource("loan.charge.historical.penalty.waiver");
+
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+
+        final LocalDate waiverEffectiveDate = this.fromApiJsonHelper
+                .extractLocalDateNamed(LoanApiConstants.waiverEffectiveDateParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.waiverEffectiveDateParamName).value(waiverEffectiveDate).notNull();
+
+        final BigDecimal expectedPaidAmount = this.fromApiJsonHelper
+                .extractBigDecimalWithLocaleNamed(LoanApiConstants.expectedPaidAmountParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.expectedPaidAmountParamName).value(expectedPaidAmount).notNull()
+                .zeroOrPositiveAmount();
+
+        // Absent means waive whatever the penalty is worth; present means waive exactly this much.
+        final BigDecimal waiverAmount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(LoanApiConstants.waiverAmountParamName,
+                element);
+        baseDataValidator.reset().parameter(LoanApiConstants.waiverAmountParamName).value(waiverAmount).ignoreIfNull().positiveAmount();
+
+        final Integer installmentNumber = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("installmentNumber", element);
+        baseDataValidator.reset().parameter("installmentNumber").value(installmentNumber).ignoreIfNull().integerGreaterThanZero();
+
+        final Long nextApproverUserId = this.fromApiJsonHelper.extractLongNamed(LoanApiConstants.nextApproverUserIdParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.nextApproverUserIdParamName).value(nextApproverUserId).ignoreIfNull()
+                .longGreaterThanZero();
+
+        final String reason = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.reasonParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.reasonParamName).value(reason).notBlank().notExceedingLengthOf(1000);
+
+        final String note = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.noteParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.noteParamName).value(note).ignoreIfNull().notExceedingLengthOf(1000);
+
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
     public void validateUpdateDisbursementDateAndAmount(final String json, LoanDisbursementDetails loanDisbursementDetails) {
 
         if (StringUtils.isBlank(json)) {

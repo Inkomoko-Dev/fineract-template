@@ -69,6 +69,7 @@ import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
@@ -87,6 +88,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDat
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
@@ -155,6 +157,7 @@ public class OdooServiceImpl implements OdooService {
     private final LoanTransactionRepository loanTransactionRepository;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
+    private final LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository;
     private ExecutorService genericExecutorService;
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
     private FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository;
@@ -165,6 +168,7 @@ public class OdooServiceImpl implements OdooService {
             JournalEntryRepository journalEntryRepository, LoanReadPlatformService loanReadPlatformService,
             LoanTransactionRepository loanTransactionRepository, LoanRepositoryWrapper loanRepositoryWrapper,
             EntityDisbursementDefaultsService entityDisbursementDefaultsService,
+            LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository,
             FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository,
             FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository,
             FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository) {
@@ -175,6 +179,7 @@ public class OdooServiceImpl implements OdooService {
         this.loanTransactionRepository = loanTransactionRepository;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
         this.entityDisbursementDefaultsService = entityDisbursementDefaultsService;
+        this.loanHistoricalPenaltyWaiverRepository = loanHistoricalPenaltyWaiverRepository;
         this.failedClientCreationOnDataMigrationRepository = failedClientCreationOnDataMigrationRepository;
         this.failedLoanCreationOnDataMigrationRepository = failedLoanCreationOnDataMigrationRepository;
         this.failedLoanRepaymentOnDataMigrationRepository = failedLoanRepaymentOnDataMigrationRepository;
@@ -794,6 +799,13 @@ public class OdooServiceImpl implements OdooService {
             LOG.trace("Loan Transaction Not Posted to Odoo " + loanTransactionNotPostedToOdooInstanceData.toString());
             if (!CollectionUtils.isEmpty(loanTransactionNotPostedToOdooInstanceData)) {
                 getTransactions(loanTransactionNotPostedToOdooInstanceData, errors, 0);
+            }
+            // CGLT-656: a historical penalty waiver stays PENDING_ODOO_SYNC until Odoo holds every entry it touched.
+            // Run this even when some transactions failed, so waivers whose entries did land are still completed.
+            final int completed = this.loanHistoricalPenaltyWaiverRepository
+                    .completeWaiversFullyPostedToOdoo(DateUtils.getOffsetDateTimeOfTenant());
+            if (completed > 0) {
+                LOG.info("Historical penalty waivers completed after Odoo sync: " + completed);
             }
             if (errors.size() > 0) {
                 throw new JobExecutionException(errors);

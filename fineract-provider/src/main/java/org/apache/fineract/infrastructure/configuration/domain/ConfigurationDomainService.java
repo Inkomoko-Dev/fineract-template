@@ -135,5 +135,12 @@ public interface ConfigurationDomainService {
 
     boolean isCorrectionsInClosedPeriodsAllowed();
 
+    /** Null when the trigger is switched off. */
+    Long retrieveHistoricalPenaltyWaiverApprovalAmountThreshold();
+
+    Long retrieveHistoricalPenaltyWaiverApprovalAgeDays();
+
+    Long retrieveHistoricalPenaltyWaiverEscalationHours();
+
     boolean isPostTransferCorrectionsEnabled();
 }

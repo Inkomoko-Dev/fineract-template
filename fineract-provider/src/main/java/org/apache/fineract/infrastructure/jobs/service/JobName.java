@@ -69,7 +69,8 @@ public enum JobName {
     POST_JOURNAL_ENTRY_TO_ODDO("Post Journal Entry To Odoo"), //
     DOWNLOAD_KIVA_DEPENDENCIES_META_DATA("Download Kiva Metadata"), REPROCESS_LOAN_TRANSACTIONS("Reprocess Loan Transactions"), //
     UPDATE_WHATSAPP_OUTBOUND_WITH_CAMPAIGN_MESSAGE("Update WhatsApp Outbound with Campaign Message"), //
-    SEND_WHATSAPP_MESSAGES("Send WhatsApp Messages"); //
+    SEND_WHATSAPP_MESSAGES("Send WhatsApp Messages"), //
+    ESCALATE_PENDING_HISTORICAL_CORRECTIONS("Escalate Pending Historical Corrections"); //
 
     private final String name;
 
