@@ -177,6 +177,9 @@ final class LoanTransactionsApiResourceSwagger {
         public Double amount;
         @Schema(example = "559.88")
         public Double interestPortion;
+        @Schema(example = "50000", description = "Future unaccrued interest cancelled as of the payoff date on an early full "
+                + "settlement. Recorded separately from write-off/waiver and carries no GL journal when the interest was never accrued.")
+        public Double futureInterestCancelled;
     }
 
     @Schema(description = "PostLoansLoanIdTransactionsRequest")
