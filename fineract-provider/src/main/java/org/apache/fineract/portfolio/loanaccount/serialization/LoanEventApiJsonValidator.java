@@ -340,6 +340,54 @@ public final class LoanEventApiJsonValidator {
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
 
+    public void validatePartialWriteOffTransaction(final String json) {
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> partialWriteOffParameters = new HashSet<>(
+                Arrays.asList("transactionDate", "note", "locale", "dateFormat", "externalId", 
+                        "principalPortion", "interestPortion", "feeChargesPortion", "penaltyChargesPortion", "reason"));
+
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, partialWriteOffParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
+
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed("transactionDate", element);
+        baseDataValidator.reset().parameter("transactionDate").value(transactionDate).notNull();
+
+        final String note = this.fromApiJsonHelper.extractStringNamed("note", element);
+        baseDataValidator.reset().parameter("note").value(note).ignoreIfNull().notExceedingLengthOf(1000);
+
+        final String reason = this.fromApiJsonHelper.extractStringNamed("reason", element);
+        baseDataValidator.reset().parameter("reason").value(reason).notNull().notExceedingLengthOf(500);
+
+        final Locale locale = this.fromApiJsonHelper.extractLocaleParameter(element.getAsJsonObject());
+
+        final BigDecimal principalPortion = this.fromApiJsonHelper.extractBigDecimalNamed("principalPortion", element, locale);
+        baseDataValidator.reset().parameter("principalPortion").value(principalPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal interestPortion = this.fromApiJsonHelper.extractBigDecimalNamed("interestPortion", element, locale);
+        baseDataValidator.reset().parameter("interestPortion").value(interestPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal feeChargesPortion = this.fromApiJsonHelper.extractBigDecimalNamed("feeChargesPortion", element, locale);
+        baseDataValidator.reset().parameter("feeChargesPortion").value(feeChargesPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal penaltyChargesPortion = this.fromApiJsonHelper.extractBigDecimalNamed("penaltyChargesPortion", element, locale);
+        baseDataValidator.reset().parameter("penaltyChargesPortion").value(penaltyChargesPortion).ignoreIfNull().positiveAmount();
+
+        // Validate that at least one portion is provided
+        if (principalPortion == null && interestPortion == null && feeChargesPortion == null && penaltyChargesPortion == null) {
+            baseDataValidator.reset().parameter("writeOffPortions").failWithCode("at.least.one.portion.required",
+                    "At least one write-off portion (principal, interest, fees, or penalties) must be provided");
+        }
+
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
     public void validateAddLoanCharge(final String json) {
         if (StringUtils.isBlank(json)) {
             throw new InvalidJsonException();

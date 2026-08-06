@@ -198,6 +198,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementChargeAdjustmentAudit;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementChargeAdjustmentAuditRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
+import org.apache.fineract.portfolio.loanaccount.domain.PartialWriteOffAudit;
+import org.apache.fineract.portfolio.loanaccount.domain.PartialWriteOffAuditRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanOverdueInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminder;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminderRepository;
@@ -325,6 +327,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
     private final PaymentTypeRepositoryWrapper paymentTypeRepositoryWrapper;
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
+    private final PartialWriteOffAuditRepository partialWriteOffAuditRepository;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -1721,6 +1724,102 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(writeOff.getId())
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
                 .with(changes).build();
+    }
+
+    @Transactional
+    @Override
+    public CommandProcessingResult partialWriteOff(final Long loanId, final JsonCommand command) {
+        final AppUser currentUser = getAppUserIfPresent();
+
+        this.loanEventApiJsonValidator.validatePartialWriteOffTransaction(command.json());
+
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
+        changes.put("locale", command.locale());
+        changes.put("dateFormat", command.dateFormat());
+        
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        
+        // Extract write-off components
+        final BigDecimal principalPortion = command.bigDecimalValueOfParameterNamed("principalPortion");
+        final BigDecimal interestPortion = command.bigDecimalValueOfParameterNamed("interestPortion");
+        final BigDecimal feeChargesPortion = command.bigDecimalValueOfParameterNamed("feeChargesPortion");
+        final BigDecimal penaltyChargesPortion = command.bigDecimalValueOfParameterNamed("penaltyChargesPortion");
+        final String reason = command.stringValueOfParameterNamed("reason");
+        
+        // Calculate total write-off amount with null guards
+        final BigDecimal totalWriteOffAmount = (principalPortion != null ? principalPortion : BigDecimal.ZERO)
+                .add(interestPortion != null ? interestPortion : BigDecimal.ZERO)
+                .add(feeChargesPortion != null ? feeChargesPortion : BigDecimal.ZERO)
+                .add(penaltyChargesPortion != null ? penaltyChargesPortion : BigDecimal.ZERO);
+        
+        changes.put("principalPortion", principalPortion);
+        changes.put("interestPortion", interestPortion);
+        changes.put("feeChargesPortion", feeChargesPortion);
+        changes.put("penaltyChargesPortion", penaltyChargesPortion);
+        changes.put("reason", reason);
+
+        checkClientOrGroupActive(loan);
+        businessEventNotifierService.notifyPreBusinessEvent(new LoanWrittenOffPreBusinessEvent(loan));
+
+        final List<Long> existingTransactionIds = new ArrayList<>();
+        final List<Long> existingReversedTransactionIds = new ArrayList<>();
+
+        LocalDate recalculateFrom = null;
+        if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
+            recalculateFrom = command.localDateValueOfParameterNamed("transactionDate");
+        }
+
+        ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
+
+        final LocalDate writeOffDate = command.localDateValueOfParameterNamed("transactionDate");
+        final String txnExternalId = command.stringValueOfParameterNamedAllowingNull("externalId");
+
+        // Create partial write-off transaction
+        LoanTransaction partialWriteOffTransaction = LoanTransaction.partialWriteoff(loan, loan.getOffice(), writeOffDate,
+                totalWriteOffAmount, principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion, txnExternalId);
+
+        // Capture loan balance before write-off
+        final Money loanBalanceBefore = loan.getLoanSummary().getTotalOutstanding(loan.getCurrency());
+
+        // Add transaction to loan and save
+        loan.addLoanTransaction(partialWriteOffTransaction);
+        this.loanTransactionRepository.saveAndFlush(partialWriteOffTransaction);
+        
+        saveLoanWithDataIntegrityViolationChecks(loan);
+        
+        // Capture loan balance after write-off
+        final Money loanBalanceAfter = loan.getLoanSummary().getTotalOutstanding(loan.getCurrency());
+
+        // Create audit record
+        final PartialWriteOffAudit audit = PartialWriteOffAudit.create(loan, partialWriteOffTransaction, writeOffDate,
+                principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion, totalWriteOffAmount,
+                loanBalanceBefore.getAmount(), loanBalanceAfter.getAmount(), reason, currentUser, loan.getOffice(),
+                command.stringValueOfParameterNamed("note"), txnExternalId);
+        
+        this.partialWriteOffAuditRepository.save(audit);
+
+        // Save note with reason
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            changes.put("note", noteText);
+            final Note note = Note.loanTransactionNote(loan, partialWriteOffTransaction, noteText);
+            this.noteRepository.save(note);
+        }
+
+        postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+        loanAccountDomainService.recalculateAccruals(loan);
+        businessEventNotifierService.notifyPostBusinessEvent(new LoanWrittenOffPostBusinessEvent(partialWriteOffTransaction));
+        
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(partialWriteOffTransaction.getId())
+                .withOfficeId(loan.getOfficeId())
+                .withClientId(loan.getClientId())
+                .withGroupId(loan.getGroupId())
+                .withLoanId(loanId)
+                .with(changes)
+                .build();
     }
 
     @Transactional

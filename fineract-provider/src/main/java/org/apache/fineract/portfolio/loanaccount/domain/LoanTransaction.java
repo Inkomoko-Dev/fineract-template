@@ -371,6 +371,17 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return new LoanTransaction(loan, office, LoanTransactionType.WRITEOFF, null, writeOffDate, externalId);
     }
 
+    public static LoanTransaction partialWriteoff(final Loan loan, final Office office, final LocalDate writeOffDate, 
+            final BigDecimal amount, final BigDecimal principalPortion, final BigDecimal interestPortion,
+            final BigDecimal feeChargesPortion, final BigDecimal penaltyChargesPortion, final String externalId) {
+        final LoanTransaction partialWriteOff = new LoanTransaction(loan, office, LoanTransactionType.PARTIAL_WRITEOFF, amount, writeOffDate, externalId);
+        partialWriteOff.principalPortion = principalPortion;
+        partialWriteOff.interestPortion = interestPortion;
+        partialWriteOff.feeChargesPortion = feeChargesPortion;
+        partialWriteOff.penaltyChargesPortion = penaltyChargesPortion;
+        return partialWriteOff;
+    }
+
     private LoanTransaction(final Loan loan, final Office office, final LoanTransactionType type, final BigDecimal amount,
             final LocalDate date, final String externalId) {
         this.loan = loan;
@@ -674,6 +685,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
 
     public boolean isWriteOff() {
         return getTypeOf().isWriteOff() && isNotReversed();
+    }
+
+    public boolean isPartialWriteOff() {
+        return getTypeOf().isPartialWriteOff() && isNotReversed();
     }
 
     public boolean isIdentifiedBy(final Long identifier) {
