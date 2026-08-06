@@ -3778,7 +3778,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         boolean isAllChargesPaid = true;
         for (final LoanCharge loanCharge : this.charges) {
             if (loanCharge.isActive() && loanCharge.amount().compareTo(BigDecimal.ZERO) > 0
-                    && !(loanCharge.isPaid() || loanCharge.isWaived())) {
+                    && !(loanCharge.isPaid() || loanCharge.isWaived()) && !isChargeSettledAtCurrencyPrecision(loanCharge)) {
                 isAllChargesPaid = false;
                 break;
             }
@@ -3796,6 +3796,15 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             this.loanStatus = statusEnum.getValue();
         }
         processIncomeAccrualTransactionOnLoanClosure();
+    }
+
+    /**
+     * A charge whose outstanding balance is zero once expressed at the loan currency's precision carries no real debt -
+     * it is a rounding residue left by a charge that was stored at a finer scale than the currency supports. Such a
+     * residue must not hold the loan open once the schedule itself is repaid in full.
+     */
+    private boolean isChargeSettledAtCurrencyPrecision(final LoanCharge loanCharge) {
+        return Money.of(loanCurrency(), loanCharge.amountOutstanding()).isZero();
     }
 
     private void processIncomeAccrualTransactionOnLoanClosure() {
