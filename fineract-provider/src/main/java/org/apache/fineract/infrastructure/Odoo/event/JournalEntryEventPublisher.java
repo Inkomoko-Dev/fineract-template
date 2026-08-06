@@ -70,8 +70,8 @@ public class JournalEntryEventPublisher {
             return eventId;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.event.publish.failed",
-                    "Interrurnal entry event for transpted while publishing jouaction " + resourceId);
+throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.event.publish.failed",
+        "Interrupted while publishing journal entry event for transaction " + resourceId);
         } catch (Exception e) {
             // failure leaves is_oddo_posted false, so the posting cron retries this transaction
             throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.event.publish.failed",
