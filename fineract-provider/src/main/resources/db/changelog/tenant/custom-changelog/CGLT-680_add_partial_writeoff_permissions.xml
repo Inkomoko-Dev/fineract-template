@@ -23,7 +23,7 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
-    <changeSet id="CGLT-680-1" author="inkomoko">
+    <changeSet id="CGLT-680-1" author="inkomoko" runOnChange="true">
         <comment>Add partial write-off permissions</comment>
         <insert tableName="m_permission">
             <column name="grouping" value="transaction_loan"/>
