@@ -1792,9 +1792,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final Money loanBalanceAfter = loan.getLoanSummary().getTotalOutstanding(loan.getCurrency());
 
         // Verify loan status remains active after partial write-off
-        if (!loan.isActive() && !loan.isOverdue()) {
+        if (loan.status().compareTo(LoanStatus.ACTIVE) != 0 && loan.status().compareTo(LoanStatus.OVERPAID) != 0) {
             throw new GeneralPlatformDomainRuleException("error.loan.status.changed.after.partial.writeoff",
-                    "Loan status changed unexpectedly after partial write-off. Loan must remain active or overdue.");
+                    "Loan status changed unexpectedly after partial write-off. Loan must remain active or overpaid.");
         }
 
         // Create audit record

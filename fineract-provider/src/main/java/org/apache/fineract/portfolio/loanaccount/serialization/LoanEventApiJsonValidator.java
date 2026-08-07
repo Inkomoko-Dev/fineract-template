@@ -49,6 +49,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanRepaymentScheduleNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -445,9 +446,9 @@ public final class LoanEventApiJsonValidator {
         }
 
         // Validate loan status - only active loans can have partial write-offs
-        if (!loan.isActive() && !loan.isOverdue()) {
+        if (loan.status().compareTo(LoanStatus.ACTIVE) != 0 && loan.status().compareTo(LoanStatus.OVERPAID) != 0) {
             baseDataValidator.reset().parameter("loanStatus").failWithCode("loan.not.active",
-                    "Partial write-off can only be performed on active or overdue loans");
+                    "Partial write-off can only be performed on active or overpaid loans");
         }
 
         // Validate amounts don't exceed outstanding balance
@@ -460,39 +461,6 @@ public final class LoanEventApiJsonValidator {
         if (totalWriteOffAmount.compareTo(outstandingBalance) > 0) {
             baseDataValidator.reset().parameter("totalWriteOffAmount").failWithCode("amount.exceeds.outstanding.balance",
                     "Total write-off amount cannot exceed outstanding loan balance of " + outstandingBalance);
-        }
-
-        // Validate individual components don't exceed their respective outstanding amounts
-        if (principalPortion != null) {
-            final BigDecimal outstandingPrincipal = loan.getLoanSummary().getTotalPrincipalOutstanding(loan.getCurrency()).getAmount();
-            if (principalPortion.compareTo(outstandingPrincipal) > 0) {
-                baseDataValidator.reset().parameter("principalPortion").failWithCode("principal.exceeds.outstanding",
-                        "Principal write-off amount cannot exceed outstanding principal of " + outstandingPrincipal);
-            }
-        }
-
-        if (interestPortion != null) {
-            final BigDecimal outstandingInterest = loan.getLoanSummary().getTotalInterestOutstanding(loan.getCurrency()).getAmount();
-            if (interestPortion.compareTo(outstandingInterest) > 0) {
-                baseDataValidator.reset().parameter("interestPortion").failWithCode("interest.exceeds.outstanding",
-                        "Interest write-off amount cannot exceed outstanding interest of " + outstandingInterest);
-            }
-        }
-
-        if (feeChargesPortion != null) {
-            final BigDecimal outstandingFees = loan.getLoanSummary().getTotalFeeChargesOutstanding(loan.getCurrency()).getAmount();
-            if (feeChargesPortion.compareTo(outstandingFees) > 0) {
-                baseDataValidator.reset().parameter("feeChargesPortion").failWithCode("fees.exceeds.outstanding",
-                        "Fee charges write-off amount cannot exceed outstanding fees of " + outstandingFees);
-            }
-        }
-
-        if (penaltyChargesPortion != null) {
-            final BigDecimal outstandingPenalties = loan.getLoanSummary().getTotalPenaltyChargesOutstanding(loan.getCurrency()).getAmount();
-            if (penaltyChargesPortion.compareTo(outstandingPenalties) > 0) {
-                baseDataValidator.reset().parameter("penaltyChargesPortion").failWithCode("penalties.exceeds.outstanding",
-                        "Penalty charges write-off amount cannot exceed outstanding penalties of " + outstandingPenalties);
-            }
         }
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
