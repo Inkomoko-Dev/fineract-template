@@ -33,6 +33,7 @@ public interface LoanApiConstants {
     String usdAmountParameterName = "usdAmount";
     String fxSourceParameterName = "fxSource";
     String fxTimestampParameterName = "fxTimestamp";
+    String mfiCodeParameterName = "mfiCode";
     String updatedDisbursementDateParameterName = "updatedExpectedDisbursementDate";
     String updatedDisbursementPrincipalParameterName = "updatedPrincipal";
     String disbursementIdParameterName = "id";
