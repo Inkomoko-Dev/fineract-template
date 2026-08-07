@@ -204,7 +204,8 @@ public final class LoanEventApiJsonValidator {
         final Set<String> transactionParameters = new HashSet<>(Arrays.asList("transactionDate", "transactionAmount", "externalId", "note",
                 "locale", "dateFormat", "paymentTypeId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
                 "correctionDate", LoanApiConstants.disbursementTypeParameterName, LoanApiConstants.fxRateParameterName,
-                LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName));
+                LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName,
+                LoanApiConstants.mfiCodeParameterName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, transactionParameters);
@@ -237,7 +238,8 @@ public final class LoanEventApiJsonValidator {
                         "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber", "loanId",
                         "originalTransactionId", "correctionDate", LoanApiConstants.disbursementTypeParameterName,
                         LoanApiConstants.fxRateParameterName, LoanApiConstants.usdAmountParameterName,
-                        LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName));
+                        LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName,
+                        LoanApiConstants.mfiCodeParameterName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, transactionParameters);
