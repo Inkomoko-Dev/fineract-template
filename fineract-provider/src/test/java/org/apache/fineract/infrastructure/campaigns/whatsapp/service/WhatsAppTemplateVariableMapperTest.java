@@ -19,6 +19,8 @@
 package org.apache.fineract.infrastructure.campaigns.whatsapp.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,8 +37,7 @@ class WhatsAppTemplateVariableMapperTest {
         row.put("dueDate", "2026-07-14");
         row.put("mobileNo", "+254700000000");
 
-        List<String> values = WhatsAppTemplateVariableMapper.toBodyValues(
-                "[\"clientName\",\"amount\",\"dueDate\"]", row);
+        List<String> values = WhatsAppTemplateVariableMapper.toBodyValues("[\"clientName\",\"amount\",\"dueDate\"]", row);
 
         assertEquals(List.of("Ada", "1000", "2026-07-14"), values);
     }
@@ -44,8 +45,7 @@ class WhatsAppTemplateVariableMapperTest {
     @Test
     void missingKeyBecomesEmptyString() {
         Map<String, Object> row = Map.of("clientName", "Ada");
-        List<String> values = WhatsAppTemplateVariableMapper.toBodyValues(
-                "[\"clientName\",\"amount\"]", row);
+        List<String> values = WhatsAppTemplateVariableMapper.toBodyValues("[\"clientName\",\"amount\"]", row);
         assertEquals(List.of("Ada", ""), values);
     }
 
@@ -54,8 +54,52 @@ class WhatsAppTemplateVariableMapperTest {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("loanId", "99");
         row.put("officeName", "Kigali");
-        List<String> values = WhatsAppTemplateVariableMapper.toBodyValues(
-                "[\"officeName\",\"loanId\"]", row);
+        List<String> values = WhatsAppTemplateVariableMapper.toBodyValues("[\"officeName\",\"loanId\"]", row);
         assertEquals(List.of("Kigali", "99"), values);
+    }
+
+    @Test
+    void strictMappingReportsUnresolvedKeys() {
+        Map<String, Object> row = Map.of("clientName", "Ada");
+
+        WhatsAppTemplateVariableMapper.MappingResult result = WhatsAppTemplateVariableMapper
+                .toBodyValuesStrict("[\"clientName\",\"amount\"]", row);
+
+        assertFalse(result.isComplete());
+        assertEquals(List.of("amount"), result.getUnresolvedKeys());
+    }
+
+    @Test
+    void strictMappingIsCompleteWhenEveryVariableResolves() {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("clientName", "Ada");
+        row.put("amount", "1000");
+
+        WhatsAppTemplateVariableMapper.MappingResult result = WhatsAppTemplateVariableMapper
+                .toBodyValuesStrict("[\"clientName\",\"amount\"]", row);
+
+        assertTrue(result.isComplete());
+        assertEquals(List.of("Ada", "1000"), result.getBodyValues());
+    }
+
+    @Test
+    void strictMappingTreatsBlankValueAsUnresolved() {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("clientName", "Ada");
+        row.put("amount", "   ");
+
+        WhatsAppTemplateVariableMapper.MappingResult result = WhatsAppTemplateVariableMapper
+                .toBodyValuesStrict("[\"clientName\",\"amount\"]", row);
+
+        assertFalse(result.isComplete());
+        assertEquals(List.of("amount"), result.getUnresolvedKeys());
+    }
+
+    @Test
+    void emptyMappingIsComplete() {
+        WhatsAppTemplateVariableMapper.MappingResult result = WhatsAppTemplateVariableMapper.toBodyValuesStrict("[]", Map.of());
+
+        assertTrue(result.isComplete());
+        assertEquals(List.of(), result.getBodyValues());
     }
 }

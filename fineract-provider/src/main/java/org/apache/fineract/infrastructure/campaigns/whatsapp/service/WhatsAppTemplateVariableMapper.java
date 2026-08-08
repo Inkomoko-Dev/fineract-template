@@ -30,15 +30,48 @@ public final class WhatsAppTemplateVariableMapper {
     private WhatsAppTemplateVariableMapper() {}
 
     public static List<String> toBodyValues(String mappingJson, Map<String, Object> row) {
+        return toBodyValuesStrict(mappingJson, row).getBodyValues();
+    }
+
+    public static MappingResult toBodyValuesStrict(String mappingJson, Map<String, Object> row) {
         if (mappingJson == null || mappingJson.isBlank()) {
-            return List.of();
+            return new MappingResult(List.of(), List.of());
         }
         JsonArray arr = JsonParser.parseString(mappingJson).getAsJsonArray();
         List<String> out = new ArrayList<>();
+        List<String> unresolved = new ArrayList<>();
         for (JsonElement el : arr) {
-            Object v = row == null ? null : row.get(el.getAsString());
-            out.add(v == null ? "" : String.valueOf(v));
+            String key = el.getAsString();
+            Object v = row == null ? null : row.get(key);
+            String value = v == null ? "" : String.valueOf(v);
+            if (value.isBlank()) {
+                unresolved.add(key);
+            }
+            out.add(value);
         }
-        return out;
+        return new MappingResult(out, unresolved);
+    }
+
+    public static final class MappingResult {
+
+        private final List<String> bodyValues;
+        private final List<String> unresolvedKeys;
+
+        private MappingResult(final List<String> bodyValues, final List<String> unresolvedKeys) {
+            this.bodyValues = bodyValues;
+            this.unresolvedKeys = unresolvedKeys;
+        }
+
+        public List<String> getBodyValues() {
+            return this.bodyValues;
+        }
+
+        public List<String> getUnresolvedKeys() {
+            return this.unresolvedKeys;
+        }
+
+        public boolean isComplete() {
+            return this.unresolvedKeys.isEmpty();
+        }
     }
 }

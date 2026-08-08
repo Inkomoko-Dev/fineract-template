@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
@@ -64,16 +65,17 @@ public class WhatsAppCampaignValidator {
     public static final String frequencyParamName = "frequency";
     public static final String intervalParamName = "interval";
     public static final String repeatsOnDayParamName = "repeatsOnDay";
+    public static final String recipientType = "recipientType";
 
     protected static final Set<String> supportedParams = new HashSet<>(Arrays.asList(campaignName, campaignType, localeParamName,
             dateFormatParamName, runReportId, paramValue, message, atTemplateName, languageCode, bodyVariableMapping, recurrenceStartDate,
             activationDateParamName, submittedOnDateParamName, closureDateParamName, recurrenceParamName, triggerType, frequencyParamName,
-            intervalParamName, repeatsOnDayParamName, dateTimeFormat));
+            intervalParamName, repeatsOnDayParamName, dateTimeFormat, recipientType));
 
-    protected static final Set<String> supportedParamsForUpdate = new HashSet<>(Arrays.asList(campaignName, campaignType, localeParamName,
-            dateFormatParamName, runReportId, paramValue, message, atTemplateName, languageCode, bodyVariableMapping, recurrenceStartDate,
-            activationDateParamName, recurrenceParamName, triggerType, dateTimeFormat, frequencyParamName, intervalParamName,
-            repeatsOnDayParamName));
+    protected static final Set<String> supportedParamsForUpdate = new HashSet<>(
+            Arrays.asList(campaignName, campaignType, localeParamName, dateFormatParamName, runReportId, paramValue, message,
+                    atTemplateName, languageCode, bodyVariableMapping, recurrenceStartDate, activationDateParamName, recurrenceParamName,
+                    triggerType, dateTimeFormat, frequencyParamName, intervalParamName, repeatsOnDayParamName, recipientType));
 
     protected static final Set<String> ACTIVATION_REQUEST_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList(localeParamName, dateFormatParamName, activationDateParamName));
@@ -81,8 +83,8 @@ public class WhatsAppCampaignValidator {
     protected static final Set<String> CLOSE_REQUEST_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList(localeParamName, dateFormatParamName, closureDateParamName));
 
-    protected static final Set<String> PREVIEW_REQUEST_DATA_PARAMETERS = new HashSet<>(Arrays.asList(paramValue, runReportId,
-            atTemplateName, languageCode, bodyVariableMapping));
+    protected static final Set<String> PREVIEW_REQUEST_DATA_PARAMETERS = new HashSet<>(
+            Arrays.asList(paramValue, runReportId, atTemplateName, languageCode, bodyVariableMapping));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -111,6 +113,8 @@ public class WhatsAppCampaignValidator {
 
         final Long triggerTypeValue = this.fromApiJsonHelper.extractLongNamed(triggerType, element);
         baseDataValidator.reset().parameter(triggerType).value(triggerTypeValue).notNull().integerGreaterThanZero();
+
+        validateRecipientType(element, baseDataValidator);
 
         if (triggerTypeValue != null && triggerTypeValue.intValue() == WhatsAppCampaignTriggerType.SCHEDULE.getValue()) {
             final Integer frequencyParam = this.fromApiJsonHelper.extractIntegerWithLocaleNamed(frequencyParamName, element);
@@ -184,6 +188,8 @@ public class WhatsAppCampaignValidator {
 
         final Long triggerTypeValue = this.fromApiJsonHelper.extractLongNamed(triggerType, element);
         baseDataValidator.reset().parameter(triggerType).value(triggerTypeValue).notNull().integerGreaterThanZero();
+
+        validateRecipientType(element, baseDataValidator);
 
         if (triggerTypeValue != null && triggerTypeValue.intValue() == WhatsAppCampaignTriggerType.SCHEDULE.getValue()) {
             if (this.fromApiJsonHelper.parameterExists(recurrenceParamName, element)) {
@@ -300,6 +306,15 @@ public class WhatsAppCampaignValidator {
         baseDataValidator.reset().parameter(activationDateParamName).value(activationDate).notNull();
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    private void validateRecipientType(final JsonElement element, final DataValidatorBuilder baseDataValidator) {
+        if (!this.fromApiJsonHelper.parameterExists(recipientType, element)) {
+            return;
+        }
+        final String recipientTypeValue = this.fromApiJsonHelper.extractStringNamed(recipientType, element);
+        baseDataValidator.reset().parameter(recipientType).value(recipientTypeValue).notBlank()
+                .isOneOfTheseStringValues(RecipientType.CLIENT.name(), RecipientType.STAFF.name());
     }
 
     private void validateBodyVariableMapping(final JsonElement element, final DataValidatorBuilder baseDataValidator) {

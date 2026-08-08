@@ -33,9 +33,11 @@ import java.util.Set;
 import javax.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
+import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
 import org.apache.fineract.infrastructure.campaigns.sms.exception.SmsRuntimeException;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
@@ -75,6 +77,7 @@ public class WhatsAppCampaignDomainServiceImpl implements WhatsAppCampaignDomain
     private final OfficeRepository officeRepository;
     private final BusinessEventNotifierService businessEventNotifierService;
     private final GroupRepository groupRepository;
+    private final PhoneNumberNormalizer phoneNumberNormalizer;
 
     @PostConstruct
     public void addListeners() {
@@ -85,7 +88,8 @@ public class WhatsAppCampaignDomainServiceImpl implements WhatsAppCampaignDomain
                 new SendWhatsAppOnLoanRepayment());
         businessEventNotifierService.addPostBusinessEventListener(ClientActivateBusinessEvent.class, new ClientActivatedListener());
         businessEventNotifierService.addPostBusinessEventListener(ClientRejectBusinessEvent.class, new ClientRejectedListener());
-        businessEventNotifierService.addPostBusinessEventListener(SavingsActivateBusinessEvent.class, new SavingsAccountActivatedListener());
+        businessEventNotifierService.addPostBusinessEventListener(SavingsActivateBusinessEvent.class,
+                new SavingsAccountActivatedListener());
         businessEventNotifierService.addPostBusinessEventListener(SavingsRejectBusinessEvent.class, new SavingsAccountRejectedListener());
         businessEventNotifierService.addPostBusinessEventListener(SavingsDepositBusinessEvent.class,
                 new DepositSavingsAccountTransactionListener());
@@ -213,8 +217,8 @@ public class WhatsAppCampaignDomainServiceImpl implements WhatsAppCampaignDomain
     }
 
     private List<WhatsAppCampaign> retrieveWhatsAppCampaigns(final String paramValue) {
-        final Collection<WhatsAppCampaign> activeTriggered = this.whatsAppCampaignRepository.findByTriggerTypeAndStatus(
-                WhatsAppCampaignTriggerType.TRIGGERED.getValue(), WhatsAppCampaignStatus.ACTIVE.getValue());
+        final Collection<WhatsAppCampaign> activeTriggered = this.whatsAppCampaignRepository
+                .findByTriggerTypeAndStatus(WhatsAppCampaignTriggerType.TRIGGERED.getValue(), WhatsAppCampaignStatus.ACTIVE.getValue());
         final List<WhatsAppCampaign> matched = new ArrayList<>();
         if (activeTriggered == null) {
             return matched;
@@ -253,18 +257,26 @@ public class WhatsAppCampaignDomainServiceImpl implements WhatsAppCampaignDomain
     private void enqueueTriggeredMessage(final Client client, final WhatsAppCampaign campaign, final Map<String, Object> data) {
         try {
             final Object mobileNo = data.get("mobileNo");
-            if (mobileNo == null || mobileNo.toString().isBlank()) {
+            final String phoneNumber = mobileNo == null ? null : this.phoneNumberNormalizer.normalize(mobileNo.toString());
+            if (StringUtils.isBlank(phoneNumber)) {
                 return;
             }
-            final List<String> bodyValues = WhatsAppTemplateVariableMapper.toBodyValues(campaign.getBodyVariableMapping(), data);
+            final WhatsAppTemplateVariableMapper.MappingResult mapping = WhatsAppTemplateVariableMapper
+                    .toBodyValuesStrict(campaign.getBodyVariableMapping(), data);
+            if (!mapping.isComplete()) {
+                log.warn("Skipping triggered WhatsApp campaign {}: template {} has unresolved variable(s) {}.", campaign.getId(),
+                        campaign.getAtTemplateName(), mapping.getUnresolvedKeys());
+                return;
+            }
+            final List<String> bodyValues = mapping.getBodyValues();
             final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
             final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
-            final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate(mobileNo.toString(), RecipientType.CLIENT,
-                    client, null, campaign.getAtTemplateName(), campaign.getLanguageCode(), templateBodyValuesJson, auditMessageBody,
+            final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate(phoneNumber, RecipientType.CLIENT, client,
+                    null, campaign.getAtTemplateName(), campaign.getLanguageCode(), templateBodyValuesJson, auditMessageBody,
                     campaign.getId());
             this.communicationMessageRepository.save(message);
-        } catch (final IOException e) {
-            log.error("Error enqueueing triggered WhatsApp campaign message.", e);
+        } catch (final IOException | RuntimeException e) {
+            log.error("Error enqueueing triggered WhatsApp campaign message for campaign {}.", campaign.getId(), e);
         }
     }
 
