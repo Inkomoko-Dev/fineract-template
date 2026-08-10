@@ -87,6 +87,10 @@ public class CodeValue extends AbstractPersistableCustom {
         return this.position;
     }
 
+    public boolean isActive() {
+        return this.isActive;
+    }
+
     public static CodeValue fromJson(final Code code, final JsonCommand command) {
 
         final String label = command.stringValueOfParameterNamed(CodevalueJSONinputParams.NAME.getValue());
