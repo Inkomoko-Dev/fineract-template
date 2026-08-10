@@ -3898,6 +3898,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // Update disbursement details
         if (!loan.loanProduct().isMultiDisburseLoan()
                 && this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
+            final String mfiCode = command.stringValueOfParameterNamed(LoanApiConstants.mfiCodeParameterName);
             final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
             final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
             final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
@@ -4008,6 +4009,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 if (fxTimestamp != null) {
                     disbursementDetail.setFxTimestamp(fxTimestamp);
                 }
+                disbursementDetail.applyMfiCodeIfProvided(mfiCode);
                 if (this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan)) {
                     this.supplierDisbursementAuditService.recordChange(loan, disbursementDetail, recipientSnapshotBeforeUpdate,
                             SupplierDisbursementSnapshot.from(disbursementDetail), SupplierDisbursementAuditService.CHANGE_SOURCE_MANUAL_OVERRIDE,
@@ -4015,7 +4017,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 }
             }
         }
-        
+
         loan.handleDisbursementPreApprovalRequest();
         this.saveLoanWithDataIntegrityViolationChecks(loan);
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
@@ -4039,6 +4041,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
             if (this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
             // Update disbursement details
+            final String mfiCode = command.stringValueOfParameterNamed(LoanApiConstants.mfiCodeParameterName);
             final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
             final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
             final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
@@ -4149,6 +4152,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 if (fxTimestamp != null) {
                     disbursementDetail.setFxTimestamp(fxTimestamp);
                 }
+                disbursementDetail.applyMfiCodeIfProvided(mfiCode);
                 if (this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan)) {
                     this.supplierDisbursementAuditService.recordChange(loan, disbursementDetail, recipientSnapshotBeforeUpdate,
                             SupplierDisbursementSnapshot.from(disbursementDetail), SupplierDisbursementAuditService.CHANGE_SOURCE_MANUAL_OVERRIDE,
