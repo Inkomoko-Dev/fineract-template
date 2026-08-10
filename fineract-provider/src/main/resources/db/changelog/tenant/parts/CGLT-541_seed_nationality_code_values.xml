@@ -4517,4 +4517,45 @@
         </insert>
     </changeSet>
 
+    <changeSet author="wmnjugunaink" id="CGLT-541-migrate-client-nationality-values-from-country-code">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="m_client_other_info"/>
+                <columnExists tableName="m_client_other_info" columnName="nationality_cv_id"/>
+                <sqlCheck expectedResult="1">
+                    select count(1) from m_code where code_name = 'Nationality';
+                </sqlCheck>
+            </and>
+        </preConditions>
+        <sql><![CDATA[
+            UPDATE m_client_other_info coi
+            JOIN m_code_value legacy_cv ON legacy_cv.id = coi.nationality_cv_id
+            JOIN m_code legacy_code ON legacy_code.id = legacy_cv.code_id
+                AND legacy_code.code_name = 'COUNTRY'
+            JOIN (
+                SELECT 'Afghanistan' AS legacy_value, 'Afghanistan' AS nationality_value
+                UNION ALL SELECT 'Argentina', 'Argentina'
+                UNION ALL SELECT 'Burundi', 'Burundi'
+                UNION ALL SELECT 'Central African Republic', 'Central African Republic'
+                UNION ALL SELECT 'Chad', 'Chad'
+                UNION ALL SELECT 'Congo', 'Republic of the Congo'
+                UNION ALL SELECT 'DRC', 'Democratic Republic of the Congo'
+                UNION ALL SELECT 'Eritrean', 'Eritrea'
+                UNION ALL SELECT 'Ethiopia', 'Ethiopia'
+                UNION ALL SELECT 'Iraqi', 'Iraq'
+                UNION ALL SELECT 'Kenya', 'Kenya'
+                UNION ALL SELECT 'Nigeria', 'Nigeria'
+                UNION ALL SELECT 'Rwanda', 'Rwanda'
+                UNION ALL SELECT 'Somalia', 'Somalia'
+                UNION ALL SELECT 'South Sudan', 'South Sudan'
+                UNION ALL SELECT 'Sudan', 'Sudan'
+                UNION ALL SELECT 'Yemeni', 'Yemen'
+            ) nationality_map ON nationality_map.legacy_value = legacy_cv.code_value
+            JOIN m_code nationality_code ON nationality_code.code_name = 'Nationality'
+            JOIN m_code_value nationality_cv ON nationality_cv.code_id = nationality_code.id
+                AND nationality_cv.code_value = nationality_map.nationality_value
+            SET coi.nationality_cv_id = nationality_cv.id;
+        ]]></sql>
+    </changeSet>
+
 </databaseChangeLog>
