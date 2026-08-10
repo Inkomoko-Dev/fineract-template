@@ -25,12 +25,15 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
+import org.apache.fineract.infrastructure.codes.exception.CodeValueNotFoundException;
 import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
 import org.apache.fineract.infrastructure.configuration.service.ConfigurationReadPlatformService;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.client.api.ClientApiConstants;
@@ -112,7 +115,7 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
                 CodeValue nationality = null;
                 final Long nationalityId = command.longValueOfParameterNamed(ClientApiConstants.nationalityIdParamName);
                 if (nationalityId != null) {
-                    nationality = this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection("COUNTRY", nationalityId);
+                    nationality = findNationalityWithNotFoundDetection(nationalityId);
                 }
 
                 otherInfo = ClientOtherInfo.createNew(command, client, strata, nationality, bank);
@@ -182,8 +185,7 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
                     CodeValue nationalityCodeValue = null;
                     if (nationalityId != null) {
 
-                        nationalityCodeValue = this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection("COUNTRY",
-                                nationalityId);
+                        nationalityCodeValue = findNationalityWithNotFoundDetection(nationalityId);
                     }
                     clientOtherInfo.setNationality(nationalityCodeValue);
                 }
@@ -216,6 +218,20 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
             return CommandProcessingResult.empty();
         }
 
+    }
+
+    private CodeValue findNationalityWithNotFoundDetection(final Long nationalityId) {
+        try {
+            return this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection(
+                    ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN, nationalityId);
+        } catch (CodeValueNotFoundException e) {
+            final ApiParameterError error = ApiParameterError.parameterError(
+                    "validation.msg.client.other.info.nationality.invalid",
+                    "Please select a valid country of origin / nationality.", ClientApiConstants.nationalityIdParamName,
+                    nationalityId);
+            throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                    List.of(error));
+        }
     }
 
     private RefBank findActiveBank(final Long bankId) {
