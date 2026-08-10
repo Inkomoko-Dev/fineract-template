@@ -222,16 +222,24 @@ public class ClientOtherInfoWritePlatformServiceImpl implements ClientOtherInfoW
 
     private CodeValue findNationalityWithNotFoundDetection(final Long nationalityId) {
         try {
-            return this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection(
+            final CodeValue nationality = this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection(
                     ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN, nationalityId);
+            if (!nationality.isActive()) {
+                throw invalidNationality(nationalityId);
+            }
+            return nationality;
         } catch (CodeValueNotFoundException e) {
-            final ApiParameterError error = ApiParameterError.parameterError(
-                    "validation.msg.client.other.info.nationality.invalid",
-                    "Please select a valid country of origin / nationality.", ClientApiConstants.nationalityIdParamName,
-                    nationalityId);
-            throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
-                    List.of(error));
+            throw invalidNationality(nationalityId);
         }
+    }
+
+    private PlatformApiDataValidationException invalidNationality(final Long nationalityId) {
+        final ApiParameterError error = ApiParameterError.parameterError(
+                "validation.msg.client.other.info.nationality.invalid",
+                "Please select a valid country of origin / nationality.", ClientApiConstants.nationalityIdParamName,
+                nationalityId);
+        return new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                List.of(error));
     }
 
     private RefBank findActiveBank(final Long bankId) {
