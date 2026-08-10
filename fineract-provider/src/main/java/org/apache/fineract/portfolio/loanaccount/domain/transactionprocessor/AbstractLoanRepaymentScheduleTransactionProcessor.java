@@ -203,6 +203,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             } else if (loanTransaction.isWriteOff()) {
                 loanTransaction.resetDerivedComponents();
                 handleWriteOff(loanTransaction, currency, installments);
+            } else if (loanTransaction.isPartialWriteOff()) {
+                handlePartialWriteOff(loanTransaction, currency, installments);
             } else if (loanTransaction.isRefundForActiveLoan()) {
                 loanTransaction.resetDerivedComponents();
 
@@ -498,6 +500,54 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         }
 
         loanTransaction.updateComponentsAndTotal(principalPortion, interestPortion, feeChargesPortion, penaltychargesPortion);
+    }
+
+    @Override
+    public void handlePartialWriteOff(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
+            final List<LoanRepaymentScheduleInstallment> installments) {
+
+        final LocalDate transactionDate = loanTransaction.getTransactionDate();
+        
+        // For partial write-off, the components are already set in the transaction
+        // We just need to apply them to the installments
+        Money principalPortion = loanTransaction.getPrincipalPortion(currency);
+        Money interestPortion = loanTransaction.getInterestPortion(currency);
+        Money feeChargesPortion = loanTransaction.getFeeChargesPortion(currency);
+        Money penaltyChargesPortion = loanTransaction.getPenaltyChargesPortion(currency);
+
+        // Apply partial write-off to installments based on the provided portions
+        for (final LoanRepaymentScheduleInstallment currentInstallment : installments) {
+            if (currentInstallment.isNotFullyPaidOff()) {
+                if (principalPortion.isGreaterThanZero()) {
+                    Money principalWriteOff = currentInstallment.writeOffPartialPrincipal(transactionDate, currency, principalPortion);
+                    principalPortion = principalPortion.minus(principalWriteOff);
+                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero() && penaltyChargesPortion.isZero()) {
+                        break;
+                    }
+                }
+                if (interestPortion.isGreaterThanZero()) {
+                    Money interestWriteOff = currentInstallment.writeOffPartialInterest(transactionDate, currency, interestPortion);
+                    interestPortion = interestPortion.minus(interestWriteOff);
+                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero() && penaltyChargesPortion.isZero()) {
+                        break;
+                    }
+                }
+                if (feeChargesPortion.isGreaterThanZero()) {
+                    Money feeChargesWriteOff = currentInstallment.writeOffPartialFeeCharges(transactionDate, currency, feeChargesPortion);
+                    feeChargesPortion = feeChargesPortion.minus(feeChargesWriteOff);
+                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero() && penaltyChargesPortion.isZero()) {
+                        break;
+                    }
+                }
+                if (penaltyChargesPortion.isGreaterThanZero()) {
+                    Money penaltyChargesWriteOff = currentInstallment.writeOffPartialPenaltyCharges(transactionDate, currency, penaltyChargesPortion);
+                    penaltyChargesPortion = penaltyChargesPortion.minus(penaltyChargesWriteOff);
+                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero() && penaltyChargesPortion.isZero()) {
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     // abstract interface

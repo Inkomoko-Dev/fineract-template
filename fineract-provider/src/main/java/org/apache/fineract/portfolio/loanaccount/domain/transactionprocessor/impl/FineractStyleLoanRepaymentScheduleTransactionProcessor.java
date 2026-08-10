@@ -258,4 +258,11 @@ public class FineractStyleLoanRepaymentScheduleTransactionProcessor extends Abst
     public boolean isPenaltyFirstTransactionProcessor() {
         return true;
     }
+
+    @Override
+    public void handlePartialWriteOff(LoanTransaction loanTransaction, MonetaryCurrency loanCurrency,
+            List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments) {
+        // Delegate to the abstract implementation
+        super.handlePartialWriteOff(loanTransaction, loanCurrency, repaymentScheduleInstallments);
+    }
 }

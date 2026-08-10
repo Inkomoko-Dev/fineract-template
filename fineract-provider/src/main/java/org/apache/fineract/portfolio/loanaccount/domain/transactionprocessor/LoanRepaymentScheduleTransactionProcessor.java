@@ -39,6 +39,9 @@ public interface LoanRepaymentScheduleTransactionProcessor {
     void handleWriteOff(LoanTransaction loanTransaction, MonetaryCurrency loanCurrency,
             List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments);
 
+    void handlePartialWriteOff(LoanTransaction loanTransaction, MonetaryCurrency loanCurrency,
+            List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments);
+
     Money handleRepaymentSchedule(List<LoanTransaction> transactionsPostDisbursement, MonetaryCurrency currency,
             List<LoanRepaymentScheduleInstallment> installments);
 

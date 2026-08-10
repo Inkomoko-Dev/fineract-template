@@ -799,6 +799,74 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return penaltyChargesOutstanding;
     }
 
+    public Money writeOffPartialPrincipal(final LocalDate transactionDate, final MonetaryCurrency currency, Money amountToWriteOff) {
+        final Money principalOutstanding = getPrincipalOutstanding(currency);
+        Money writeOffAmount = amountToWriteOff;
+        
+        if (principalOutstanding.isLessThan(amountToWriteOff)) {
+            writeOffAmount = principalOutstanding;
+        }
+        
+        this.principalWrittenOff = (this.principalWrittenOff != null ? this.principalWrittenOff : BigDecimal.ZERO)
+                .add(writeOffAmount.getAmount());
+        this.principalWrittenOff = defaultToNullIfZero(this.principalWrittenOff);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return writeOffAmount;
+    }
+
+    public Money writeOffPartialInterest(final LocalDate transactionDate, final MonetaryCurrency currency, Money amountToWriteOff) {
+        final Money interestOutstanding = getInterestOutstanding(currency);
+        Money writeOffAmount = amountToWriteOff;
+        
+        if (interestOutstanding.isLessThan(amountToWriteOff)) {
+            writeOffAmount = interestOutstanding;
+        }
+        
+        this.interestWrittenOff = (this.interestWrittenOff != null ? this.interestWrittenOff : BigDecimal.ZERO)
+                .add(writeOffAmount.getAmount());
+        this.interestWrittenOff = defaultToNullIfZero(this.interestWrittenOff);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return writeOffAmount;
+    }
+
+    public Money writeOffPartialFeeCharges(final LocalDate transactionDate, final MonetaryCurrency currency, Money amountToWriteOff) {
+        final Money feeChargesOutstanding = getFeeChargesOutstanding(currency);
+        Money writeOffAmount = amountToWriteOff;
+        
+        if (feeChargesOutstanding.isLessThan(amountToWriteOff)) {
+            writeOffAmount = feeChargesOutstanding;
+        }
+        
+        this.feeChargesWrittenOff = (this.feeChargesWrittenOff != null ? this.feeChargesWrittenOff : BigDecimal.ZERO)
+                .add(writeOffAmount.getAmount());
+        this.feeChargesWrittenOff = defaultToNullIfZero(this.feeChargesWrittenOff);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return writeOffAmount;
+    }
+
+    public Money writeOffPartialPenaltyCharges(final LocalDate transactionDate, final MonetaryCurrency currency, Money amountToWriteOff) {
+        final Money penaltyChargesOutstanding = getPenaltyChargesOutstanding(currency);
+        Money writeOffAmount = amountToWriteOff;
+        
+        if (penaltyChargesOutstanding.isLessThan(amountToWriteOff)) {
+            writeOffAmount = penaltyChargesOutstanding;
+        }
+        
+        this.penaltyChargesWrittenOff = (this.penaltyChargesWrittenOff != null ? this.penaltyChargesWrittenOff : BigDecimal.ZERO)
+                .add(writeOffAmount.getAmount());
+        this.penaltyChargesWrittenOff = defaultToNullIfZero(this.penaltyChargesWrittenOff);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return writeOffAmount;
+    }
+
     public boolean isOverdueOn(final LocalDate date) {
         return getDueDate().isBefore(date);
     }

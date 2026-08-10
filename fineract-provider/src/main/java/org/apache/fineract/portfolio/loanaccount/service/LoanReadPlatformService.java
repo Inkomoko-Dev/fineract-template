@@ -139,6 +139,8 @@ public interface LoanReadPlatformService {
 
     LoanTransactionData retrieveLoanWriteoffTemplate(Long loanId, LocalDate writeOffDate);
 
+    LoanTransactionData retrieveLoanPartialWriteoffTemplate(Long loanId);
+
     Collection<LoanScheduleAccrualData> retrivePeriodicAccrualData(LocalDate tillDate);
 
     Collection<Long> fetchLoansForInterestRecalculation();
