@@ -248,7 +248,7 @@ public class ClientApiConstants {
     public static final String BANK_ID = "bankId";
     public static final String PASSPORT_NUMBER = "passportNumber";
     public static final String STRATA = "Strata";
-    public static final String NATIONALITY_COUNTRY_OF_ORIGIN = "COUNTRY";
+    public static final String NATIONALITY_COUNTRY_OF_ORIGIN = "Nationality";
     public static final String YEAR_ARRIVED_IN_HOST_COUNTRY = "YearArrivedInHostCountry";
     public static final String coSignors = "coSignorsName";
     public static String businessLocationParamName = "businessLocation";
