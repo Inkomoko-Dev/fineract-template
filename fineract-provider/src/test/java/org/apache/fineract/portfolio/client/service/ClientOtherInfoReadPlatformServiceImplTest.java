@@ -19,7 +19,6 @@
 package org.apache.fineract.portfolio.client.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,9 +48,10 @@ class ClientOtherInfoReadPlatformServiceImplTest {
     }
 
     @Test
-    void retrieveTemplateUsesNationalityCodeForCountryOfOriginOptions() {
+    void retrieveTemplateUsesCountryCodeForCountryOfOriginOptions() {
         final List<CodeValueData> nationalityOptions = List.of(CodeValueData.instance(1L, "Rwanda"));
         final List<CodeValueData> strataOptions = List.of(CodeValueData.instance(2L, "Refugee"));
+        assertThat(ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN).isEqualTo(ClientApiConstants.COUNTRY);
         when(this.codeValueReadPlatformService.retrieveCodeValuesByCode(ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN))
                 .thenReturn(nationalityOptions);
         when(this.codeValueReadPlatformService.retrieveCodeValuesByCode(ClientApiConstants.STRATA)).thenReturn(strataOptions);
@@ -60,6 +60,5 @@ class ClientOtherInfoReadPlatformServiceImplTest {
 
         assertThat(ReflectionTestUtils.getField(template, "nationalityOptions")).isEqualTo(nationalityOptions);
         verify(this.codeValueReadPlatformService).retrieveCodeValuesByCode(ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN);
-        verify(this.codeValueReadPlatformService, never()).retrieveCodeValuesByCode("COUNTRY");
     }
 }

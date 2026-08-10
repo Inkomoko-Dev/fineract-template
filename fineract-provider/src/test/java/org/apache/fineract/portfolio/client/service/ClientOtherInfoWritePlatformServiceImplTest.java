@@ -52,9 +52,10 @@ class ClientOtherInfoWritePlatformServiceImplTest {
     }
 
     @Test
-    void findNationalityUsesNationalityCode() {
+    void findNationalityUsesCountryCode() {
         when(this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection(
                 ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN, 7L)).thenReturn(this.codeValue);
+        when(this.codeValue.isActive()).thenReturn(true);
 
         final CodeValue result = ReflectionTestUtils.invokeMethod(this.writeService, "findNationalityWithNotFoundDetection", 7L);
 
@@ -64,7 +65,7 @@ class ClientOtherInfoWritePlatformServiceImplTest {
     }
 
     @Test
-    void findNationalityReturnsClearValidationErrorWhenValueIsNotInNationalityCode() {
+    void findNationalityReturnsClearValidationErrorWhenValueIsNotInCountryCode() {
         when(this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection(
                 ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN, 99L))
                 .thenThrow(new CodeValueNotFoundException(ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN, 99L));
@@ -77,6 +78,22 @@ class ClientOtherInfoWritePlatformServiceImplTest {
                             .isEqualTo("validation.msg.client.other.info.nationality.invalid");
                     assertThat(validationException.getErrors().get(0).getDefaultUserMessage())
                             .isEqualTo("Please select a valid country of origin / nationality.");
+                    assertThat(validationException.getErrors().get(0).getParameterName()).isEqualTo("nationalityId");
+                });
+    }
+
+    @Test
+    void findNationalityReturnsClearValidationErrorWhenCountryValueIsInactive() {
+        when(this.codeValueRepository.findOneByCodeNameAndIdWithNotFoundDetection(
+                ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN, 70L)).thenReturn(this.codeValue);
+        when(this.codeValue.isActive()).thenReturn(false);
+
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(this.writeService, "findNationalityWithNotFoundDetection", 70L))
+                .isInstanceOf(PlatformApiDataValidationException.class)
+                .satisfies(ex -> {
+                    final PlatformApiDataValidationException validationException = (PlatformApiDataValidationException) ex;
+                    assertThat(validationException.getErrors().get(0).getUserMessageGlobalisationCode())
+                            .isEqualTo("validation.msg.client.other.info.nationality.invalid");
                     assertThat(validationException.getErrors().get(0).getParameterName()).isEqualTo("nationalityId");
                 });
     }
