@@ -157,7 +157,6 @@ import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
-import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
