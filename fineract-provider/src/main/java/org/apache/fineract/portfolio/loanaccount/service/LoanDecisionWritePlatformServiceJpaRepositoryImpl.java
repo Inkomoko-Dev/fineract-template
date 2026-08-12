@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,6 +29,9 @@ import java.util.Map;
 import javax.persistence.PersistenceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.portfolio.loanaccount.domain.DefaultLoanLifecycleStateMachine;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
@@ -1829,32 +1833,74 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 .withResourceIdAsString(savedObj.getId().toString()).build();
     }
 
+    private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
+        final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
+        return new DefaultLoanLifecycleStateMachine(allowedLoanStatuses);
+    }
+
     @Override
     public CommandProcessingResult rejectPrepareAndSignContract(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
 
-        // Validate the current state
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
 
-        if (!LoanDecisionState.fromInt(loan.getLoanDecisionState()).isPrepareAndSignContract()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
-                    "Loan Decision state is invalid for reject operation. Expected PREPARE_AND_SIGN_CONTRACT.");
+        if (loanDecision == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.account.should.not.found.in.decision.engine",
+                    "Loan Account not found in decision engine. Operation [Return to Prepare and Sign Contract] is not allowed");
         }
 
-        // Revert to the previous stage
-        Integer previousLoanDecisionState = loanDecision.getPreviousLoanIcReviewDecisionState();
+        final boolean isApprovalStage = Boolean.TRUE.equals(loanDecision.getPrepareAndSignContractSigned()) || loan.status().isApproved();
+        final boolean isPrepareAndSignStage = LoanDecisionState.fromInt(loan.getLoanDecisionState()).isPrepareAndSignContract();
 
-        loan.setLoanDecisionState(previousLoanDecisionState);
-        loanDecision.setLoanDecisionState(previousLoanDecisionState);
-        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
-        loanDecision.setRejectPrepareAndSignContractSigned(true);
+        if (!isApprovalStage && !isPrepareAndSignStage) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    "Loan Decision state is invalid for reject operation. Expected PREPARE_AND_SIGN_CONTRACT or Approval stage.");
+        }
 
         Note note = null;
         final String noteText = command.stringValueOfParameterNamed("note");
-        if (StringUtils.isNotBlank(noteText)) {
-            note = Note.loanNote(loan, "Returned Prepare and Sign Contract : " + noteText);
-            this.noteRepository.save(note);
+
+        if (isApprovalStage) {
+            // Return from Approval stage back to Prepare and Sign Contract step
+            if (loan.status().isApproved()) {
+                loan.undoApproval(defaultLoanLifecycleStateMachine());
+            }
+
+            loanDecision.setPrepareAndSignContractSigned(Boolean.FALSE);
+            loan.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+            loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+            loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+            loanDecision.setRejectPrepareAndSignContractSigned(Boolean.TRUE);
+
+            if (StringUtils.isNotBlank(noteText)) {
+                note = Note.loanNote(loan, "Returned to Prepare and Sign Contract : " + noteText);
+                this.noteRepository.save(note);
+            }
+            log.info("Loan {} (ID: {}) returned to Prepare and Sign Contract stage by user {} (ID: {})",
+                    loan.getAccountNumber(), loan.getId(),
+                    currentUser != null ? currentUser.getUsername() : "system",
+                    currentUser != null ? currentUser.getId() : "null");
+        } else {
+            // Revert from Prepare & Sign Contract stage back to previous IC stage
+            Integer previousLoanDecisionState = loanDecision.getPreviousLoanIcReviewDecisionState();
+            if (previousLoanDecisionState == null) {
+                previousLoanDecisionState = LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue();
+            }
+
+            loan.setLoanDecisionState(previousLoanDecisionState);
+            loanDecision.setLoanDecisionState(previousLoanDecisionState);
+            loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+            loanDecision.setRejectPrepareAndSignContractSigned(Boolean.TRUE);
+
+            if (StringUtils.isNotBlank(noteText)) {
+                note = Note.loanNote(loan, "Returned Prepare and Sign Contract : " + noteText);
+                this.noteRepository.save(note);
+            }
+            log.info("Loan {} (ID: {}) rejected Prepare and Sign Contract to stage {} by user {} (ID: {})",
+                    loan.getAccountNumber(), loan.getId(), previousLoanDecisionState,
+                    currentUser != null ? currentUser.getUsername() : "system",
+                    currentUser != null ? currentUser.getId() : "null");
         }
 
         // Save changes
