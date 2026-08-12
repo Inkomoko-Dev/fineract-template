@@ -3793,10 +3793,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final Long penaltyWaitPeriod = this.configurationDomainService.retrievePenaltyWaitPeriod();
 
+        log.info("applyPenaltyCharge: loanId={}, penaltyWaitPeriod={}, backdatePenalties={} - fetching overdue installments",
+                loanId, penaltyWaitPeriod, backdatePenalties);
+
         final Collection<OverdueLoanScheduleData> overdueLoanScheduleData = this.loanReadPlatformService
                 .retrieveLoanAccountWithOverdueInstallments(penaltyWaitPeriod, backdatePenalties, loanId);
 
-        if (!CollectionUtils.isEmpty(overdueLoanScheduleData)) {
+        if (CollectionUtils.isEmpty(overdueLoanScheduleData)) {
+            log.info("applyPenaltyCharge: loanId={} has no overdue installments to charge, skipping", loanId);
+        } else {
+            log.info("applyPenaltyCharge: loanId={} has {} overdue installment(s), applying charges", loanId,
+                    overdueLoanScheduleData.size());
             applyOverdueChargesForLoan(loanId, overdueLoanScheduleData);
         }
 
