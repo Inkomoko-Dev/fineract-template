@@ -3252,10 +3252,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                     ? Boolean.FALSE
                     : Boolean.TRUE;
             this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
-            if (this.loanProduct.isMultiDisburseLoan()) {
-                for (final LoanDisbursementDetails details : this.disbursementDetails) {
-                    details.updateActualDisbursementDate(null);
-                }
+            for (final LoanDisbursementDetails details : this.disbursementDetails) {
+                details.updateActualDisbursementDate(null);
             }
             boolean isEmiAmountChanged = this.loanTermVariations.size() > 0;
 
