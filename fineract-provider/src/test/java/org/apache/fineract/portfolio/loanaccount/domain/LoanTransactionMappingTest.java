@@ -32,6 +32,7 @@ import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Test class for LoanTransaction mapping logic, specifically for CGLT-682 fix.
@@ -56,15 +57,15 @@ class LoanTransactionMappingTest {
         // Create installments with the same due date to test primary key matching
         installment1 = new LoanRepaymentScheduleInstallment(null, 1, SAME_DUE_DATE.minusMonths(1), SAME_DUE_DATE, 
                 new BigDecimal("30000"), new BigDecimal("3000"), BigDecimal.ZERO, BigDecimal.ZERO, false, null);
-        installment1.setId(1L);
+        ReflectionTestUtils.setField(installment1, "id", 1L);
         
         installment2 = new LoanRepaymentScheduleInstallment(null, 2, SAME_DUE_DATE, SAME_DUE_DATE.plusMonths(1), 
                 new BigDecimal("20000"), new BigDecimal("2000"), BigDecimal.ZERO, BigDecimal.ZERO, false, null);
-        installment2.setId(2L);
+        ReflectionTestUtils.setField(installment2, "id", 2L);
         
         installment3 = new LoanRepaymentScheduleInstallment(null, 3, SAME_DUE_DATE.plusMonths(1), SAME_DUE_DATE.plusMonths(2), 
                 new BigDecimal("10000"), new BigDecimal("1000"), BigDecimal.ZERO, BigDecimal.ZERO, false, null);
-        installment3.setId(3L);
+        ReflectionTestUtils.setField(installment3, "id", 3L);
     }
 
     @Test
@@ -155,12 +156,12 @@ class LoanTransactionMappingTest {
         LoanRepaymentScheduleInstallment installmentA = new LoanRepaymentScheduleInstallment(null, 5, 
                 SAME_DUE_DATE, SAME_DUE_DATE,
                 new BigDecimal("10000"), new BigDecimal("1000"), BigDecimal.ZERO, BigDecimal.ZERO, false, null);
-        installmentA.setId(5L);
+        ReflectionTestUtils.setField(installmentA, "id", 5L);
         
         LoanRepaymentScheduleInstallment installmentB = new LoanRepaymentScheduleInstallment(null, 6, 
                 SAME_DUE_DATE, SAME_DUE_DATE,
                 new BigDecimal("15000"), new BigDecimal("1500"), BigDecimal.ZERO, BigDecimal.ZERO, false, null);
-        installmentB.setId(6L);
+        ReflectionTestUtils.setField(installmentB, "id", 6L);
 
         // When: Create mappings for both installments with same due date
         Collection<LoanTransactionToRepaymentScheduleMapping> newMappings = new ArrayList<>();

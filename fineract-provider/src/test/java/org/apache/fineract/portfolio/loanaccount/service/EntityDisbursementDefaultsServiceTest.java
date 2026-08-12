@@ -31,6 +31,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -81,7 +82,7 @@ class EntityDisbursementDefaultsServiceTest {
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko Kenya");
 
-        final EntityDisbursementDefaultsResult result = service.resolve(loan, LocalDate.now());
+        final EntityDisbursementDefaultsResult result = service.resolve(loan, LocalDate.now(ZoneId.systemDefault()));
 
         assertFalse(result.isApplicable());
     }
@@ -143,7 +144,7 @@ class EntityDisbursementDefaultsServiceTest {
 
         final Loan loan = mock(Loan.class);
         final Office office = mock(Office.class);
-        final LoanDisbursementDetails detail = new LoanDisbursementDetails(LocalDate.now(), null, BigDecimal.TEN, null);
+        final LoanDisbursementDetails detail = new LoanDisbursementDetails(LocalDate.now(ZoneId.systemDefault()), null, BigDecimal.TEN, null);
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko - Capital Kenya Limited");
         when(loan.getDepartment()).thenReturn(existingDepartment);
@@ -176,7 +177,7 @@ class EntityDisbursementDefaultsServiceTest {
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko - Capital Kenya Limited");
         when(txn.isDisbursement()).thenReturn(true);
-        when(txn.getTransactionDate()).thenReturn(LocalDate.now());
+        when(txn.getTransactionDate()).thenReturn(LocalDate.now(ZoneId.systemDefault()));
         when(txn.getId()).thenReturn(55L);
         when(loan.getId()).thenReturn(100L);
         when(loan.getDisbursementDetails()).thenReturn(Collections.emptyList());
@@ -201,7 +202,7 @@ class EntityDisbursementDefaultsServiceTest {
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko Kenya");
         when(txn.isDisbursement()).thenReturn(true);
-        when(txn.getTransactionDate()).thenReturn(LocalDate.now());
+        when(txn.getTransactionDate()).thenReturn(LocalDate.now(ZoneId.systemDefault()));
         when(txn.getId()).thenReturn(55L);
         when(loan.getId()).thenReturn(100L);
 
