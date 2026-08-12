@@ -3693,6 +3693,14 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder applyPenaltyCharge(final Long loanId) {
+        this.actionName = "APPLY_PENALTY";
+        this.entityName = "LOANCHARGE";
+        this.entityId = loanId;
+        this.href = "/applyPenaltyCharge/" + loanId;
+        return this;
+    }
+
     public CommandWrapperBuilder nextWithdrawalDateSavingsAccount(final Long accountId) {
         this.actionName = "NEXTWITHDRAWALDATE";
         this.entityName = "SAVINGSACCOUNT";
