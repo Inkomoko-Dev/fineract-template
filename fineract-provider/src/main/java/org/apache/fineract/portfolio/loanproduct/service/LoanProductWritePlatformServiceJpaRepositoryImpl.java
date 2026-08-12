@@ -45,6 +45,7 @@ import org.apache.fineract.infrastructure.entityaccess.domain.FineractEntityAcce
 import org.apache.fineract.infrastructure.entityaccess.service.FineractEntityAccessUtil;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.businessevent.domain.loan.product.LoanProductCreateBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.domain.loan.product.LoanProductUpdateBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
@@ -304,6 +305,10 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
             if (!changes.isEmpty()) {
                 product.validateLoanProductPreSave();
                 this.loanProductRepository.saveAndFlush(product);
+                final boolean thirdPartyDisbursementDeactivated = changes.containsKey(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT)
+                        && !product.isEnableThirdPartyDisbursement();
+                businessEventNotifierService
+                        .notifyPostBusinessEvent(new LoanProductUpdateBusinessEvent(product, thirdPartyDisbursementDeactivated));
             }
 
             return new CommandProcessingResultBuilder() //
