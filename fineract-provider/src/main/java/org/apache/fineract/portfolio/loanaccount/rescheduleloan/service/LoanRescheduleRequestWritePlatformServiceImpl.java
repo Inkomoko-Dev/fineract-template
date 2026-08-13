@@ -780,9 +780,11 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
     private void handleDataIntegrityViolation(final NonTransientDataAccessException dve) {
 
         LOG.error("Error occured.", dve);
-
+        final Throwable mostSpecificCause = dve.getMostSpecificCause();
+        final String causeMessage = mostSpecificCause != null && mostSpecificCause.getMessage() != null
+                ? mostSpecificCause.getMessage() : dve.getMessage();
         throw new PlatformDataIntegrityException("error.msg.loan.reschedule.unknown.data.integrity.issue",
-                "Unknown data integrity issue with resource.");
+                "Unable to persist loan reschedule request: " + causeMessage);
     }
 
     private BigDecimal getTotalOutstandingOverdueCharges(Loan loan, LocalDate rescheduleDate) {

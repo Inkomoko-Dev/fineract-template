@@ -16,19 +16,19 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.organisation.office.domain;
+package org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain;
 
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import java.util.List;
+/**
+ * Strategy for deriving the reschedule-from date per loan in a bulk reschedule operation.
+ * Since each loan has different installment dates, the date cannot be a single global value;
+ * it must be computed per-loan using one of these strategies.
+ */
+public enum RescheduleFromDateStrategy {
 
+    /** Use the due date of the very first installment on the loan schedule */
+    FIRST_INSTALLMENT,
 
-public interface OfficeRepository extends JpaRepository<Office, Long>, JpaSpecificationExecutor<Office> {
-
-    @Query("SELECT o FROM Office o WHERE o.hierarchy LIKE CONCAT(:hierarchy, '%')")
-    List<Office> findByHierarchyStartingWith(
-            @Param("hierarchy") String hierarchy);
-
+    /** Use the due date of the first installment that has not yet been fully paid */
+    NEXT_UNPAID
 }
+

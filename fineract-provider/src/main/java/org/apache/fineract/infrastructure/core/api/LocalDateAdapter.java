@@ -19,7 +19,10 @@
 package org.apache.fineract.infrastructure.core.api;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
@@ -31,7 +34,7 @@ import java.time.temporal.ChronoField;
  * Serializer for Java Local Time {@link LocalDate} that returns the date in array format to match previous Jackson
  * functionality.
  */
-public class LocalDateAdapter implements JsonSerializer<LocalDate> {
+public class LocalDateAdapter implements JsonSerializer<LocalDate>, JsonDeserializer<LocalDate> {
 
     @Override
     @SuppressWarnings("unused")
@@ -44,5 +47,24 @@ public class LocalDateAdapter implements JsonSerializer<LocalDate> {
             array.add(new JsonPrimitive(src.getDayOfMonth()));
         }
         return array;
+    }
+
+    @Override
+    public LocalDate deserialize(final JsonElement json, final Type typeOfT, final JsonDeserializationContext context)
+            throws JsonParseException {
+        if (json == null || json.isJsonNull()) {
+            return null;
+        }
+        if (json.isJsonArray()) {
+            final JsonArray array = json.getAsJsonArray();
+            if (array.size() != 3) {
+                throw new JsonParseException("Expected LocalDate array [year, month, day]");
+            }
+            return LocalDate.of(array.get(0).getAsInt(), array.get(1).getAsInt(), array.get(2).getAsInt());
+        }
+        if (json.isJsonPrimitive()) {
+            return LocalDate.parse(json.getAsString());
+        }
+        throw new JsonParseException("Unsupported LocalDate JSON value: " + json);
     }
 }

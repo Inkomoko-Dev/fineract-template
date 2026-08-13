@@ -211,6 +211,10 @@ public class CommandProcessingResult implements Serializable {
         return this.clientId;
     }
 
+    public Long getEntityId() {
+        return this.resourceId;
+    }
+
     public Long getLoanId() {
         return this.loanId;
     }

@@ -116,6 +116,14 @@ public final class LoanScheduleModel {
         return this.periods;
     }
 
+    public BigDecimal getTotalOutstanding() {
+        return this.totalOutstanding;
+    }
+
+    public int getLoanTermInDays() {
+        return this.loanTermInDays;
+    }
+
     public BigDecimal getTotalPenaltyChargesCharged() {
         return this.totalPenaltyChargesCharged;
     }
