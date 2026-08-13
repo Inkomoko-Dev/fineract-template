@@ -3784,6 +3784,36 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     }
 
     @Override
+    @Transactional
+    public CommandProcessingResult applyPenaltyCharge(Long loanId, JsonCommand command) {
+
+        final boolean backdatePenalties = command.parameterExists("backdatePenalties")
+                ? command.booleanPrimitiveValueOfParameterNamed("backdatePenalties")
+                : this.configurationDomainService.isBackdatePenaltiesEnabled();
+
+        final Long penaltyWaitPeriod = this.configurationDomainService.retrievePenaltyWaitPeriod();
+
+        log.info("applyPenaltyCharge: loanId={}, penaltyWaitPeriod={}, backdatePenalties={} - fetching overdue installments",
+                loanId, penaltyWaitPeriod, backdatePenalties);
+
+        final Collection<OverdueLoanScheduleData> overdueLoanScheduleData = this.loanReadPlatformService
+                .retrieveLoanAccountWithOverdueInstallments(penaltyWaitPeriod, backdatePenalties, loanId);
+
+        if (CollectionUtils.isEmpty(overdueLoanScheduleData)) {
+            log.info("applyPenaltyCharge: loanId={} has no overdue installments to charge, skipping", loanId);
+        } else {
+            log.info("applyPenaltyCharge: loanId={} has {} overdue installment(s), applying charges", loanId,
+                    overdueLoanScheduleData.size());
+            applyOverdueChargesForLoan(loanId, overdueLoanScheduleData);
+        }
+
+        return new CommandProcessingResultBuilder()
+                .withCommandId(command.commandId())
+                .withEntityId(loanId)
+                .build();
+    }
+
+    @Override
     public CommandProcessingResult payOffLoan(Long loanId, JsonCommand command) {
         final boolean isRecoveryPayment = false;
         final boolean isPayOff = true;
