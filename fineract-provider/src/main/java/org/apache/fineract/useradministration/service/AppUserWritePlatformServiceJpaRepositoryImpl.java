@@ -274,7 +274,9 @@ public class AppUserWritePlatformServiceJpaRepositoryImpl implements AppUserWrit
     @Override
     @Transactional
     @Caching(evict = { @CacheEvict(value = "users", allEntries = true), @CacheEvict(value = "usersByUsername", allEntries = true) })
-    public CommandProcessingResult deleteUser(final Long userId) {
+    public CommandProcessingResult deleteUser(final Long userId, final JsonCommand command) {
+        this.context.authenticatedUser();
+        this.fromApiJsonDeserializer.validateForDelete(command.json());
         final AppUser user = this.appUserRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));
         if (user.isDeleted()) {
             throw new UserNotFoundException(userId);
