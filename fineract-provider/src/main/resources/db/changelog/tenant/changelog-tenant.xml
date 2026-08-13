@@ -162,4 +162,5 @@
     <include file="parts/CGLT-653_migrate_to_generic_entity_disbursement_defaults.xml" relativeToChangelogFile="true"/>
     <include file="custom-changelog/CGLT-680_add_partial_writeoff_permissions.xml" relativeToChangelogFile="true"/>
     <include file="custom-changelog/CGLT-680_create_partial_writeoff_audit_table.xml" relativeToChangelogFile="true"/>
+    <include file="parts/042_add_notes_to_command_source.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
