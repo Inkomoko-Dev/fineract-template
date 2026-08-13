@@ -80,7 +80,7 @@ public class BulkLoanRescheduleEngine {
             jsonObject.addProperty("approvedOnDate", DateUtils.getLocalDateOfTenant().toString());
             jsonObject.addProperty("locale", "en");
             jsonObject.addProperty("dateFormat", "yyyy-MM-dd");
-            JsonCommand command = new JsonCommand(rescheduleRequestId, jsonObject, fromJsonHelper);
+            JsonCommand command = buildCommand(rescheduleRequestId, jsonObject);
             loanRescheduleRequestService.approve(command);
             log.info("Approved reschedule request {}", rescheduleRequestId);
         } catch (Exception e) {
@@ -164,6 +164,11 @@ public class BulkLoanRescheduleEngine {
         }
         jsonObject.addProperty("locale", "en");
         jsonObject.addProperty("dateFormat", "yyyy-MM-dd");
-        return new JsonCommand(loan.getId(), jsonObject, fromJsonHelper);
+        return buildCommand(loan.getId(), jsonObject);
+    }
+
+    private JsonCommand buildCommand(final Long resourceId, final JsonObject jsonObject) {
+        return JsonCommand.from(gson.toJson(jsonObject), jsonObject, fromJsonHelper, null, resourceId, null, null, null, null, null, null,
+                null, null, null, null, null);
     }
 }
