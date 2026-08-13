@@ -16,19 +16,23 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.organisation.office.domain;
+package org.apache.fineract.portfolio.loanaccount.bulkreschedule.data;
 
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import java.util.List;
+import java.io.Serializable;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
+/**
+ * DTO for loan product option.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class LoanProductOptionDto implements Serializable {
 
-public interface OfficeRepository extends JpaRepository<Office, Long>, JpaSpecificationExecutor<Office> {
+    private static final long serialVersionUID = 1L;
 
-    @Query("SELECT o FROM Office o WHERE o.hierarchy LIKE CONCAT(:hierarchy, '%')")
-    List<Office> findByHierarchyStartingWith(
-            @Param("hierarchy") String hierarchy);
-
+    private Long id;
+    private String name;
 }

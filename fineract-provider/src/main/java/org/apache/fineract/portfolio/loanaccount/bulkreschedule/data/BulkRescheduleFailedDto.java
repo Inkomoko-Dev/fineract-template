@@ -16,19 +16,33 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.organisation.office.domain;
+package org.apache.fineract.portfolio.loanaccount.bulkreschedule.data;
 
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import java.util.List;
+import java.io.Serializable;
+import java.math.BigDecimal;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
+/**
+ * DTO for a loan that failed to reschedule. Contains the reason for failure and current loan details.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class BulkRescheduleFailedDto implements Serializable {
 
-public interface OfficeRepository extends JpaRepository<Office, Long>, JpaSpecificationExecutor<Office> {
+    private static final long serialVersionUID = 1L;
 
-    @Query("SELECT o FROM Office o WHERE o.hierarchy LIKE CONCAT(:hierarchy, '%')")
-    List<Office> findByHierarchyStartingWith(
-            @Param("hierarchy") String hierarchy);
+    /** The ID of the loan */
+    private Long loanId;
 
+    /** The name of the client */
+    private String clientName;
+
+    /** Reason why the reschedule failed */
+    private String reason;
+
+    /** Current interest rate of the loan */
+    private BigDecimal currentInterestRate;
 }
