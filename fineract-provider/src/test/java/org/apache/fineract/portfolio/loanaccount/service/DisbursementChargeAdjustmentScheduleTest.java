@@ -351,6 +351,7 @@ class DisbursementChargeAdjustmentScheduleTest {
         when(resultSet.getBigDecimal("penaltyChargesWrittenOff")).thenReturn(BigDecimal.ZERO);
         when(resultSet.getBigDecimal("totalPaidInAdvanceForPeriod")).thenReturn(BigDecimal.ZERO);
         when(resultSet.getBigDecimal("totalPaidLateForPeriod")).thenReturn(BigDecimal.ZERO);
+        when(resultSet.getInt("period")).thenReturn(1);
         stubColumn(resultSet, "period", 1);
         return resultSet;
     }
@@ -358,9 +359,49 @@ class DisbursementChargeAdjustmentScheduleTest {
     private void stubColumn(final ResultSet resultSet, final String columnName, final Object value) throws Exception {
         when(resultSet.findColumn(columnName)).thenReturn(1);
         when(resultSet.getObject(1)).thenReturn(value);
+        when(resultSet.getObject(columnName)).thenReturn(value);
+        if (value instanceof Integer) {
+            when(resultSet.getInt(1)).thenReturn((Integer) value);
+            when(resultSet.getInt(columnName)).thenReturn((Integer) value);
+        }
     }
 
     private void assertAmount(final String expected, final BigDecimal actual) {
         assertEquals(0, new BigDecimal(expected).compareTo(actual));
+    }
+
+    @Test
+    void repaymentScheduleAfterUndoAndRedisbursementHasOpeningRowAndPositiveBalances() throws Exception {
+        final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
+        when(context.authenticatedUser()).thenReturn(null);
+
+        stubDisbursementChargeAmounts(jdbcTemplate, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        stubRepaymentSchedule(jdbcTemplate, new BigDecimal("833333.33"), BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false);
+
+        final LoanReadPlatformServiceImpl service = service(context, jdbcTemplate);
+
+        final CurrencyData currency = new CurrencyData("SSP", 2, 0);
+        final RepaymentScheduleRelatedLoanData relatedData = new RepaymentScheduleRelatedLoanData(DISBURSEMENT_DATE,
+                DISBURSEMENT_DATE, currency, new BigDecimal("5000000.00"), BigDecimal.ZERO, BigDecimal.ZERO);
+        final Collection<DisbursementData> disbursements = List.of(new DisbursementData(101L, DISBURSEMENT_DATE,
+                DISBURSEMENT_DATE, new BigDecimal("5000000.00"), new BigDecimal("5000000.00"), null, null, null));
+
+        final LoanScheduleData schedule = service.retrieveRepaymentSchedule(428160L, relatedData, disbursements, false,
+                BigDecimal.ZERO);
+
+        final List<LoanSchedulePeriodData> periods = new ArrayList<>(schedule.getPeriods());
+        assertEquals(2, periods.size());
+
+        // First period should be the opening disbursement transaction row (period 0)
+        final LoanSchedulePeriodData disbursementRow = periods.get(0);
+        assertEquals(DISBURSEMENT_DATE, disbursementRow.periodDueDate());
+        assertAmount("5000000.00", disbursementRow.principalDisbursed());
+
+        // Second period should be installment 1 with positive remaining loan balance
+        final LoanSchedulePeriodData installment1 = periods.get(1);
+        assertEquals(1, installment1.periodNumber());
+        assertAmount("4166666.67", installment1.principalLoanBalanceOutstanding());
     }
 }

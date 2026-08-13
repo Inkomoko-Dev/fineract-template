@@ -1724,7 +1724,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             return disbursementDetailPrincipal;
         }
 
-        private void applySingleDisbursementPrincipalIfMissing(final Integer period) {
+        private void applySingleDisbursementPrincipalIfMissing(final Integer period, final Collection<LoanSchedulePeriodData> periods) {
             if (this.disbursementData.size() != 1 || this.outstandingLoanPrincipalBalance.compareTo(BigDecimal.ZERO) != 0) {
                 return;
             }
@@ -1738,6 +1738,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final BigDecimal trackedPrincipal = principalForLoanBalanceTracking(onlyDisbursement);
             if (trackedPrincipal.compareTo(BigDecimal.ZERO) > 0) {
                 this.outstandingLoanPrincipalBalance = trackedPrincipal;
+                if (periods.isEmpty()) {
+                    final LoanSchedulePeriodData disbursementPeriod = disbursementOnlyPeriod(onlyDisbursement.disbursementDate(),
+                            trackedPrincipal, this.totalFeeChargesDueAtDisbursement, onlyDisbursement.isDisbursed());
+                    periods.add(disbursementPeriod);
+                }
             }
         }
 
@@ -1847,7 +1852,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 }
                 // Single-disburse loans can miss the date match after schedule repairs (or when
                 // detail principal is zero), leaving Balance of Loan as a cumulative negative.
-                applySingleDisbursementPrincipalIfMissing(period);
+                applySingleDisbursementPrincipalIfMissing(period, periods);
                 totalPrincipalDisbursed = totalPrincipalDisbursed.add(principal);
 
                 Integer daysInPeriod = 0;
