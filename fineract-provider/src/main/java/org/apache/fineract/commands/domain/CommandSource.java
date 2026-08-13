@@ -18,6 +18,8 @@
  */
 package org.apache.fineract.commands.domain;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import javax.persistence.Column;
@@ -100,6 +102,9 @@ public class CommandSource extends AbstractPersistableCustom {
     @Column(name = "transaction_id", length = 100)
     private String transactionId;
 
+    @Column(name = "notes", length = 500)
+    private String notes;
+
     @Column(name = "creditbureau_id")
     private Long creditBureauId;
 
@@ -107,8 +112,9 @@ public class CommandSource extends AbstractPersistableCustom {
     private Long organisationCreditBureauId;
 
     public static CommandSource fullEntryFrom(final CommandWrapper wrapper, final JsonCommand command, final AppUser maker) {
+        String notes = extractNotesFromJson(command.json());
         return new CommandSource(wrapper.actionName(), wrapper.entityName(), wrapper.getEntityId(), wrapper.getHref(), command.entityId(), command.subentityId(),
-                command.json(), maker, ZonedDateTime.now(DateUtils.getDateTimeZoneOfTenant()));
+                command.json(), maker, ZonedDateTime.now(DateUtils.getDateTimeZoneOfTenant()), notes);
     }
 
     protected CommandSource() {
@@ -116,7 +122,7 @@ public class CommandSource extends AbstractPersistableCustom {
     }
 
     private CommandSource(final String actionName, final String entityName, final Long entityId, final String href, final Long resourceId,
-            final Long subresourceId, final String commandSerializedAsJson, final AppUser maker, final ZonedDateTime madeOnDateTime) {
+            final Long subresourceId, final String commandSerializedAsJson, final AppUser maker, final ZonedDateTime madeOnDateTime, final String notes) {
         this.actionName = actionName;
         this.entityName = entityName;
         this.entityId = entityId;
@@ -127,6 +133,7 @@ public class CommandSource extends AbstractPersistableCustom {
         this.maker = maker;
         this.madeOnDate = madeOnDateTime != null ? madeOnDateTime.toLocalDateTime() : null;
         this.processingResult = CommandProcessingResultType.PROCESSED.getValue();
+        this.notes = notes;
     }
 
     public void setCreditBureauId(Long creditBureauId) {
@@ -135,6 +142,24 @@ public class CommandSource extends AbstractPersistableCustom {
 
     public void setOrganisationCreditBureauId(Long organisationCreditBureauId) {
         this.organisationCreditBureauId = organisationCreditBureauId;
+    }
+
+    private static String extractNotesFromJson(final String json) {
+        if (json != null && !json.isEmpty()) {
+            try {
+                final JsonObject jsonObj = JsonParser.parseString(json).getAsJsonObject();
+                if (jsonObj.has("notes") && !jsonObj.get("notes").isJsonNull()) {
+                    String notes = jsonObj.get("notes").getAsString();
+                    if (notes != null && notes.length() > 500) {
+                        notes = notes.substring(0, 500);
+                    }
+                    return notes;
+                }
+            } catch (Exception e) {
+                // Not all commands have JSON or a notes field
+            }
+        }
+        return null;
     }
 
     public void markAsChecked(final AppUser checker, final ZonedDateTime checkedOnDate) {

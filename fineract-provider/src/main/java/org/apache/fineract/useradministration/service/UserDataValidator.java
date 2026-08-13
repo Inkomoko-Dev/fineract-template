@@ -47,7 +47,7 @@ public final class UserDataValidator {
      */
     private final Set<String> supportedParameters = new HashSet<>(Arrays.asList("username", "firstname", "lastname", "password",
             "repeatPassword", "email", "officeId", "notSelectedRoles", "roles", "sendPasswordToEmail", "staffId", "passwordNeverExpires",
-            AppUserConstants.IS_SELF_SERVICE_USER, AppUserConstants.CLIENTS));
+            AppUserConstants.IS_SELF_SERVICE_USER, AppUserConstants.CLIENTS, AppUserConstants.NOTES));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -141,6 +141,9 @@ public final class UserDataValidator {
 
         final String[] roles = this.fromApiJsonHelper.extractArrayNamed("roles", element);
         baseDataValidator.reset().parameter("roles").value(roles).arrayNotEmpty();
+
+        final String notes = this.fromApiJsonHelper.extractStringNamed(AppUserConstants.NOTES, element);
+        baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).notBlank().notExceedingLengthOf(500);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
@@ -240,6 +243,30 @@ public final class UserDataValidator {
                 }
             }
         }
+
+        final String notes = this.fromApiJsonHelper.extractStringNamed(AppUserConstants.NOTES, element);
+        baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).notBlank().notExceedingLengthOf(500);
+
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    public void validateForDelete(final String json) {
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> deleteParameters = new HashSet<>(Arrays.asList(AppUserConstants.NOTES));
+
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, deleteParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("user");
+
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+
+        final String notes = this.fromApiJsonHelper.extractStringNamed(AppUserConstants.NOTES, element);
+        baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).notBlank().notExceedingLengthOf(500);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
