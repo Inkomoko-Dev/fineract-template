@@ -178,40 +178,4 @@ public class  BulkRescheduleApprovalService {
         }
     }
 
-    /**
-     * Validates that the current user has the role to approve bulk reschedule operations.
-     *
-     * @param user the user to validate
-     * @return true if user can approve, false otherwise
-     */
-//    private boolean lacksApprovalPermission(final AppUser user) {
-//        if (user == null) {
-//            return true;
-//        }
-//
-//        log.debug("Validating approval role for user {}", user.getId());
-//
-//        // Check if user has MANAGER or HEAD_OFFICE_ADMIN role
-//        try {
-//            user.validateHasPermissionTo("APPROVE_RESCHEDULELOAN");
-//            return false;
-//        } catch (Exception e) {
-//            return true;
-//        }
-//    }
-
-    // Persists a single audit row for approval or rejection actions.
-//    private void logAudit(final BulkRescheduleExecution execution, final String action, final AppUser user, final String note) {
-//        log.debug("Logging audit event for execution {}: {}", execution.getId(), action);
-//
-//        BulkRescheduleAudit audit = new BulkRescheduleAudit();
-//        audit.setExecution(execution);
-//        audit.setAction(BulkRescheduleAudit.BulkRescheduleAuditAction.valueOf(action));
-//        audit.setActor(user);
-//        audit.setTimestamp(DateUtils.getLocalDateTimeOfSystem());
-//        audit.setDetailsJson(note);
-//
-//        bulkRescheduleAuditRepository.save(audit);
-//    }
-
 }

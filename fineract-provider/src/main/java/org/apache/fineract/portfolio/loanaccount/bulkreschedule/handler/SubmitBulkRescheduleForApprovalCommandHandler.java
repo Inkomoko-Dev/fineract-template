@@ -1,31 +1,38 @@
 package org.apache.fineract.portfolio.loanaccount.bulkreschedule.handler;
 
+import java.util.HashMap;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.commands.annotation.CommandType;
 import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
-import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.infrastructure.core.domain.EmailDetail;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.PlatformEmailService;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.notification.service.NotificationWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleAudit;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution.BulkRescheduleExecutionStatus;
-import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleExecutionRepository;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleAuditRepository;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleExecutionRepository;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.OfficeHierarchyService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.HashMap;
-import java.util.Map;
+import org.springframework.web.util.HtmlUtils;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @CommandType(entity = "RESCHEDULELOAN", action = "SUBMITFORAPPROVAL")
 public class SubmitBulkRescheduleForApprovalCommandHandler implements NewCommandSourceHandler {
 
@@ -35,6 +42,10 @@ public class SubmitBulkRescheduleForApprovalCommandHandler implements NewCommand
     private final AppUserRepository appUserRepository;
     private final BulkRescheduleAuditRepository auditRepository;
     private final NotificationWritePlatformService notificationService;
+    private final PlatformEmailService emailService;
+
+    @Value("${mifos.system.base-url}")
+    private String baseUrl;
 
     @Transactional
     @Override
@@ -127,6 +138,7 @@ public class SubmitBulkRescheduleForApprovalCommandHandler implements NewCommand
         auditRepository.save(audit);
         notificationService.notify(approver.getId(), "BULK_RESCHEDULE", execution.getId(), "SUBMIT_FOR_APPROVAL", user.getId(),
                 "Bulk reschedule request #" + execution.getId() + " requires your approval. Reason: " + submissionNote.trim(), false);
+        sendApproverEmailAfterCommit(execution, user, approver, submissionNote.trim());
 
         final Map<String, Object> changes = new HashMap<>();
         changes.put("status", execution.getStatus().name());
@@ -139,6 +151,32 @@ public class SubmitBulkRescheduleForApprovalCommandHandler implements NewCommand
                 .withOfficeId(execution.getOfficeId())
                 .with(changes)
                 .build();
+    }
+
+    private void sendApproverEmailAfterCommit(final BulkRescheduleExecution execution, final AppUser initiator,
+            final AppUser approver, final String reason) {
+        if (StringUtils.isBlank(approver.getEmail())) {
+            log.warn("Bulk reschedule request {} was submitted, but approver {} has no email address", execution.getId(),
+                    approver.getId());
+            return;
+        }
+        final String requestUrl = StringUtils.removeEnd(baseUrl, "/") + "/#/bulkreschedule/" + execution.getId();
+        final String subject = "Bulk reschedule request #" + execution.getId() + " requires approval";
+        final String body = "Dear " + HtmlUtils.htmlEscape(approver.getDisplayName()) + ",<br><br>"
+                + "Bulk reschedule request <strong>#" + execution.getId() + "</strong> was submitted by "
+                + HtmlUtils.htmlEscape(initiator.getDisplayName()) + ".<br>"
+                + "Reason: " + HtmlUtils.htmlEscape(reason) + "<br><br>"
+                + "Please <a href=\"" + HtmlUtils.htmlEscape(requestUrl) + "\">review the request</a> and approve or reject it.<br><br>"
+                + "Kind regards.";
+        final EmailDetail email = new EmailDetail(subject, body, approver.getEmail(), approver.getDisplayName());
+        AfterCommitExecutor.execute(() -> {
+            try {
+                emailService.sendDefinedEmail(email);
+            } catch (RuntimeException e) {
+                log.error("Bulk reschedule approval email could not be sent for request {} to {}. Check SMTP configuration.",
+                        execution.getId(), approver.getEmail(), e);
+            }
+        });
     }
 
     private boolean hasCreatePermission(final AppUser user) {
