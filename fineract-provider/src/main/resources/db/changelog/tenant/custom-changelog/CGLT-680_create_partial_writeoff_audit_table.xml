@@ -25,6 +25,11 @@
 
     <changeSet id="CGLT-680-3" author="inkomoko" runOnChange="true">
         <comment>Create audit table for partial write-off transactions</comment>
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_partial_writeoff_audit"/>
+            </not>
+        </preConditions>
         <createTable tableName="m_partial_writeoff_audit">
             <column name="id" type="BIGINT" autoIncrement="true">
                 <constraints primaryKey="true"/>
