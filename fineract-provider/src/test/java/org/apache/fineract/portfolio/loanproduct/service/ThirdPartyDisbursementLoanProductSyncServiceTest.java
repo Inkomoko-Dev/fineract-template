@@ -29,7 +29,7 @@ import org.apache.fineract.portfolio.businessevent.domain.loan.product.LoanProdu
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.loanproduct.data.ThirdPartyDisbursementProductData;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
-import org.apache.fineract.portfolio.loanproduct.event.KifiyaLoanProductEventPublisher;
+import org.apache.fineract.portfolio.loanproduct.event.DisbursementPartnerWebhookPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,7 +46,7 @@ class ThirdPartyDisbursementLoanProductSyncServiceTest {
     private ThirdPartyDisbursementProductReadPlatformService productReadPlatformService;
 
     @Mock
-    private KifiyaLoanProductEventPublisher eventPublisher;
+    private DisbursementPartnerWebhookPublisher eventPublisher;
 
     @Mock
     private LoanProduct loanProduct;
@@ -68,19 +68,18 @@ class ThirdPartyDisbursementLoanProductSyncServiceTest {
 
         this.underTest.notifyProductChanged(this.loanProduct, "CREATE");
 
-        verify(this.eventPublisher).publish(eq("CREATE"), eq(productData));
+        verify(this.eventPublisher).publish(eq("KIFIYA"), eq("CREATE"), eq(productData));
     }
 
     @Test
     void publishesDeactivateWhenProductFlagDisabled() {
         given(this.loanProduct.isEnableThirdPartyDisbursement()).willReturn(false);
         given(this.loanProduct.productName()).willReturn("BNPL Product");
-        given(this.loanProduct.getShortName()).willReturn("BNPL");
 
         this.underTest.notifyProductChanged(this.loanProduct, "DEACTIVATE");
 
         verify(this.productReadPlatformService, never()).retrieveOne(any());
-        verify(this.eventPublisher).publish(eq("DEACTIVATE"), any(ThirdPartyDisbursementProductData.class));
+        verify(this.eventPublisher).publish(eq("KIFIYA"), eq("DEACTIVATE"), any(ThirdPartyDisbursementProductData.class));
     }
 
     @Test

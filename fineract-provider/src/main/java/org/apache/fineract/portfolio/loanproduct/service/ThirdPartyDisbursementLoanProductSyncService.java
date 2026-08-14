@@ -27,7 +27,7 @@ import org.apache.fineract.portfolio.businessevent.domain.loan.product.LoanProdu
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.loanproduct.data.ThirdPartyDisbursementProductData;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
-import org.apache.fineract.portfolio.loanproduct.event.KifiyaLoanProductEventPublisher;
+import org.apache.fineract.portfolio.loanproduct.event.DisbursementPartnerWebhookPublisher;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -38,10 +38,11 @@ public class ThirdPartyDisbursementLoanProductSyncService {
     private static final String ACTION_CREATE = "CREATE";
     private static final String ACTION_UPDATE = "UPDATE";
     private static final String ACTION_DEACTIVATE = "DEACTIVATE";
+    private static final String DEFAULT_PARTNER = "KIFIYA";
 
     private final BusinessEventNotifierService businessEventNotifierService;
     private final ThirdPartyDisbursementProductReadPlatformService productReadPlatformService;
-    private final KifiyaLoanProductEventPublisher eventPublisher;
+    private final DisbursementPartnerWebhookPublisher eventPublisher;
 
     @PostConstruct
     public void addListeners() {
@@ -53,14 +54,17 @@ public class ThirdPartyDisbursementLoanProductSyncService {
 
     void notifyProductChanged(final LoanProduct loanProduct, final String action) {
         try {
+            // Use default partner since provider is selected at loan level, not product level
+            final String partnerCode = DEFAULT_PARTNER;
+            
             if (ACTION_DEACTIVATE.equals(action)) {
                 final ThirdPartyDisbursementProductData payload = ThirdPartyDisbursementProductData.deactivated(loanProduct);
-                this.eventPublisher.publish(action, payload);
+                this.eventPublisher.publish(partnerCode, action, payload);
                 return;
             }
 
             final ThirdPartyDisbursementProductData product = this.productReadPlatformService.retrieveOne(loanProduct.getId());
-            this.eventPublisher.publish(action, product);
+            this.eventPublisher.publish(partnerCode, action, product);
         } catch (Exception ex) {
             log.error("Failed to sync third-party disbursement loan product {} on {}: {}", loanProduct.getId(), action, ex.getMessage(),
                     ex);
