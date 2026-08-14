@@ -25,90 +25,53 @@
 
     <changeSet id="CGLT-680-3" author="inkomoko" runOnChange="true">
         <comment>Create audit table for partial write-off transactions</comment>
-        <preConditions onFail="MARK_RAN">
-            <not>
-                <tableExists tableName="m_partial_writeoff_audit"/>
-            </not>
-        </preConditions>
-        <createTable tableName="m_partial_writeoff_audit">
-            <column name="id" type="BIGINT" autoIncrement="true">
-                <constraints primaryKey="true"/>
-            </column>
-            <column name="loan_id" type="BIGINT">
-                <constraints nullable="false"/>
-            </column>
-            <column name="loan_transaction_id" type="BIGINT">
-                <constraints nullable="false"/>
-            </column>
-            <column name="transaction_date" type="DATE">
-                <constraints nullable="false"/>
-            </column>
-            <column name="principal_portion" type="DECIMAL(19,6)"/>
-            <column name="interest_portion" type="DECIMAL(19,6)"/>
-            <column name="fee_charges_portion" type="DECIMAL(19,6)"/>
-            <column name="penalty_charges_portion" type="DECIMAL(19,6)"/>
-            <column name="total_amount" type="DECIMAL(19,6)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="loan_balance_before" type="DECIMAL(19,6)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="loan_balance_after" type="DECIMAL(19,6)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="reason" type="VARCHAR(500)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="initiated_by" type="BIGINT">
-                <constraints nullable="false"/>
-            </column>
-            <column name="initiated_on" type="TIMESTAMP">
-                <constraints nullable="false"/>
-            </column>
-            <column name="approved_by" type="BIGINT"/>
-            <column name="approved_on" type="TIMESTAMP"/>
-            <column name="office_id" type="BIGINT">
-                <constraints nullable="false"/>
-            </column>
-            <column name="note" type="VARCHAR(1000)"/>
-            <column name="external_id" type="VARCHAR(100)"/>
-            <column name="created_on_utc" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
-                <constraints nullable="false"/>
-            </column>
-            <column name="last_modified_on_utc" type="TIMESTAMP"/>
-            <column name="created_by" type="BIGINT"/>
-            <column name="last_modified_by" type="BIGINT"/>
-        </createTable>
-        
-        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="loan_id" 
-                                 constraintName="fk_partial_writeoff_audit_loan" 
-                                 referencedTableName="m_loan" referencedColumnNames="id"/>
-        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="loan_transaction_id" 
-                                 constraintName="fk_partial_writeoff_audit_loan_transaction" 
-                                 referencedTableName="m_loan_transaction" referencedColumnNames="id"/>
-        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="initiated_by" 
-                                 constraintName="fk_partial_writeoff_audit_initiated_by" 
-                                 referencedTableName="m_appuser" referencedColumnNames="id"/>
-        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="approved_by" 
-                                 constraintName="fk_partial_writeoff_audit_approved_by" 
-                                 referencedTableName="m_appuser" referencedColumnNames="id"/>
-        <addForeignKeyConstraint baseTableName="m_partial_writeoff_audit" baseColumnNames="office_id" 
-                                 constraintName="fk_partial_writeoff_audit_office" 
-                                 referencedTableName="m_office" referencedColumnNames="id"/>
+        <sql>
+            CREATE TABLE IF NOT EXISTS m_partial_writeoff_audit (
+                id BIGINT AUTO_INCREMENT NOT NULL,
+                loan_id BIGINT NOT NULL,
+                loan_transaction_id BIGINT NOT NULL,
+                transaction_date date NOT NULL,
+                principal_portion DECIMAL(19, 6) NULL,
+                interest_portion DECIMAL(19, 6) NULL,
+                fee_charges_portion DECIMAL(19, 6) NULL,
+                penalty_charges_portion DECIMAL(19, 6) NULL,
+                total_amount DECIMAL(19, 6) NOT NULL,
+                loan_balance_before DECIMAL(19, 6) NOT NULL,
+                loan_balance_after DECIMAL(19, 6) NOT NULL,
+                reason VARCHAR(500) NOT NULL,
+                initiated_by BIGINT NOT NULL,
+                initiated_on timestamp NOT NULL,
+                approved_by BIGINT NULL,
+                approved_on timestamp NULL,
+                office_id BIGINT NOT NULL,
+                note VARCHAR(1000) NULL,
+                external_id VARCHAR(100) NULL,
+                created_on_utc timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                last_modified_on_utc timestamp NULL,
+                created_by BIGINT NULL,
+                last_modified_by BIGINT NULL,
+                CONSTRAINT PK_M_PARTIAL_WRITEOFF_AUDIT PRIMARY KEY (id)
+            )
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-680-3b" author="inkomoko" runOnChange="true">
+        <comment>Add foreign key constraints to audit table</comment>
+        <sql>
+            ALTER TABLE m_partial_writeoff_audit
+            ADD CONSTRAINT fk_partial_writeoff_audit_loan FOREIGN KEY (loan_id) REFERENCES m_loan(id),
+            ADD CONSTRAINT fk_partial_writeoff_audit_loan_transaction FOREIGN KEY (loan_transaction_id) REFERENCES m_loan_transaction(id),
+            ADD CONSTRAINT fk_partial_writeoff_audit_initiated_by FOREIGN KEY (initiated_by) REFERENCES m_appuser(id),
+            ADD CONSTRAINT fk_partial_writeoff_audit_approved_by FOREIGN KEY (approved_by) REFERENCES m_appuser(id),
+            ADD CONSTRAINT fk_partial_writeoff_audit_office FOREIGN KEY (office_id) REFERENCES m_office(id)
+        </sql>
     </changeSet>
 
     <changeSet id="CGLT-680-4" author="inkomoko" runOnChange="true">
         <comment>Add unique constraint on external_id for partial write-off audit</comment>
-        <addUniqueConstraint tableName="m_partial_writeoff_audit" columnNames="external_id" 
-                            constraintName="unique_partial_writeoff_audit_external_id"/>
-    </changeSet>
-
-    <changeSet id="CGLT-680-5" author="inkomoko" runOnChange="true">
-        <comment>Fix column names to match AbstractAuditableWithUTCDateTimeCustom expectations</comment>
         <sql>
-            ALTER TABLE m_partial_writeoff_audit 
-            CHANGE COLUMN created_date created_on_utc TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-            CHANGE COLUMN last_modified_date last_modified_on_utc TIMESTAMP
+            ALTER TABLE m_partial_writeoff_audit
+            ADD CONSTRAINT unique_partial_writeoff_audit_external_id UNIQUE (external_id)
         </sql>
     </changeSet>
 
