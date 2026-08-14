@@ -63,6 +63,34 @@
         </sql>
     </changeSet>
 
+    <changeSet id="CGLT-680-3a" author="inkomoko" runOnChange="true">
+        <comment>Fix column names for existing tables with old schema</comment>
+        <sql>
+            SET @old_column_exists = (SELECT COUNT(*) FROM information_schema.columns 
+                                     WHERE table_schema = DATABASE() 
+                                     AND table_name = 'm_partial_writeoff_audit' 
+                                     AND column_name = 'created_date');
+            SET @sql = IF(@old_column_exists > 0, 
+                'ALTER TABLE m_partial_writeoff_audit CHANGE COLUMN created_date created_on_utc TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL', 
+                'SELECT "Column created_date does not exist or already renamed"');
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+        </sql>
+        <sql>
+            SET @old_column_exists = (SELECT COUNT(*) FROM information_schema.columns 
+                                     WHERE table_schema = DATABASE() 
+                                     AND table_name = 'm_partial_writeoff_audit' 
+                                     AND column_name = 'last_modified_date');
+            SET @sql = IF(@old_column_exists > 0, 
+                'ALTER TABLE m_partial_writeoff_audit CHANGE COLUMN last_modified_date last_modified_on_utc TIMESTAMP', 
+                'SELECT "Column last_modified_date does not exist or already renamed"');
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+        </sql>
+    </changeSet>
+
     <changeSet id="CGLT-680-3b" author="inkomoko" runOnChange="true">
         <comment>Add foreign key constraints to audit table (idempotent)</comment>
         <sql>
