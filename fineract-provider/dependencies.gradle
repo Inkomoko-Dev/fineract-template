@@ -34,7 +34,6 @@ dependencies {
             'org.springframework.boot:spring-boot-starter-cache',
             'org.springframework.boot:spring-boot-starter-oauth2-resource-server',
             'org.springframework.boot:spring-boot-starter-actuator',
-            'org.springframework.kafka:spring-kafka',
 
             'io.micrometer:micrometer-registry-prometheus',
 
