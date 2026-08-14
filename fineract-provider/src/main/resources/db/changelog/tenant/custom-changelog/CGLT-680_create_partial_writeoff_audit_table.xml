@@ -21,7 +21,7 @@
 -->
 <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.6.xsd">
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
     <changeSet id="CGLT-680-3" author="inkomoko">
         <comment>Create audit table for partial write-off transactions</comment>
@@ -67,10 +67,10 @@
             </column>
             <column name="note" type="VARCHAR(1000)"/>
             <column name="external_id" type="VARCHAR(100)"/>
-            <column name="created_date" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+            <column name="created_on_utc" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
                 <constraints nullable="false"/>
             </column>
-            <column name="last_modified_date" type="TIMESTAMP"/>
+            <column name="last_modified_on_utc" type="TIMESTAMP"/>
             <column name="created_by" type="BIGINT"/>
             <column name="last_modified_by" type="BIGINT"/>
         </createTable>
@@ -96,6 +96,15 @@
         <comment>Add unique constraint on external_id for partial write-off audit</comment>
         <addUniqueConstraint tableName="m_partial_writeoff_audit" columnNames="external_id" 
                             constraintName="unique_partial_writeoff_audit_external_id"/>
+    </changeSet>
+
+    <changeSet id="CGLT-680-5" author="inkomoko">
+        <comment>Fix column names to match AbstractAuditableWithUTCDateTimeCustom expectations</comment>
+        <sql>
+            ALTER TABLE m_partial_writeoff_audit 
+            CHANGE COLUMN created_date created_on_utc TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            CHANGE COLUMN last_modified_date last_modified_on_utc TIMESTAMP
+        </sql>
     </changeSet>
 
 </databaseChangeLog>
