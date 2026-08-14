@@ -23,7 +23,7 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
-    <changeSet id="CGLT-680-3" author="inkomoko">
+    <changeSet id="CGLT-680-3" author="inkomoko" runOnChange="true">
         <comment>Create audit table for partial write-off transactions</comment>
         <createTable tableName="m_partial_writeoff_audit">
             <column name="id" type="BIGINT" autoIncrement="true">
@@ -92,13 +92,13 @@
                                  referencedTableName="m_office" referencedColumnNames="id"/>
     </changeSet>
 
-    <changeSet id="CGLT-680-4" author="inkomoko">
+    <changeSet id="CGLT-680-4" author="inkomoko" runOnChange="true">
         <comment>Add unique constraint on external_id for partial write-off audit</comment>
         <addUniqueConstraint tableName="m_partial_writeoff_audit" columnNames="external_id" 
                             constraintName="unique_partial_writeoff_audit_external_id"/>
     </changeSet>
 
-    <changeSet id="CGLT-680-5" author="inkomoko">
+    <changeSet id="CGLT-680-5" author="inkomoko" runOnChange="true">
         <comment>Fix column names to match AbstractAuditableWithUTCDateTimeCustom expectations</comment>
         <sql>
             ALTER TABLE m_partial_writeoff_audit 
