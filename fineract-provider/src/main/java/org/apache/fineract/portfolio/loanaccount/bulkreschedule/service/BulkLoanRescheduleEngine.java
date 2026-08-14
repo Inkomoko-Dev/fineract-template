@@ -169,6 +169,6 @@ public class BulkLoanRescheduleEngine {
 
     private JsonCommand buildCommand(final Long resourceId, final JsonObject jsonObject) {
         return JsonCommand.from(gson.toJson(jsonObject), jsonObject, fromJsonHelper, null, resourceId, null, null, null, null, null, null,
-                null, null, null, null, null);
+                null, null, null, null);
     }
 }

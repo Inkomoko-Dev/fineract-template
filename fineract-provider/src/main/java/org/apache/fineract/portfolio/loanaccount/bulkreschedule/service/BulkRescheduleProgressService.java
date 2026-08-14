@@ -33,18 +33,38 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class BulkRescheduleProgressService {
 
+    private static final long LEASE_MINUTES = 5;
+
     private final BulkRescheduleExecutionRepository executionRepository;
     private final BulkRescheduleResultRepository resultRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean claim(final Long executionId) {
-        return executionRepository.claimApproved(executionId, BulkRescheduleExecutionStatus.APPROVED,
-                BulkRescheduleExecutionStatus.EXECUTING) == 1;
+    public ClaimResult claim(final Long executionId, final String workerToken) {
+        final var now = DateUtils.getLocalDateTimeOfSystem();
+        final var leaseExpiresAt = now.plusMinutes(LEASE_MINUTES);
+        if (executionRepository.claimApproved(executionId, BulkRescheduleExecutionStatus.APPROVED,
+                BulkRescheduleExecutionStatus.EXECUTING, workerToken, leaseExpiresAt) == 1) {
+            return ClaimResult.INITIAL;
+        }
+        if (executionRepository.claimExpired(executionId, BulkRescheduleExecutionStatus.EXECUTING, workerToken, leaseExpiresAt,
+                now) == 1) {
+            return ClaimResult.RECOVERED;
+        }
+        return ClaimResult.NONE;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void refreshCounts(final Long executionId, final int executionFailures) {
+    public boolean renewLease(final Long executionId, final String workerToken) {
+        return executionRepository.renewLease(executionId, BulkRescheduleExecutionStatus.EXECUTING, workerToken,
+                DateUtils.getLocalDateTimeOfSystem().plusMinutes(LEASE_MINUTES)) == 1;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void refreshCounts(final Long executionId, final int executionFailures, final String workerToken) {
         executionRepository.findById(executionId).ifPresent(execution -> {
+            if (!workerToken.equals(execution.getWorkerToken())) {
+                return;
+            }
             execution.setTotalSucceeded((int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.SUCCEEDED));
             execution.setTotalFailed((int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.FAILED));
             execution.setTotalExecutionFailed(executionFailures);
@@ -54,8 +74,11 @@ public class BulkRescheduleProgressService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void complete(final Long executionId, final int executionFailures) {
+    public void complete(final Long executionId, final int executionFailures, final String workerToken) {
         executionRepository.findById(executionId).ifPresent(execution -> {
+            if (!workerToken.equals(execution.getWorkerToken())) {
+                return;
+            }
             final int succeeded = (int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.SUCCEEDED);
             final int failed = (int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.FAILED);
             execution.setTotalSucceeded(succeeded);
@@ -64,8 +87,17 @@ public class BulkRescheduleProgressService {
             execution.setStatus(executionFailures == 0 ? BulkRescheduleExecutionStatus.COMPLETED
                     : succeeded == 0 ? BulkRescheduleExecutionStatus.FAILED : BulkRescheduleExecutionStatus.PARTIAL_SUCCESS);
             execution.setExecutionCompletedAt(DateUtils.getLocalDateTimeOfSystem());
+            execution.setWorkerToken(null);
+            execution.setLeaseExpiresAt(null);
+            execution.setLastHeartbeatAt(null);
             execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
             executionRepository.save(execution);
         });
+    }
+
+    public enum ClaimResult {
+        NONE,
+        INITIAL,
+        RECOVERED
     }
 }

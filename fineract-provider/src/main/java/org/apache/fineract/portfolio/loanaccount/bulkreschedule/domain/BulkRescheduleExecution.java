@@ -114,16 +114,14 @@ public class BulkRescheduleExecution extends AbstractPersistableCustom {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-//    @Column(name = "claim_token", length = 64)
-//    private String claimToken;
-//
-//    @Column(name = "claimed_at")
-//    private LocalDateTime claimedAt;
-//
-//    public void claim() {
-//        this.claimToken = UUID.randomUUID().toString();
-//        this.claimedAt = DateUtils.getLocalDateTimeOfSystem();
-//    }
+    @Column(name = "worker_token", length = 64)
+    private String workerToken;
+
+    @Column(name = "lease_expires_at")
+    private LocalDateTime leaseExpiresAt;
+
+    @Column(name = "last_heartbeat_at")
+    private LocalDateTime lastHeartbeatAt;
 
     public enum BulkRescheduleExecutionStatus {
         PREVIEW,

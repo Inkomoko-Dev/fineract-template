@@ -118,6 +118,51 @@
         </addColumn>
     </changeSet>
 
+    <changeSet id="add-bulk-reschedule-worker-lease" author="codex">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_bulk_reschedule_execution"/>
+            <not><columnExists tableName="m_bulk_reschedule_execution" columnName="worker_token"/></not>
+        </preConditions>
+        <addColumn tableName="m_bulk_reschedule_execution">
+            <column name="worker_token" type="varchar(64)"/>
+            <column name="lease_expires_at" type="datetime"/>
+            <column name="last_heartbeat_at" type="datetime"/>
+        </addColumn>
+        <createIndex tableName="m_bulk_reschedule_execution" indexName="idx_bulk_reschedule_execution_lease">
+            <column name="status_enum"/>
+            <column name="lease_expires_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="add-recover-bulk-reschedule-permission" author="codex">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'RECOVER_RESCHEDULELOAN'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="loan_reschedule"/>
+            <column name="code" value="RECOVER_RESCHEDULELOAN"/>
+            <column name="entity_name" value="RESCHEDULELOAN"/>
+            <column name="action_name" value="RECOVER"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="grant-recover-bulk-reschedule-to-approvers" author="codex">
+        <sql>
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT DISTINCT rp.role_id, recover_permission.id
+            FROM m_role_permission rp
+            JOIN m_permission approve_permission ON approve_permission.id = rp.permission_id
+                AND approve_permission.code = 'APPROVE_RESCHEDULELOAN'
+            CROSS JOIN m_permission recover_permission
+            WHERE recover_permission.code = 'RECOVER_RESCHEDULELOAN'
+              AND NOT EXISTS (
+                SELECT 1 FROM m_role_permission existing
+                WHERE existing.role_id = rp.role_id AND existing.permission_id = recover_permission.id
+              )
+        </sql>
+    </changeSet>
+
     <changeSet id="add-delete-bulk-reschedule-permission" author="codex">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'DELETE_RESCHEDULELOAN'</sqlCheck>

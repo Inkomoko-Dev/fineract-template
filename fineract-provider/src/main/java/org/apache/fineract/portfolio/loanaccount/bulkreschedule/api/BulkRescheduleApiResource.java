@@ -203,6 +203,8 @@ public class BulkRescheduleApiResource {
         response.addProperty("totalPages", resultPage.getTotalPages());
         response.addProperty("totalMatched", resultRepository.countByExecutionIdAndStatus(executionId,
                 BulkRescheduleResultStatus.PREVIEW_MATCHED));
+        response.addProperty("totalSucceeded", resultRepository.countByExecutionIdAndStatus(executionId,
+                BulkRescheduleResultStatus.SUCCEEDED));
         response.addProperty("totalExcluded", resultRepository.countByExecutionIdAndStatus(executionId,
                 BulkRescheduleResultStatus.EXCLUDED));
         response.addProperty("totalFailed", resultRepository.countByExecutionIdAndStatus(executionId,
@@ -413,6 +415,17 @@ public class BulkRescheduleApiResource {
         }
     }
 
+    @POST
+    @Path("{executionId}/recover")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Resume an interrupted bulk reschedule execution")
+    public String recoverExecution(@PathParam("executionId") final Long executionId) {
+        platformSecurityContext.authenticatedUser();
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().recoverBulkReschedule(executionId).withJson("{}").build();
+        return executeCommand(commandRequest);
+    }
+
     /**
      * Rolls back a previously executed bulk reschedule operation.
      * 
@@ -465,10 +478,24 @@ public class BulkRescheduleApiResource {
         validateCanViewExecution(user, execution);
         final String officeName = officeRepository.findById(execution.getOfficeId()).map(Office::getName).orElse(null);
         final BulkRescheduleExecutionDto response = BulkRescheduleExecutionDto.toExecutionDto(execution, officeName);
-        
+        applyLiveResultCounts(response, executionId);
+
         final ApiRequestJsonSerializationSettings settings = apiRequestParameterHelper
                 .process(uriInfo.getQueryParameters());
         return apiJsonSerializer.serialize(settings, response);
+    }
+
+    private void applyLiveResultCounts(final BulkRescheduleExecutionDto response, final Long executionId) {
+        final int succeeded = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                BulkRescheduleResultStatus.SUCCEEDED);
+        final int failed = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                BulkRescheduleResultStatus.FAILED);
+        final int remaining = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                BulkRescheduleResultStatus.PREVIEW_MATCHED);
+        response.setTotalSucceeded(succeeded);
+        response.setTotalFailed(failed);
+        response.setTotalProcessed(succeeded + (response.getTotalExecutionFailed() == null ? 0 : response.getTotalExecutionFailed()));
+        response.setTotalRemaining(remaining);
     }
 
 

@@ -71,6 +71,7 @@ public class BulkRescheduleAudit  extends AbstractPersistableCustom {
         ROLLBACK,
         PARTIAL_SUCCESS,
         FAILED,
-        SUBMIT_FOR_APPROVAL
+        SUBMIT_FOR_APPROVAL,
+        RECOVER
     }
 }
