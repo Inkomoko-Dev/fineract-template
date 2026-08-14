@@ -41,6 +41,9 @@ public interface BulkRescheduleExecutionRepository
         UPDATE BulkRescheduleExecution e
         SET e.status = :executing,
             e.executionStartedAt = CURRENT_TIMESTAMP,
+            e.workerToken = :workerToken,
+            e.leaseExpiresAt = :leaseExpiresAt,
+            e.lastHeartbeatAt = CURRENT_TIMESTAMP,
             e.updatedAt = CURRENT_TIMESTAMP
         WHERE e.id = :executionId
           AND e.status = :approved
@@ -48,7 +51,41 @@ public interface BulkRescheduleExecutionRepository
     int claimApproved(
             @Param("executionId") Long executionId,
             @Param("approved") BulkRescheduleExecutionStatus approved,
-            @Param("executing") BulkRescheduleExecutionStatus executing);
+            @Param("executing") BulkRescheduleExecutionStatus executing,
+            @Param("workerToken") String workerToken,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt);
+
+    @Modifying
+    @Query("""
+        UPDATE BulkRescheduleExecution e
+        SET e.workerToken = :workerToken,
+            e.leaseExpiresAt = :leaseExpiresAt,
+            e.lastHeartbeatAt = CURRENT_TIMESTAMP,
+            e.updatedAt = CURRENT_TIMESTAMP
+        WHERE e.id = :executionId
+          AND e.status = :executing
+          AND (e.leaseExpiresAt IS NULL OR e.leaseExpiresAt < :now)
+        """)
+    int claimExpired(@Param("executionId") Long executionId,
+            @Param("executing") BulkRescheduleExecutionStatus executing,
+            @Param("workerToken") String workerToken,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt,
+            @Param("now") LocalDateTime now);
+
+    @Modifying
+    @Query("""
+        UPDATE BulkRescheduleExecution e
+        SET e.leaseExpiresAt = :leaseExpiresAt,
+            e.lastHeartbeatAt = CURRENT_TIMESTAMP,
+            e.updatedAt = CURRENT_TIMESTAMP
+        WHERE e.id = :executionId
+          AND e.status = :executing
+          AND e.workerToken = :workerToken
+        """)
+    int renewLease(@Param("executionId") Long executionId,
+            @Param("executing") BulkRescheduleExecutionStatus executing,
+            @Param("workerToken") String workerToken,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt);
 
     /**
      * Find all executions for a specific user.

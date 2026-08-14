@@ -304,6 +304,14 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder recoverBulkReschedule(final Long executionId) {
+        this.actionName = "RECOVER";
+        this.entityName = "RESCHEDULELOAN";
+        this.entityId = executionId;
+        this.href = "/bulk-reschedule/" + executionId + "/recover";
+        return this;
+    }
+
     public CommandWrapperBuilder withTransactionId(final String transactionId) {
         this.transactionId = transactionId;
         return this;

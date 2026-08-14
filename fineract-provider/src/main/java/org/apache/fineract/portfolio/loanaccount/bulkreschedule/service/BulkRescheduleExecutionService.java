@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.bulkreschedule.service;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,7 @@ import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkResch
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleAuditRepository;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleExecutionRepository;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleResultRepository;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.BulkRescheduleProgressService.ClaimResult;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
@@ -110,6 +112,7 @@ public class BulkRescheduleExecutionService {
         int successCount = 0;
         int failCount = 0;
         int skipCount = 0;
+        final String workerToken = UUID.randomUUID().toString();
 
         try {
             // Step 1: Fetch and validate execution
@@ -129,13 +132,20 @@ public class BulkRescheduleExecutionService {
             }
 
             // Atomic APPROVED -> EXECUTING transition prevents duplicate background workers.
-            if (!progressService.claim(executionId)) {
-                log.info("Execution {} was already claimed or is no longer approved", executionId);
+            final ClaimResult claimResult = progressService.claim(executionId, workerToken);
+            if (claimResult == ClaimResult.NONE) {
+                log.info("Execution {} has an active worker or is not executable", executionId);
                 return buildExecutionResponse(bulkRescheduleExecutionRepository.findById(executionId).orElseThrow(), false);
             }
             execution = bulkRescheduleExecutionRepository.findById(executionId).orElseThrow();
-            log.info("Execution {} set to EXECUTING status", executionId);
-            logAudit(execution, BulkRescheduleAudit.BulkRescheduleAuditAction.EXECUTE, currentUser, "Background execution started");
+            final boolean recovered = claimResult == ClaimResult.RECOVERED;
+            if (recovered && execution.getTotalExecutionFailed() != null) {
+                failCount = execution.getTotalExecutionFailed();
+            }
+            log.info("Execution {} {}", executionId, recovered ? "recovered" : "set to EXECUTING status");
+            logAudit(execution, recovered ? BulkRescheduleAudit.BulkRescheduleAuditAction.RECOVER
+                    : BulkRescheduleAudit.BulkRescheduleAuditAction.EXECUTE, currentUser,
+                    recovered ? "Execution resumed after the previous worker lease expired" : "Background execution started");
             notificationService.notify(execution.getUser().getId(), "BULK_RESCHEDULE", execution.getId(), "EXECUTION_STARTED",
                     currentUser.getId(), "Bulk reschedule request #" + execution.getId() + " is now executing.", true);
 
@@ -155,6 +165,10 @@ public class BulkRescheduleExecutionService {
                     break;
                 }
                 for (BulkRescheduleResult result : batch) {
+                    if (!progressService.renewLease(executionId, workerToken)) {
+                        log.warn("Execution {} lost its worker lease; stopping this worker", executionId);
+                        return buildExecutionResponse(bulkRescheduleExecutionRepository.findById(executionId).orElseThrow(), false);
+                    }
                     try {
                         // IDEMPOTENCY CHECK: Skip if already processed
                         if (result.getRescheduleRequestId() != null) {
@@ -176,10 +190,10 @@ public class BulkRescheduleExecutionService {
                         failCount++;
                     }
                 }
-                progressService.refreshCounts(executionId, failCount);
+                progressService.refreshCounts(executionId, failCount, workerToken);
             }
 
-            progressService.complete(executionId, failCount);
+            progressService.complete(executionId, failCount, workerToken);
             execution = bulkRescheduleExecutionRepository.findById(executionId).orElseThrow();
             log.info("Execution {} completed: {} succeeded, {} failed, {} skipped",
                 executionId, successCount, failCount, skipCount);
@@ -210,6 +224,9 @@ public class BulkRescheduleExecutionService {
             execution.setStatus(BulkRescheduleExecutionStatus.FAILED);
             execution.setExecutionError(cause.getMessage());
             execution.setExecutionCompletedAt(DateUtils.getLocalDateTimeOfSystem());
+            execution.setWorkerToken(null);
+            execution.setLeaseExpiresAt(null);
+            execution.setLastHeartbeatAt(null);
             execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
             bulkRescheduleExecutionRepository.save(execution);
             final AppUser actor = platformSecurityContext.authenticatedUser();

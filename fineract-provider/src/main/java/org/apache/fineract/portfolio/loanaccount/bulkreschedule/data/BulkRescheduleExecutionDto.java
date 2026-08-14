@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import lombok.Builder;
 import lombok.Data;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution;
 
 @Data
@@ -53,6 +54,8 @@ public class BulkRescheduleExecutionDto {
     private String executionCompletedAt;
     private Integer totalProcessed;
     private Integer totalRemaining;
+    private String recoveryAvailableAt;
+    private Boolean recoveryAvailable;
     private String createdAt;
     private String updatedAt;
 
@@ -91,6 +94,10 @@ public class BulkRescheduleExecutionDto {
                 .totalProcessed(value(execution.getTotalSucceeded()) + value(execution.getTotalExecutionFailed()))
                 .totalRemaining(Math.max(0, value(execution.getTotalLoansFound()) - value(execution.getTotalExcluded())
                         - value(execution.getTotalFailed()) - value(execution.getTotalSucceeded())))
+                .recoveryAvailableAt(isoDateTime(execution.getLeaseExpiresAt()))
+                .recoveryAvailable(execution.getStatus() == BulkRescheduleExecution.BulkRescheduleExecutionStatus.EXECUTING
+                        && (execution.getLeaseExpiresAt() == null
+                                || !execution.getLeaseExpiresAt().isAfter(DateUtils.getLocalDateTimeOfSystem())))
                 .createdAt(isoDateTime(execution.getCreatedAt()))
                 .updatedAt(isoDateTime(execution.getUpdatedAt()))
                 .build();

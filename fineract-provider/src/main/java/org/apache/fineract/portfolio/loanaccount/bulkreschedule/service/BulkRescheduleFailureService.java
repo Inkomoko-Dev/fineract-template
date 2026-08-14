@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleResult;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleResult.BulkRescheduleResultStatus;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleExecutionRepository;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleResultRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class BulkRescheduleFailureService {
 
+    private final BulkRescheduleExecutionRepository executionRepository;
     private final BulkRescheduleResultRepository resultRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -28,6 +30,11 @@ public class BulkRescheduleFailureService {
         result.setStatus(BulkRescheduleResultStatus.FAILED);
         result.setErrorMessage(normalize(failure));
         resultRepository.save(result);
+        executionRepository.findById(executionId).ifPresent(execution -> {
+            final int failures = execution.getTotalExecutionFailed() == null ? 0 : execution.getTotalExecutionFailed();
+            execution.setTotalExecutionFailed(failures + 1);
+            executionRepository.save(execution);
+        });
     }
 
     private String normalize(final Exception failure) {
