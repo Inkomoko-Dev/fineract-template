@@ -73,6 +73,7 @@ import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDoma
 import org.apache.fineract.infrastructure.configuration.service.ConfigurationReadPlatformService;
 import org.apache.fineract.infrastructure.core.api.ApiParameterHelper;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.api.JsonQuery;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
@@ -144,6 +145,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanSchedu
 import org.apache.fineract.portfolio.loanaccount.service.GLIMAccountInfoReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.service.LoanWritePlatformService;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
@@ -274,6 +276,7 @@ public class LoansApiResource {
     private final ApiRequestParameterHelper apiRequestParameterHelper;
     private final FromJsonHelper fromJsonHelper;
     private final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService;
+    private final LoanWritePlatformService loanWritePlatformService;
     private final CalendarReadPlatformService calendarReadPlatformService;
     private final NoteReadPlatformService noteReadPlatformService;
     private final PortfolioAccountReadPlatformService portfolioAccountReadPlatformService;
@@ -310,6 +313,7 @@ public class LoansApiResource {
             final DefaultToApiJsonSerializer<LoanScheduleData> loanScheduleToApiJsonSerializer,
             final ApiRequestParameterHelper apiRequestParameterHelper, final FromJsonHelper fromJsonHelper,
             final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService,
+            final LoanWritePlatformService loanWritePlatformService,
             final CalendarReadPlatformService calendarReadPlatformService, final NoteReadPlatformService noteReadPlatformService,
             final PortfolioAccountReadPlatformService portfolioAccountReadPlatformServiceImpl,
             final AccountAssociationsReadPlatformService accountAssociationsReadPlatformService,
@@ -345,6 +349,7 @@ public class LoansApiResource {
         this.apiRequestParameterHelper = apiRequestParameterHelper;
         this.fromJsonHelper = fromJsonHelper;
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
+        this.loanWritePlatformService = loanWritePlatformService;
         this.calendarReadPlatformService = calendarReadPlatformService;
         this.noteReadPlatformService = noteReadPlatformService;
         this.portfolioAccountReadPlatformService = portfolioAccountReadPlatformServiceImpl;
@@ -1346,10 +1351,14 @@ public class LoansApiResource {
     public String applyPenaltyCharge(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
             final String apiRequestBodyAsJson) {
 
-        final CommandWrapperBuilder builder = new CommandWrapperBuilder().withJson(apiRequestBodyAsJson);
-        final CommandWrapper commandRequest = builder.applyPenaltyCharge(loanId).build();
+        this.context.authenticatedUser();
 
-        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        final String json = StringUtils.defaultIfBlank(apiRequestBodyAsJson, "{}");
+        final JsonElement parsedCommand = this.fromJsonHelper.parse(json);
+        final JsonCommand command = JsonCommand.from(json, parsedCommand, this.fromJsonHelper, "LOANCHARGE", loanId, null, null, null,
+                loanId, null, null, "/loans/applyPenaltyCharge/" + loanId, null, null, null);
+
+        final CommandProcessingResult result = this.loanWritePlatformService.applyPenaltyCharge(loanId, command);
 
         return this.toApiJsonSerializer.serialize(result);
     }

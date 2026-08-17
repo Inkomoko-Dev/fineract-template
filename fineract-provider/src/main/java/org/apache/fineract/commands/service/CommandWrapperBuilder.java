@@ -3697,7 +3697,8 @@ public class CommandWrapperBuilder {
         this.actionName = "APPLY_PENALTY";
         this.entityName = "LOANCHARGE";
         this.entityId = loanId;
-        this.href = "/applyPenaltyCharge/" + loanId;
+        this.loanId = loanId;
+        this.href = "/loans/applyPenaltyCharge/" + loanId;
         return this;
     }
 
