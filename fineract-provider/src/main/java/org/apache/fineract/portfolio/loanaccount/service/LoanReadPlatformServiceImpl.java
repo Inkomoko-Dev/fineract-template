@@ -1194,7 +1194,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " left join m_loan as topuploan on topuploan.id = topup.closure_loan_id"
                     + " left join m_portfolio_account_associations as paa on l.id = paa.loan_account_id"
                     + " left join m_loan_decision as ds on l.id = ds.loan_id"
-                    + " left join m_loan_disbursement_detail as lds on l.id = lds.loan_id";
+                    // LoanAccountData contains singular legacy fields for the currently applicable disbursement. A direct
+                    // join duplicates the loan row for multi-disbursement loans and breaks retrieveOne(), which uses
+                    // queryForObject. Select one deterministic detail here; the complete collection is loaded separately
+                    // by retrieveLoanDisbursementDetails().
+                    + " left join m_loan_disbursement_detail as lds on lds.id = ("
+                    + " select lds2.id from m_loan_disbursement_detail lds2 where lds2.loan_id = l.id"
+                    + " order by case when lds2.disbursedon_date is null then 0 else 1 end,"
+                    + " case when lds2.disbursedon_date is null then lds2.expected_disburse_date end asc,"
+                    + " case when lds2.disbursedon_date is not null then lds2.disbursedon_date end desc, lds2.id desc limit 1)";
 
         }
 
