@@ -36,6 +36,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlatformService;
@@ -65,7 +66,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSummary;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
-import org.apache.fineract.portfolio.loanproduct.domain.HistoricalCorrectionProductApproverRepository;
+import org.apache.fineract.useradministration.data.AppUserData;
+import org.apache.fineract.useradministration.service.AppUserReadPlatformService;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -109,8 +111,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         private final LoanTransactionRepository loanTransactionRepository = mock(LoanTransactionRepository.class);
         private final LoanHistoricalPenaltyWaiverRepository waiverRepository = mock(LoanHistoricalPenaltyWaiverRepository.class);
         private final LoanHistoricalPenaltyWaiverTxnRepository waiverTxnRepository = mock(LoanHistoricalPenaltyWaiverTxnRepository.class);
-        private final HistoricalCorrectionProductApproverRepository approverRepository = mock(
-                HistoricalCorrectionProductApproverRepository.class);
+        private final AppUserReadPlatformService appUserReadPlatformService = mock(AppUserReadPlatformService.class);
         private final HistoricalPenaltyWaiverApprovalPolicy approvalPolicy = mock(HistoricalPenaltyWaiverApprovalPolicy.class);
         private final ApplicationCurrencyRepositoryWrapper applicationCurrencyRepository = mock(
                 ApplicationCurrencyRepositoryWrapper.class);
@@ -164,10 +165,17 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
 
         private HistoricalPenaltyWaiverService service() {
             return new HistoricalPenaltyWaiverService(this.loanAssembler, this.loanChargeRepository, this.loanTransactionRepository,
-                    this.waiverRepository, this.waiverTxnRepository, this.approverRepository, this.approvalPolicy, this.noteRepository,
+                    this.waiverRepository, this.waiverTxnRepository, this.appUserReadPlatformService, this.approvalPolicy,
+                    this.noteRepository,
                     this.businessEventNotifierService, this.loanChargeReadPlatformService, this.journalEntryWritePlatformService,
                     this.applicationCurrencyRepository, this.loanRepositoryWrapper, this.loanRepaymentReminderRepository,
                     this.notificationService);
+        }
+
+        private void approverHoldsThePermission(final boolean holds) {
+            when(this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(OFFICE_ID,
+                    HistoricalPenaltyWaiverReadPlatformServiceImpl.APPROVE_PERMISSION))
+                    .thenReturn(holds ? List.of(AppUserData.dropdown(APPROVER_ID, "approver")) : List.of());
         }
 
         private void requiresApproval(final boolean required) {
@@ -212,7 +220,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
     @Test
     public void anAboveThresholdWaiverIsParkedForApprovalAndTheLoanIsNotTouched() {
         this.fixture.requiresApproval(true);
-        when(this.fixture.approverRepository.existsByLoanProductIdAndAppUserId(PRODUCT_ID, APPROVER_ID)).thenReturn(true);
+        this.fixture.approverHoldsThePermission(true);
 
         this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"), APPROVER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4));
 
@@ -289,9 +297,9 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
     }
 
     @Test
-    public void anApproverNotMappedToTheProductIsRejected() {
+    public void anApproverWithoutTheApprovePermissionIsRejected() {
         this.fixture.requiresApproval(true);
-        when(this.fixture.approverRepository.existsByLoanProductIdAndAppUserId(PRODUCT_ID, APPROVER_ID)).thenReturn(false);
+        this.fixture.approverHoldsThePermission(false);
 
         assertThrows(PlatformApiDataValidationException.class, () -> this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"),
                 APPROVER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4)));
@@ -321,7 +329,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         this.fixture.replayProduces(1);
         final LoanHistoricalPenaltyWaiver request = pendingRequest();
         when(this.fixture.waiverRepository.findById(4321L)).thenReturn(Optional.of(request));
-        when(this.fixture.approverRepository.existsByLoanProductIdAndAppUserId(PRODUCT_ID, APPROVER_ID)).thenReturn(true);
+        this.fixture.approverHoldsThePermission(true);
 
         this.fixture.service().approve(4321L, APPROVER_ID, SUBMITTED_ON);
 
@@ -330,10 +338,10 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
     }
 
     @Test
-    public void anApproverNotMappedToTheProductCannotApprove() {
+    public void anApproverWithoutTheApprovePermissionCannotApprove() {
         final LoanHistoricalPenaltyWaiver request = pendingRequest();
         when(this.fixture.waiverRepository.findById(4321L)).thenReturn(Optional.of(request));
-        when(this.fixture.approverRepository.existsByLoanProductIdAndAppUserId(PRODUCT_ID, APPROVER_ID)).thenReturn(false);
+        this.fixture.approverHoldsThePermission(false);
 
         assertThrows(PlatformApiDataValidationException.class,
                 () -> this.fixture.service().approve(4321L, APPROVER_ID, SUBMITTED_ON));

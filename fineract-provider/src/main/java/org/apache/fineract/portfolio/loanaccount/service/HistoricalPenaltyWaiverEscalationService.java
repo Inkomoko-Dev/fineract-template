@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,10 +30,10 @@ import org.apache.fineract.infrastructure.jobs.service.JobName;
 import org.apache.fineract.portfolio.loanaccount.domain.HistoricalPenaltyWaiverStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiver;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
-import org.apache.fineract.portfolio.loanproduct.domain.HistoricalCorrectionProductApprover;
-import org.apache.fineract.portfolio.loanproduct.domain.HistoricalCorrectionProductApproverRepository;
+import org.apache.fineract.useradministration.data.AppUserData;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepository;
+import org.apache.fineract.useradministration.service.AppUserReadPlatformService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,9 +42,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>
  * Fineract has no reporting line: {@code m_staff} carries no supervisor and {@code AppUser} links only to an office and
- * a staff record. The nearest achievable escalation is therefore another approver for the same product in a
- * <em>different</em> office to the one already asked, which in a hierarchy means someone further up. A true manager
- * chain would be a separate piece of work.
+ * a staff record. The nearest achievable escalation is therefore another permitted approver in a <em>different</em>
+ * office to the one already asked, which in a hierarchy means someone further up. A true manager chain would be a
+ * separate piece of work.
  * </p>
  */
 @Service
@@ -52,7 +53,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class HistoricalPenaltyWaiverEscalationService {
 
     private final LoanHistoricalPenaltyWaiverRepository waiverRepository;
-    private final HistoricalCorrectionProductApproverRepository approverRepository;
+    private final AppUserReadPlatformService appUserReadPlatformService;
     private final AppUserRepository appUserRepository;
     private final ConfigurationDomainService configurationDomainService;
     private final HistoricalPenaltyWaiverNotificationService notificationService;
@@ -88,14 +89,15 @@ public class HistoricalPenaltyWaiverEscalationService {
 
     private AppUser findEscalationTarget(final LoanHistoricalPenaltyWaiver waiver) {
 
-        final List<HistoricalCorrectionProductApprover> approvers = this.approverRepository.findByLoanProductId(waiver.getProductId());
+        final Collection<AppUserData> permitted = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(waiver.getOfficeId(),
+                HistoricalPenaltyWaiverReadPlatformServiceImpl.APPROVE_PERMISSION);
 
         AppUser sameOfficeFallback = null;
-        for (final HistoricalCorrectionProductApprover approver : approvers) {
-            if (approver.getAppUserId().equals(waiver.getNextApproverId())) {
+        for (final AppUserData option : permitted) {
+            if (waiver.getNextApproverId() != null && option.hasIdentifyOf(waiver.getNextApproverId())) {
                 continue;
             }
-            final AppUser candidate = this.appUserRepository.findById(approver.getAppUserId()).orElse(null);
+            final AppUser candidate = this.appUserRepository.findAppUserByName(option.username());
             if (candidate == null || candidate.getOffice() == null) {
                 continue;
             }
