@@ -41,6 +41,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.useradministration.api.UsersApiResource;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.apache.fineract.useradministration.service.AppUserConstants;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -53,7 +54,7 @@ public class SelfUserApiResource {
     private final UsersApiResource usersApiResource;
     private final PlatformSecurityContext context;
     private final FromJsonHelper fromApiJsonHelper;
-    private final Set<String> supportedParameters = new HashSet<>(Arrays.asList("password", "repeatPassword"));
+    private final Set<String> supportedParameters = new HashSet<>(Arrays.asList("password", "repeatPassword", AppUserConstants.NOTES));
 
     @Autowired
     public SelfUserApiResource(final UsersApiResource usersApiResource, final PlatformSecurityContext context,
