@@ -2081,6 +2081,16 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         LoanAccountData loanAccountData = LoanAccountData.clientDefaults(clientAccount.id(), clientAccount.accountNo(),
                 clientAccount.displayName(), clientAccount.officeId(), expectedDisbursementDate);
 
+        // Add third-party disbursement provider options if any product has it enabled
+        final Collection<LoanProductData> loanProducts = this.loanProductReadPlatformService.retrieveAllLoanProductsForLookup(true);
+        boolean hasThirdPartyDisbursement = loanProducts.stream()
+                .anyMatch(product -> Boolean.TRUE.equals(product.getEnableThirdPartyDisbursement()));
+        
+        if (hasThirdPartyDisbursement) {
+            loanAccountData.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
+
         return loanAccountData;
     }
 
@@ -2089,7 +2099,20 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.context.authenticatedUser();
         final GroupGeneralData groupAccount = this.groupReadPlatformService.retrieveOne(groupId);
         final LocalDate expectedDisbursementDate = DateUtils.getBusinessLocalDate();
-        return LoanAccountData.groupDefaults(groupAccount, expectedDisbursementDate);
+        
+        LoanAccountData loanAccountData = LoanAccountData.groupDefaults(groupAccount, expectedDisbursementDate);
+
+        // Add third-party disbursement provider options if any product has it enabled
+        final Collection<LoanProductData> loanProducts = this.loanProductReadPlatformService.retrieveAllLoanProductsForLookup(true);
+        boolean hasThirdPartyDisbursement = loanProducts.stream()
+                .anyMatch(product -> Boolean.TRUE.equals(product.getEnableThirdPartyDisbursement()));
+        
+        if (hasThirdPartyDisbursement) {
+            loanAccountData.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
+
+        return loanAccountData;
     }
 
     @Override
@@ -2108,7 +2131,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     collectionMeetingCalendar);
         }
 
-        return LoanAccountData.groupDefaults(groupAccount, expectedDisbursementDate);
+        LoanAccountData loanAccountData = LoanAccountData.groupDefaults(groupAccount, expectedDisbursementDate);
+
+        // Add third-party disbursement provider options if any product has it enabled
+        final Collection<LoanProductData> loanProducts = this.loanProductReadPlatformService.retrieveAllLoanProductsForLookup(true);
+        boolean hasThirdPartyDisbursement = loanProducts.stream()
+                .anyMatch(product -> Boolean.TRUE.equals(product.getEnableThirdPartyDisbursement()));
+        
+        if (hasThirdPartyDisbursement) {
+            loanAccountData.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
+
+        return loanAccountData;
     }
 
     @Override
