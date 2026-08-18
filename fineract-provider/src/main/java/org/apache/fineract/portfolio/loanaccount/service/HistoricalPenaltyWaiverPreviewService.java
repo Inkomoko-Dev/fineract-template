@@ -37,6 +37,7 @@ import org.apache.fineract.portfolio.charge.exception.LoanChargeNotFoundExceptio
 import org.apache.fineract.portfolio.loanaccount.data.HistoricalPenaltyWaiverApprovalRequirement;
 import org.apache.fineract.portfolio.loanaccount.data.HistoricalPenaltyWaiverPreviewData;
 import org.apache.fineract.portfolio.loanaccount.data.HistoricalPenaltyWaiverTransactionImpactData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanStatusEnumData;
 import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.HistoricalPenaltyWaiverResult;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -44,6 +45,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -106,7 +108,7 @@ public class HistoricalPenaltyWaiverPreviewService {
         final LocalDate suggestedEffectiveDate = earliestRepaymentPaying(loan, loanCharge);
         final LocalDate effectiveDate = requestedEffectiveDate != null ? requestedEffectiveDate : suggestedEffectiveDate;
 
-        final Integer loanStatusBefore = loan.status().getValue();
+        final LoanStatusEnumData loanStatusBefore = LoanEnumerations.status(loan.status());
         final BigDecimal totalOutstandingBefore = loan.getSummary().getTotalOutstanding();
         final Map<Long, LoanTransaction> before = snapshotTransactions(loan);
 
@@ -128,7 +130,7 @@ public class HistoricalPenaltyWaiverPreviewService {
                 .chargeAmountOutstandingAfter(loanCharge.getAmountOutstanding(currency).getAmount()).waiverAmount(waiverAmount)
                 .partialWaiver(Money.of(currency, waiverAmount).isLessThan(waivable)).waiverEffectiveDate(effectiveDate)
                 .suggestedEffectiveDate(suggestedEffectiveDate).loanStatusBefore(loanStatusBefore)
-                .loanStatusAfter(loan.status().getValue()).totalOutstandingBefore(totalOutstandingBefore)
+                .loanStatusAfter(LoanEnumerations.status(loan.status())).totalOutstandingBefore(totalOutstandingBefore)
                 .totalOutstandingAfter(loan.getSummary().getTotalOutstanding())
                 .transactionProcessingStrategyName(strategyNameOf(loan))
                 .reprocessedTransactionCount(result.getChangedTransactionDetail().getNewTransactionMappings().size())
