@@ -1656,6 +1656,11 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             updateMultiDisbursementPaymentDetails(loan, command, disbursementDataArray);
         }
 
+        if (loan.loanProduct().isMultiDisburseLoan()
+                && this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
+            updateMultiDisbursementPaymentDetails(loan, command, disbursementDataArray);
+        }
+
         entityDatatableChecksWritePlatformService.runTheCheckForProduct(loanId, EntityTables.LOAN.getName(),
                 StatusEnum.APPROVE.getCode().longValue(), EntityTables.LOAN.getForeignKeyColumnNameOnDatatable(), loan.productId());
 
