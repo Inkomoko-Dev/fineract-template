@@ -1548,19 +1548,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         LocalDate expectedDisbursementDate = null;
 
         final Loan loan = retrieveLoanBy(loanId);
-        final JsonArray disbursementDataArray = command.arrayOfParameterNamed(LoanApiConstants.disbursementDataParameterName);
-        if (!loan.loanProduct().isMultiDisburseLoan() && disbursementDataArray != null && disbursementDataArray.size() > 1) {
-            throw new PlatformApiDataValidationException("validation.msg.loanapproval.single.disbursement.detail.only",
-                    "A loan product that does not allow multiple disbursements can have only one disbursement detail.",
-                    List.of(ApiParameterError.parameterError("validation.msg.loanapproval.single.disbursement.detail.only",
-                            "Only one disbursement detail is allowed for this loan product.",
-                            LoanApiConstants.disbursementDataParameterName, disbursementDataArray.size())));
-        }
-        final boolean paymentTypeProvidedBySingleDetail = !loan.loanProduct().isMultiDisburseLoan()
-                && disbursementDataArray != null && disbursementDataArray.size() == 1
-                && disbursementDataArray.get(0).isJsonObject()
-                && disbursementDataArray.get(0).getAsJsonObject().has("paymentTypeId");
-        final boolean requirePaymentTypeId = !loan.loanProduct().isMultiDisburseLoan() && !paymentTypeProvidedBySingleDetail
+        final boolean requirePaymentTypeId = !loan.loanProduct().isMultiDisburseLoan()
                 && !this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan);
         this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json(), requirePaymentTypeId);
 
@@ -1661,6 +1649,11 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         if (disbursementDataArray != null
                 && this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
             updateDisbursementPaymentDetails(loan, command, disbursementDataArray);
+        }
+
+        if (loan.loanProduct().isMultiDisburseLoan()
+                && this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
+            updateMultiDisbursementPaymentDetails(loan, command, disbursementDataArray);
         }
 
         entityDatatableChecksWritePlatformService.runTheCheckForProduct(loanId, EntityTables.LOAN.getName(),
@@ -1882,7 +1875,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loan.getDisbursementDetails().add(disbursementDetail);
     }
 
-    private void updateDisbursementPaymentDetails(final Loan loan, final JsonCommand parentCommand,
+    private void updateMultiDisbursementPaymentDetails(final Loan loan, final JsonCommand parentCommand,
             final JsonArray disbursementDataArray) {
         if (disbursementDataArray == null) {
             return;
@@ -1917,7 +1910,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                                 "Payment type is required for every tranche.", "paymentTypeId", null)));
             }
             final PaymentType tranchePaymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(tranchePaymentTypeId);
-            validatePaymentDetails(loan, trancheCommand, tranchePaymentType);
+            validatePaymentDetails(trancheCommand, tranchePaymentType);
 
             final Integer paymentTo = trancheCommand.integerValueOfParameterNamed(LoanApiConstants.paymentToParameterName);
             final String disbursementTypeRaw = trancheCommand
@@ -1932,11 +1925,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             detail.setPaymentTo(paymentTo);
             detail.setDisbursementType(disbursementType);
             detail.setBeneficiaryName(trancheCommand.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName));
-            final ClientBankDetailsResolver.ResolvedClientPaymentDetails resolvedTrancheDetails = resolveClientPaymentDetails(loan,
-                    trancheCommand, paymentTo);
-            detail.setClientPhoneNumber(resolvedTrancheDetails.getClientPhoneNumber());
-            detail.setClientAccountNumber(resolvedTrancheDetails.getClientAccountNumber());
-            detail.setClientBankName(resolvedTrancheDetails.getClientBankName());
+            detail.setClientPhoneNumber(trancheCommand.stringValueOfParameterNamed("clientPhoneNumber"));
+            detail.setClientAccountNumber(trancheCommand.stringValueOfParameterNamed("clientAccountNumber"));
+            detail.setClientBankName(trancheCommand.stringValueOfParameterNamed("clientBankName"));
             detail.applyMfiCodeIfProvided(trancheCommand.stringValueOfParameterNamed(LoanApiConstants.mfiCodeParameterName));
 
             if (isSouthSudanLoan(loan) && "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode())
@@ -1977,14 +1968,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         }
     }
 
-    private ClientBankDetailsResolver.ResolvedClientPaymentDetails resolveClientPaymentDetails(final Loan loan, final JsonCommand command,
-            final Integer paymentTo) {
-        return this.clientBankDetailsResolver.resolve(loan == null ? null : loan.getClientId(), paymentTo,
-                command.stringValueOfParameterNamed("clientPhoneNumber"), command.stringValueOfParameterNamed("clientAccountNumber"),
-                command.stringValueOfParameterNamed("clientBankName"));
-    }
-
-    private void validatePaymentDetails(Loan loan, JsonCommand command, PaymentType paymentType) {
+    private void validatePaymentDetails(JsonCommand command, PaymentType paymentType) {
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
 
         final boolean isCash = paymentType.isCashPayment(); // assuming this flag exists
