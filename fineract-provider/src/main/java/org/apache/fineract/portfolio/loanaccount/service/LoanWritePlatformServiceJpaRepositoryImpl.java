@@ -3648,6 +3648,46 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         LoanDisbursementDetails loanDisbursementDetails = loan.fetchLoanDisbursementsById(disbursementId);
         this.loanEventApiJsonValidator.validateUpdateDisbursementDateAndAmount(command.json(), loanDisbursementDetails);
 
+        final AppUser currentUser = getAppUserIfPresent();
+        this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
+        if (this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
+            final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
+            if (paymentTypeId != null) {
+                loanDisbursementDetails.setPaymentType(this.paymentTypeRepositoryWrapper.findOneWithNotFoundDetection(paymentTypeId));
+            }
+            final Integer paymentTo = command.integerValueOfParameterNamed(LoanApiConstants.paymentToParameterName);
+            final String disbursementTypeRaw = command.stringValueOfParameterNamed(LoanApiConstants.disbursementTypeParameterName);
+            String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
+            if (disbursementType == null && paymentTo != null) {
+                final LoanDisbursementDetails.DisbursementType derivedType = LoanDisbursementDetails.DisbursementType
+                        .fromPaymentTo(paymentTo);
+                disbursementType = derivedType == null ? null : derivedType.name();
+            }
+            loanDisbursementDetails.setPaymentTo(paymentTo);
+            loanDisbursementDetails.setDisbursementType(disbursementType);
+            loanDisbursementDetails
+                    .setBeneficiaryName(command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName));
+            loanDisbursementDetails.setClientPhoneNumber(command.stringValueOfParameterNamed("clientPhoneNumber"));
+            loanDisbursementDetails.setClientAccountNumber(command.stringValueOfParameterNamed("clientAccountNumber"));
+            loanDisbursementDetails.setClientBankName(command.stringValueOfParameterNamed("clientBankName"));
+            loanDisbursementDetails.setMfiCode(command.stringValueOfParameterNamed(LoanApiConstants.mfiCodeParameterName));
+
+            final BigDecimal fxRate = command.bigDecimalValueOfParameterNamed(LoanApiConstants.fxRateParameterName);
+            if (fxRate != null && fxRate.compareTo(BigDecimal.ZERO) > 0) {
+                loanDisbursementDetails.setFxRate(fxRate);
+                loanDisbursementDetails.setUsdAmount(
+                        command.bigDecimalValueOfParameterNamed(LoanApiConstants.updatedDisbursementPrincipalParameterName)
+                                .divide(fxRate, 6, RoundingMode.HALF_UP));
+                loanDisbursementDetails.setFxSource("MANUAL_ENTRY");
+                loanDisbursementDetails.setFxTimestamp(DateUtils.getLocalDateTimeOfTenant());
+            } else if (!LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)) {
+                loanDisbursementDetails.setFxRate(null);
+                loanDisbursementDetails.setUsdAmount(null);
+                loanDisbursementDetails.setFxSource(null);
+                loanDisbursementDetails.setFxTimestamp(null);
+            }
+        }
+
         return processLoanDisbursementDetail(loan, loanId, command, loanDisbursementDetails);
 
     }
