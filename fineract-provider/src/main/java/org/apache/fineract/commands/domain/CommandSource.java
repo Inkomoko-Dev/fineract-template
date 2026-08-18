@@ -18,8 +18,8 @@
  */
 package org.apache.fineract.commands.domain;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import javax.persistence.Column;
@@ -40,6 +40,9 @@ import org.apache.logging.log4j.util.Strings;
 @Table(name = "m_portfolio_command_source")
 @Getter
 public class CommandSource extends AbstractPersistableCustom {
+
+    public static final int NOTES_MAX_LENGTH = 500;
+    private static final String NOTES_PARAM_NAME = "notes";
 
     @Column(name = "action_name", nullable = true, length = 100)
     private String actionName;
@@ -102,7 +105,7 @@ public class CommandSource extends AbstractPersistableCustom {
     @Column(name = "transaction_id", length = 100)
     private String transactionId;
 
-    @Column(name = "notes", length = 500)
+    @Column(name = "notes", length = NOTES_MAX_LENGTH)
     private String notes;
 
     @Column(name = "creditbureau_id")
@@ -112,7 +115,7 @@ public class CommandSource extends AbstractPersistableCustom {
     private Long organisationCreditBureauId;
 
     public static CommandSource fullEntryFrom(final CommandWrapper wrapper, final JsonCommand command, final AppUser maker) {
-        String notes = extractNotesFromJson(command.json());
+        String notes = extractNotes(command.parsedJson());
         return new CommandSource(wrapper.actionName(), wrapper.entityName(), wrapper.getEntityId(), wrapper.getHref(), command.entityId(), command.subentityId(),
                 command.json(), maker, ZonedDateTime.now(DateUtils.getDateTimeZoneOfTenant()), notes);
     }
@@ -144,22 +147,16 @@ public class CommandSource extends AbstractPersistableCustom {
         this.organisationCreditBureauId = organisationCreditBureauId;
     }
 
-    private static String extractNotesFromJson(final String json) {
-        if (json != null && !json.isEmpty()) {
-            try {
-                final JsonObject jsonObj = JsonParser.parseString(json).getAsJsonObject();
-                if (jsonObj.has("notes") && !jsonObj.get("notes").isJsonNull()) {
-                    String notes = jsonObj.get("notes").getAsString();
-                    if (notes != null && notes.length() > 500) {
-                        notes = notes.substring(0, 500);
-                    }
-                    return notes;
-                }
-            } catch (Exception e) {
-                // Not all commands have JSON or a notes field
-            }
+    private static String extractNotes(final JsonElement parsedJson) {
+        if (parsedJson == null || !parsedJson.isJsonObject()) {
+            return null;
         }
-        return null;
+        final JsonObject jsonObject = parsedJson.getAsJsonObject();
+        if (!jsonObject.has(NOTES_PARAM_NAME) || !jsonObject.get(NOTES_PARAM_NAME).isJsonPrimitive()) {
+            return null;
+        }
+        final String notes = jsonObject.get(NOTES_PARAM_NAME).getAsString();
+        return notes.length() > NOTES_MAX_LENGTH ? notes.substring(0, NOTES_MAX_LENGTH) : notes;
     }
 
     public void markAsChecked(final AppUser checker, final ZonedDateTime checkedOnDate) {
