@@ -62,7 +62,6 @@ public class DisbursementPartnerWebhookPublisher {
     private static final String KIFIYA_WEBHOOK_URL = "kifiya-webhook-url";
     private static final String KIFIYA_WEBHOOK_ENABLED = "kifiya-webhook-enabled";
     private static final String KIFIYA_WEBHOOK_API_KEY = "kifiya-webhook-api-key";
-    private static final String KIFIYA_WEBHOOK_TIMEOUT = "kifiya-webhook-timeout";
     private static final String PARTNER_WEBHOOK_CONFIG = "partner-webhook-config";
 
     public void publish(final String partnerCode, final String action, final ThirdPartyDisbursementProductData product) {
@@ -139,14 +138,13 @@ public class DisbursementPartnerWebhookPublisher {
         final GlobalConfigurationPropertyData urlConfig = this.configurationReadPlatformService.retrieveGlobalConfiguration(KIFIYA_WEBHOOK_URL);
         final GlobalConfigurationPropertyData enabledConfig = this.configurationReadPlatformService.retrieveGlobalConfiguration(KIFIYA_WEBHOOK_ENABLED);
         final GlobalConfigurationPropertyData apiKeyConfig = this.configurationReadPlatformService.retrieveGlobalConfiguration(KIFIYA_WEBHOOK_API_KEY);
-        final GlobalConfigurationPropertyData timeoutConfig = this.configurationReadPlatformService.retrieveGlobalConfiguration(KIFIYA_WEBHOOK_TIMEOUT);
 
         // Get the string value for URL (stored in string_value column)
         String urlValue = null;
         if (urlConfig != null) {
             urlValue = urlConfig.getStringValue();
         }
-        
+
         if (urlValue == null || urlValue.isBlank()) {
             return null;
         }
@@ -154,23 +152,13 @@ public class DisbursementPartnerWebhookPublisher {
         final PartnerWebhookConfig config = new PartnerWebhookConfig();
         config.setUrl(urlValue);
         config.setEnabled(enabledConfig != null && enabledConfig.isEnabled());
-        
+
         // Get the string value for API key (stored in string_value column)
         String apiKeyValue = null;
         if (apiKeyConfig != null) {
             apiKeyValue = apiKeyConfig.getStringValue();
         }
         config.setApiKey(apiKeyValue);
-        
-        if (timeoutConfig != null && timeoutConfig.getValue() != null) {
-            try {
-                config.setTimeoutMs(timeoutConfig.getValue());
-            } catch (NumberFormatException e) {
-                config.setTimeoutMs(30000L); // default
-            }
-        } else {
-            config.setTimeoutMs(30000L); // default
-        }
 
         return config;
     }
@@ -178,7 +166,6 @@ public class DisbursementPartnerWebhookPublisher {
     public static class PartnerWebhookConfig {
         private String url;
         private boolean enabled = false;
-        private long timeoutMs = 30000;
         private String apiKey;
         private Map<String, String> headers;
 
@@ -196,14 +183,6 @@ public class DisbursementPartnerWebhookPublisher {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
-        }
-
-        public long getTimeoutMs() {
-            return timeoutMs;
-        }
-
-        public void setTimeoutMs(long timeoutMs) {
-            this.timeoutMs = timeoutMs;
         }
 
         public String getApiKey() {
