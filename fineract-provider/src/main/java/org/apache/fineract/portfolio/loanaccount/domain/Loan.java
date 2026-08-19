@@ -2874,12 +2874,6 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         if (this.loanProduct().isMultiDisburseLoan()) {
             final LoanDisbursementDetails nextDisbursementDetail = getNextUndisbursedDisbursementDetail();
             if (nextDisbursementDetail != null) {
-                if (nextDisbursementDetail.expectedDisbursementDate() != null
-                        && actualDisbursementDate.isBefore(nextDisbursementDetail.expectedDisbursementDate())) {
-                    final String errorMsg = "Loan tranche can't be disbursed before its expected disbursement date ";
-                    throw new LoanDisbursalException(errorMsg, "actualdisbursementdate.before.expectedtranchedate",
-                            nextDisbursementDetail.expectedDisbursementDate(), actualDisbursementDate);
-                }
                 // The payment instruction contains the net cash delivered to the client. Fineract
                 // must book the gross scheduled tranche; repayment-at-disbursement accounts for
                 // the difference (for example, insurance deducted from the first tranche).
@@ -4539,11 +4533,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             expectedDisbursementDate = this.expectedDisbursementDate;
         }
 
-        Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
-        if (!details.isEmpty()) {
-            for (LoanDisbursementDetails disbursementDetails : details) {
-                expectedDisbursementDate = disbursementDetails.expectedDisbursementDate();
-            }
+        final LoanDisbursementDetails nextDetail = getNextUndisbursedDisbursementDetail();
+        if (nextDetail != null) {
+            expectedDisbursementDate = nextDetail.expectedDisbursementDate();
         }
         return expectedDisbursementDate;
     }
@@ -4554,12 +4546,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     public BigDecimal getDisburseAmountForTemplate() {
         BigDecimal principal = this.loanRepaymentScheduleDetail.getPrincipal().getAmount();
-        Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
-        if (!details.isEmpty()) {
-            principal = BigDecimal.ZERO;
-            for (LoanDisbursementDetails disbursementDetails : details) {
-                principal = principal.add(disbursementDetails.principal());
-            }
+        final LoanDisbursementDetails nextDetail = getNextUndisbursedDisbursementDetail();
+        if (nextDetail != null) {
+            principal = nextDetail.principal();
         }
         return principal;
     }
@@ -4570,10 +4559,6 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                         Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(LoanDisbursementDetails::getId,
                                 Comparator.nullsLast(Comparator.naturalOrder())))
                 .findFirst().orElse(null);
-    }
-
-    public boolean hasPendingApprovedDisbursement() {
-        return this.loanProduct != null && this.loanProduct.isMultiDisburseLoan() && getNextUndisbursedDisbursementDetail() != null;
     }
 
     public int getDisbursementTrancheNumber(final LoanDisbursementDetails selectedDetail) {
