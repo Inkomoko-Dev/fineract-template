@@ -806,6 +806,13 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                     "Loan is not in the Review Application stage.");
         }
 
+        if (loanDecision == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.account.should.not.found.in.decision.engine",
+                    "Loan Account not found in decision engine. Operation [Return Review Application] is not allowed");
+        }
+
+        final Long loanDecisionId = loanDecision.getId();
+
         // Delete decision and revert to initial state
         loan.setLoanDecisionState(null);
         loanDecisionRepository.delete(loanDecision);
@@ -825,12 +832,12 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
-                .withEntityId(loanDecision.getId())
+                .withEntityId(loanDecisionId)
                 .withOfficeId(loan.getOfficeId())
                 .withClientId(loan.getClientId())
                 .withGroupId(loan.getGroupId())
                 .withLoanId(loanId)
-                .withResourceIdAsString(loanDecision.getId().toString())
+                .withResourceIdAsString(loanDecisionId.toString())
                 .build();
     }
 

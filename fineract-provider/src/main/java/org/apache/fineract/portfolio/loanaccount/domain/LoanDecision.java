@@ -32,6 +32,8 @@ import javax.persistence.OneToMany;
 import javax.persistence.OneToOne;
 import javax.persistence.Table;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
 import org.apache.fineract.useradministration.domain.AppUser;
 
@@ -213,6 +215,8 @@ public class LoanDecision extends AbstractAuditableCustom {
      * The hardcoded fields above are kept for backward compatibility.
      */
     @OneToMany(mappedBy = "loanDecision", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private List<LoanDecisionLevel> decisionLevels = new ArrayList<>();
 
     public LoanDecision() {}
