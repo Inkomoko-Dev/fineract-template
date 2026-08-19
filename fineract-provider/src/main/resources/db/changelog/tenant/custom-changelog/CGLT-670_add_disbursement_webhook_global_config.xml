@@ -73,23 +73,6 @@
         </insert>
     </changeSet>
 
-    <changeSet author="Felix Mutua" id="add_kifiya_webhook_timeout">
-        <preConditions onFail="MARK_RAN">
-            <not>
-                <sqlCheck expectedResult="1">
-                    SELECT COUNT(1) FROM c_configuration WHERE name = 'kifiya-webhook-timeout'
-                </sqlCheck>
-            </not>
-        </preConditions>
-
-        <insert tableName="c_configuration">
-            <column name="name" value="kifiya-webhook-timeout" />
-            <column name="value" value="30000" />
-            <column name="enabled" valueBoolean="true" />
-            <column name="description" value="Webhook timeout in milliseconds for Kifiya" />
-        </insert>
-    </changeSet>
-
     <!-- Generic partner webhook configuration (for future partners) -->
     <changeSet author="Felix Mutua" id="add_partner_webhook_config">
         <preConditions onFail="MARK_RAN">
