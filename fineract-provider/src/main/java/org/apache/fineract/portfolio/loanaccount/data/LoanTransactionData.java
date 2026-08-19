@@ -215,6 +215,15 @@ public class LoanTransactionData {
 
     private Boolean isLoanDisbursementRequestEnabled;
 
+    @Setter
+    private Long disbursementDetailId;
+
+    @Setter
+    private Integer trancheNumber;
+
+    @Setter
+    private BigDecimal remainingUndisbursedAmount;
+
     public static LoanTransactionData importInstance(BigDecimal repaymentAmount, LocalDate lastRepaymentDate, Long repaymentTypeId,
             Integer rowIndex, String locale, String dateFormat, final LocalDateTime createdDate) {
         return new LoanTransactionData(repaymentAmount, lastRepaymentDate, repaymentTypeId, rowIndex, locale, dateFormat, createdDate);

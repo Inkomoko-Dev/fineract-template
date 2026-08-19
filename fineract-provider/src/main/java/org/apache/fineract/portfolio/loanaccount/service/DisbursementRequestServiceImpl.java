@@ -144,25 +144,26 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
             throw new ClientOtherInfoNotFoundException(null, loan.client().getId());
         }
 
-        BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
+        final LoanDisbursementDetails disbursementDetail = loan.getNextUndisbursedDisbursementDetail();
+        if (disbursementDetail == null) {
+            throw new LoanDisbursementRequestException("Missing disbursement details for this loan",
+                    "integration.disbursementRequest.missingDisbursementDetails");
+        }
+        final int trancheNumber = loan.getDisbursementTrancheNumber(disbursementDetail);
+        final BigDecimal totalDisbursementCharge = trancheNumber == 1 ? getDisbursementChargeAmount(loan) : BigDecimal.ZERO;
 
-        if (totalDisbursementCharge.compareTo(loan.getPrincpal().getAmount()) > 0) {
+        if (totalDisbursementCharge.compareTo(disbursementDetail.principal()) > 0) {
             throw new LoanDisbursementRequestException("Disbursement charge is greater than the loan amount ",
                     "integration.disbursementRequest.chargeGreaterThanLoanAmount");
         }
 
-        BigDecimal totalPrincipalToBeDisbursed = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
-        LOG.info(" Loan Id :=>  [ " + loan.getId() + " ]  Original Principal  [" + loan.getPrincpal().getAmount() + "  ]  Currency   [ "
+        BigDecimal totalPrincipalToBeDisbursed = disbursementDetail.principal().subtract(totalDisbursementCharge);
+        LOG.info(" Loan Id :=>  [ " + loan.getId() + " ]  Tranche Principal  [" + disbursementDetail.principal() + "  ]  Currency   [ "
                 + loan.getPrincpal().getCurrencyCode() + "  ]  Total Principal to be disbursed to middleware  ==>  ["
                 + totalPrincipalToBeDisbursed + " ]  Total Disbursement Charge  ==>  " + totalDisbursementCharge);
 
         Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
         final PaymentTypeData paymentTypes = this.paymentTypeReadPlatformService.retrieveOne(paymentTypeId);
-        LoanDisbursementDetails disbursementDetail = null;
-        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
-            disbursementDetail = loan.getDisbursementDetails().iterator().next();
-        }
-
         // Deterministic idempotency key: same disbursement event => same requestId on retries
         final String disbursementDetailIdPart = (disbursementDetail != null && disbursementDetail.getId() != null)
                 ? disbursementDetail.getId().toString()
@@ -206,11 +207,6 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         String glCode = null;
         if (fundSource != null) {
             glCode = Iterables.get(Splitter.on('-').split(fundSource.getGlCode()), 0);
-        }
-
-        if (disbursementDetail == null) {
-            throw new LoanDisbursementRequestException("Missing disbursement details for this loan",
-                    "integration.disbursementRequest.missingDisbursementDetails");
         }
 
         refreshVendorFxForDisbursementDate(loan, disbursementDetail, command);
