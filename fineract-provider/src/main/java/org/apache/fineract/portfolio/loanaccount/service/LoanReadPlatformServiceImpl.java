@@ -921,10 +921,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         }
 
-        LoanDisbursementDetails disbursementDetail = null;
-        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
-            disbursementDetail = loan.getDisbursementDetails().iterator().next();
-        }
+        final LoanDisbursementDetails disbursementDetail = loan.getNextUndisbursedDisbursementDetail();
 
         Long paymentTypeId = null;
         String accountNumber = null;
@@ -960,11 +957,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 bankNumber = Integer.valueOf(disbursementDetail.getBankNumber());
             }
         }
-        BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
-
-        BigDecimal netDisbursalAmount= loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);;
+        final int trancheNumber = loan.getDisbursementTrancheNumber(disbursementDetail);
+        final BigDecimal totalDisbursementCharge = trancheNumber == 1 ? getDisbursementChargeAmount(loan) : BigDecimal.ZERO;
+        final BigDecimal disbursementPrincipal = disbursementDetail == null ? loan.getDisburseAmountForTemplate()
+                : disbursementDetail.principal();
+        final BigDecimal netDisbursalAmount = disbursementPrincipal.subtract(totalDisbursementCharge);
         LoanTransactionData loanTransactionData = LoanTransactionData.loanTransactionDataForDisbursalTemplate(transactionType,
-                loan.getExpectedDisbursedOnLocalDateForTemplate(), loan.getDisburseAmountForTemplate(), netDisbursalAmount,
+                loan.getExpectedDisbursedOnLocalDateForTemplate(), disbursementPrincipal, netDisbursalAmount,
                 paymentOptions, loan.retriveLastEmiAmount(), loan.getNextPossibleRepaymentDateForRescheduling(), null,
                 loan.getApprovedPrincipal(), loan.getInterestRateDifferential(), totalDisbursementCharge);
 
@@ -974,6 +973,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final GlobalConfigurationPropertyData enableLoanDisbursementRequest = this.configurationReadPlatformService
                 .retrieveGlobalConfiguration("Enable-loan-disbursement-request");
         loanTransactionData.setLoanDisbursementRequestEnabled(enableLoanDisbursementRequest.isEnabled());
+        loanTransactionData.setDisbursementDetailId(disbursementDetail == null ? null : disbursementDetail.getId());
+        loanTransactionData.setTrancheNumber(trancheNumber);
+        loanTransactionData.setRemainingUndisbursedAmount(loan.getRemainingUndisbursedPrincipal());
 
 
         loanTransactionData.setPaymentTypeId(paymentTypeId);
