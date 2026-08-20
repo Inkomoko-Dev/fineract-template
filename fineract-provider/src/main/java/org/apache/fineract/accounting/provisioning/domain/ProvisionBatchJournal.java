@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.accounting.provisioning.domain;
 
-import lombok.Data;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 
 import javax.persistence.CascadeType;
@@ -39,7 +38,6 @@ import java.util.List;
 
 @Entity
 @Table(name = "m_provisioning_batch_journal")
-@Data
 public class ProvisionBatchJournal extends AbstractPersistableCustom {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.accounting.provisioning.domain;
 
-import lombok.Data;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 
 import javax.persistence.Column;
@@ -35,7 +34,6 @@ import java.time.ZoneId;
 
 @Entity
 @Table(name = "m_provisioning_batch_journal_line")
-@Data
 public class ProvisionBatchJournalLine extends AbstractPersistableCustom {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

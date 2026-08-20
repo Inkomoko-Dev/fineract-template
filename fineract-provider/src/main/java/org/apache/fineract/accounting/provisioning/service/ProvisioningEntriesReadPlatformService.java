@@ -25,7 +25,6 @@ import java.util.Optional;
 import org.apache.fineract.accounting.provisioning.data.LoanProvisioningCandidateData;
 import org.apache.fineract.accounting.provisioning.data.LoanProductProvisioningEntryData;
 import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryData;
-import org.apache.fineract.accounting.provisioning.domain.ProvisioningEntry;
 import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.core.service.SearchParameters;
 
@@ -45,5 +44,5 @@ public interface ProvisioningEntriesReadPlatformService {
 
     Page<LoanProductProvisioningEntryData> retrieveProvisioningEntries(SearchParameters searchParams);
 
-    Optional<ProvisioningEntry> findLatestProvisioningHistory();
+    Optional<ProvisioningEntryData> findLatestProvisioningHistory();
 }

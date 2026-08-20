@@ -18,15 +18,15 @@
  */
 package org.apache.fineract.accounting.provisioning.service;
 
-import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
+import org.apache.fineract.accounting.journalentry.data.JournalEntryData;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryReadPlatformService;
-import org.apache.fineract.accounting.provisioning.domain.ProvisioningEntry;
-import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchRepository;
+import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryData;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatch;
-import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchStatus;
-import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalLine;
-import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchEntry;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalLine;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchRepository;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchStatus;
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
 import org.slf4j.Logger;
@@ -68,15 +68,17 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
     @Transactional
     public void generateProvisionBatch() {
 
-        final Optional<ProvisioningEntry> latestHistory =
+        final Optional<ProvisioningEntryData> latestHistory =
                 provisioningEntriesReadPlatformService.findLatestProvisioningHistory();
+
+        LOG.info("latest history {} ",latestHistory.get().getId());
 
         if (latestHistory.isEmpty()) {
             LOG.info("No m_provisioning_history rows found - nothing to process.");
             return;
         }
 
-        final ProvisioningEntry history = latestHistory.get();
+        final ProvisioningEntryData history = latestHistory.get();
         final LocalDate accountingPeriod = history.getCreatedDate();
 
         if (provisionBatchRepository.findByAccountingPeriod(accountingPeriod).isPresent()) {
@@ -85,9 +87,10 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
             return;
         }
 
-        final List<JournalEntry> sourceLines =
+        final List<JournalEntryData> sourceLines =
                 provisioningJournalSourceReadService.retrieveAllByTransactionId("P"+history.getId());
 
+        LOG.info("source lines: {}",sourceLines);
         if (sourceLines.isEmpty()) {
             LOG.info("No unposted provisioning journal entries found for provisioning history {} "
                     + "- nothing to process.", history.getId());
@@ -97,37 +100,40 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         final String batchReference = buildBatchReference(accountingPeriod, history.getId());
         final ProvisionBatch batch = new ProvisionBatch(batchReference, accountingPeriod, ProvisionBatchStatus.CREATED);
 
-        final Map<String, List<JournalEntry>> grouped = sourceLines.stream()
+        final Map<String, List<JournalEntryData>> grouped = sourceLines.stream()
                 .collect(Collectors.groupingBy(
-                        line -> line.getCurrencyCode() + "::" + line.getGlAccount().getGlCode(),
+                        line -> line.getCurrency().code() + "::" + line.getGlAccountType().getCode(),
                         LinkedHashMap::new,
                         Collectors.toList()
                 ));
 
+        LOG.info("grouped entries {}",sourceLines);
+
         int journalCount = 0;
-        for (final List<JournalEntry> lines : grouped.values()) {
-            final JournalEntry first = lines.get(0);
-            final String journalReference = buildJournalReference(batchReference, first.getCurrencyCode(), first.getGlAccount().getGlCode());
+        for (final List<JournalEntryData> lines : grouped.values()) {
+            final JournalEntryData first = lines.get(0);
+
+            final String journalReference = buildJournalReference(batchReference, first.getCurrencyCode(), first.getGlAccountCode());
 
             final ProvisionBatchJournal journal = new ProvisionBatchJournal(
                     journalReference,
                     journalReference,
-                    buildJournalOdooReference(accountingPeriod, first.getGlAccount().getGlCode(), first.getCurrencyCode()),
+                    buildJournalOdooReference(accountingPeriod, first.getGlAccountCode(), first.getCurrencyCode()),
                     accountingPeriod,
-                    first.getCurrencyCode()
+                    first.getCurrency().getCode()
             );
 
             BigDecimal totalDebit = BigDecimal.ZERO;
             BigDecimal totalCredit = BigDecimal.ZERO;
 
-            for (final JournalEntry line : lines) {
-                final boolean isDebit = line.getType() == 1 ? true: false;
+            for (final JournalEntryData line : lines) {
+                final boolean isDebit = "2".equals(line.getEntryType().getValue()) ? true:false;
                 final BigDecimal debitAmount = isDebit ? line.getAmount() : BigDecimal.ZERO;
                 final BigDecimal creditAmount = isDebit ? BigDecimal.ZERO : line.getAmount();
 
                 final ProvisionBatchJournalLine journalLine = new ProvisionBatchJournalLine(
-                        line.getGlAccount().getId(),
-                        line.getGlAccount().getGlCode(),
+                        line.getGlAccountId(),
+                        line.getGlAccountCode(),
                         isDebit ? "DEBIT" : "CREDIT",
                         debitAmount,
                         creditAmount,
@@ -139,7 +145,10 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
                 totalDebit = totalDebit.add(debitAmount);
                 totalCredit = totalCredit.add(creditAmount);
 
-                final ProvisionBatchEntry batchEntry = new ProvisionBatchEntry(line.getId(), line.getCurrencyCode());
+
+                LOG.info("line currency {} journal currency {}",line.getCurrency().getCode(),first.getCurrencyCode());
+
+                final ProvisionBatchEntry batchEntry = new ProvisionBatchEntry(line.getId(), first.getCurrency().getCode());
                 batch.addEntry(batchEntry);
             }
 

@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.accounting.provisioning.domain;
 
-import lombok.Data;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 
 import javax.persistence.CascadeType;
@@ -53,7 +52,6 @@ import java.util.List;
                 )
         }
 )
-@Data
 public class ProvisionBatch extends AbstractPersistableCustom {
 
     @Column(name = "batch_reference", nullable = false, length = 100)
@@ -73,34 +71,14 @@ public class ProvisionBatch extends AbstractPersistableCustom {
     private ProvisionBatchStatus status;
 
 
-    /**
-     * Number of original Fineract provisioning entries
-     * included in this batch.
-     */
     @Column(name = "entry_count", nullable = false)
     private Integer entryCount = 0;
 
-    /**
-     * Number of aggregated journals generated from this batch.
-     */
+
     @Column(name = "journal_count", nullable = false)
     private Integer journalCount = 0;
 
-    /**
-     * Number of aggregated journals successfully posted to Odoo.
-     */
-    @Column(name = "posted_journal_count", nullable = false)
-    private Integer postedJournalCount = 0;
 
-    /**
-     * Number of aggregated journals that failed to post to Odoo.
-     */
-    @Column(name = "failed_journal_count", nullable = false)
-    private Integer failedJournalCount = 0;
-
-    /**
-     * The previous month's batch that this batch reverses.
-     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "reversal_of_batch_id")
     private ProvisionBatch reversalOfBatch;

@@ -359,6 +359,10 @@ public class JournalEntryData {
         return this.glAccountId;
     }
 
+    public String getGlAccountCode(){
+        return this.glAccountCode;
+    }
+
     public EnumOptionData getGlAccountType() {
         return this.glAccountType;
     }
@@ -405,6 +409,10 @@ public class JournalEntryData {
 
     public Long getPaymentTypeId() {
         return this.paymentTypeId;
+    }
+
+    public CurrencyData getCurrency(){
+        return this.currency;
     }
 
 }

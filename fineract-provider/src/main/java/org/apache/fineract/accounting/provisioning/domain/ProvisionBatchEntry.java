@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.accounting.provisioning.domain;
 
-import lombok.Data;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 
 import javax.persistence.Column;
@@ -45,7 +44,6 @@ import java.time.ZoneId;
                 )
         }
 )
-@Data
 public class ProvisionBatchEntry extends AbstractPersistableCustom {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

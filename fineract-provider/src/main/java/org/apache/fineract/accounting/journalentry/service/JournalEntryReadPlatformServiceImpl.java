@@ -40,7 +40,6 @@ import org.apache.fineract.accounting.journalentry.data.JournalEntryData;
 import org.apache.fineract.accounting.journalentry.data.OfficeOpeningBalancesData;
 import org.apache.fineract.accounting.journalentry.data.TransactionDetailData;
 import org.apache.fineract.accounting.journalentry.data.TransactionTypeEnumData;
-import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
 import org.apache.fineract.accounting.journalentry.exception.JournalEntriesNotFoundException;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
@@ -529,7 +528,19 @@ public class JournalEntryReadPlatformServiceImpl implements JournalEntryReadPlat
     }
 
     @Override
-    public List<JournalEntry> retrieveAllByTransactionId(String s) {
-        return List.of();
+    public List<JournalEntryData> retrieveAllByTransactionId(final String transactionId) {
+
+        JournalEntryAssociationParametersData associationParametersData =
+                new JournalEntryAssociationParametersData(false, false);
+
+        final GLJournalEntryMapper rm = new GLJournalEntryMapper(associationParametersData);
+
+        final String sql = "select " + rm.schema()
+                + " where journalEntry.transaction_id = ? "
+                + " order by journalEntry.entry_date, journalEntry.id";
+
+        final Object[] data = { transactionId };
+
+        return this.jdbcTemplate.query(sql, rm, data);
     }
 }
