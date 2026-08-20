@@ -28,8 +28,11 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.accounting.provisioning.domain.ProvisioningEntry;
 import org.apache.fineract.accounting.provisioning.exception.ProvisioningEntryNotfoundException;
 import org.apache.fineract.accounting.provisioning.data.LoanData;
 import org.apache.fineract.accounting.provisioning.data.LoanProvisioningCandidateData;
@@ -449,6 +452,32 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
         Object[] whereClauseItemsitems = items.toArray();
         return this.loanProductProvisioningEntryDataPaginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(),
                 whereClauseItemsitems, mapper);
+    }
+
+    @Override
+    public Optional<ProvisioningEntry> findLatestProvisioningHistory() {
+        String sql = """
+            SELECT *
+            FROM m_provisioning_history
+            ORDER BY created_date DESC
+            LIMIT 1
+            """;
+
+        return jdbcTemplate.query(
+                sql,
+                this::mapProvisioningEntry
+        ).stream().findFirst();
+    }
+
+
+    private ProvisioningEntry mapProvisioningEntry(ResultSet rs, int rowNum) throws SQLException {
+
+        ProvisioningEntry entry = new ProvisioningEntry();
+
+        entry.setCreatedDate(LocalDate.parse(rs.getString("created_date")));
+
+
+        return entry;
     }
 
 }

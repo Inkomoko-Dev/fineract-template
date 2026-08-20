@@ -40,6 +40,7 @@ import org.apache.fineract.accounting.journalentry.data.JournalEntryData;
 import org.apache.fineract.accounting.journalentry.data.OfficeOpeningBalancesData;
 import org.apache.fineract.accounting.journalentry.data.TransactionDetailData;
 import org.apache.fineract.accounting.journalentry.data.TransactionTypeEnumData;
+import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
 import org.apache.fineract.accounting.journalentry.exception.JournalEntriesNotFoundException;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
@@ -525,5 +526,10 @@ public class JournalEntryReadPlatformServiceImpl implements JournalEntryReadPlat
         } catch (final EmptyResultDataAccessException e) {
             throw new JournalEntriesNotFoundException(entityId, e);
         }
+    }
+
+    @Override
+    public List<JournalEntry> retrieveAllByTransactionId(String s) {
+        return List.of();
     }
 }
