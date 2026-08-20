@@ -27,7 +27,9 @@ import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.Table;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
 import org.apache.fineract.useradministration.domain.AppUser;
 
@@ -43,10 +45,14 @@ public class LoanDecisionLevel extends AbstractAuditableCustom {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "loan_decision_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private LoanDecision loanDecision;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ic_review_level_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private IcReviewLevelConfig icReviewLevel;
 
     @Column(name = "level_number", nullable = false)

@@ -806,6 +806,13 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                     "Loan is not in the Review Application stage.");
         }
 
+        if (loanDecision == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.account.should.not.found.in.decision.engine",
+                    "Loan Account not found in decision engine. Operation [Return Review Application] is not allowed");
+        }
+
+        final Long loanDecisionId = loanDecision.getId();
+
         // Delete decision and revert to initial state
         loan.setLoanDecisionState(null);
         loanDecisionRepository.delete(loanDecision);
@@ -825,12 +832,12 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         return new CommandProcessingResultBuilder()
                 .withCommandId(command.commandId())
-                .withEntityId(loanDecision.getId())
+                .withEntityId(loanDecisionId)
                 .withOfficeId(loan.getOfficeId())
                 .withClientId(loan.getClientId())
                 .withGroupId(loan.getGroupId())
                 .withLoanId(loanId)
-                .withResourceIdAsString(loanDecision.getId().toString())
+                .withResourceIdAsString(loanDecisionId.toString())
                 .build();
     }
 
@@ -2133,6 +2140,11 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final Integer termFrequency = command.integerValueOfParameterNamed(LoanApiConstants.icReviewTermFrequency);
         final Integer termPeriodFrequencyEnum = command.integerValueOfParameterNamed(LoanApiConstants.icReviewTermPeriodFrequencyEnum);
 
+        if (loanDecision == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.account.should.not.found.in.decision.engine",
+                    "Loan Account not found in decision engine. Operation [IC Review] is not allowed");
+        }
+
         // Validate business rules based on level
         validateIcReviewDecisionBusinessRule(command, loan, loanDecision, icReviewOn, levelNumber, levelConfig);
 
@@ -2144,7 +2156,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                             loan.getCurrencyCode()));
         }
 
-        if (!loanDecision.getIdeaClient()) {
+        if (!Boolean.TRUE.equals(loanDecision.getIdeaClient())) {
             final BigDecimal maxLoanAmountFromCashFlow = loanDecisionStateUtilService.getMaxLoanAmountFromCashFlow(loan);
             if (recommendedAmount.compareTo(maxLoanAmountFromCashFlow) > 0) {
                 throw new GeneralPlatformDomainRuleException(
@@ -2173,7 +2185,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 levelNumber, dueDiligenceRecommendedAmount);
 
         final Integer nextDecisionStage = loanDecision.getNextLoanIcReviewDecisionState();
-        if (nextDecisionStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+        if (LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue().equals(nextDecisionStage)) {
             final Map<String, Object> changes = loan.loanApplicationICReview(currentUser, command);
             if (!changes.isEmpty()) {
                 LocalDate recalculateFrom = null;
@@ -2273,7 +2285,17 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
             expectedCurrentState = LoanDecisionState.DUE_DILIGENCE.getValue();
         }
 
+        if (loanDecision == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.account.should.not.found.in.decision.engine",
+                    "Loan Account not found in decision engine. Operation [Return IC Review] is not allowed");
+        }
+
         Integer currentLoanState = loan.getLoanDecisionState();
+        if (currentLoanState == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
+                    "Loan Decision state is invalid for reject operation. Loan is not in the decision engine.");
+        }
+
         Integer levelState = levelConfig.getDecisionStateValue();
         boolean isAtPreviousCompletedLevel = currentLoanState.equals(expectedCurrentState);
         boolean isAtCurrentCompletedLevel = currentLoanState.equals(levelState);
@@ -2291,11 +2313,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         }
 
         // Determine target stage after rejection/return
-        Integer previousState = expectedCurrentState;
-        if (previousState == null) {
-            // If no previous IC review level, revert to DUE_DILIGENCE
-            previousState = LoanDecisionState.DUE_DILIGENCE.getValue();
-        }
+        final Integer previousState = expectedCurrentState;
 
         // Revert to the previous stage
         loan.setLoanDecisionState(previousState);
@@ -2526,18 +2544,23 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         switch (levelNumber) {
             case 1:
                 loanDecision.setRejectIcReviewDecisionLevelOneSigned(true);
+                loanDecision.setIcReviewDecisionLevelOneSigned(false);
                 break;
             case 2:
                 loanDecision.setRejectIcReviewDecisionLevelTwoSigned(true);
+                loanDecision.setIcReviewDecisionLevelTwoSigned(false);
                 break;
             case 3:
                 loanDecision.setRejectIcReviewDecisionLevelThreeSigned(true);
+                loanDecision.setIcReviewDecisionLevelThreeSigned(false);
                 break;
             case 4:
                 loanDecision.setRejectIcReviewDecisionLevelFourSigned(true);
+                loanDecision.setIcReviewDecisionLevelFourSigned(false);
                 break;
             case 5:
                 loanDecision.setRejectIcReviewDecisionLevelFiveSigned(true);
+                loanDecision.setIcReviewDecisionLevelFiveSigned(false);
                 break;
         }
     }
