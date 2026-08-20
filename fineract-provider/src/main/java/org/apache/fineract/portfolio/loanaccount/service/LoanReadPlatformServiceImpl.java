@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import static org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanSchedulePeriodData.disbursementOnlyPeriod;
 import static org.apache.fineract.portfolio.loanaccount.service.DisbursementRequestServiceImpl.getDisbursementChargeAmount;
 import static org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations.interestType;
 
@@ -1618,7 +1619,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             for (DisbursementData disbursementDetail : disbursementData) {
                 waivedChargeAmount = waivedChargeAmount.add(disbursementDetail.getWaivedChargeAmount());
             }
-            final LoanSchedulePeriodData disbursementPeriod = LoanSchedulePeriodData.disbursementOnlyPeriod(
+            final LoanSchedulePeriodData disbursementPeriod = disbursementOnlyPeriod(
                     this.disbursement.disbursementDate(), this.disbursement.amount(), this.totalFeeChargesDueAtDisbursement,
                     this.disbursement.isDisbursed());
 
@@ -1676,10 +1677,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                         principal = principal.add(data.amount());
                         LoanSchedulePeriodData periodData = null;
                         if (data.getChargeAmount() == null) {
-                            periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
+                            periodData = disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
                                     disbursementChargeAmount, data.isDisbursed());
                         } else {
-                            periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
+                            periodData = disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
                                     disbursementChargeAmount.add(data.getChargeAmount()).subtract(waivedChargeAmount), data.isDisbursed());
                         }
                         periods.add(periodData);
@@ -1691,10 +1692,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                             principal = principal.add(data.amount());
                             LoanSchedulePeriodData periodData;
                             if (data.getChargeAmount() == null) {
-                                periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
+                                periodData = disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
                                         BigDecimal.ZERO, data.isDisbursed());
                             } else {
-                                periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
+                                periodData = disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
                                         data.getChargeAmount(), data.isDisbursed());
                             }
                             periods.add(periodData);
