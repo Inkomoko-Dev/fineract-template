@@ -19,14 +19,10 @@
 package org.apache.fineract.portfolio.loanaccount.bulkreschedule.service;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
-import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.office.domain.OfficeRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.stereotype.Service;
@@ -43,7 +39,7 @@ public class OfficeHierarchyService {
     private final OfficeRepository officeRepository;
 
     /**
-     * Retrieves the given office and all of its child branch offices recursively.
+     * Retrieves the given office and all child branch IDs using the materialized hierarchy path.
      *
      * @param officeId the ID of the parent office
      * @return list of office IDs including the parent and all children
@@ -52,32 +48,12 @@ public class OfficeHierarchyService {
     public List<Long> getOfficeAndChildBranches(final Long officeId) {
         log.debug("Retrieving office {} and child branches", officeId);
 
-        Optional<Office> officeOptional = officeRepository.findById(officeId);
-        if (!officeOptional.isPresent()) {
+        final List<Long> officeIds = officeRepository.findOfficeAndDescendantIds(officeId);
+        if (officeIds.isEmpty()) {
             throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.office.not.found",
                     "Office not found with ID: " + officeId);
         }
-
-        Set<Long> officeIds = new HashSet<>();
-        collectOfficeAndChildren(officeOptional.get(), officeIds);
-
-        return new ArrayList<>(officeIds);
-    }
-
-    /**
-     * Recursively collects the given office ID and all child office IDs.
-     *
-     * @param office the office to start from
-     * @param officeIds set to accumulate office IDs
-     */
-    private void collectOfficeAndChildren(final Office office, final Set<Long> officeIds) {
-        officeIds.add(office.getId());
-
-        if (office.getChildren() != null && !office.getChildren().isEmpty()) {
-            for (Office child : office.getChildren()) {
-                collectOfficeAndChildren(child, officeIds);
-            }
-        }
+        return officeIds;
     }
 
     /**
@@ -116,17 +92,9 @@ public class OfficeHierarchyService {
 
         log.debug("Retrieving accessible offices for user {}", user.getId());
 
-        // User has access to their home office
-        Office homeOffice = user.getOffice();
-        if (homeOffice == null) {
+        if (user.getOffice() == null) {
             return new ArrayList<>();
         }
-
-        Set<Long> accessibleOffices = new HashSet<>();
-
-        // Add home office and all its children
-        collectOfficeAndChildren(homeOffice, accessibleOffices);
-
-        return new ArrayList<>(accessibleOffices);
+        return getOfficeAndChildBranches(user.getOffice().getId());
     }
 }
