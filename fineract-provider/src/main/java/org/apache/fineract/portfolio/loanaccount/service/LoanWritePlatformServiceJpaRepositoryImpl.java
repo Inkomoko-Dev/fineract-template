@@ -217,7 +217,6 @@ import org.apache.fineract.portfolio.loanaccount.exception.GLIMLoanCannotBeDisbu
 import org.apache.fineract.portfolio.loanaccount.exception.InstallmentNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactionTypeException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidPaidInAdvanceAmountException;
-import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanForeclosureException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanMultiDisbursementException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanOfficerAssignmentException;
@@ -3998,9 +3997,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     @Transactional
     public CommandProcessingResult disburseRequestLoan(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
-        if(!loan.isMultiDisburmentLoan()){
-            if (loan.getDisbursementDetails().get(0).getPaymentType().isCashPayment())
+        this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
+        final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        final Map<String, Object> entityChanges = new LinkedHashMap<>();
+        this.entityDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command,
+                entityChanges);
+        final AppUser currentUser = getAppUserIfPresent();
+        this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
+        if (!loan.isMultiDisburmentLoan()) {
+            if (loan.getDisbursementDetails().get(0).getPaymentType().isCashPayment()) {
                 return disburseLoan(loanId, command, false, false);
+            }
 
             // Update disbursement details
             final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
@@ -4114,19 +4121,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 }
             }
 
-            this.disbursementRequestService.disburseRequestLoan(loan, command);
-            loan.handleDisbursementRequest();
-            this.saveLoanWithDataIntegrityViolationChecks(loan);
-            return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
-                    .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
-                    .build();
-        }
-        else {
-            final String errorMsg = "Loan can't be disbursed, is multi-disbursement loan ";
-            throw new LoanDisbursalException(errorMsg, "cannot.auto.disburse.multi.disbursement.loan",
-                    loan.getApprovedPrincipal());
         }
 
+        // Non-cash payments are sent to the integration for both single and
+        // multi-disbursement loans. The integration service selects the next
+        // undisbursed tranche and sends its net payment instruction.
+        this.disbursementRequestService.disburseRequestLoan(loan, command);
+        loan.handleDisbursementRequest();
+        this.saveLoanWithDataIntegrityViolationChecks(loan);
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
+                .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
+                .build();
     }
 
     private boolean isSouthSudanLoan(final Loan loan) {
