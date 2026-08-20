@@ -712,7 +712,10 @@ public final class LoanEventApiJsonValidator {
         final Set<String> disbursementParameters = new HashSet<>(
                 Arrays.asList("locale", "dateFormat", LoanApiConstants.disbursementDataParameterName,
                         LoanApiConstants.approvedLoanAmountParameterName, LoanApiConstants.updatedDisbursementDateParameterName,
-                        LoanApiConstants.updatedDisbursementPrincipalParameterName, LoanApiConstants.disbursementDateParameterName));
+                        LoanApiConstants.updatedDisbursementPrincipalParameterName, LoanApiConstants.disbursementDateParameterName,
+                        "paymentTypeId", LoanApiConstants.paymentToParameterName, LoanApiConstants.beneficiaryNameParameterName,
+                        "clientPhoneNumber", "clientAccountNumber", "clientBankName", LoanApiConstants.mfiCodeParameterName,
+                        LoanApiConstants.disbursementTypeParameterName, LoanApiConstants.fxRateParameterName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, disbursementParameters);

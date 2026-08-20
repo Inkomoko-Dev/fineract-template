@@ -579,6 +579,34 @@ public class LoanTest {
     }
 
     @Test
+    public void multiDisbursementBooksNextTranchePrincipalWhenSubmittedAmountIsNet() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("10000000.00"));
+        final LoanDisbursementDetails firstTranche = new LoanDisbursementDetails(LocalDate.of(2026, 8, 25), null,
+                new BigDecimal("3000000.00"), new BigDecimal("2940000.00"));
+        final LoanDisbursementDetails secondTranche = new LoanDisbursementDetails(LocalDate.of(2026, 9, 25), null,
+                new BigDecimal("7000000.00"), new BigDecimal("7000000.00"));
+        final JsonCommand command = jsonCommand("{\"transactionAmount\":2940000,\"netDisbursalAmount\":2940000,\"locale\":\"en\"}");
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("10000000.00"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(List.of(firstTranche, secondTranche)));
+        firstTranche.updateLoan(loan);
+        secondTranche.updateLoan(loan);
+
+        final Money disburseAmount = loan.adjustDisburseAmount(command, LocalDate.of(2026, 8, 25));
+
+        assertEquals(0, new BigDecimal("3000000.00").compareTo(disburseAmount.getAmount()));
+        assertEquals(LocalDate.of(2026, 8, 25), firstTranche.actualDisbursementDate());
+        assertNull(secondTranche.actualDisbursementDate());
+        assertEquals(0, new BigDecimal("3000000.00").compareTo(firstTranche.principal()));
+    }
+
+    @Test
     public void icReviewWithReducedAmountKeepsAppliedAmountAndUpdatesApprovedAmount() {
         final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
         final LoanProductRelatedDetail scheduleDetail = (LoanProductRelatedDetail) ReflectionTestUtils.getField(loan,

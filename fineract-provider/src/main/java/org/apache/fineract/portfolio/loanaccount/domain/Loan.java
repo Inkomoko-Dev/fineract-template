@@ -2975,6 +2975,16 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
         BigDecimal diff = BigDecimal.ZERO;
         Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
+        if (this.loanProduct().isMultiDisburseLoan()) {
+            final LoanDisbursementDetails nextDisbursementDetail = getNextUndisbursedDisbursementDetail();
+            if (nextDisbursementDetail != null) {
+                // The payment instruction contains the net cash delivered to the client. Fineract
+                // must book the gross scheduled tranche; repayment-at-disbursement accounts for
+                // the difference (for example, insurance deducted from the first tranche).
+                principalDisbursed = nextDisbursementDetail.principal();
+                details = Collections.singletonList(nextDisbursementDetail);
+            }
+        }
         if (principalDisbursed == null) {
             // For single disbursement loans, ensure repayment schedule principal is approved principal
             if (!this.loanProduct().isMultiDisburseLoan()) {
@@ -4645,11 +4655,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             expectedDisbursementDate = this.expectedDisbursementDate;
         }
 
-        Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
-        if (!details.isEmpty()) {
-            for (LoanDisbursementDetails disbursementDetails : details) {
-                expectedDisbursementDate = disbursementDetails.expectedDisbursementDate();
-            }
+        final LoanDisbursementDetails nextDetail = getNextUndisbursedDisbursementDetail();
+        if (nextDetail != null) {
+            expectedDisbursementDate = nextDetail.expectedDisbursementDate();
         }
         return expectedDisbursementDate;
     }
@@ -4660,14 +4668,36 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     public BigDecimal getDisburseAmountForTemplate() {
         BigDecimal principal = this.loanRepaymentScheduleDetail.getPrincipal().getAmount();
-        Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
-        if (!details.isEmpty()) {
-            principal = BigDecimal.ZERO;
-            for (LoanDisbursementDetails disbursementDetails : details) {
-                principal = principal.add(disbursementDetails.principal());
-            }
+        final LoanDisbursementDetails nextDetail = getNextUndisbursedDisbursementDetail();
+        if (nextDetail != null) {
+            principal = nextDetail.principal();
         }
         return principal;
+    }
+
+    public LoanDisbursementDetails getNextUndisbursedDisbursementDetail() {
+        return this.disbursementDetails.stream().filter(detail -> detail.actualDisbursementDate() == null)
+                .sorted(Comparator.comparing(LoanDisbursementDetails::expectedDisbursementDate,
+                        Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(LoanDisbursementDetails::getId,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
+                .findFirst().orElse(null);
+    }
+
+    public int getDisbursementTrancheNumber(final LoanDisbursementDetails selectedDetail) {
+        if (selectedDetail == null) {
+            return 0;
+        }
+        final List<LoanDisbursementDetails> orderedDetails = this.disbursementDetails.stream()
+                .sorted(Comparator.comparing(LoanDisbursementDetails::expectedDisbursementDate,
+                        Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(LoanDisbursementDetails::getId,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
+                .collect(Collectors.toList());
+        return orderedDetails.indexOf(selectedDetail) + 1;
+    }
+
+    public BigDecimal getRemainingUndisbursedPrincipal() {
+        return this.disbursementDetails.stream().filter(detail -> detail.actualDisbursementDate() == null)
+                .map(LoanDisbursementDetails::principal).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     public LocalDate getExpectedFirstRepaymentOnDate() {
