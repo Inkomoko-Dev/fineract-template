@@ -40,4 +40,8 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long>, JpaSpec
     @Query("SELECT au FROM AppUser au JOIN au.roles r WHERE r = :role AND au.enabled = true AND au.deleted = false AND au.office.id = :officeId")
     List<AppUser> findUsersByRoleAndOffice(@Param("role") Role role, @Param("officeId") Long officeId);
 
+    @Query("SELECT DISTINCT u FROM AppUser u JOIN u.roles r JOIN r.permissions p "
+            + "WHERE p.code = :permissionCode AND u.enabled = true AND u.deleted = false")
+    List<AppUser> findEnabledUsersWithPermission(@Param("permissionCode") String permissionCode);
+
 }
