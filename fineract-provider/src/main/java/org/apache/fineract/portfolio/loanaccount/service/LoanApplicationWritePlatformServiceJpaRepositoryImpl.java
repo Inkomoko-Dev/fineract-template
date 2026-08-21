@@ -259,6 +259,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
     private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
+    private final ClientBankDetailsResolver clientBankDetailsResolver;
 
     private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
         final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
@@ -1548,13 +1549,13 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
         this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json());
         final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
-
-        // fetch the payment type entity from DB
-        final PaymentType paymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(paymentTypeId);
-
-        validatePaymentDetails(command, paymentType);
-
-        final Loan loan = retrieveLoanBy(loanId);
+        PaymentType paymentType = null;
+        if (paymentTypeId != null) {
+            paymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(paymentTypeId);
+        }
+        if (requirePaymentTypeId) {
+            validatePaymentDetails(loan, command, paymentType);
+        }
 
         final Boolean isExtendLoanLifeCycleConfig = this.loanDecisionStateUtilService.isExtendLoanLifeCycleConfig();
 
@@ -1688,6 +1689,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
                 final Integer paymentTo = command.integerValueOfParameterNamed("paymentTo");
                 final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
+                final ClientBankDetailsResolver.ResolvedClientPaymentDetails resolvedClientPaymentDetails = this.clientBankDetailsResolver
+                        .resolve(loan.getClientId(), paymentTo, clientPhoneNumber, clientAccountNumber, clientBankName);
                 final String disbursementTypeRaw = command.stringValueOfParameterNamed(LoanApiConstants.disbursementTypeParameterName);
                 String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
 
@@ -1768,7 +1771,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
                 // Enforce payment details validation (e.g., vendor details)
                 if (paymentType != null) {
-                    validatePaymentDetails(command, paymentType);
+                    validatePaymentDetails(loan, command, paymentType);
                 }
 
                 BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
@@ -1802,9 +1805,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 // 3. UPDATE PROPERTIES (ALWAYS)
                 // ------------------------------
                 disbursementDetail.setPaymentType(paymentType);
-                disbursementDetail.setClientAccountNumber(clientAccountNumber);
-                disbursementDetail.setClientPhoneNumber(clientPhoneNumber);
-                disbursementDetail.setClientBankName(clientBankName);
+                disbursementDetail.setClientAccountNumber(resolvedClientPaymentDetails.getClientAccountNumber());
+                disbursementDetail.setClientPhoneNumber(resolvedClientPaymentDetails.getClientPhoneNumber());
+                disbursementDetail.setClientBankName(resolvedClientPaymentDetails.getClientBankName());
                 disbursementDetail.setExpectedDisbursementDate(expectedDisbursementDate);
                 disbursementDetail.setPaymentTo(normalizedPaymentTo);
                 disbursementDetail.setBeneficiaryName(beneficiaryName);
@@ -1842,16 +1845,134 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 .build();
     }
 
-    private void validatePaymentDetails(JsonCommand command, PaymentType paymentType) {
+    private void ensureThirdPartyDisbursementDetailPlaceholder(final Loan loan, final LocalDate expectedDisbursementDate) {
+        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
+            return;
+        }
+        final BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
+        final BigDecimal principal = loan.getApprovedPrincipal() != null ? loan.getApprovedPrincipal() : loan.getProposedPrincipal();
+        final BigDecimal netDisbursementAmount = principal.subtract(totalDisbursementCharge);
+        final LocalDate expectedDate = expectedDisbursementDate != null ? expectedDisbursementDate
+                : loan.getExpectedDisbursedOnLocalDate();
+        final LoanDisbursementDetails disbursementDetail = new LoanDisbursementDetails(expectedDate, null, principal,
+                netDisbursementAmount);
+        disbursementDetail.updateLoan(loan);
+        loan.getDisbursementDetails().add(disbursementDetail);
+    }
+
+    private void updateMultiDisbursementPaymentDetails(final Loan loan, final JsonCommand parentCommand,
+            final JsonArray disbursementDataArray) {
+        if (disbursementDataArray == null) {
+            return;
+        }
+
+        for (JsonElement element : disbursementDataArray) {
+            final JsonObject trancheJson = element.getAsJsonObject().deepCopy();
+            final JsonObject parentJson = parentCommand.parsedJson().getAsJsonObject();
+            inheritJsonProperty(parentJson, trancheJson, "dateFormat");
+            inheritJsonProperty(parentJson, trancheJson, "locale");
+            final JsonCommand trancheCommand = JsonCommand.fromExistingCommand(parentCommand, trancheJson);
+            final Long disbursementId = trancheCommand.longValueOfParameterNamed("id");
+            final LocalDate expectedDate = trancheCommand
+                    .localDateValueOfParameterNamed(LoanApiConstants.disbursementDateParameterName);
+            final LoanDisbursementDetails detail = disbursementId == null
+                    ? loan.getDisbursementDetails().stream().filter(candidate -> Objects.equals(candidate.expectedDisbursementDate(), expectedDate))
+                            .findFirst().orElse(null)
+                    : loan.fetchLoanDisbursementsById(disbursementId);
+
+            if (detail == null) {
+                throw new PlatformApiDataValidationException("validation.msg.loanapproval.disbursement.detail.not.found",
+                        "The supplied tranche does not identify a loan disbursement detail.",
+                        List.of(ApiParameterError.parameterError("validation.msg.loanapproval.disbursement.detail.not.found",
+                                "The supplied tranche does not identify a loan disbursement detail.", "id", disbursementId)));
+            }
+
+            final Long tranchePaymentTypeId = trancheCommand.longValueOfParameterNamed("paymentTypeId");
+            if (tranchePaymentTypeId == null) {
+                throw new PlatformApiDataValidationException("validation.msg.loanapproval.paymentTypeId.required",
+                        "Payment type is required for every tranche.",
+                        List.of(ApiParameterError.parameterError("validation.msg.loanapproval.paymentTypeId.required",
+                                "Payment type is required for every tranche.", "paymentTypeId", null)));
+            }
+            final PaymentType tranchePaymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(tranchePaymentTypeId);
+            validatePaymentDetails(loan, trancheCommand, tranchePaymentType);
+
+            final Integer paymentTo = trancheCommand.integerValueOfParameterNamed(LoanApiConstants.paymentToParameterName);
+            final String disbursementTypeRaw = trancheCommand
+                    .stringValueOfParameterNamed(LoanApiConstants.disbursementTypeParameterName);
+            String disbursementType = StringUtils.upperCase(StringUtils.trimToNull(disbursementTypeRaw));
+            if (disbursementType == null && paymentTo != null) {
+                final LoanDisbursementDetails.DisbursementType derived = LoanDisbursementDetails.DisbursementType.fromPaymentTo(paymentTo);
+                disbursementType = derived == null ? null : derived.name();
+            }
+
+            detail.setPaymentType(tranchePaymentType);
+            detail.setPaymentTo(paymentTo);
+            detail.setDisbursementType(disbursementType);
+            detail.setBeneficiaryName(trancheCommand.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName));
+            final ClientBankDetailsResolver.ResolvedClientPaymentDetails resolvedTrancheDetails = resolveClientPaymentDetails(loan,
+                    trancheCommand, paymentTo);
+            detail.setClientPhoneNumber(resolvedTrancheDetails.getClientPhoneNumber());
+            detail.setClientAccountNumber(resolvedTrancheDetails.getClientAccountNumber());
+            detail.setClientBankName(resolvedTrancheDetails.getClientBankName());
+            detail.applyMfiCodeIfProvided(trancheCommand.stringValueOfParameterNamed(LoanApiConstants.mfiCodeParameterName));
+
+            if (isSouthSudanLoan(loan) && "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode())
+                    && LoanDisbursementDetails.DisbursementType.VENDOR.name().equals(disbursementType)) {
+                BigDecimal fxRate = trancheCommand.bigDecimalValueOfParameterNamed(LoanApiConstants.fxRateParameterName);
+                LocalDateTime fxTimestamp;
+                String fxSource;
+                if (fxRate == null) {
+                    fxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(), expectedDate);
+                    fxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(), expectedDate);
+                    fxSource = "CBS_DAILY_RATE";
+                } else {
+                    fxTimestamp = DateUtils.getLocalDateTimeOfTenant();
+                    fxSource = "MANUAL_ENTRY";
+                }
+                if (fxRate == null || fxRate.compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new PlatformApiDataValidationException("validation.msg.loanapproval.fxRate.required",
+                            "FX rate is required for a South Sudan vendor tranche.",
+                            List.of(ApiParameterError.parameterError("validation.msg.loanapproval.fxRate.required",
+                                    "FX rate is required for a South Sudan vendor tranche.", LoanApiConstants.fxRateParameterName, fxRate)));
+                }
+                detail.setFxRate(fxRate);
+                detail.setUsdAmount(detail.principal().divide(fxRate, 6, RoundingMode.HALF_UP));
+                detail.setFxSource(fxSource);
+                detail.setFxTimestamp(fxTimestamp);
+            } else {
+                detail.setFxRate(null);
+                detail.setUsdAmount(null);
+                detail.setFxSource(null);
+                detail.setFxTimestamp(null);
+            }
+        }
+    }
+
+    private void inheritJsonProperty(final JsonObject parent, final JsonObject child, final String propertyName) {
+        if (!child.has(propertyName) && parent.has(propertyName)) {
+            child.add(propertyName, parent.get(propertyName));
+        }
+    }
+
+    private ClientBankDetailsResolver.ResolvedClientPaymentDetails resolveClientPaymentDetails(final Loan loan, final JsonCommand command,
+            final Integer paymentTo) {
+        return this.clientBankDetailsResolver.resolve(loan == null ? null : loan.getClientId(), paymentTo,
+                command.stringValueOfParameterNamed("clientPhoneNumber"), command.stringValueOfParameterNamed("clientAccountNumber"),
+                command.stringValueOfParameterNamed("clientBankName"));
+    }
+
+    private void validatePaymentDetails(Loan loan, JsonCommand command, PaymentType paymentType) {
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
 
         final boolean isCash = paymentType.isCashPayment(); // assuming this flag exists
         final boolean isMobileMoney = paymentType.isMobileMoney();
 
-        final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
-        final String clientBankName = command.stringValueOfParameterNamed("clientBankName");
-        final String clientAccountNumber = command.stringValueOfParameterNamed("clientAccountNumber");
         final Integer paymentTo = command.integerValueOfParameterNamed(LoanApiConstants.paymentToParameterName);
+        final ClientBankDetailsResolver.ResolvedClientPaymentDetails resolved = resolveClientPaymentDetails(loan, command, paymentTo);
+        final String clientPhoneNumber = resolved.getClientPhoneNumber();
+        final String clientBankName = resolved.getClientBankName();
+        final String clientAccountNumber = resolved.getClientAccountNumber();
         final String beneficiaryName = command.stringValueOfParameterNamed(LoanApiConstants.beneficiaryNameParameterName);
 
         if (!isCash && isMobileMoney) {
