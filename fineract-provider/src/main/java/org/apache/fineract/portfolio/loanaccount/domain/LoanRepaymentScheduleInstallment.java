@@ -37,6 +37,7 @@ import javax.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecks;
@@ -212,6 +213,19 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     public Loan getLoan() {
         return this.loan;
+    }
+
+    // CGLT-562: a loan that has run past its maturity date has no future interest left to forgo. Replaying its
+    // history (e.g. after a disbursement-charge edit) must not treat an old payment as a prepayment, otherwise
+    // interest the borrower already earned and paid is retro-written-off and the cash becomes a phantom overpayment.
+    public boolean isLoanPastMaturity() {
+        final Loan owningLoan = getLoan();
+        if (owningLoan == null) {
+            return false;
+        }
+        final LocalDate maturityDate = owningLoan.getMaturityDate() != null ? owningLoan.getMaturityDate()
+                : owningLoan.getExpectedMaturityDate();
+        return maturityDate != null && DateUtils.getBusinessLocalDate().isAfter(maturityDate);
     }
 
     public Integer getInstallmentNumber() {

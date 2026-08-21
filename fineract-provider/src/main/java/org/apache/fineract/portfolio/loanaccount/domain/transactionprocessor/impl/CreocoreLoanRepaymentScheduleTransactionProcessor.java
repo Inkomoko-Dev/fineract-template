@@ -64,6 +64,14 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
             final List<LoanRepaymentScheduleInstallment> installments, final LoanTransaction loanTransaction,
             final LocalDate transactionDate, final Money paymentInAdvance,
             final List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {
+        // CGLT-562: once a loan is past its maturity date nothing is genuinely "in advance" any more - every period
+        // has run and its interest is fully earned. Replaying history (e.g. after a disbursement-charge edit) through
+        // the prepayment handler would retro-forgo interest the borrower already paid, so use the on-time handler.
+        if (currentInstallment.isLoanPastMaturity()) {
+            return handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment, loanTransaction, paymentInAdvance,
+                    transactionMappings);
+        }
+
 
         // A waiver must never be treated as an advance principal prepayment; route it through the on-time handler
         // (waives interest/charges only), mirroring handleTransactionThatIsALateRepaymentOfInstallment.
