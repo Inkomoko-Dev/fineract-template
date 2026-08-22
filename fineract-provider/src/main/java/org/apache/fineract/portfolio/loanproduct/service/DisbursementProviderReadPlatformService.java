@@ -42,4 +42,6 @@ public interface DisbursementProviderReadPlatformService {
      */
     @Deprecated
     Optional<String> findActiveMappedProviderCode(Long loanProductId);
+
+    boolean isValidPartnerCode(String partnerCode);
 }
