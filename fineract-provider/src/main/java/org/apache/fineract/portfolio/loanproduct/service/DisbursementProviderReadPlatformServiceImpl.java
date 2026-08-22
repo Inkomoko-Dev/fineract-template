@@ -84,4 +84,9 @@ public class DisbursementProviderReadPlatformServiceImpl implements Disbursement
     public Optional<String> findActiveMappedProviderCode(final Long loanProductId) {
         return Optional.empty();
     }
+
+    @Override
+    public boolean isValidPartnerCode(final String partnerCode) {
+        return isActiveProvider(partnerCode);
+    }
 }
