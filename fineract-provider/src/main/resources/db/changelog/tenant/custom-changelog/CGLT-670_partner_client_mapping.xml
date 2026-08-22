@@ -1,0 +1,348 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+    
+    <!-- Create partner client mapping table -->
+    <changeSet author="Felix Mutua" id="create_partner_client_mapping_table">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="x_partner_client_mapping"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="x_partner_client_mapping">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="partner_code" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="assigned_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="assigned_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_date" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_date" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint baseColumnNames="client_id" baseTableName="x_partner_client_mapping"
+                                 constraintName="fk_partner_client_mapping_client"
+                                 deferrable="false" initiallyDeferred="false"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT"
+                                 referencedColumnNames="id" referencedTableName="m_client"
+                                 validate="true"/>
+
+        <addForeignKeyConstraint baseColumnNames="assigned_by" baseTableName="x_partner_client_mapping"
+                                 constraintName="fk_partner_client_mapping_user"
+                                 deferrable="false" initiallyDeferred="false"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT"
+                                 referencedColumnNames="id" referencedTableName="m_appuser"
+                                 validate="true"/>
+
+        <createIndex indexName="idx_partner_client_mapping_client_id" tableName="x_partner_client_mapping">
+            <column name="client_id"/>
+        </createIndex>
+
+        <createIndex indexName="idx_partner_client_mapping_partner_code" tableName="x_partner_client_mapping">
+            <column name="partner_code"/>
+        </createIndex>
+
+        <createIndex indexName="idx_partner_client_mapping_client_partner" tableName="x_partner_client_mapping" unique="true">
+            <column name="client_id"/>
+            <column name="partner_code"/>
+        </createIndex>
+
+        <rollback>
+            <dropIndex indexName="idx_partner_client_mapping_client_partner" tableName="x_partner_client_mapping"/>
+            <dropIndex indexName="idx_partner_client_mapping_partner_code" tableName="x_partner_client_mapping"/>
+            <dropIndex indexName="idx_partner_client_mapping_client_id" tableName="x_partner_client_mapping"/>
+            <dropForeignKeyConstraint baseTableName="x_partner_client_mapping" constraintName="fk_partner_client_mapping_user"/>
+            <dropForeignKeyConstraint baseTableName="x_partner_client_mapping" constraintName="fk_partner_client_mapping_client"/>
+            <dropTable tableName="x_partner_client_mapping"/>
+        </rollback>
+    </changeSet>
+    
+    <!-- Create partner client mapping history table -->
+    <changeSet author="Felix Mutua" id="create_partner_client_mapping_history_table">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="x_partner_client_mapping_history"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="x_partner_client_mapping_history">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="mapping_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="partner_code" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="action_type" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="previous_partner_code" type="VARCHAR(50)"/>
+            <column name="new_partner_code" type="VARCHAR(50)"/>
+            <column name="changed_date" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+            <column name="changed_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reason" type="VARCHAR(255)"/>
+        </createTable>
+
+        <addForeignKeyConstraint baseColumnNames="mapping_id" baseTableName="x_partner_client_mapping_history"
+                                 constraintName="fk_partner_client_mapping_history_mapping"
+                                 deferrable="false" initiallyDeferred="false"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT"
+                                 referencedColumnNames="id" referencedTableName="x_partner_client_mapping"
+                                 validate="true"/>
+
+        <addForeignKeyConstraint baseColumnNames="client_id" baseTableName="x_partner_client_mapping_history"
+                                 constraintName="fk_partner_client_mapping_history_client"
+                                 deferrable="false" initiallyDeferred="false"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT"
+                                 referencedColumnNames="id" referencedTableName="m_client"
+                                 validate="true"/>
+
+        <addForeignKeyConstraint baseColumnNames="changed_by" baseTableName="x_partner_client_mapping_history"
+                                 constraintName="fk_partner_client_mapping_history_user"
+                                 deferrable="false" initiallyDeferred="false"
+                                 onDelete="RESTRICT" onUpdate="RESTRICT"
+                                 referencedColumnNames="id" referencedTableName="m_appuser"
+                                 validate="true"/>
+
+        <createIndex indexName="idx_partner_client_mapping_history_client_id" tableName="x_partner_client_mapping_history">
+            <column name="client_id"/>
+        </createIndex>
+
+        <createIndex indexName="idx_partner_client_mapping_history_mapping_id" tableName="x_partner_client_mapping_history">
+            <column name="mapping_id"/>
+        </createIndex>
+
+        <rollback>
+            <dropIndex indexName="idx_partner_client_mapping_history_mapping_id" tableName="x_partner_client_mapping_history"/>
+            <dropIndex indexName="idx_partner_client_mapping_history_client_id" tableName="x_partner_client_mapping_history"/>
+            <dropForeignKeyConstraint baseTableName="x_partner_client_mapping_history" constraintName="fk_partner_client_mapping_history_user"/>
+            <dropForeignKeyConstraint baseTableName="x_partner_client_mapping_history" constraintName="fk_partner_client_mapping_history_client"/>
+            <dropForeignKeyConstraint baseTableName="x_partner_client_mapping_history" constraintName="fk_partner_client_mapping_history_mapping"/>
+            <dropTable tableName="x_partner_client_mapping_history"/>
+        </rollback>
+    </changeSet>
+    
+    <!-- Register the data table in x_registered_table -->
+    <changeSet author="Felix Mutua" id="register_partner_client_mapping_datatable">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(1) FROM x_registered_table WHERE registered_table_name = 'x_partner_client_mapping'
+                </sqlCheck>
+            </not>
+        </preConditions>
+
+        <insert tableName="x_registered_table">
+            <column name="registered_table_name" value="x_partner_client_mapping"/>
+            <column name="application_table_name" value="m_client"/>
+            <column name="entity_subtype" value=""/>
+            <column name="category" value="100"/>
+        </insert>
+
+        <rollback>
+            <delete tableName="x_registered_table">
+                <where>registered_table_name = 'x_partner_client_mapping'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+    
+    <!-- Register the data table in m_entity_datatable_check -->
+    <changeSet author="Felix Mutua" id="register_partner_client_mapping_entity_check">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(1) FROM m_entity_datatable_check
+                    WHERE application_table_name = 'm_client'
+                    AND x_registered_table_name = 'x_partner_client_mapping'
+                </sqlCheck>
+            </not>
+        </preConditions>
+
+        <insert tableName="m_entity_datatable_check">
+            <column name="application_table_name" value="m_client"/>
+            <column name="x_registered_table_name" value="x_partner_client_mapping"/>
+            <column name="status_enum" value="0"/>
+            <column name="system_defined" valueBoolean="false"/>
+            <column name="product_id"/>
+        </insert>
+
+        <rollback>
+            <delete tableName="m_entity_datatable_check">
+                <where>application_table_name = 'm_client' AND x_registered_table_name = 'x_partner_client_mapping'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+    <!-- Add READ_PARTNERCLIENT permission -->
+    <changeSet id="CGLT-670_add_permission_READ_PARTNERCLIENT" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'READ_PARTNERCLIENT'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="READ_PARTNERCLIENT"/>
+            <column name="entity_name" value="PARTNERCLIENT"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+
+        <rollback>
+            <delete tableName="m_permission">
+                <where>code = 'READ_PARTNERCLIENT'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+    <!-- Add CREATE_PARTNERCLIENT permission -->
+    <changeSet id="CGLT-670_add_permission_CREATE_PARTNERCLIENT" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'CREATE_PARTNERCLIENT'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="CREATE_PARTNERCLIENT"/>
+            <column name="entity_name" value="PARTNERCLIENT"/>
+            <column name="action_name" value="CREATE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+
+        <rollback>
+            <delete tableName="m_permission">
+                <where>code = 'CREATE_PARTNERCLIENT'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+    <!-- Add UPDATE_PARTNERCLIENT permission -->
+    <changeSet id="CGLT-670_add_permission_UPDATE_PARTNERCLIENT" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'UPDATE_PARTNERCLIENT'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="UPDATE_PARTNERCLIENT"/>
+            <column name="entity_name" value="PARTNERCLIENT"/>
+            <column name="action_name" value="UPDATE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+
+        <rollback>
+            <delete tableName="m_permission">
+                <where>code = 'UPDATE_PARTNERCLIENT'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+    <!-- Add VERIFY_PARTNER_CLIENT permission -->
+    <changeSet id="CGLT-670_add_permission_VERIFY_PARTNER_CLIENT" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'VERIFY_PARTNER_CLIENT'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="VERIFY_PARTNER_CLIENT"/>
+            <column name="entity_name" value="PARTNERCLIENT"/>
+            <column name="action_name" value="VERIFY"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+
+        <rollback>
+            <delete tableName="m_permission">
+                <where>code = 'VERIFY_PARTNER_CLIENT'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+    <!-- Create partner client verification audit table -->
+    <changeSet author="Felix Mutua" id="create_partner_client_verification_audit_table">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="x_partner_client_verification_audit"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="x_partner_client_verification_audit">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="national_id_masked" type="VARCHAR(50)"/>
+            <column name="phone_number_masked" type="VARCHAR(50)"/>
+            <column name="full_name" type="VARCHAR(100)"/>
+            <column name="source_system" type="VARCHAR(50)"/>
+            <column name="client_account_no" type="VARCHAR(50)"/>
+            <column name="is_registered" type="BOOLEAN"/>
+            <column name="verification_status" type="VARCHAR(20)"/>
+            <column name="eligibility_status" type="VARCHAR(20)"/>
+            <column name="remarks" type="VARCHAR(255)"/>
+            <column name="verification_timestamp" type="DATETIME"/>
+            <column name="tenant_id" type="VARCHAR(100)"/>
+        </createTable>
+
+        <createIndex indexName="idx_partner_verification_audit_timestamp" tableName="x_partner_client_verification_audit">
+            <column name="verification_timestamp"/>
+        </createIndex>
+
+        <createIndex indexName="idx_partner_verification_audit_client" tableName="x_partner_client_verification_audit">
+            <column name="client_account_no"/>
+        </createIndex>
+
+        <rollback>
+            <dropIndex indexName="idx_partner_verification_audit_client" tableName="x_partner_client_verification_audit"/>
+            <dropIndex indexName="idx_partner_verification_audit_timestamp" tableName="x_partner_client_verification_audit"/>
+            <dropTable tableName="x_partner_client_verification_audit"/>
+        </rollback>
+    </changeSet>
+</databaseChangeLog>
