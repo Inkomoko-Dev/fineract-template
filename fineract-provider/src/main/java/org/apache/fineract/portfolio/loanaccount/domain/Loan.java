@@ -2869,6 +2869,22 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
         BigDecimal diff = BigDecimal.ZERO;
         Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
+        if (this.loanProduct().isMultiDisburseLoan()) {
+            final LoanDisbursementDetails nextDisbursementDetail = getNextUndisbursedDisbursementDetail();
+            if (nextDisbursementDetail != null) {
+                if (nextDisbursementDetail.expectedDisbursementDate() != null
+                        && actualDisbursementDate.isBefore(nextDisbursementDetail.expectedDisbursementDate())) {
+                    final String errorMsg = "Loan tranche can't be disbursed before its expected disbursement date ";
+                    throw new LoanDisbursalException(errorMsg, "actualdisbursementdate.before.expectedtranchedate",
+                            nextDisbursementDetail.expectedDisbursementDate(), actualDisbursementDate);
+                }
+                // The payment instruction contains the net cash delivered to the client. Fineract
+                // must book the gross scheduled tranche; repayment-at-disbursement accounts for
+                // the difference (for example, insurance deducted from the first tranche).
+                principalDisbursed = nextDisbursementDetail.principal();
+                details = Collections.singletonList(nextDisbursementDetail);
+            }
+        }
         if (principalDisbursed == null) {
             // For single disbursement loans, ensure repayment schedule principal is approved principal
             if (!this.loanProduct().isMultiDisburseLoan()) {
