@@ -192,15 +192,18 @@ public final class ClientDataValidator {
             baseDataValidator.reset().parameter(ClientApiConstants.submittedOnDateParamName).value(submittedOnDate).notNull();
         }
 
-        if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.dateOfBirthParamName, element)) {
-            final LocalDate dateOfBirth = this.fromApiJsonHelper.extractLocalDateNamed(ClientApiConstants.dateOfBirthParamName, element);
+        final Integer legalFormId = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ClientApiConstants.legalFormIdParamName, element);
+        final boolean isIndividual = legalFormId != null && legalFormId == 1;
+
+        final LocalDate dateOfBirth = this.fromApiJsonHelper.extractLocalDateNamed(ClientApiConstants.dateOfBirthParamName, element);
+        if (isIndividual || this.fromApiJsonHelper.parameterExists(ClientApiConstants.dateOfBirthParamName, element)) {
             baseDataValidator.reset().parameter(ClientApiConstants.dateOfBirthParamName).value(dateOfBirth).notNull()
                     .validateDateBefore(DateUtils.getBusinessLocalDate()).validateDateBefore(submittedOnDate);
         }
 
-        if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.genderIdParamName, element)) {
-            final Integer genderId = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ClientApiConstants.genderIdParamName, element);
-            baseDataValidator.reset().parameter(ClientApiConstants.genderIdParamName).value(genderId).integerGreaterThanZero();
+        final Integer genderId = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ClientApiConstants.genderIdParamName, element);
+        if (isIndividual || this.fromApiJsonHelper.parameterExists(ClientApiConstants.genderIdParamName, element)) {
+            baseDataValidator.reset().parameter(ClientApiConstants.genderIdParamName).value(genderId).notNull().integerGreaterThanZero();
         }
 
         if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.clientTypeIdParamName, element)) {
@@ -216,7 +219,6 @@ public final class ClientDataValidator {
                     .integerGreaterThanZero();
         }
 
-        final Integer legalFormId = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ClientApiConstants.legalFormIdParamName, element);
         baseDataValidator.reset().parameter(ClientApiConstants.legalFormIdParamName).value(legalFormId).notNull().inMinMaxRange(1, 2);
 
         if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.datatables, element)) {
@@ -229,7 +231,7 @@ public final class ClientDataValidator {
             baseDataValidator.reset().parameter("isStaff").value(isStaffFlag).notNull();
         }
 
-        if (this.configurationReadPlatformService.retrieveGlobalConfiguration("Enable-Address").isEnabled()) {
+        if (isIndividual || this.configurationReadPlatformService.retrieveGlobalConfiguration("Enable-Address").isEnabled()) {
             final JsonArray address = this.fromApiJsonHelper.extractJsonArrayNamed(ClientApiConstants.address, element);
             baseDataValidator.reset().parameter(ClientApiConstants.address).value(address).notNull().jsonArrayNotEmpty();
         }

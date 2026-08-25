@@ -208,9 +208,9 @@ public final class ClientOtherInfoCommandFromApiJsonDeserializer {
 
         boolean atLeastOneParameterPassedForUpdate = false;
         final Integer strataId = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ClientApiConstants.strataIdParamName, element);
+        baseDataValidator.reset().parameter(ClientApiConstants.strataIdParamName).value(strataId).notNull().integerGreaterThanZero();
         if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.strataIdParamName, element)) {
             atLeastOneParameterPassedForUpdate = true;
-            baseDataValidator.reset().parameter(ClientApiConstants.staffIdParamName).value(strataId).notNull().integerGreaterThanZero();
         }
 
         if (this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.BANK_ACCOUNT_NUMBER, element) != null) {
@@ -226,12 +226,12 @@ public final class ClientOtherInfoCommandFromApiJsonDeserializer {
         }
 
         if (LegalForm.fromInt(legalFormId).isPerson()) {
+            final Integer nationalityId = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ClientApiConstants.nationalityIdParamName,
+                    element);
+            baseDataValidator.reset().parameter(ClientApiConstants.nationalityIdParamName).value(nationalityId).notNull()
+                    .integerGreaterThanZero();
             if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.nationalityIdParamName, element)) {
                 atLeastOneParameterPassedForUpdate = true;
-                final Integer nationalityId = this.fromApiJsonHelper
-                        .extractIntegerSansLocaleNamed(ClientApiConstants.nationalityIdParamName, element);
-                baseDataValidator.reset().parameter(ClientApiConstants.nationalityIdParamName).value(nationalityId).notNull()
-                        .integerGreaterThanZero();
             }
 
             if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.numberOfChildren, element)) {
@@ -249,12 +249,12 @@ public final class ClientOtherInfoCommandFromApiJsonDeserializer {
                 baseDataValidator.reset().parameter(ClientApiConstants.numberOfDependents).value(numberOfDependents).ignoreIfNull()
                         .integerZeroOrGreater();
             }
-            CodeValueData codeValue = this.codeValueReadPlatformService.retrieveCodeValue(strataId.longValue());
+            CodeValueData codeValue = strataId == null ? null : this.codeValueReadPlatformService.retrieveCodeValue(strataId.longValue());
 
             if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.yearArrivedInHostCountry, element)) {
                 atLeastOneParameterPassedForUpdate = true;
             }
-            if (codeValue.getName().equalsIgnoreCase("Host Community")) {
+            if (codeValue != null && codeValue.getName().equalsIgnoreCase("Host Community")) {
                 baseDataValidator.reset().parameter(ClientApiConstants.yearArrivedInHostCountryParamName).value(yearArrivedInHostCountry)
                         .ignoreIfNull();
             } else {
