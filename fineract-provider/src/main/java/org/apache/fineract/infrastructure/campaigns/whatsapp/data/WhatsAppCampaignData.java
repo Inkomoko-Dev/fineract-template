@@ -45,6 +45,7 @@ public final class WhatsAppCampaignData {
     private final String languageCode;
     private final String bodyVariableMapping;
     private final List<String> bodyVariableMappingList;
+    private final String recipientType;
 
     private final Collection<EnumOptionData> campaignTypeOptions;
     private final Collection<EnumOptionData> triggerTypeOptions;
@@ -53,16 +54,20 @@ public final class WhatsAppCampaignData {
     private final Collection<EnumOptionData> weekDays;
     private final Collection<EnumOptionData> frequencyTypeOptions;
     private final Collection<EnumOptionData> periodFrequencyOptions;
+    private final Collection<EnumOptionData> recipientTypeOptions;
 
     private WhatsAppCampaignData(final Long id, final String campaignName, final EnumOptionData campaignType,
             final EnumOptionData triggerType, final Long runReportId, final String reportName, final String paramValue,
             final EnumOptionData campaignStatus, final String message, final LocalDateTime nextTriggerDate,
             final LocalDateTime lastTriggerDate, final WhatsAppCampaignTimeLine timeline, final LocalDateTime recurrenceStartDate,
             final String recurrence, final String atTemplateName, final String languageCode, final String bodyVariableMapping,
-            final List<String> bodyVariableMappingList, final Collection<SmsBusinessRulesData> businessRulesOptions,
-            final Collection<EnumOptionData> campaignTypeOptions, final Collection<EnumOptionData> triggerTypeOptions,
-            final Collection<EnumOptionData> months, final Collection<EnumOptionData> weekDays,
-            final Collection<EnumOptionData> frequencyTypeOptions, final Collection<EnumOptionData> periodFrequencyOptions) {
+            final List<String> bodyVariableMappingList, final String recipientType,
+            final Collection<SmsBusinessRulesData> businessRulesOptions, final Collection<EnumOptionData> campaignTypeOptions,
+            final Collection<EnumOptionData> triggerTypeOptions, final Collection<EnumOptionData> months,
+            final Collection<EnumOptionData> weekDays, final Collection<EnumOptionData> frequencyTypeOptions,
+            final Collection<EnumOptionData> periodFrequencyOptions, final Collection<EnumOptionData> recipientTypeOptions) {
+        this.recipientType = recipientType;
+        this.recipientTypeOptions = recipientTypeOptions;
         this.id = id;
         this.campaignName = campaignName;
         this.campaignType = campaignType;
@@ -95,19 +100,20 @@ public final class WhatsAppCampaignData {
             final EnumOptionData campaignStatus, final String message, final LocalDateTime nextTriggerDate,
             final LocalDateTime lastTriggerDate, final WhatsAppCampaignTimeLine timeline, final LocalDateTime recurrenceStartDate,
             final String recurrence, final String atTemplateName, final String languageCode, final String bodyVariableMapping,
-            final List<String> bodyVariableMappingList) {
+            final List<String> bodyVariableMappingList, final String recipientType) {
         return new WhatsAppCampaignData(id, campaignName, campaignType, triggerType, runReportId, reportName, paramValue, campaignStatus,
                 message, nextTriggerDate, lastTriggerDate, timeline, recurrenceStartDate, recurrence, atTemplateName, languageCode,
-                bodyVariableMapping, bodyVariableMappingList, null, null, null, null, null, null, null);
+                bodyVariableMapping, bodyVariableMappingList, recipientType, null, null, null, null, null, null, null, null);
     }
 
     public static WhatsAppCampaignData template(final Collection<SmsBusinessRulesData> businessRulesOptions,
             final Collection<EnumOptionData> campaignTypeOptions, final Collection<EnumOptionData> triggerTypeOptions,
             final Collection<EnumOptionData> months, final Collection<EnumOptionData> weekDays,
-            final Collection<EnumOptionData> frequencyTypeOptions, final Collection<EnumOptionData> periodFrequencyOptions) {
+            final Collection<EnumOptionData> frequencyTypeOptions, final Collection<EnumOptionData> periodFrequencyOptions,
+            final Collection<EnumOptionData> recipientTypeOptions) {
         return new WhatsAppCampaignData(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, businessRulesOptions, campaignTypeOptions, triggerTypeOptions, months, weekDays, frequencyTypeOptions,
-                periodFrequencyOptions);
+                null, null, null, businessRulesOptions, campaignTypeOptions, triggerTypeOptions, months, weekDays, frequencyTypeOptions,
+                periodFrequencyOptions, recipientTypeOptions);
     }
 
     public Long getId() {
@@ -172,5 +178,13 @@ public final class WhatsAppCampaignData {
 
     public List<String> getBodyVariableMappingList() {
         return bodyVariableMappingList;
+    }
+
+    public String getRecipientType() {
+        return recipientType;
+    }
+
+    public Collection<EnumOptionData> getRecipientTypeOptions() {
+        return recipientTypeOptions;
     }
 }

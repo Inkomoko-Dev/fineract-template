@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.campaigns.whatsapp.constants;
 import java.time.Month;
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.campaigns.constants.CampaignType;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
@@ -95,6 +96,15 @@ public final class WhatsAppCampaignEnumerations {
             break;
         }
         return optionData;
+    }
+
+    public static EnumOptionData whatsAppRecipientType(final RecipientType recipientType) {
+        return new EnumOptionData(Long.valueOf(recipientType.ordinal()), recipientType.name(),
+                RecipientType.STAFF == recipientType ? "Employees" : "Clients");
+    }
+
+    public static List<EnumOptionData> whatsAppRecipientTypeOptions() {
+        return List.of(whatsAppRecipientType(RecipientType.CLIENT), whatsAppRecipientType(RecipientType.STAFF));
     }
 
     public static EnumOptionData calendarMonthType(final Month entityType) {

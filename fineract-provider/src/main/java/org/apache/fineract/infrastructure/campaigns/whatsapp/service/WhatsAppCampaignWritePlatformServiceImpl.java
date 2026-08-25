@@ -35,9 +35,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
-import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
+import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
@@ -55,9 +56,6 @@ import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityEx
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
-import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
-import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
-import org.apache.fineract.infrastructure.jobs.service.JobName;
 import org.apache.fineract.infrastructure.dataqueries.data.GenericResultsetData;
 import org.apache.fineract.infrastructure.dataqueries.data.ResultsetColumnHeaderData;
 import org.apache.fineract.infrastructure.dataqueries.data.ResultsetRowData;
@@ -65,7 +63,12 @@ import org.apache.fineract.infrastructure.dataqueries.domain.Report;
 import org.apache.fineract.infrastructure.dataqueries.domain.ReportRepository;
 import org.apache.fineract.infrastructure.dataqueries.exception.ReportNotFoundException;
 import org.apache.fineract.infrastructure.dataqueries.service.ReadReportingService;
+import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
+import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
+import org.apache.fineract.infrastructure.jobs.service.JobName;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.organisation.staff.domain.Staff;
+import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.calendar.service.CalendarUtils;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
@@ -91,12 +94,15 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     private final ReadReportingService readReportingService;
     private final CommunicationMessageRepository communicationMessageRepository;
     private final ClientRepositoryWrapper clientRepositoryWrapper;
+    private final StaffRepositoryWrapper staffRepositoryWrapper;
+    private final PhoneNumberNormalizer phoneNumberNormalizer;
 
     @Autowired
     public WhatsAppCampaignWritePlatformServiceImpl(final PlatformSecurityContext context,
             final WhatsAppCampaignRepository whatsAppCampaignRepository, final WhatsAppCampaignValidator whatsAppCampaignValidator,
             final ReportRepository reportRepository, final FromJsonHelper fromJsonHelper, final ReadReportingService readReportingService,
-            final CommunicationMessageRepository communicationMessageRepository, final ClientRepositoryWrapper clientRepositoryWrapper) {
+            final CommunicationMessageRepository communicationMessageRepository, final ClientRepositoryWrapper clientRepositoryWrapper,
+            final StaffRepositoryWrapper staffRepositoryWrapper, final PhoneNumberNormalizer phoneNumberNormalizer) {
         this.context = context;
         this.whatsAppCampaignRepository = whatsAppCampaignRepository;
         this.whatsAppCampaignValidator = whatsAppCampaignValidator;
@@ -105,6 +111,8 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         this.readReportingService = readReportingService;
         this.communicationMessageRepository = communicationMessageRepository;
         this.clientRepositoryWrapper = clientRepositoryWrapper;
+        this.staffRepositoryWrapper = staffRepositoryWrapper;
+        this.phoneNumberNormalizer = phoneNumberNormalizer;
     }
 
     @Transactional
@@ -123,8 +131,7 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         final Long runReportId = command.longValueOfParameterNamed(WhatsAppCampaignValidator.runReportId);
         final Report report = this.reportRepository.findById(runReportId).orElseThrow(() -> new ReportNotFoundException(runReportId));
         final WhatsAppCampaign campaign = WhatsAppCampaign.createNew(currentUser, report, command);
-        if (campaign.getRecurrenceStartDate() != null
-                && campaign.getRecurrenceStartDate().isBefore(DateUtils.getLocalDateTimeOfTenant())) {
+        if (campaign.getRecurrenceStartDate() != null && campaign.getRecurrenceStartDate().isBefore(DateUtils.getLocalDateTimeOfTenant())) {
             throw new GeneralPlatformDomainRuleException("error.msg.campaign.recurrenceStartDate.in.the.past",
                     "Recurrence start date cannot be the past date.", campaign.getRecurrenceStartDate());
         }
@@ -293,8 +300,8 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     @Override
     @CronTarget(jobName = JobName.UPDATE_WHATSAPP_OUTBOUND_WITH_CAMPAIGN_MESSAGE)
     public void storeTemplateMessageIntoWhatsAppOutboundTable() throws JobExecutionException {
-        final Collection<WhatsAppCampaign> campaigns = this.whatsAppCampaignRepository.findByTriggerTypeAndStatus(
-                WhatsAppCampaignTriggerType.SCHEDULE.getValue(), WhatsAppCampaignStatus.ACTIVE.getValue());
+        final Collection<WhatsAppCampaign> campaigns = this.whatsAppCampaignRepository
+                .findByTriggerTypeAndStatus(WhatsAppCampaignTriggerType.SCHEDULE.getValue(), WhatsAppCampaignStatus.ACTIVE.getValue());
         if (campaigns == null) {
             return;
         }
@@ -339,6 +346,7 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     }
 
     void insertDirectCampaignIntoOutboundTable(final WhatsAppCampaign campaign) {
+        final List<HashMap<String, Object>> runReportObject;
         try {
             final HashMap<String, String> campaignParams = new ObjectMapper().readValue(campaign.getParamValue(),
                     new TypeReference<HashMap<String, String>>() {});
@@ -346,37 +354,79 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             final HashMap<String, String> queryParamForRunReport = new ObjectMapper().readValue(campaign.getParamValue(),
                     new TypeReference<HashMap<String, String>>() {});
 
-            final List<HashMap<String, Object>> runReportObject = getRunReportByServiceImpl(campaignParams.get("reportName"),
-                    queryParamForRunReport);
-
-            if (runReportObject != null) {
-                for (final HashMap<String, Object> entry : runReportObject) {
-                    final Object mobileNo = entry.get("mobileNo");
-                    if (mobileNo == null || mobileNo.toString().isBlank()) {
-                        continue;
-                    }
-
-                    final List<String> bodyValues = WhatsAppTemplateVariableMapper.toBodyValues(campaign.getBodyVariableMapping(), entry);
-                    final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
-                    final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
-
-                    Client client = null;
-                    final Object clientIdObj = entry.get("id");
-                    if (clientIdObj != null) {
-                        final long clientId = clientIdObj instanceof Integer ? ((Integer) clientIdObj).longValue()
-                                : Long.parseLong(clientIdObj.toString());
-                        client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(clientId);
-                    }
-
-                    final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate(mobileNo.toString(),
-                            RecipientType.CLIENT, client, null, campaign.getAtTemplateName(), campaign.getLanguageCode(),
-                            templateBodyValuesJson, auditMessageBody, campaign.getId());
-                    this.communicationMessageRepository.save(message);
-                }
-            }
-        } catch (final IOException e) {
-            LOG.error("Error enqueueing WhatsApp campaign messages.", e);
+            runReportObject = getRunReportByServiceImpl(campaignParams.get("reportName"), queryParamForRunReport);
+        } catch (final IOException | RuntimeException e) {
+            LOG.error("Error running audience report for WhatsApp campaign {}.", campaign.getId(), e);
+            return;
         }
+
+        if (runReportObject == null) {
+            return;
+        }
+
+        int enqueued = 0;
+        int skipped = 0;
+        for (final HashMap<String, Object> entry : runReportObject) {
+            try {
+                if (enqueueCampaignRow(campaign, entry)) {
+                    enqueued++;
+                } else {
+                    skipped++;
+                }
+            } catch (final IOException | RuntimeException e) {
+                skipped++;
+                LOG.error("Skipping recipient for WhatsApp campaign {}; the remaining recipients are unaffected.", campaign.getId(), e);
+            }
+        }
+        LOG.info("WhatsApp campaign {} enqueued {} message(s), skipped {}.", campaign.getId(), enqueued, skipped);
+    }
+
+    private boolean enqueueCampaignRow(final WhatsAppCampaign campaign, final HashMap<String, Object> entry) throws IOException {
+        final Object mobileNo = entry.get("mobileNo");
+        final String phoneNumber = mobileNo == null ? null : this.phoneNumberNormalizer.normalize(mobileNo.toString());
+        if (StringUtils.isBlank(phoneNumber)) {
+            LOG.warn("Skipping recipient with a missing or unusable mobile number for WhatsApp campaign {}.", campaign.getId());
+            return false;
+        }
+
+        final WhatsAppTemplateVariableMapper.MappingResult mapping = WhatsAppTemplateVariableMapper
+                .toBodyValuesStrict(campaign.getBodyVariableMapping(), entry);
+        if (!mapping.isComplete()) {
+            LOG.warn("Skipping recipient for WhatsApp campaign {}: template {} has unresolved variable(s) {}.", campaign.getId(),
+                    campaign.getAtTemplateName(), mapping.getUnresolvedKeys());
+            return false;
+        }
+
+        final List<String> bodyValues = mapping.getBodyValues();
+        final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
+        final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
+
+        Client client = null;
+        Staff staff = null;
+        final Long recipientId = extractRecipientId(entry.get("id"));
+        if (recipientId != null) {
+            if (campaign.isStaffCampaign()) {
+                staff = this.staffRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+            } else {
+                client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+            }
+        }
+
+        final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate(phoneNumber, campaign.getRecipientType(), client,
+                staff, campaign.getAtTemplateName(), campaign.getLanguageCode(), templateBodyValuesJson, auditMessageBody,
+                campaign.getId());
+        this.communicationMessageRepository.save(message);
+        return true;
+    }
+
+    private static Long extractRecipientId(final Object rawId) {
+        if (rawId == null || rawId.toString().isBlank()) {
+            return null;
+        }
+        if (rawId instanceof Number) {
+            return ((Number) rawId).longValue();
+        }
+        return Long.parseLong(rawId.toString().trim());
     }
 
     private List<HashMap<String, Object>> getRunReportByServiceImpl(final String reportName, final Map<String, String> queryParams) {

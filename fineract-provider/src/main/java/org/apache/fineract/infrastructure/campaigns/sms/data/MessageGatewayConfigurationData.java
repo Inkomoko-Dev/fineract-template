@@ -31,6 +31,8 @@ public class MessageGatewayConfigurationData {
     private final String tenantAppKey;
     private final String smsWhitelist;
     private final boolean smsWhitelistEnabled;
+    private final String whatsappWhitelist;
+    private final boolean whatsappWhitelistEnabled;
 
     public MessageGatewayConfigurationData(final Long id, final String connectionName, final String hostName, final int portNumber,
             final String endPoint, final String userName, final String password, final boolean sslEnabled, final String tenantAppKey) {
@@ -46,6 +48,16 @@ public class MessageGatewayConfigurationData {
     public MessageGatewayConfigurationData(final Long id, final String connectionName, final String hostName, final int portNumber,
             final String endPoint, final String userName, final String password, final boolean sslEnabled, final String tenantAppKey,
             final String smsWhitelist, final boolean smsWhitelistEnabled) {
+        this(id, connectionName, hostName, portNumber, endPoint, userName, password, sslEnabled, tenantAppKey, smsWhitelist,
+                smsWhitelistEnabled, null, false);
+    }
+
+    public MessageGatewayConfigurationData(final Long id, final String connectionName, final String hostName, final int portNumber,
+            final String endPoint, final String userName, final String password, final boolean sslEnabled, final String tenantAppKey,
+            final String smsWhitelist, final boolean smsWhitelistEnabled, final String whatsappWhitelist,
+            final boolean whatsappWhitelistEnabled) {
+        this.whatsappWhitelist = whatsappWhitelist;
+        this.whatsappWhitelistEnabled = whatsappWhitelistEnabled;
         this.id = id;
         this.connectionName = connectionName;
         this.hostName = hostName;
@@ -101,5 +113,13 @@ public class MessageGatewayConfigurationData {
 
     public boolean isSmsWhitelistEnabled() {
         return this.smsWhitelistEnabled;
+    }
+
+    public String getWhatsappWhitelist() {
+        return this.whatsappWhitelist;
+    }
+
+    public boolean isWhatsappWhitelistEnabled() {
+        return this.whatsappWhitelistEnabled;
     }
 }

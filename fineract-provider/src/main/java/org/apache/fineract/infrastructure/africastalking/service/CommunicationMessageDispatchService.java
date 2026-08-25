@@ -39,12 +39,12 @@ public class CommunicationMessageDispatchService {
 
     private final AfricasTalkingClient africasTalkingClient;
     private final CommunicationMessageRepository communicationMessageRepository;
+    private final WhatsAppPhoneWhitelistService whatsAppPhoneWhitelistService;
 
     @Transactional
     public void dispatchPendingMessages() {
-        final var pendingMessages = communicationMessageRepository
-                .findTop200ByStatusAndChannelOrderByCreatedDateAsc(CommunicationMessageStatus.PENDING,
-                        org.apache.fineract.infrastructure.africastalking.domain.CommunicationChannel.WHATSAPP);
+        final var pendingMessages = communicationMessageRepository.findTop200ByStatusAndChannelOrderByCreatedDateAsc(
+                CommunicationMessageStatus.PENDING, org.apache.fineract.infrastructure.africastalking.domain.CommunicationChannel.WHATSAPP);
         for (final CommunicationMessage message : pendingMessages) {
             dispatchMessage(message);
         }
@@ -53,6 +53,13 @@ public class CommunicationMessageDispatchService {
     @Transactional
     public void dispatchMessage(final CommunicationMessage message) {
         if (message.getStatus() != CommunicationMessageStatus.PENDING) {
+            return;
+        }
+        if (!whatsAppPhoneWhitelistService.isAllowed(message.getPhoneNumber())) {
+            log.info("Blocked outbound WhatsApp message {} to non-whitelisted number", message.getId());
+            message.setStatus(CommunicationMessageStatus.FAILED);
+            message.setStatusDetail(WhatsAppPhoneWhitelistService.BLOCKED_ERROR_MESSAGE);
+            communicationMessageRepository.save(message);
             return;
         }
         try {
@@ -69,8 +76,7 @@ public class CommunicationMessageDispatchService {
                 message.setExternalId(extractExternalId(response.body()));
             } else {
                 message.setStatus(CommunicationMessageStatus.FAILED);
-                final String detail = StringUtils.isNotBlank(response.body())
-                        ? "HTTP " + response.statusCode() + ": " + response.body()
+                final String detail = StringUtils.isNotBlank(response.body()) ? "HTTP " + response.statusCode() + ": " + response.body()
                         : "HTTP " + response.statusCode();
                 message.setStatusDetail(StringUtils.left(detail, 255));
             }

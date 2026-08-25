@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.africastalking.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,12 +50,16 @@ class CommunicationMessageDispatchServiceTest {
     @Mock
     private CommunicationMessageRepository communicationMessageRepository;
 
+    @Mock
+    private WhatsAppPhoneWhitelistService whatsAppPhoneWhitelistService;
+
     @InjectMocks
     private CommunicationMessageDispatchService dispatchService;
 
     @BeforeEach
     void setUp() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Asia/Kolkata", null));
+        lenient().when(whatsAppPhoneWhitelistService.isAllowed(any())).thenReturn(true);
     }
 
     @Test
@@ -73,8 +78,8 @@ class CommunicationMessageDispatchServiceTest {
 
     @Test
     void dispatchesTemplateMessageWhenTemplateNameSet() throws Exception {
-        final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate("+254712345678", RecipientType.CLIENT, null,
-                null, "payment_due_today", "en", "[\"John\",\"1000\"]", "Payment reminder", 5L);
+        final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate("+254712345678", RecipientType.CLIENT, null, null,
+                "payment_due_today", "en", "[\"John\",\"1000\"]", "Payment reminder", 5L);
         when(africasTalkingClient.sendWhatsAppTemplate("+254712345678", "payment_due_today", "en", List.of("John", "1000")))
                 .thenReturn(new AfricasTalkingClient.AfricasTalkingApiResponse(200, "{\"messageId\":\"ATX_2\"}"));
 
@@ -98,6 +103,21 @@ class CommunicationMessageDispatchServiceTest {
 
         assertEquals(CommunicationMessageStatus.SENT, message.getStatus());
         verify(africasTalkingClient).sendWhatsAppMessage("+254712345678", "Hello");
+        verify(africasTalkingClient, never()).sendWhatsAppTemplate(any(), any(), any(), anyList());
+        verify(communicationMessageRepository).save(message);
+    }
+
+    @Test
+    void marksMessageFailedWhenRecipientNotOnWhitelist() throws Exception {
+        final CommunicationMessage message = CommunicationMessage.pendingOutbound(CommunicationChannel.WHATSAPP, "+254799999999",
+                RecipientType.CLIENT, null, null, "Hello");
+        when(whatsAppPhoneWhitelistService.isAllowed("+254799999999")).thenReturn(false);
+
+        dispatchService.dispatchMessage(message);
+
+        assertEquals(CommunicationMessageStatus.FAILED, message.getStatus());
+        assertEquals(WhatsAppPhoneWhitelistService.BLOCKED_ERROR_MESSAGE, message.getStatusDetail());
+        verify(africasTalkingClient, never()).sendWhatsAppMessage(any(), any());
         verify(africasTalkingClient, never()).sendWhatsAppTemplate(any(), any(), any(), anyList());
         verify(communicationMessageRepository).save(message);
     }
