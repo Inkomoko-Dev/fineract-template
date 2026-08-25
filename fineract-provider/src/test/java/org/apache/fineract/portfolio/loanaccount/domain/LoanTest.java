@@ -59,6 +59,7 @@ import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
+import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -604,6 +605,29 @@ public class LoanTest {
         assertEquals(LocalDate.of(2026, 8, 25), firstTranche.actualDisbursementDate());
         assertNull(secondTranche.actualDisbursementDate());
         assertEquals(0, new BigDecimal("3000000.00").compareTo(firstTranche.principal()));
+    }
+
+    @Test
+    public void multiDisbursementRejectsFutureTrancheBeforeItsExpectedDate() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("7000000.00"));
+        final LoanDisbursementDetails futureTranche = new LoanDisbursementDetails(LocalDate.of(2026, 12, 15), null,
+                new BigDecimal("7000000.00"), new BigDecimal("7000000.00"));
+        final JsonCommand command = jsonCommand("{\"transactionAmount\":7000000,\"locale\":\"en\"}");
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("7000000.00"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Collections.singletonList(futureTranche)));
+        futureTranche.updateLoan(loan);
+
+        final LoanDisbursalException exception = assertThrows(LoanDisbursalException.class,
+                () -> loan.adjustDisburseAmount(command, LocalDate.of(2026, 8, 24)));
+
+        assertEquals("error.msg.loan.actualdisbursementdate.before.expectedtranchedate", exception.getGlobalisationMessageCode());
+        assertNull(futureTranche.actualDisbursementDate());
     }
 
     @Test
