@@ -28,6 +28,7 @@ import java.util.Map;
 
 import com.google.gson.JsonObject;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.portfolio.client.domain.Client;
 
@@ -63,5 +64,19 @@ public interface OdooService {
 
     void postFailedLoanRepaymentOnMigration(BigDecimal transactionAmount, Long loanId, String transactionDate, String note,
             String paymentType, String errorMsg, String jsonObject);
+
+    /**
+     * Builds the same JournalData/JournalItemData/JournalEntryToOdooData payload
+     * shape used for loan transactions, but for an aggregated provisioning
+     * journal - and only builds/returns the JSON, it does not call Odoo.
+     *
+     * @param journal
+     *            the aggregated provisioning journal (one office + currency,
+     *            with one line per GL account touched).
+     * @param isReversed
+     *            whether this journal is itself a reversal of a prior period's
+     *            journal.
+     */
+    String buildProvisioningJournalEntryPayload(ProvisionBatchJournal journal, boolean isReversed);
 
 }

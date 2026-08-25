@@ -75,6 +75,17 @@ public class ProvisionBatchJournal extends AbstractPersistableCustom {
     @Column(name = "currency_code", nullable = false, length = 10)
     private String currencyCode;
 
+    /**
+     * The Fineract office (entity) this aggregated journal belongs to - e.g.
+     * Inkomoko Kenya vs Inkomoko Capital, which are two different offices
+     * that happen to share the KES currency.
+     */
+    @Column(name = "office_id")
+    private Long officeId;
+
+    @Column(name = "office_name", length = 150)
+    private String officeName;
+
     @Column(name = "status", nullable = false, length = 30)
     private String status;
 
@@ -83,6 +94,9 @@ public class ProvisionBatchJournal extends AbstractPersistableCustom {
      */
     @Column(name = "odoo_journal_id", length = 100)
     private String odooJournalId;
+
+    @Column(name = "payload_json", columnDefinition = "TEXT")
+    private String payloadJson;
 
     @Column(
             name = "total_debit",
@@ -174,12 +188,36 @@ public class ProvisionBatchJournal extends AbstractPersistableCustom {
         return currencyCode;
     }
 
+    public Long getOfficeId() {
+        return officeId;
+    }
+
+    public void setOfficeId(final Long officeId) {
+        this.officeId = officeId;
+    }
+
+    public String getOfficeName() {
+        return officeName;
+    }
+
+    public void setOfficeName(final String officeName) {
+        this.officeName = officeName;
+    }
+
     public String getStatus() {
         return status;
     }
 
     public String getOdooJournalId() {
         return odooJournalId;
+    }
+
+    public String getPayloadJson() {
+        return payloadJson;
+    }
+
+    public void setPayloadJson(final String payloadJson) {
+        this.payloadJson = payloadJson;
     }
 
     public BigDecimal getTotalDebit() {

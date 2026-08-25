@@ -28,4 +28,11 @@ public interface ProvisionBatchRepository extends JpaRepository<ProvisionBatch, 
     Optional<ProvisionBatch> findByAccountingPeriod(LocalDate accountingPeriod);
 
     Optional<ProvisionBatch> findByBatchReference(String batchReference);
+
+    /**
+     * Finds the most recent batch (by accounting period) that has not yet been
+     * reversed. This is the batch a newly generated batch will reverse, since
+     * every new provisioning history supersedes the one before it.
+     */
+    Optional<ProvisionBatch> findFirstByStatusNotOrderByAccountingPeriodDesc(ProvisionBatchStatus status);
 }

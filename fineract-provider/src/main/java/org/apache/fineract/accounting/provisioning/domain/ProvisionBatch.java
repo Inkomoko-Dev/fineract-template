@@ -32,6 +32,7 @@ import javax.persistence.OneToMany;
 import javax.persistence.Table;
 import javax.persistence.UniqueConstraint;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -77,6 +78,22 @@ public class ProvisionBatch extends AbstractPersistableCustom {
 
     @Column(name = "journal_count", nullable = false)
     private Integer journalCount = 0;
+
+    @Column(
+            name = "total_debit",
+            nullable = false,
+            precision = 19,
+            scale = 6
+    )
+    private BigDecimal totalDebit = BigDecimal.ZERO;
+
+    @Column(
+            name = "total_credit",
+            nullable = false,
+            precision = 19,
+            scale = 6
+    )
+    private BigDecimal totalCredit = BigDecimal.ZERO;
 
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -135,5 +152,103 @@ public class ProvisionBatch extends AbstractPersistableCustom {
         journal.setBatch(this);
     }
 
+    public String getBatchReference() {
+        return batchReference;
+    }
 
+    public LocalDate getAccountingPeriod() {
+        return accountingPeriod;
+    }
+
+    public ProvisionBatchStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(final ProvisionBatchStatus status) {
+        this.status = status;
+    }
+
+    public Integer getEntryCount() {
+        return entryCount;
+    }
+
+    public void setEntryCount(final Integer entryCount) {
+        this.entryCount = entryCount;
+    }
+
+    public Integer getJournalCount() {
+        return journalCount;
+    }
+
+    public void setJournalCount(final Integer journalCount) {
+        this.journalCount = journalCount;
+    }
+
+    public BigDecimal getTotalDebit() {
+        return totalDebit;
+    }
+
+    public void setTotalDebit(final BigDecimal totalDebit) {
+        this.totalDebit = totalDebit;
+    }
+
+    public BigDecimal getTotalCredit() {
+        return totalCredit;
+    }
+
+    public void setTotalCredit(final BigDecimal totalCredit) {
+        this.totalCredit = totalCredit;
+    }
+
+    public ProvisionBatch getReversalOfBatch() {
+        return reversalOfBatch;
+    }
+
+    public void setReversalOfBatch(final ProvisionBatch reversalOfBatch) {
+        this.reversalOfBatch = reversalOfBatch;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public Long getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(final Long createdBy) {
+        this.createdBy = createdBy;
+    }
+
+    public LocalDateTime getPostedAt() {
+        return postedAt;
+    }
+
+    public void setPostedAt(final LocalDateTime postedAt) {
+        this.postedAt = postedAt;
+    }
+
+    public LocalDateTime getReversedAt() {
+        return reversedAt;
+    }
+
+    public void setReversedAt(final LocalDateTime reversedAt) {
+        this.reversedAt = reversedAt;
+    }
+
+    public String getFailureReason() {
+        return failureReason;
+    }
+
+    public void setFailureReason(final String failureReason) {
+        this.failureReason = failureReason;
+    }
+
+    public List<ProvisionBatchEntry> getEntries() {
+        return entries;
+    }
+
+    public List<ProvisionBatchJournal> getJournals() {
+        return journals;
+    }
 }

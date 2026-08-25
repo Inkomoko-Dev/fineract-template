@@ -61,6 +61,8 @@ import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.accounting.journalentry.data.JournalItemData;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalLine;
 import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
@@ -492,6 +494,42 @@ public class OdooServiceImpl implements OdooService {
             return sendRequest(jsonPayload);
         }
         return null;
+    }
+
+    @Override
+    public String buildProvisioningJournalEntryPayload(ProvisionBatchJournal journal, boolean isReversed) {
+
+        final List<JournalItemData> journalItems = new ArrayList<>();
+        for (ProvisionBatchJournalLine line : journal.getJournalLines()) {
+            final JournalItemData item = new JournalItemData();
+            item.setId(line.getId());
+            item.setAccountId(line.getGlAccountCode());
+            final boolean isDebit = "DEBIT".equals(line.getEntryType());
+            item.setType(isDebit ? "debit" : "credit");
+            item.setDebit(line.getDebitAmount() != null ? line.getDebitAmount().doubleValue() : 0.0);
+            item.setCredit(line.getCreditAmount() != null ? line.getCreditAmount().doubleValue() : 0.0);
+            journalItems.add(item);
+        }
+
+        final JournalData journalData = new JournalData();
+        journalData.setTransactionId(journal.getTransactionId());
+        journalData.setRef(journal.getReference());
+        journalData.setReversed(isReversed);
+        journalData.setEntryDate(journal.getEntryDate() != null ? journal.getEntryDate().toString() : null);
+        journalData.setOfficeId(journal.getOfficeId());
+        journalData.setCurrencyCode(journal.getCurrencyCode());
+        journalData.setTransactionTypeName("PROVISIONING");
+        journalData.setJournalItems(journalItems);
+
+        final JournalEntryToOdooData journalEntryToOdooData = new JournalEntryToOdooData();
+        journalEntryToOdooData.setResourceId(journal.getJournalReference());
+        journalEntryToOdooData.setResource(journalData);
+        journalEntryToOdooData.setLocalIp(localIpAddress);
+
+        final String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
+        LOG.info("Provisioning journal entry payload for Odoo (built, not sent) - journal '{}': {}",
+                journal.getJournalReference(), jsonPayload);
+        return jsonPayload;
     }
 
     @Override

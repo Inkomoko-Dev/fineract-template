@@ -379,6 +379,10 @@ public class JournalEntryData {
         return this.officeId;
     }
 
+    public String getOfficeName() {
+        return this.officeName;
+    }
+
     public String getTransactionId() {
         return transactionId;
     }
