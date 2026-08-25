@@ -1152,6 +1152,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
             final LocalDate transactionDate = command.localDateValueOfParameterNamed("transactionDate");
             final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
+            if (repaymentTransactionType.isPayOff() && loan.loanProduct().isMultiDisburseLoan()) {
+                final ScheduleGeneratorDTO payoffScheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
+                final BigDecimal maximumPayoffAmount = loan.fetchPrepaymentDetail(payoffScheduleGeneratorDTO, transactionDate)
+                        .getTotalOutstanding(loan.getCurrency()).getAmount();
+                if (transactionAmount.compareTo(maximumPayoffAmount) > 0) {
+                    throw new GeneralPlatformDomainRuleException("error.msg.loan.payoff.exceeds.disbursed.outstanding",
+                            "The payoff amount cannot exceed the outstanding amount of the disbursed tranches.", transactionAmount,
+                            maximumPayoffAmount);
+                }
+            }
             final String txnExternalId = command.stringValueOfParameterNamedAllowingNull("externalId");
             final Long originalTransactionId = isRecoveryRepayment ? command.longValueOfParameterNamed("originalTransactionId") : null;
             final boolean correctedRecoveryRepost = isRecoveryRepayment && originalTransactionId != null;
@@ -1197,6 +1207,14 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     isRecoveryRepayment, isAccountTransfer, holidayDetailDto, isHolidayValidationDone, false,
                     originalRecoveryTransaction == null ? null : originalRecoveryTransaction.getId(), correctionDate,
                     originalRecoveryTransaction != null);
+
+            if (repaymentTransactionType.isPayOff()) {
+                final List<Long> cancelledTrancheIds = loan.cancelUndisbursedTranchesAfterPayoff();
+                if (!cancelledTrancheIds.isEmpty()) {
+                    changes.put("cancelledUndisbursedTrancheIds", cancelledTrancheIds);
+                    changes.put("trancheCancellationReason", "Loan paid off in full");
+                }
+            }
 
             // Update loan transaction on repayment.
             if (AccountType.fromInt(loan.getLoanType()).isIndividualAccount()) {

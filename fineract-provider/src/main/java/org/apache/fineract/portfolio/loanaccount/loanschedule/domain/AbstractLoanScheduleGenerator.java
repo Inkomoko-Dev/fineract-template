@@ -1412,13 +1412,10 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
      * this method calculates the principal amount for generating the repayment schedule.
      */
     private Money getPrincipalToBeScheduled(final LoanApplicationTerms loanApplicationTerms) {
-        Money principalToBeScheduled;
-        if (loanApplicationTerms.isMultiDisburseLoan() && loanApplicationTerms.getApprovedPrincipal().isGreaterThanZero()) {
-            principalToBeScheduled = loanApplicationTerms.getApprovedPrincipal();
-        } else {
-            principalToBeScheduled = loanApplicationTerms.getPrincipal();
-        }
-        return principalToBeScheduled;
+        // LoanApplicationTerms.principal is the utilized principal for an active multi-disbursement loan. Using approvedPrincipal
+        // here makes the whole facility immediately repayable after the first tranche. Before first disbursement principal still
+        // contains the approved/application amount, so proposed schedule generation remains unchanged.
+        return loanApplicationTerms.getPrincipal();
     }
 
     private boolean updateFixedInstallmentAmount(final MathContext mc, final LoanApplicationTerms loanApplicationTerms, int periodNumber,
@@ -2073,7 +2070,13 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
             }
         } else {
             MonetaryCurrency currency = loanApplicationTerms.getPrincipal().getCurrency();
+            final boolean partiallyUtilized = loanApplicationTerms.getTotalDisbursedAmount().isGreaterThanZero();
             for (DisbursementData disbursementData : loanApplicationTerms.getDisbursementDatas()) {
+                // Once utilization has started, pending tranches are facility availability only. They enter the repayment schedule
+                // after their actual disbursement, never merely because their expected date has arrived.
+                if (!shouldIncludeDisbursement(partiallyUtilized, disbursementData)) {
+                    continue;
+                }
                 if (disbursementData.disbursementDate().equals(disbursementDate)) {
                     final LoanScheduleModelDisbursementPeriod disbursementPeriod = LoanScheduleModelDisbursementPeriod.disbursement(
                             disbursementData.disbursementDate(), Money.of(currency, disbursementData.amount()),
@@ -2097,6 +2100,10 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
             }
         }
         return principal;
+    }
+
+    static boolean shouldIncludeDisbursement(final boolean partiallyUtilized, final DisbursementData disbursementData) {
+        return !partiallyUtilized || disbursementData.isDisbursed();
     }
 
     private Collection<LoanScheduleModelPeriod> createNewLoanScheduleListWithDisbursementDetails(final int numberOfRepayments,

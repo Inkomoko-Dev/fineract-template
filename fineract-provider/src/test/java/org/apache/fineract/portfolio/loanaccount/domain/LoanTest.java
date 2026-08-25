@@ -631,6 +631,54 @@ public class LoanTest {
     }
 
     @Test
+    public void multiDisbursementPrepaymentPrincipalIsLimitedToDisbursedExposure() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("10000000.00"));
+        final LocalDate prepaymentDate = LocalDate.of(2026, 8, 25);
+        final LoanDisbursementDetails disbursedTranche = new LoanDisbursementDetails(prepaymentDate, prepaymentDate,
+                new BigDecimal("3000000.00"), new BigDecimal("2940000.00"));
+        final LoanDisbursementDetails pendingTranche = new LoanDisbursementDetails(LocalDate.of(2026, 12, 1), null,
+                new BigDecimal("7000000.00"), new BigDecimal("7000000.00"));
+        final LoanRepaymentScheduleInstallment inflatedInstallment = new LoanRepaymentScheduleInstallment(null, 1, prepaymentDate,
+                LocalDate.of(2027, 2, 25), new BigDecimal("9500000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        final LoanSummary summary = LoanSummary.create(BigDecimal.ZERO);
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(summary, "totalPrincipalRepaid", new BigDecimal("500000.00"));
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "summary", summary);
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", new ArrayList<>(List.of(inflatedInstallment)));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(List.of(disbursedTranche, pendingTranche)));
+
+        final LoanRepaymentScheduleInstallment prepayment = loan.fetchPrepaymentDetail(null, prepaymentDate);
+
+        assertEquals(0, new BigDecimal("2500000.00").compareTo(prepayment.getPrincipalOutstanding(KES).getAmount()));
+    }
+
+    @Test
+    public void completedMultiDisbursementPayoffCancelsOnlyPendingTranches() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LocalDate disbursementDate = LocalDate.of(2026, 8, 25);
+        final LoanDisbursementDetails disbursedTranche = new LoanDisbursementDetails(disbursementDate, disbursementDate,
+                new BigDecimal("3000000.00"), new BigDecimal("2940000.00"));
+        final LoanDisbursementDetails pendingTranche = new LoanDisbursementDetails(LocalDate.of(2026, 12, 1), null,
+                new BigDecimal("7000000.00"), new BigDecimal("7000000.00"));
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.CLOSED_OBLIGATIONS_MET.getValue());
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(List.of(disbursedTranche, pendingTranche)));
+
+        loan.cancelUndisbursedTranchesAfterPayoff();
+
+        assertEquals(1, loan.getDisbursementDetails().size());
+        assertEquals(disbursedTranche, loan.getDisbursementDetails().get(0));
+    }
+
+    @Test
     public void icReviewWithReducedAmountKeepsAppliedAmountAndUpdatesApprovedAmount() {
         final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
         final LoanProductRelatedDetail scheduleDetail = (LoanProductRelatedDetail) ReflectionTestUtils.getField(loan,

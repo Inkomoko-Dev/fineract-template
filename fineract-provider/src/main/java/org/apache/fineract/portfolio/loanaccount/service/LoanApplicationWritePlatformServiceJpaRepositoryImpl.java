@@ -1554,7 +1554,19 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         LocalDate expectedDisbursementDate = null;
 
         final Loan loan = retrieveLoanBy(loanId);
-        final boolean requirePaymentTypeId = !loan.loanProduct().isMultiDisburseLoan()
+        final JsonArray disbursementDataArray = command.arrayOfParameterNamed(LoanApiConstants.disbursementDataParameterName);
+        if (!loan.loanProduct().isMultiDisburseLoan() && disbursementDataArray != null && disbursementDataArray.size() > 1) {
+            throw new PlatformApiDataValidationException("validation.msg.loanapproval.single.disbursement.detail.only",
+                    "A loan product that does not allow multiple disbursements can have only one disbursement detail.",
+                    List.of(ApiParameterError.parameterError("validation.msg.loanapproval.single.disbursement.detail.only",
+                            "Only one disbursement detail is allowed for this loan product.",
+                            LoanApiConstants.disbursementDataParameterName, disbursementDataArray.size())));
+        }
+        final boolean paymentTypeProvidedBySingleDetail = !loan.loanProduct().isMultiDisburseLoan()
+                && disbursementDataArray != null && disbursementDataArray.size() == 1
+                && disbursementDataArray.get(0).isJsonObject()
+                && disbursementDataArray.get(0).getAsJsonObject().has("paymentTypeId");
+        final boolean requirePaymentTypeId = !loan.loanProduct().isMultiDisburseLoan() && !paymentTypeProvidedBySingleDetail
                 && !this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan);
         this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json(), requirePaymentTypeId);
 
@@ -1579,8 +1591,6 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
         this.validateActiveLoanCount(loan.getClientId());
         this.loanDecisionStateUtilService.validateLoanAccountWithExtraLoanDecisionStagesConfiguredGlobally(loan, command);
-
-        final JsonArray disbursementDataArray = command.arrayOfParameterNamed(LoanApiConstants.disbursementDataParameterName);
 
         expectedDisbursementDate = command.localDateValueOfParameterNamed(LoanApiConstants.disbursementDateParameterName);
         if (expectedDisbursementDate == null) {
@@ -1653,9 +1663,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 defaultLoanLifecycleStateMachine(), isBnplEquityContributionLoan, amountToDisburseForBnplEquityContributionLoan,
                 isExtendLoanLifeCycleConfig);
 
-        if (loan.loanProduct().isMultiDisburseLoan()
+        if (disbursementDataArray != null
                 && this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
-            updateMultiDisbursementPaymentDetails(loan, command, disbursementDataArray);
+            updateDisbursementPaymentDetails(loan, command, disbursementDataArray);
         }
 
         entityDatatableChecksWritePlatformService.runTheCheckForProduct(loanId, EntityTables.LOAN.getName(),
@@ -1890,7 +1900,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         loan.getDisbursementDetails().add(disbursementDetail);
     }
 
-    private void updateMultiDisbursementPaymentDetails(final Loan loan, final JsonCommand parentCommand,
+    private void updateDisbursementPaymentDetails(final Loan loan, final JsonCommand parentCommand,
             final JsonArray disbursementDataArray) {
         if (disbursementDataArray == null) {
             return;
