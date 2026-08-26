@@ -1,0 +1,59 @@
+{
+  "alert": "Fineract JVM Heap Pressure",
+  "alertType": "METRIC_BASED_ALERT",
+  "ruleType": "threshold_rule",
+  "version": "v5",
+  "description": "JVM heap usage above 85% of limit",
+  "evalWindow": "5m0s",
+  "frequency": "1m0s",
+  "condition": {
+    "compositeQuery": {
+      "queryType": "builder",
+      "panelType": "graph",
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "signal": "metrics",
+            "stepInterval": 60,
+            "aggregations": [
+              {
+                "metricName": "process.runtime.jvm.memory.usage",
+                "timeAggregation": "avg",
+                "spaceAggregation": "avg"
+              }
+            ],
+            "filters": {
+              "op": "AND",
+              "items": [
+                {
+                  "key": { "key": "service.name", "type": "tag", "isColumn": false },
+                  "op": "=",
+                  "value": "fineract-server"
+                },
+                {
+                  "key": { "key": "type", "type": "tag", "isColumn": false },
+                  "op": "=",
+                  "value": "heap"
+                }
+              ]
+            },
+            "disabled": false
+          }
+        }
+      ]
+    },
+    "op": "1",
+    "target": 0.85,
+    "matchType": "4",
+    "selectedQueryName": "A"
+  },
+  "labels": { "severity": "warning", "service": "fineract-server" },
+  "annotations": {
+    "summary": "JVM heap pressure on fineract-server",
+    "description": "Heap usage is above 85% of configured limit."
+  },
+  "disabled": false,
+  "preferredChannels": []
+}

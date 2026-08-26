@@ -1,0 +1,14 @@
+# Optional SMTP overlay for SigNoz alert emails (SendGrid or other SMTP).
+# Copy .env.signoz.example to .env.signoz, fill values, then:
+#   docker compose -f docker-compose.yml -f docker-compose.signoz.yml \
+#     -f docker-compose.signoz.smtp.yml --env-file .env.signoz up -d signoz
+
+services:
+  signoz:
+    environment:
+      - SIGNOZ_EXTERNAL_URL=${SIGNOZ_EXTERNAL_URL:-http://localhost:3301}
+      - SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__FROM=${SIGNOZ_SMTP_FROM}
+      - SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__SMARTHOST=${SIGNOZ_SMTP_SMARTHOST:-smtp.sendgrid.net:587}
+      - SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__USERNAME=${SIGNOZ_SMTP_USERNAME}
+      - SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD=${SIGNOZ_SMTP_PASSWORD}
+      - SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__REQUIRE__TLS=${SIGNOZ_SMTP_REQUIRE_TLS:-true}

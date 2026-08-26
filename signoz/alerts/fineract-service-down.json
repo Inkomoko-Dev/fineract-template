@@ -1,0 +1,54 @@
+{
+  "alert": "Fineract Web Service Down",
+  "alertType": "METRIC_BASED_ALERT",
+  "ruleType": "threshold_rule",
+  "version": "v5",
+  "description": "Actuator health probe failed for 2 minutes",
+  "evalWindow": "2m0s",
+  "frequency": "1m0s",
+  "condition": {
+    "compositeQuery": {
+      "queryType": "builder",
+      "panelType": "graph",
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "signal": "metrics",
+            "stepInterval": 60,
+            "aggregations": [
+              {
+                "metricName": "httpcheck.status",
+                "timeAggregation": "avg",
+                "spaceAggregation": "avg"
+              }
+            ],
+            "filters": {
+              "op": "AND",
+              "items": [
+                {
+                  "key": { "key": "url", "type": "tag", "isColumn": false },
+                  "op": "contains",
+                  "value": "actuator/health"
+                }
+              ]
+            },
+            "disabled": false
+          }
+        }
+      ]
+    },
+    "op": "3",
+    "target": 1,
+    "matchType": "4",
+    "selectedQueryName": "A"
+  },
+  "labels": { "severity": "critical", "service": "fineract-server" },
+  "annotations": {
+    "summary": "Fineract health check failed",
+    "description": "httpcheck.status for /fineract-provider/actuator/health is below 1."
+  },
+  "disabled": false,
+  "preferredChannels": []
+}

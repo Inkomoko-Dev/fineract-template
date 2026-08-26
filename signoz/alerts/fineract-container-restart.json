@@ -1,0 +1,59 @@
+{
+  "alert": "Fineract Container Restart",
+  "alertType": "METRIC_BASED_ALERT",
+  "ruleType": "threshold_rule",
+  "version": "v5",
+  "description": "cAdvisor detected container restart for Fineract or MariaDB",
+  "evalWindow": "5m0s",
+  "frequency": "1m0s",
+  "condition": {
+    "compositeQuery": {
+      "queryType": "builder",
+      "panelType": "graph",
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "signal": "metrics",
+            "stepInterval": 60,
+            "aggregations": [
+              {
+                "metricName": "container_start_time_seconds",
+                "timeAggregation": "max",
+                "spaceAggregation": "max"
+              }
+            ],
+            "filters": {
+              "op": "OR",
+              "items": [
+                {
+                  "key": { "key": "container", "type": "tag", "isColumn": false },
+                  "op": "contains",
+                  "value": "fineract-server"
+                },
+                {
+                  "key": { "key": "container", "type": "tag", "isColumn": false },
+                  "op": "contains",
+                  "value": "fineractmysql"
+                }
+              ]
+            },
+            "disabled": false
+          }
+        }
+      ]
+    },
+    "op": "1",
+    "target": 1,
+    "matchType": "4",
+    "selectedQueryName": "A"
+  },
+  "labels": { "severity": "warning", "service": "fineract" },
+  "annotations": {
+    "summary": "Fineract stack container restarted",
+    "description": "container_start_time_seconds changed for fineract-server or fineractmysql."
+  },
+  "disabled": false,
+  "preferredChannels": []
+}
