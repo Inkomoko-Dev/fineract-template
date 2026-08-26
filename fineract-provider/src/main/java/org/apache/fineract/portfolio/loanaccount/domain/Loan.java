@@ -6334,6 +6334,23 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return this.getTotalOutstandingOnLoanAsOfDate(onDate);
     }
 
+    /**
+     * A completed payoff terminates the remaining multi-disbursement facility. Keeping pending tranche rows on a closed loan makes
+     * them appear available for a later disbursement even though the account has no outstanding obligation.
+     */
+    public List<Long> cancelUndisbursedTranchesAfterPayoff() {
+        final List<Long> cancelledTrancheIds = new ArrayList<>();
+        if (this.loanProduct.isMultiDisburseLoan() && status().isClosed()) {
+            for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+                if (detail.actualDisbursementDate() == null) {
+                    cancelledTrancheIds.add(detail.getId());
+                }
+            }
+            removeDisbursementDetail();
+        }
+        return cancelledTrancheIds;
+    }
+
     public LoanApplicationTerms constructLoanApplicationTerms(final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         final Integer loanTermFrequency = this.termFrequency;
         final PeriodFrequencyType loanTermPeriodFrequencyType = PeriodFrequencyType.fromInt(this.termPeriodFrequencyType);
@@ -6485,8 +6502,27 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
 
+        // Defence in depth for multi-disbursement loans. An old or incorrectly regenerated schedule can contain the approved
+        // facility amount. A client can only prepay principal that has actually been disbursed, less principal already settled.
+        if (this.loanProduct.isMultiDisburseLoan()) {
+            BigDecimal principalSettled = BigDecimal.ZERO;
+            if (this.summary != null) {
+                principalSettled = defaultToZero(this.summary.getTotalPrincipalRepaid())
+                        .add(defaultToZero(this.summary.getTotalPrincipalWrittenOff()));
+            }
+            final BigDecimal disbursedPrincipalOutstanding = getDisbursedAmount().subtract(principalSettled).max(BigDecimal.ZERO);
+            final Money exposureLimit = Money.of(loanCurrency(), disbursedPrincipalOutstanding);
+            if (totalPrincipal.isGreaterThan(exposureLimit)) {
+                totalPrincipal = exposureLimit;
+            }
+        }
+
         return new LoanRepaymentScheduleInstallment(null, 0, effectiveDate, effectiveDate, totalPrincipal.getAmount(),
                 totalAccruedInterest.getAmount(), feeCharges.getAmount(), penaltyCharges.getAmount(), false, compoundingDetails);
+    }
+
+    private static BigDecimal defaultToZero(final BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     public LocalDate getAccruedTill() {

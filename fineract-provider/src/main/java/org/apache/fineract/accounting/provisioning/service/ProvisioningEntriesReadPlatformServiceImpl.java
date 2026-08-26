@@ -63,7 +63,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
         LoanProductProvisioningEntryMapper mapper = new LoanProductProvisioningEntryMapper(sqlGenerator);
         final String sql = mapper.schema();
         return this.jdbcTemplate.query(sql, mapper, formattedDate, formattedDate, formattedDate, formattedDate, formattedDate,
-                formattedDate, formattedDate);
+                formattedDate, formattedDate, formattedDate);
     }
 
     private static final class LoanProductProvisioningEntryMapper implements RowMapper<LoanProvisioningCandidateData> {
@@ -81,18 +81,30 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
                     "THEN DATEDIFF(DATE(?), min_date) ELSE DATEDIFF(max_date, min_date) END, 0) AS numberofdaysoverdue, " +
                     "sch.duedate, " +
 
-                    // Principal Outstanding
-                    "(IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) AS principal_outstanding, " +
+                    // Principal outstanding is based on utilization, not the approved facility. For multi-disbursement loans use
+                    // tranche principal actually disbursed by the provisioning cut-off date; single-disbursement loans retain the
+                    // established derived balance source.
+                    "GREATEST((CASE WHEN product.allow_multiple_disbursals = 1 " +
+                    "THEN IFNULL(disbursementTbl.principal_disbursed, 0) " +
+                    "ELSE IFNULL(loan.principal_disbursed_derived, 0) END) - IFNULL(paymentTbl.princ_paid, 0), 0) " +
+                    "AS principal_outstanding, " +
 
                     // Accrued Interest up to cut-off from repayment schedule
                     "(IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0)) AS accrued_interest_to_cutoff, " +
 
                     // Total Exposure = Principal Outstanding + Accrued Interest
-                    "((IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) " +
+                    "(GREATEST((CASE WHEN product.allow_multiple_disbursals = 1 " +
+                    "THEN IFNULL(disbursementTbl.principal_disbursed, 0) " +
+                    "ELSE IFNULL(loan.principal_disbursed_derived, 0) END) - IFNULL(paymentTbl.princ_paid, 0), 0) " +
                     "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) AS outstandingbalance " +
 
                     "FROM m_loan_repayment_schedule sch " +
                     "LEFT JOIN m_loan loan ON sch.loan_id = loan.id " +
+                    "JOIN m_product_loan product ON product.id = loan.product_id " +
+                    "LEFT JOIN (SELECT detail.loan_id, SUM(IFNULL(detail.principal, 0)) AS principal_disbursed " +
+                    "FROM m_loan_disbursement_detail detail " +
+                    "WHERE detail.disbursedon_date IS NOT NULL AND detail.disbursedon_date <= DATE(?) " +
+                    "GROUP BY detail.loan_id) AS disbursementTbl ON disbursementTbl.loan_id = loan.id " +
                     "LEFT JOIN (SELECT COUNT(*) AS Instalment, lrs.loan_id, MAX(lrs.duedate) AS max_date, MIN(lrs.duedate) AS min_date " +
                     "FROM m_loan_repayment_schedule lrs " +
                     "WHERE lrs.duedate <= DATE(?) " +
