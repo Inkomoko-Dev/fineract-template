@@ -61,6 +61,7 @@ public class LoanTransactionHelper {
     private static final String REJECT_LOAN_COMMAND = "reject";
     private static final String UNDO_LAST_DISBURSE_LOAN_COMMAND = "undolastdisbursal";
     private static final String WRITE_OFF_LOAN_COMMAND = "writeoff";
+    private static final String PARTIAL_WRITE_OFF_LOAN_COMMAND = "partialwriteoff";
     private static final String WAIVE_INTEREST_COMMAND = "waiveinterest";
     private static final String MAKE_REPAYMENT_COMMAND = "repayment";
     private static final String REVERSE_RECOVERY_PAYMENT_COMMAND = "reverseRecoveryPayment";
@@ -333,6 +334,11 @@ public class LoanTransactionHelper {
 
     public HashMap writeOffLoan(final String date, final Integer loanID) {
         return performLoanTransaction(createLoanTransactionURL(WRITE_OFF_LOAN_COMMAND, loanID), getWriteOffBodyAsJSON(date));
+    }
+
+    public HashMap partialWriteOffLoan(final Integer loanID, final String partialWriteOffJson) {
+        LOG.info("--------------------------------- PARTIAL WRITE OFF LOAN -------------------------------");
+        return performLoanTransaction(createLoanTransactionURL(PARTIAL_WRITE_OFF_LOAN_COMMAND, loanID), partialWriteOffJson);
     }
 
     public HashMap waiveInterest(final String date, final String amountToBeWaived, final Integer loanID) {
