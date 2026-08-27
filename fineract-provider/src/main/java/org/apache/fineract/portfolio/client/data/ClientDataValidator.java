@@ -40,6 +40,7 @@ import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidati
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.client.api.ClientApiConstants;
+import org.apache.fineract.portfolio.client.domain.LegalForm;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -193,7 +194,7 @@ public final class ClientDataValidator {
         }
 
         final Integer legalFormId = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ClientApiConstants.legalFormIdParamName, element);
-        final boolean isIndividual = legalFormId != null && legalFormId == 1;
+        final boolean isIndividual = legalFormId != null && legalFormId == LegalForm.PERSON.getValue();
 
         final LocalDate dateOfBirth = this.fromApiJsonHelper.extractLocalDateNamed(ClientApiConstants.dateOfBirthParamName, element);
         if (isIndividual || this.fromApiJsonHelper.parameterExists(ClientApiConstants.dateOfBirthParamName, element)) {
