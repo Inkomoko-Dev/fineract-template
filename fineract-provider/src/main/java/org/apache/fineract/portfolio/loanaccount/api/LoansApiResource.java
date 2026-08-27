@@ -855,8 +855,9 @@ public class LoansApiResource {
                 repaymentStrategyOptions, interestRateFrequencyTypeOptions, amortizationTypeOptions, interestTypeOptions,
                 interestCalculationPeriodTypeOptions, fundOptions, chargeOptions, chargeTemplate, allowedLoanOfficers, loanPurposeOptions,
                 loanCollateralOptions, calendarOptions, notes, accountLinkingOptions, linkedAccount, disbursementData, emiAmountVariations,
-                overdueCharges, paidInAdvanceTemplate, interestRatesPeriods, clientActiveLoanOptions, rates, isRatesEnabled,
-                collectionData);
+                overdueCharges, paidInAdvanceTemplate, interestRatesPeriods, clientActiveLoanOptions, rates,
+                loanBasicDetails.getEnableThirdPartyDisbursement(), loanBasicDetails.getThirdPartyDisbursementProviderOptions(),
+                isRatesEnabled, collectionData);
         loanAccount.setLinkedVendorAccount(linkedVendorAccount);
         loanAccount.setVendorClientOptions(vendorClientOptions);
         loanAccount.setVendorSavingsAccountOptions(vendorSavingsAccountOptions);
