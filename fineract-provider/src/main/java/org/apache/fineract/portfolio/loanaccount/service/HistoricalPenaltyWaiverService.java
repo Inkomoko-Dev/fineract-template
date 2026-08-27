@@ -49,6 +49,7 @@ import org.apache.fineract.portfolio.loanaccount.data.HistoricalPenaltyWaiverReq
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.HistoricalPenaltyWaiverResult;
+import org.apache.fineract.portfolio.loanaccount.domain.HistoricalPenaltyWaiverStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
@@ -107,6 +108,7 @@ public class HistoricalPenaltyWaiverService {
         final MonetaryCurrency currency = loan.getCurrency();
 
         validateWaivable(loan, loanCharge, currency);
+        requireNoWaiverAwaitingApproval(loanChargeId);
 
         final BigDecimal expectedPaidAmount = request.getExpectedPaidAmount();
         final Money amountPaid = loanCharge.getAmountPaid(currency);
@@ -286,6 +288,18 @@ public class HistoricalPenaltyWaiverService {
                     "The selected user is not permitted to approve historical penalty waivers for this office.",
                     LoanApiConstants.nextApproverUserIdParamName, approverUserId);
         }
+    }
+
+    private void requireNoWaiverAwaitingApproval(final Long loanChargeId) {
+
+        this.waiverRepository
+                .findFirstByLoanChargeIdAndStatusOrderByIdAsc(loanChargeId, HistoricalPenaltyWaiverStatus.PENDING_APPROVAL)
+                .ifPresent(pending -> {
+                    throw validationError("validation.msg.loan.charge.historical.waiver.already.awaiting.approval",
+                            "Correction " + pending.getCorrectionReference()
+                                    + " is already awaiting approval for this penalty; approve or reject it before raising another.",
+                            LoanApiConstants.loanChargeIdParameterName, loanChargeId);
+                });
     }
 
     private void requirePendingApproval(final LoanHistoricalPenaltyWaiver waiver) {

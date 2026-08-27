@@ -230,6 +230,19 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
     }
 
     @Test
+    public void aSecondWaiverCannotBeRaisedWhileOneAwaitsApprovalOnTheSamePenalty() {
+        this.fixture.requiresApproval(false);
+        when(this.fixture.waiverRepository.findFirstByLoanChargeIdAndStatusOrderByIdAsc(CHARGE_ID,
+                HistoricalPenaltyWaiverStatus.PENDING_APPROVAL)).thenReturn(Optional.of(pendingRequest()));
+
+        assertThrows(PlatformApiDataValidationException.class, () -> this.fixture.service().submit(LOAN_ID, CHARGE_ID,
+                requestWithoutApprover("5000.00"), null, SUBMITTED_ON, LocalDate.of(2026, 8, 4)));
+
+        verify(this.fixture.loan, never()).waiveLoanChargeHistorically(any(), any(), anyList(), anyList(), any(), any(), any(), any());
+        verify(this.fixture.waiverRepository, never()).saveAndFlush(any(LoanHistoricalPenaltyWaiver.class));
+    }
+
+    @Test
     public void aBelowThresholdWaiverExecutesImmediately() {
         this.fixture.requiresApproval(false);
         this.fixture.replayProduces(3);
