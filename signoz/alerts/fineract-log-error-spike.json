@@ -1,0 +1,53 @@
+{
+  "alert": "Fineract Log ERROR Spike",
+  "alertType": "LOGS_BASED_ALERT",
+  "ruleType": "threshold_rule",
+  "version": "v5",
+  "description": "More than 10 ERROR logs in 5 minutes",
+  "evalWindow": "5m0s",
+  "frequency": "1m0s",
+  "condition": {
+    "compositeQuery": {
+      "queryType": "builder",
+      "panelType": "graph",
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "signal": "logs",
+            "stepInterval": 60,
+            "aggregations": [{ "expression": "count()", "alias": "count" }],
+            "filters": {
+              "op": "AND",
+              "items": [
+                {
+                  "key": { "key": "service.name", "type": "resource", "isColumn": false },
+                  "op": "=",
+                  "value": "fineract-server"
+                },
+                {
+                  "key": { "key": "severity_text", "type": "tag", "isColumn": false },
+                  "op": "=",
+                  "value": "ERROR"
+                }
+              ]
+            },
+            "disabled": false
+          }
+        }
+      ]
+    },
+    "op": "1",
+    "target": 10,
+    "matchType": "4",
+    "selectedQueryName": "A"
+  },
+  "labels": { "severity": "warning", "service": "fineract-server" },
+  "annotations": {
+    "summary": "ERROR log spike on fineract-server",
+    "description": "More than 10 ERROR logs in 5 minutes."
+  },
+  "disabled": false,
+  "preferredChannels": []
+}

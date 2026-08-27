@@ -27,3 +27,6 @@ licenses
 **/images/diag-*.svg
 target/
 fineract-provider/src/main/resources/application-local.properties
+.env.signoz
+signoz/agent/opentelemetry-javaagent.jar
+signoz/clickhouse/user_scripts/histogramQuantile

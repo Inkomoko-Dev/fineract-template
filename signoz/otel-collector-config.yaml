@@ -1,0 +1,86 @@
+# Front-line OpenTelemetry Collector (Fineract + infra -> SigNoz backend).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  prometheus:
+    config:
+      global:
+        scrape_interval: 30s
+      scrape_configs:
+        - job_name: cadvisor
+          static_configs:
+            - targets: ["cadvisor:8080"]
+        - job_name: otel-collector
+          static_configs:
+            - targets: ["localhost:8888"]
+
+  hostmetrics:
+    root_path: /hostfs
+    collection_interval: 30s
+    scrapers:
+      cpu:
+      memory:
+      disk:
+      filesystem:
+      network:
+      load:
+
+  httpcheck:
+    targets:
+      - endpoint: https://fineract-server:8443/fineract-provider/actuator/health
+        method: GET
+        tls:
+          insecure_skip_verify: true
+      - endpoint: http://signoz-otel-collector:13133/
+        method: GET
+
+processors:
+  batch:
+    send_batch_size: 8192
+    timeout: 5s
+  resourcedetection:
+    detectors: [env, system, docker]
+    timeout: 5s
+  resource/infra:
+    attributes:
+      - key: deployment.environment
+        value: local
+        action: upsert
+      - key: service.namespace
+        value: fineract
+        action: upsert
+
+exporters:
+  otlp/signoz:
+    endpoint: signoz-otel-collector:4317
+    tls:
+      insecure: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resourcedetection, batch]
+      exporters: [otlp/signoz]
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [resourcedetection, batch]
+      exporters: [otlp/signoz]
+    metrics/infra:
+      receivers: [hostmetrics, httpcheck]
+      processors: [resource/infra, resourcedetection, batch]
+      exporters: [otlp/signoz]
+    logs:
+      receivers: [otlp]
+      processors: [resourcedetection, batch]
+      exporters: [otlp/signoz]

@@ -1,0 +1,58 @@
+{
+  "alert": "Fineract HTTP 5xx Errors",
+  "alertType": "TRACES_BASED_ALERT",
+  "ruleType": "threshold_rule",
+  "version": "v5",
+  "description": "Server errors on fineract-server API",
+  "evalWindow": "5m0s",
+  "frequency": "1m0s",
+  "condition": {
+    "compositeQuery": {
+      "queryType": "builder",
+      "panelType": "graph",
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "signal": "traces",
+            "stepInterval": 60,
+            "aggregations": [
+              {
+                "expression": "count()",
+                "alias": "count"
+              }
+            ],
+            "filters": {
+              "op": "AND",
+              "items": [
+                {
+                  "key": { "key": "service.name", "type": "resource", "isColumn": false },
+                  "op": "=",
+                  "value": "fineract-server"
+                },
+                {
+                  "key": { "key": "http.status_code", "type": "tag", "isColumn": false },
+                  "op": ">=",
+                  "value": "500"
+                }
+              ]
+            },
+            "disabled": false
+          }
+        }
+      ]
+    },
+    "op": "1",
+    "target": 1,
+    "matchType": "4",
+    "selectedQueryName": "A"
+  },
+  "labels": { "severity": "critical", "service": "fineract-server" },
+  "annotations": {
+    "summary": "HTTP 5xx on fineract-server",
+    "description": "At least one 5xx response in the last evaluation window."
+  },
+  "disabled": false,
+  "preferredChannels": []
+}
