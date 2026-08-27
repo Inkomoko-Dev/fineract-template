@@ -1568,9 +1568,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     multiDisburseLoan, canDefineInstallmentAmount, fixedEmiAmount, outstandingLoanBalance, inArrears, graceOnArrearsAgeing,
                     isNPA, daysInMonthType, daysInYearType, isInterestRecalculationEnabled, interestRecalculationData,
                     createStandingInstructionAtDisbursement, isvariableInstallmentsAllowed, minimumGap, maximumGap, loanSubStatus,
-                    canUseForTopup, isTopup, closureLoanId, closureLoanAccountNo, topupAmount, isEqualAmortization,
-                    fixedPrincipalPercentagePerInstallment);
+                    canUseForTopup, isTopup, closureLoanId, closureLoanAccountNo, topupAmount, isEqualAmortization, null,
+                    rs.getBoolean("enableThirdPartyDisbursement"), null, false, fixedPrincipalPercentagePerInstallment);
             loanAccountData.setBnplLoan(isBnplLoan);
+            loanAccountData.setThirdPartyDisbursementProvider(rs.getString("thirdPartyDisbursementProvider"));
             loanAccountData.setRequiresEquityContribution(requiresEquityContribution);
             loanAccountData.setEquityContributionLoanPercentage(equityContributionLoanPercentage);
             loanAccountData.setDepartment(department);
