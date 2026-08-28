@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
@@ -118,6 +119,36 @@ class LoanRepaymentScheduleInstallmentPrepaymentTest {
 
         assertTrue(installment.isFutureInstallment(MID_PERIOD_DATE));
         assertAmount("0.00", installment.calculateAccruedInterestToDate(KES, MID_PERIOD_DATE).getAmount());
+    }
+
+    @Test
+    void updateDerivedFieldsDoesNotSetObligationsMetOnDateWithoutPayment() {
+        final LoanRepaymentScheduleInstallment installment = installmentWithInterest("1000.00", "100.00");
+        final LocalDate disbursementDate = LocalDate.of(2026, 8, 10);
+
+        // Simulate disbursement - call updateDerivedFields with disbursement date
+        installment.updateDerivedFields(KES, disbursementDate);
+
+        // obligationsMetOnDate should remain null since no actual payment was made
+        assertNull(installment.getObligationsMetOnDate(),
+                "obligationsMetOnDate should not be set during disbursement when no payment has been made");
+    }
+
+    @Test
+    void updateDerivedFieldsSetsObligationsMetWhenOutstandingIsZero() {
+        final LoanRepaymentScheduleInstallment installment = installmentWithInterest("0.00", "0.00");
+        final LocalDate disbursementDate = LocalDate.of(2026, 8, 10);
+
+        // Simulate disbursement - call updateDerivedFields with disbursement date
+        installment.updateDerivedFields(KES, disbursementDate);
+
+        // obligationsMet flag should be set to true when outstanding is zero
+        assertTrue(installment.isObligationsMet(),
+                "obligationsMet should be set to true when outstanding amount is zero");
+
+        // But obligationsMetOnDate should still be null
+        assertNull(installment.getObligationsMetOnDate(),
+                "obligationsMetOnDate should not be set during disbursement even when outstanding is zero");
     }
 
     private static LoanRepaymentScheduleInstallment installmentWithInterest(final String principal, final String interest) {
