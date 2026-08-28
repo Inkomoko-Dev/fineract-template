@@ -3460,6 +3460,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         this.validateForAddAndDeleteTranche(loan);
 
         loan.updateDisbursementDetails(command, actualChanges);
+        loan.validateTrancheDisbursementDatesAreNotAfterMaturity();
 
         if (loan.loanProduct().isDisallowExpectedDisbursements()) {
             if (!loan.getDisbursementDetails().isEmpty()) {
