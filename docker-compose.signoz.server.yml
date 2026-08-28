@@ -1,8 +1,10 @@
-# SigNoz overlay — use with the server docker-compose.yml (mysql + fineract network).
+# SigNoz overlay for docker-compose.server.yml (mysql + fineract network).
 # UI: http://localhost:3301  |  cAdvisor: http://localhost:8081
 #
+# Usage:
 #   bash scripts/signoz-bootstrap.sh
-#   docker compose -f docker-compose.yml -f docker-compose.signoz.yml up -d
+#   docker compose --env-file .env.server \
+#     -f docker-compose.server.yml -f docker-compose.signoz.server.yml up -d
 
 x-signoz-logging: &signoz-logging
   logging:
@@ -11,17 +13,16 @@ x-signoz-logging: &signoz-logging
       max-file: "3"
 
 services:
-  # --- Fineract instrumentation overlay (server: mysql service, fineract network) ---
+  # --- Fineract instrumentation (server layout: mysql service, fineract network) ---
   fineract-server:
     volumes:
       - ./signoz/agent:/otel:ro
     environment:
+      # Preserves server heap (e.g. -Xmx17G) via SIGNOZ_FINERACT_JAVA_TOOL_OPTIONS in .env.server
       JAVA_TOOL_OPTIONS: >-
-        -Xmx17G
-        -javaagent:/otel/opentelemetry-javaagent.jar
-        -Dmanagement.endpoints.web.exposure.include=health,info,prometheus,metrics
+        ${SIGNOZ_FINERACT_JAVA_TOOL_OPTIONS:--Xmx -javaagent:/otel/opentelemetry-javaagent.jar -Dmanagement.endpoints.web.exposure.include=health,info,prometheus,metrics}
       OTEL_SERVICE_NAME: fineract-server
-      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev,service.namespace=fineract
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${SIGNOZ_DEPLOYMENT_ENV:-dev},service.namespace=fineract
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       OTEL_TRACES_EXPORTER: otlp
@@ -29,6 +30,8 @@ services:
       OTEL_LOGS_EXPORTER: otlp
       OTEL_INSTRUMENTATION_LOGBACK_APPENDER_EXPERIMENTAL_CAPTURE_MDC_ATTRIBUTES: "*"
     depends_on:
+      mysql:
+        condition: service_healthy
       otel-collector:
         condition: service_started
     networks:
@@ -73,7 +76,6 @@ services:
     networks:
       - signoz-net
 
-  # --- SigNoz stack ---
   signoz-init-clickhouse:
     <<: *signoz-logging
     image: clickhouse/clickhouse-server:25.5.6
@@ -227,7 +229,7 @@ services:
       - SIGNOZ_ALERTMANAGER_PROVIDER=signoz
       - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://signoz-clickhouse:9000
       - SIGNOZ_SQLSTORE_SQLITE_PATH=/var/lib/signoz/signoz.db
-      - SIGNOZ_TOKENIZER_JWT_SECRET=fineract-signoz-jwt-replace-on-server
+      - SIGNOZ_TOKENIZER_JWT_SECRET=${SIGNOZ_JWT_SECRET:-fineract-local-signoz-secret}
     volumes:
       - signoz_sqlite:/var/lib/signoz
     depends_on:
@@ -249,8 +251,6 @@ services:
       - signoz-net
 
 networks:
-  fineract:
-    driver: bridge
   signoz-net:
     name: fineract-signoz-net
 
