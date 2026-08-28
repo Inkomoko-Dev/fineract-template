@@ -1814,6 +1814,15 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     "Loan status changed unexpectedly after partial write-off. Loan must remain active or overpaid.");
         }
 
+        // Additional safeguard: ensure partial write-off doesn't trigger loan closure logic
+        // Even if individual components reach zero, the loan should remain ACTIVE
+        if (loan.status().compareTo(LoanStatus.CLOSED_OBLIGATIONS_MET) == 0 || 
+            loan.status().compareTo(LoanStatus.CLOSED_WRITTEN_OFF) == 0 ||
+            loan.status().compareTo(LoanStatus.CLOSED_RESCHEDULE_OUTSTANDING_AMOUNT) == 0) {
+            throw new GeneralPlatformDomainRuleException("error.loan.status.cannot.be.closed",
+                    "Partial write-off cannot close the loan. Loan must remain active.");
+        }
+
         // Create audit record
         final PartialWriteOffAudit audit = PartialWriteOffAudit.create(loan, partialWriteOffTransaction, writeOffDate,
                 principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion, totalWriteOffAmount,

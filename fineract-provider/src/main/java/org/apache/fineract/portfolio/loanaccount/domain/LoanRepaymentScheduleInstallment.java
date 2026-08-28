@@ -890,7 +890,8 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
     public void updateDerivedFields(final MonetaryCurrency currency, final LocalDate actualDisbursementDate) {
         if (!this.obligationsMet && getTotalOutstanding(currency).isZero()) {
             this.obligationsMet = true;
-            this.obligationsMetOnDate = actualDisbursementDate;
+            // obligationsMetOnDate should only be set during actual payment transactions
+            // via checkIfRepaymentPeriodObligationsAreMet, not during disbursement
         }
     }
 

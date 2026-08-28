@@ -21,7 +21,6 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
@@ -34,8 +33,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWai
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverTxnRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
-import org.apache.fineract.portfolio.loanproduct.domain.HistoricalCorrectionProductApprover;
-import org.apache.fineract.portfolio.loanproduct.domain.HistoricalCorrectionProductApproverRepository;
 import org.apache.fineract.useradministration.data.AppUserData;
 import org.apache.fineract.useradministration.service.AppUserReadPlatformService;
 import org.springframework.stereotype.Service;
@@ -50,7 +47,6 @@ public class HistoricalPenaltyWaiverReadPlatformServiceImpl implements Historica
 
     private final LoanHistoricalPenaltyWaiverRepository waiverRepository;
     private final LoanHistoricalPenaltyWaiverTxnRepository waiverTxnRepository;
-    private final HistoricalCorrectionProductApproverRepository approverRepository;
     private final AppUserReadPlatformService appUserReadPlatformService;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
 
@@ -81,19 +77,7 @@ public class HistoricalPenaltyWaiverReadPlatformServiceImpl implements Historica
 
         // The office-hierarchy clause already returns users at or above the loan's office, which is what makes
         // "escalate to a higher user" fall out without a second query.
-        final Collection<AppUserData> permitted = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(),
-                APPROVE_PERMISSION);
-
-        final Set<Long> productApprovers = this.approverRepository.findByLoanProductId(loan.productId()).stream()
-                .map(HistoricalCorrectionProductApprover::getAppUserId).collect(Collectors.toSet());
-
-        final Collection<AppUserData> options = new ArrayList<>();
-        for (final AppUserData user : permitted) {
-            if (productApprovers.stream().anyMatch(user::hasIdentifyOf)) {
-                options.add(user);
-            }
-        }
-        return options;
+        return this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(), APPROVE_PERMISSION);
     }
 
     private LoanHistoricalPenaltyWaiver retrieveWaiverBy(final Long waiverId) {

@@ -53,7 +53,7 @@ public class JournalEntryOutcomeListener {
         this.businessDateReadPlatformService = businessDateReadPlatformService;
     }
 
-    @KafkaListener(topics = "${fineract.integrations.events.journal-entry-outcome-topic}", groupId = "${fineract.integrations.events.outcome-consumer-group}", autoStartup = "${fineract.integrations.events.outcome-consumer-enabled}")
+    @KafkaListener(topics = "${fineract.integrations.events.journal-entry-outcome-topic}", groupId = "${fineract.integrations.events.outcome-consumer-group}", autoStartup = "${fineract.integrations.events.outcome-consumer-enabled}", containerFactory = "journalEntryOutcomeListenerContainerFactory")
     public void onOutcome(String message) {
         JsonObject envelope = JsonParser.parseString(message).getAsJsonObject();
         String eventId = envelope.has("eventId") ? envelope.get("eventId").getAsString() : null;

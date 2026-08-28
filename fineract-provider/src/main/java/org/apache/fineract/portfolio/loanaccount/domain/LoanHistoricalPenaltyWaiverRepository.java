@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -30,6 +31,9 @@ public interface LoanHistoricalPenaltyWaiverRepository extends JpaRepository<Loa
     List<LoanHistoricalPenaltyWaiver> findByLoanIdOrderByIdDesc(Long loanId);
 
     List<LoanHistoricalPenaltyWaiver> findByStatusOrderByIdAsc(HistoricalPenaltyWaiverStatus status);
+
+    Optional<LoanHistoricalPenaltyWaiver> findFirstByLoanChargeIdAndStatusOrderByIdAsc(Long loanChargeId,
+            HistoricalPenaltyWaiverStatus status);
 
     @Query("select w from LoanHistoricalPenaltyWaiver w where w.status = :status and w.escalatedOnDate is null")
     List<LoanHistoricalPenaltyWaiver> findNotYetEscalated(@Param("status") HistoricalPenaltyWaiverStatus status);

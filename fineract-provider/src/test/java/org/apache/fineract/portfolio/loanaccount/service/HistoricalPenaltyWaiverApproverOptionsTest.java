@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Arrays;
@@ -30,8 +31,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverTxnRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
-import org.apache.fineract.portfolio.loanproduct.domain.HistoricalCorrectionProductApprover;
-import org.apache.fineract.portfolio.loanproduct.domain.HistoricalCorrectionProductApproverRepository;
 import org.apache.fineract.useradministration.data.AppUserData;
 import org.apache.fineract.useradministration.service.AppUserReadPlatformService;
 import org.junit.jupiter.api.Test;
@@ -41,31 +40,26 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 /**
- * Approver options are an intersection, not a union: holding the approve permission is not enough on its own, and being
- * mapped to the product is not enough on its own.
+ * Approvers resolve exactly the way the loan IC review resolves them: whoever holds the approve permission within the
+ * loan's office hierarchy. There is no second, product-scoped list to be a member of.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class HistoricalPenaltyWaiverApproverOptionsTest {
 
     private static final Long LOAN_ID = 4001L;
-    private static final Long PRODUCT_ID = 9L;
     private static final Long OFFICE_ID = 3L;
 
     private final AppUserReadPlatformService appUserReadPlatformService = mock(AppUserReadPlatformService.class);
-    private final HistoricalCorrectionProductApproverRepository approverRepository = mock(
-            HistoricalCorrectionProductApproverRepository.class);
     private final LoanRepositoryWrapper loanRepositoryWrapper = mock(LoanRepositoryWrapper.class);
 
     private HistoricalPenaltyWaiverReadPlatformService service() {
         final Loan loan = mock(Loan.class);
         when(loan.getOfficeId()).thenReturn(OFFICE_ID);
-        when(loan.productId()).thenReturn(PRODUCT_ID);
         when(this.loanRepositoryWrapper.findOneWithNotFoundDetection(LOAN_ID)).thenReturn(loan);
 
         return new HistoricalPenaltyWaiverReadPlatformServiceImpl(mock(LoanHistoricalPenaltyWaiverRepository.class),
-                mock(LoanHistoricalPenaltyWaiverTxnRepository.class), this.approverRepository, this.appUserReadPlatformService,
-                this.loanRepositoryWrapper);
+                mock(LoanHistoricalPenaltyWaiverTxnRepository.class), this.appUserReadPlatformService, this.loanRepositoryWrapper);
     }
 
     private void permittedUsers(final Long... userIds) {
@@ -74,45 +68,31 @@ public class HistoricalPenaltyWaiverApproverOptionsTest {
                 HistoricalPenaltyWaiverReadPlatformServiceImpl.APPROVE_PERMISSION)).thenReturn(users);
     }
 
-    private void productApprovers(final Long... userIds) {
-        when(this.approverRepository.findByLoanProductId(PRODUCT_ID))
-                .thenReturn(Arrays.stream(userIds).map(id -> HistoricalCorrectionProductApprover.create(PRODUCT_ID, id)).toList());
-    }
-
     @Test
-    public void onlyUsersWithBothThePermissionAndTheProductMappingAreOffered() {
+    public void everyPermissionHolderInTheOfficeHierarchyIsOffered() {
         permittedUsers(10L, 11L, 12L);
-        productApprovers(11L, 12L, 13L);
 
         final Collection<AppUserData> options = service().retrieveApproverOptions(LOAN_ID);
 
-        assertEquals(2, options.size());
+        assertEquals(3, options.size());
+        assertTrue(options.stream().anyMatch(user -> user.hasIdentifyOf(10L)));
         assertTrue(options.stream().anyMatch(user -> user.hasIdentifyOf(11L)));
         assertTrue(options.stream().anyMatch(user -> user.hasIdentifyOf(12L)));
     }
 
     @Test
-    public void thePermissionAloneDoesNotMakeSomeoneAnApprover() {
-        permittedUsers(10L, 11L);
-        productApprovers(99L);
-
-        assertTrue(service().retrieveApproverOptions(LOAN_ID).isEmpty());
-    }
-
-    @Test
-    public void theProductMappingAloneDoesNotMakeSomeoneAnApprover() {
+    public void nobodyHoldingThePermissionMeansNothingToSelect() {
         permittedUsers();
-        productApprovers(10L, 11L);
 
         assertTrue(service().retrieveApproverOptions(LOAN_ID).isEmpty());
     }
 
     @Test
-    public void aProductWithNoMappedApproversOffersNobody() {
-        permittedUsers(10L, 11L);
-        productApprovers();
+    public void theLoansOwnOfficeAndTheApprovePermissionDriveTheLookup() {
+        permittedUsers(10L);
 
-        assertTrue(service().retrieveApproverOptions(LOAN_ID).isEmpty(),
-                "an unmapped product must not silently fall back to every permission holder");
+        service().retrieveApproverOptions(LOAN_ID);
+
+        verify(this.appUserReadPlatformService).retrieveUsersByOfficeAndPermission(OFFICE_ID, "APPROVE_HISTORICALPENALTYWAIVER");
     }
 }

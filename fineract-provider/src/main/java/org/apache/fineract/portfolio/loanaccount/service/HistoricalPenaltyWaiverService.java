@@ -49,6 +49,7 @@ import org.apache.fineract.portfolio.loanaccount.data.HistoricalPenaltyWaiverReq
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.HistoricalPenaltyWaiverResult;
+import org.apache.fineract.portfolio.loanaccount.domain.HistoricalPenaltyWaiverStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
@@ -62,9 +63,9 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
-import org.apache.fineract.portfolio.loanproduct.domain.HistoricalCorrectionProductApproverRepository;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
+import org.apache.fineract.useradministration.service.AppUserReadPlatformService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -87,7 +88,7 @@ public class HistoricalPenaltyWaiverService {
     private final LoanTransactionRepository loanTransactionRepository;
     private final LoanHistoricalPenaltyWaiverRepository waiverRepository;
     private final LoanHistoricalPenaltyWaiverTxnRepository waiverTxnRepository;
-    private final HistoricalCorrectionProductApproverRepository approverRepository;
+    private final AppUserReadPlatformService appUserReadPlatformService;
     private final HistoricalPenaltyWaiverApprovalPolicy approvalPolicy;
     private final NoteRepository noteRepository;
     private final BusinessEventNotifierService businessEventNotifierService;
@@ -107,6 +108,7 @@ public class HistoricalPenaltyWaiverService {
         final MonetaryCurrency currency = loan.getCurrency();
 
         validateWaivable(loan, loanCharge, currency);
+        requireNoWaiverAwaitingApproval(loanChargeId);
 
         final BigDecimal expectedPaidAmount = request.getExpectedPaidAmount();
         final Money amountPaid = loanCharge.getAmountPaid(currency);
@@ -136,7 +138,7 @@ public class HistoricalPenaltyWaiverService {
         Long nextApproverId = null;
         if (requirement.isRequired()) {
             nextApproverId = request.getNextApproverUserId();
-            validateApprover(loan.productId(), nextApproverId);
+            validateApprover(loan.getOfficeId(), nextApproverId);
         }
 
         final LoanHistoricalPenaltyWaiver waiver = LoanHistoricalPenaltyWaiver.submit(loanId, loan.getClientId(), loan.productId(),
@@ -161,7 +163,7 @@ public class HistoricalPenaltyWaiverService {
 
         final LoanHistoricalPenaltyWaiver waiver = retrieveWaiverBy(waiverId);
         requirePendingApproval(waiver);
-        validateApprover(waiver.getProductId(), approvedByUserId);
+        validateApprover(waiver.getOfficeId(), approvedByUserId);
 
         waiver.markApproved(approvedByUserId, approvedOn);
 
@@ -271,18 +273,33 @@ public class HistoricalPenaltyWaiverService {
         }
     }
 
-    private void validateApprover(final Long productId, final Long approverUserId) {
+    private void validateApprover(final Long officeId, final Long approverUserId) {
 
         if (approverUserId == null) {
             throw validationError("validation.msg.loan.charge.historical.waiver.approver.required",
                     "This waiver crosses an approval threshold, so an approver must be named.",
                     LoanApiConstants.nextApproverUserIdParamName, null);
         }
-        if (!this.approverRepository.existsByLoanProductIdAndAppUserId(productId, approverUserId)) {
+        final boolean permitted = this.appUserReadPlatformService
+                .retrieveUsersByOfficeAndPermission(officeId, HistoricalPenaltyWaiverReadPlatformServiceImpl.APPROVE_PERMISSION).stream()
+                .anyMatch(user -> user.hasIdentifyOf(approverUserId));
+        if (!permitted) {
             throw validationError("validation.msg.loan.charge.historical.waiver.approver.not.authorised",
-                    "The selected user is not an approver for this loan product.", LoanApiConstants.nextApproverUserIdParamName,
-                    approverUserId);
+                    "The selected user is not permitted to approve historical penalty waivers for this office.",
+                    LoanApiConstants.nextApproverUserIdParamName, approverUserId);
         }
+    }
+
+    private void requireNoWaiverAwaitingApproval(final Long loanChargeId) {
+
+        this.waiverRepository
+                .findFirstByLoanChargeIdAndStatusOrderByIdAsc(loanChargeId, HistoricalPenaltyWaiverStatus.PENDING_APPROVAL)
+                .ifPresent(pending -> {
+                    throw validationError("validation.msg.loan.charge.historical.waiver.already.awaiting.approval",
+                            "Correction " + pending.getCorrectionReference()
+                                    + " is already awaiting approval for this penalty; approve or reject it before raising another.",
+                            LoanApiConstants.loanChargeIdParameterName, loanChargeId);
+                });
     }
 
     private void requirePendingApproval(final LoanHistoricalPenaltyWaiver waiver) {
