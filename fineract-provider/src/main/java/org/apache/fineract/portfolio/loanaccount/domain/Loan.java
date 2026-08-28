@@ -129,6 +129,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.DefaultSche
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.TrancheDisbursementAfterMaturityException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
@@ -2832,6 +2833,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 LoanStatus.fromInt(this.loanStatus));
 
         final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        validateTrancheDisbursementDateIsNotAfterMaturity(actualDisbursementDate);
 
         this.loanStatus = statusEnum.getValue();
         actualChanges.put("status", LoanEnumerations.status(this.loanStatus));
@@ -5901,6 +5903,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 locale);
         final LocalDate expectedDisbursementDate = command
                 .localDateValueOfParameterNamed(LoanApiConstants.updatedDisbursementDateParameterName);
+        validateTrancheDisbursementDateIsNotAfterMaturity(expectedDisbursementDate);
         disbursementDetails.updateExpectedDisbursementDateAndAmount(expectedDisbursementDate, principal);
         actualChanges.put(LoanApiConstants.disbursementDateParameterName,
                 command.stringValueOfParameterNamed(LoanApiConstants.disbursementDateParameterName));
@@ -5942,6 +5945,25 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         return changedTransactionDetail;
+    }
+
+    public void validateTrancheDisbursementDatesAreNotAfterMaturity() {
+        if (!this.loanProduct.isMultiDisburseLoan()) {
+            return;
+        }
+        for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+            validateTrancheDisbursementDateIsNotAfterMaturity(detail.expectedDisbursementDate());
+        }
+    }
+
+    public void validateTrancheDisbursementDateIsNotAfterMaturity(final LocalDate disbursementDate) {
+        if (!this.loanProduct.isMultiDisburseLoan() || disbursementDate == null) {
+            return;
+        }
+        final LocalDate maturityDate = this.actualMaturityDate != null ? this.actualMaturityDate : this.expectedMaturityDate;
+        if (maturityDate != null && disbursementDate.isAfter(maturityDate)) {
+            throw new TrancheDisbursementAfterMaturityException(disbursementDate, maturityDate);
+        }
     }
 
     public BigDecimal retriveLastEmiAmount() {

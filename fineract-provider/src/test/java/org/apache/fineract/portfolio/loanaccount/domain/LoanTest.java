@@ -62,6 +62,7 @@ import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTrans
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.TrancheDisbursementAfterMaturityException;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
@@ -676,6 +677,29 @@ public class LoanTest {
 
         assertEquals(1, loan.getDisbursementDetails().size());
         assertEquals(disbursedTranche, loan.getDisbursementDetails().get(0));
+    }
+
+    @Test
+    public void trancheDisbursementDateAfterMaturityIsRejected() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "expectedMaturityDate", LocalDate.of(2027, 2, 28));
+
+        assertThrows(TrancheDisbursementAfterMaturityException.class,
+                () -> loan.validateTrancheDisbursementDateIsNotAfterMaturity(LocalDate.of(2027, 3, 1)));
+    }
+
+    @Test
+    public void trancheDisbursementDateOnMaturityIsAllowed() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "expectedMaturityDate", LocalDate.of(2027, 2, 28));
+
+        loan.validateTrancheDisbursementDateIsNotAfterMaturity(LocalDate.of(2027, 2, 28));
     }
 
     @Test
