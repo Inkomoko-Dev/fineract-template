@@ -219,6 +219,60 @@ public class ProvisioningIntegrationTest {
     }
 
     @Test
+    public void testProvisioningCriteriaAllowsZeroToZeroFirstBucket() throws ParseException {
+        ProvisioningTransactionHelper transactionHelper = new ProvisioningTransactionHelper(requestSpec, responseSpec);
+        final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec);
+        ClientHelper.verifyClientCreatedOnServer(this.requestSpec, this.responseSpec, clientID);
+
+        final Integer loanProductID = createLoanProduct(false, NONE);
+        Assertions.assertNotNull(loanProductID);
+        List<HashMap> collateralList = new ArrayList<>();
+        final Integer collateralId = CollateralManagementHelper.createCollateralProduct(this.requestSpec, this.responseSpec);
+        final Integer clientCollateralId = CollateralManagementHelper.createClientCollateral(this.requestSpec, this.responseSpec,
+                String.valueOf(clientID), collateralId);
+        addCollaterals(collateralList, clientCollateralId, BigDecimal.valueOf(1));
+        final Integer loanID = applyForLoanApplication(clientID, loanProductID, null, null, "1,00,000.00", collateralList);
+        HashMap loanStatusHashMap = LoanStatusChecker.getStatusOfLoan(this.requestSpec, this.responseSpec, loanID);
+        LoanStatusChecker.verifyLoanIsPending(loanStatusHashMap);
+        loanStatusHashMap = this.loanTransactionHelper.approveLoan("20 September 2011", loanID);
+        LoanStatusChecker.verifyLoanIsApproved(loanStatusHashMap);
+        LoanStatusChecker.verifyLoanIsWaitingForDisbursal(loanStatusHashMap);
+        String loanDetails = this.loanTransactionHelper.getLoanDetails(this.requestSpec, this.responseSpec, loanID);
+        loanStatusHashMap = this.loanTransactionHelper.disburseLoan("20 September 2011", loanID,
+                JsonPath.from(loanDetails).get("netDisbursalAmount").toString());
+        LoanStatusChecker.verifyLoanIsActive(loanStatusHashMap);
+
+        ArrayList categories = transactionHelper.retrieveAllProvisioningCategories();
+        Assertions.assertTrue(categories.size() >= 4);
+        ArrayList subset = new ArrayList(categories.subList(0, 4));
+        ArrayList<Integer> loanProducts = new ArrayList<>();
+        loanProducts.add(loanProductID);
+
+        Account liability = accountHelper.createLiabilityAccount();
+        Account expense = accountHelper.createExpenseAccount();
+        Map requestCriteria = ProvisioningHelper.createProvisioingCriteriaJson(loanProducts, subset, liability, expense);
+        ArrayList definitions = (ArrayList) requestCriteria.get("definitions");
+        Map firstBucket = new HashMap<>((Map) definitions.get(0));
+        firstBucket.put("minAge", 0L);
+        firstBucket.put("maxAge", 0L);
+        definitions.set(0, firstBucket);
+
+        Map secondBucket = new HashMap<>((Map) definitions.get(1));
+        secondBucket.put("minAge", 1L);
+        definitions.set(1, secondBucket);
+
+        Integer criteriaId = transactionHelper.createProvisioningCriteria(new Gson().toJson(requestCriteria));
+        Assertions.assertNotNull(criteriaId);
+
+        Map created = transactionHelper.retrieveProvisioningCriteria(criteriaId);
+        Map savedFirstBucket = (Map) ((ArrayList) created.get("definitions")).get(0);
+        Assertions.assertEquals(0L, ((Number) savedFirstBucket.get("minAge")).longValue());
+        Assertions.assertEquals(0L, ((Number) savedFirstBucket.get("maxAge")).longValue());
+
+        transactionHelper.deleteProvisioningCriteria(criteriaId);
+    }
+
+    @Test
     public void testUpdateProvisioningDefinitionsWithoutEffectiveFromRejected() throws ParseException {
         Assumptions.assumeTrue(!isAlreadyProvisioningEntriesCreated());
         ProvisioningTransactionHelper transactionHelper = new ProvisioningTransactionHelper(requestSpec, responseSpec);

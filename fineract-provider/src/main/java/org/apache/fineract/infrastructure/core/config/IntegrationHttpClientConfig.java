@@ -26,6 +26,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.web.client.RestTemplate;
 
 @Configuration
 @RequiredArgsConstructor
@@ -50,6 +52,20 @@ public class IntegrationHttpClientConfig {
     @Qualifier("kivaHttpClient")
     public OkHttpClient kivaHttpClient() {
         return buildClient("fineract.integrations.kiva.http");
+    }
+
+    @Bean
+    @Qualifier("africasTalkingHttpClient")
+    public OkHttpClient africasTalkingHttpClient() {
+        return buildClient("fineract.integrations.africastalking.http");
+    }
+
+    @Bean
+    public RestTemplate restTemplate() {
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
+        factory.setConnectTimeout((int) TimeUnit.SECONDS.toMillis(DEFAULT_CONNECT_TIMEOUT_SECONDS));
+        factory.setReadTimeout((int) TimeUnit.SECONDS.toMillis(DEFAULT_READ_TIMEOUT_SECONDS));
+        return new RestTemplate(factory);
     }
 
     private OkHttpClient buildClient(String prefix) {

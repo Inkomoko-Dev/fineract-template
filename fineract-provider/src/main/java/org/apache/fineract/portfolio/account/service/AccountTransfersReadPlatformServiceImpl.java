@@ -404,6 +404,15 @@ public class AccountTransfersReadPlatformServiceImpl implements AccountTransfers
     }
 
     @Override
+    public boolean isLoanToLoanTransfer(final Long loanTransactionId) {
+        final String sql = "select count(*) from m_account_transfer_transaction at "
+                + "where at.from_loan_transaction_id is not null and at.to_loan_transaction_id is not null "
+                + "and (at.from_loan_transaction_id = ? or at.to_loan_transaction_id = ?)";
+        final Integer count = this.jdbcTemplate.queryForObject(sql, Integer.class, loanTransactionId, loanTransactionId);
+        return count != null && count > 0;
+    }
+
+    @Override
     public Page<AccountTransferData> retrieveByStandingInstruction(final Long id, final SearchParameters searchParameters) {
 
         final StringBuilder sqlBuilder = new StringBuilder(200);

@@ -104,6 +104,14 @@ public class LoanRescheduleRequest extends AbstractPersistableCustom {
     @Column(name = "carry_forward_charge_due_date")
     private LocalDate carryForwardChargeDueDate;
 
+    @Column(name = "repayment_every")
+    private Integer repaymentEvery;
+
+    @Column(name = "repayment_frequency_type")
+    private Integer repaymentFrequencyType;
+
+    @Column(name = "preserve_loan_term_duration")
+    private Boolean preserveLoanTermDuration;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER, mappedBy = "loanRescheduleRequest")
     private Set<LoanRescheduleRequestToTermVariationMapping> loanRescheduleRequestToTermVariationMappings = new HashSet<>();
@@ -163,6 +171,19 @@ public class LoanRescheduleRequest extends AbstractPersistableCustom {
     }
 
     /**
+     * @return the preserve loan term duration option (true/false)
+     **/
+    public Boolean getPreserveLoanTermDuration() {
+        boolean preserveLoanTermDuration = false;
+
+        if (this.preserveLoanTermDuration != null) {
+            preserveLoanTermDuration = this.preserveLoanTermDuration;
+        }
+
+        return preserveLoanTermDuration;
+    }
+
+    /**
      * change the status of the loan reschedule request to approved, also updating the approvedByUser and approvedOnDate
      * properties
      *
@@ -213,5 +234,25 @@ public class LoanRescheduleRequest extends AbstractPersistableCustom {
             }
         }
         return null;
+    }
+
+    public Integer getRepaymentEvery() {
+        return repaymentEvery;
+    }
+
+    public void setRepaymentEvery(Integer repaymentEvery) {
+        this.repaymentEvery = repaymentEvery;
+    }
+
+    public Integer getRepaymentFrequencyType() {
+        return repaymentFrequencyType;
+    }
+
+    public void setRepaymentFrequencyType(Integer repaymentFrequencyType) {
+        this.repaymentFrequencyType = repaymentFrequencyType;
+    }
+
+    public void setPreserveLoanTermDuration(Boolean preserveLoanTermDuration) {
+        this.preserveLoanTermDuration = preserveLoanTermDuration;
     }
 }

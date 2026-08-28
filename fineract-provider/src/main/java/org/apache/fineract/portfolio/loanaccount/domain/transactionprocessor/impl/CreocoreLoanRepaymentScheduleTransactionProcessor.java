@@ -55,7 +55,7 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
 
     /**
      * For early/'in advance' repayments, pay only accrued interest up to the payment date,
-     * write off unearned interest, then pay principal. This ensures clients are not charged
+     * cancel unearned interest, then pay principal. This ensures clients are not charged
      * interest that has not yet accrued when they prepay.
      */
     @SuppressWarnings("unused")
@@ -65,13 +65,19 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
             final LocalDate transactionDate, final Money paymentInAdvance,
             final List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {
 
+        // A waiver must never be treated as an advance principal prepayment; route it through the on-time handler
+        // (waives interest/charges only), mirroring handleTransactionThatIsALateRepaymentOfInstallment.
+        if (loanTransaction.isWaiver()) {
+            return handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment, loanTransaction, paymentInAdvance,
+                    transactionMappings);
+        }
         return handleAdvancePaymentWithAccruedInterest(currentInstallment, installments, loanTransaction,
                 transactionDate, paymentInAdvance, transactionMappings);
     }
 
     /**
-     * Handles advance payment by charging only accrued interest and writing off unearned interest.
-     * Payment allocation order: penalties -> fees -> accrued interest (write off unearned) -> principal
+     * Handles advance payment by charging only earned interest and cancelling unearned interest.
+     * Payment allocation order: penalties -> fees -> earned interest (cancel unearned) -> principal
      */
     private Money handleAdvancePaymentWithAccruedInterest(final LoanRepaymentScheduleInstallment currentInstallment,
             final List<LoanRepaymentScheduleInstallment> installments, final LoanTransaction loanTransaction,
@@ -93,8 +99,8 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
         feeChargesPortion = currentInstallment.payFeeChargesComponent(transactionDate, transactionAmountRemaining);
         transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortion);
 
-        // Pay ONLY accrued interest and write off unearned interest for this installment
-        interestPortion = currentInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, transactionAmountRemaining);
+        // Pay ONLY earned interest and cancel the unearned remainder for this installment
+        interestPortion = currentInstallment.payAccruedInterestComponentAndCancelUnearned(transactionDate, transactionAmountRemaining);
         transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
 
         // Pay principal with remaining amount
@@ -108,15 +114,15 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
                     principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion));
         }
 
-        // Process remaining installments (future installments) - write off their interest too
+        // Process remaining installments (future installments) - cancel their interest too
         if (transactionAmountRemaining.isGreaterThanZero()) {
             for (final LoanRepaymentScheduleInstallment futureInstallment : installments) {
                 if (futureInstallment.getInstallmentNumber() > currentInstallment.getInstallmentNumber()
                         && futureInstallment.isNotFullyPaidOff()
                         && transactionAmountRemaining.isGreaterThanZero()) {
 
-                    // For future installments, write off all interest (none has accrued)
-                    futureInstallment.payAccruedInterestComponentAndWriteOffUnearned(transactionDate, Money.zero(currency));
+                    // For future installments, cancel all interest (none has accrued)
+                    futureInstallment.payAccruedInterestComponentAndCancelUnearned(transactionDate, Money.zero(currency));
 
                     // Pay principal from future installments
                     Money futurePrincipalPortion = futureInstallment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
@@ -124,7 +130,8 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
 
                     if (futurePrincipalPortion.isGreaterThanZero()) {
                         principalPortion = principalPortion.plus(futurePrincipalPortion);
-                        loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+                        loanTransaction.updateComponents(futurePrincipalPortion, Money.zero(currency), Money.zero(currency),
+                                Money.zero(currency));
                         transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, futureInstallment,
                                 futurePrincipalPortion, Money.zero(currency), Money.zero(currency), Money.zero(currency)));
                     }
@@ -176,7 +183,7 @@ public class CreocoreLoanRepaymentScheduleTransactionProcessor extends AbstractL
         } else if (loanTransaction.isInterestWaiver()) {
             interestPortion = currentInstallment.waiveInterestComponent(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
-            loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+            // Components are applied once by the trailing updateComponents call below; do not double-count here.
         } else if (loanTransaction.isChargePayment()) {
             if (loanTransaction.isPenaltyPayment()) {
                 penaltyChargesPortion = currentInstallment.payPenaltyChargesComponent(transactionDate, transactionAmountRemaining);

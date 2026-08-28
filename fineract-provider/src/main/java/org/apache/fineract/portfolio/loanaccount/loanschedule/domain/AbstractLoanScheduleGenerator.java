@@ -659,7 +659,11 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
                 currentPeriodParams.minusInterestForThisPeriod(interestDiff);
                 currentPeriodParams.minusFeeChargesForInstallment(chargeDiff);
                 currentPeriodParams.minusPenaltyChargesForInstallment(penaltyDiff);
-                currentPeriodParams.plusPrincipalForThisPeriod(diff);
+                // Do not inflate principal when the adjustment is only from reducing unearned interest on prepayment
+                final Money nonInterestDiff = chargeDiff.plus(penaltyDiff);
+                if (nonInterestDiff.isGreaterThanZero() || interestDiff.isLessThanZero()) {
+                    currentPeriodParams.plusPrincipalForThisPeriod(diff);
+                }
 
                 // create and replaces repayment period
                 // from parts
@@ -1164,6 +1168,102 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
                     loanApplicationTerms.updateTotalInterestAccounted(scheduleParams.getTotalCumulativeInterest());
                     loanTermVariationsData.setProcessed(true);
                 break;
+                case REPAYMENT_FREQUENCY: {
+                    PeriodFrequencyType newFrequency = PeriodFrequencyType.fromInt(loanTermVariationsData.getDecimalValue().intValue());
+                    loanApplicationTerms.updateRepaymentPeriodFrequencyType(newFrequency);
+                    loanEndDate = this.scheduledDateGenerator.getLastRepaymentDate(loanApplicationTerms,
+                            loanApplicationTerms.getHolidayDetailDTO());
+                    loanApplicationTerms.updateLoanEndDate(loanEndDate);
+                    adjustInstallmentOrPrincipalAmount(loanApplicationTerms, scheduleParams.getTotalCumulativePrincipal(),
+                            scheduleParams.getPeriodNumber(), mc);
+                    if (!loanApplicationTerms.getInterestMethod().isDecliningBalnce()) {
+                        loanApplicationTerms.updateAccountedTillPeriod(scheduleParams.getPeriodNumber() - 1,
+                                scheduleParams.getTotalCumulativePrincipal(), scheduleParams.getTotalCumulativeInterest(), 0);
+                        
+                        final BigDecimal divisor = BigDecimal.valueOf(100.0);
+                        final long loanTermPeriodsInOneYear = loanApplicationTerms.calculatePeriodsInOneYear(this.paymentPeriodsInOneYearCalculator);
+                        final BigDecimal loanTermPeriodsInYearBigDecimal = BigDecimal.valueOf(loanTermPeriodsInOneYear);
+                        
+                        BigDecimal remainingPeriods;
+                        BigDecimal multiplier;
+                        if (loanApplicationTerms.getInterestCalculationPeriodMethod().isDaily()) {
+                            final LocalDate remainingStartDate = scheduleParams.getPeriodStartDate();
+                            final int remainingDays = Math.toIntExact(ChronoUnit.DAYS.between(remainingStartDate, loanEndDate));
+                            remainingPeriods = BigDecimal.valueOf(remainingDays);
+                            multiplier = BigDecimal.ONE;
+                        } else {
+                            final int remainingPeriodsVal = loanApplicationTerms.getNumberOfRepayments() - (scheduleParams.getPeriodNumber() - 1);
+                            remainingPeriods = BigDecimal.valueOf(remainingPeriodsVal);
+                            multiplier = BigDecimal.valueOf(loanApplicationTerms.getRepaymentEvery());
+                        }
+                        
+                        final BigDecimal ratePerPeriod = loanApplicationTerms.getAnnualNominalInterestRate()
+                                .divide(loanTermPeriodsInYearBigDecimal, mc)
+                                .divide(divisor, mc)
+                                .multiply(multiplier);
+                        
+                        final Money remainingInterest = getPrincipalToBeScheduled(loanApplicationTerms)
+                                .multiplyRetainScale(ratePerPeriod, mc.getRoundingMode())
+                                .multiplyRetainScale(remainingPeriods, mc.getRoundingMode());
+                        
+                        totalInterestChargedForFullLoanTerm = scheduleParams.getTotalCumulativeInterest().plus(remainingInterest);
+                    } else {
+                        totalInterestChargedForFullLoanTerm = loanApplicationTerms
+                                .calculateTotalInterestCharged(this.paymentPeriodsInOneYearCalculator, mc);
+                    }
+                    loanApplicationTerms.updateTotalInterestDue(totalInterestChargedForFullLoanTerm);
+                    loanTermVariationsData.setProcessed(true);
+                    recalculateAmounts = true;
+                }
+                break;
+                case REPAYMENT_EVERY: {
+                    Integer newRepaymentEvery = loanTermVariationsData.getDecimalValue().intValue();
+                    loanApplicationTerms.updateRepaymentEvery(newRepaymentEvery);
+                    loanEndDate = this.scheduledDateGenerator.getLastRepaymentDate(loanApplicationTerms,
+                            loanApplicationTerms.getHolidayDetailDTO());
+                    loanApplicationTerms.updateLoanEndDate(loanEndDate);
+                    adjustInstallmentOrPrincipalAmount(loanApplicationTerms, scheduleParams.getTotalCumulativePrincipal(),
+                            scheduleParams.getPeriodNumber(), mc);
+                    if (!loanApplicationTerms.getInterestMethod().isDecliningBalnce()) {
+                        loanApplicationTerms.updateAccountedTillPeriod(scheduleParams.getPeriodNumber() - 1,
+                                scheduleParams.getTotalCumulativePrincipal(), scheduleParams.getTotalCumulativeInterest(), 0);
+                        
+                        final BigDecimal divisor = BigDecimal.valueOf(100.0);
+                        final long loanTermPeriodsInOneYear = loanApplicationTerms.calculatePeriodsInOneYear(this.paymentPeriodsInOneYearCalculator);
+                        final BigDecimal loanTermPeriodsInYearBigDecimal = BigDecimal.valueOf(loanTermPeriodsInOneYear);
+                        
+                        BigDecimal remainingPeriods;
+                        BigDecimal multiplier;
+                        if (loanApplicationTerms.getInterestCalculationPeriodMethod().isDaily()) {
+                            final LocalDate remainingStartDate = scheduleParams.getPeriodStartDate();
+                            final int remainingDays = Math.toIntExact(ChronoUnit.DAYS.between(remainingStartDate, loanEndDate));
+                            remainingPeriods = BigDecimal.valueOf(remainingDays);
+                            multiplier = BigDecimal.ONE;
+                        } else {
+                            final int remainingPeriodsVal = loanApplicationTerms.getNumberOfRepayments() - (scheduleParams.getPeriodNumber() - 1);
+                            remainingPeriods = BigDecimal.valueOf(remainingPeriodsVal);
+                            multiplier = BigDecimal.valueOf(loanApplicationTerms.getRepaymentEvery());
+                        }
+                        
+                        final BigDecimal ratePerPeriod = loanApplicationTerms.getAnnualNominalInterestRate()
+                                .divide(loanTermPeriodsInYearBigDecimal, mc)
+                                .divide(divisor, mc)
+                                .multiply(multiplier);
+                        
+                        final Money remainingInterest = getPrincipalToBeScheduled(loanApplicationTerms)
+                                .multiplyRetainScale(ratePerPeriod, mc.getRoundingMode())
+                                .multiplyRetainScale(remainingPeriods, mc.getRoundingMode());
+                        
+                        totalInterestChargedForFullLoanTerm = scheduleParams.getTotalCumulativeInterest().plus(remainingInterest);
+                    } else {
+                        totalInterestChargedForFullLoanTerm = loanApplicationTerms
+                                .calculateTotalInterestCharged(this.paymentPeriodsInOneYearCalculator, mc);
+                    }
+                    loanApplicationTerms.updateTotalInterestDue(totalInterestChargedForFullLoanTerm);
+                    loanTermVariationsData.setProcessed(true);
+                    recalculateAmounts = true;
+                }
+                break;
                 default:
                 break;
 
@@ -1312,13 +1412,10 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
      * this method calculates the principal amount for generating the repayment schedule.
      */
     private Money getPrincipalToBeScheduled(final LoanApplicationTerms loanApplicationTerms) {
-        Money principalToBeScheduled;
-        if (loanApplicationTerms.isMultiDisburseLoan() && loanApplicationTerms.getApprovedPrincipal().isGreaterThanZero()) {
-            principalToBeScheduled = loanApplicationTerms.getApprovedPrincipal();
-        } else {
-            principalToBeScheduled = loanApplicationTerms.getPrincipal();
-        }
-        return principalToBeScheduled;
+        // LoanApplicationTerms.principal is the utilized principal for an active multi-disbursement loan. Using approvedPrincipal
+        // here makes the whole facility immediately repayable after the first tranche. Before first disbursement principal still
+        // contains the approved/application amount, so proposed schedule generation remains unchanged.
+        return loanApplicationTerms.getPrincipal();
     }
 
     private boolean updateFixedInstallmentAmount(final MathContext mc, final LoanApplicationTerms loanApplicationTerms, int periodNumber,
@@ -1973,7 +2070,13 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
             }
         } else {
             MonetaryCurrency currency = loanApplicationTerms.getPrincipal().getCurrency();
+            final boolean partiallyUtilized = loanApplicationTerms.getTotalDisbursedAmount().isGreaterThanZero();
             for (DisbursementData disbursementData : loanApplicationTerms.getDisbursementDatas()) {
+                // Once utilization has started, pending tranches are facility availability only. They enter the repayment schedule
+                // after their actual disbursement, never merely because their expected date has arrived.
+                if (!shouldIncludeDisbursement(partiallyUtilized, disbursementData)) {
+                    continue;
+                }
                 if (disbursementData.disbursementDate().equals(disbursementDate)) {
                     final LoanScheduleModelDisbursementPeriod disbursementPeriod = LoanScheduleModelDisbursementPeriod.disbursement(
                             disbursementData.disbursementDate(), Money.of(currency, disbursementData.amount()),
@@ -1997,6 +2100,10 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
             }
         }
         return principal;
+    }
+
+    static boolean shouldIncludeDisbursement(final boolean partiallyUtilized, final DisbursementData disbursementData) {
+        return !partiallyUtilized || disbursementData.isDisbursed();
     }
 
     private Collection<LoanScheduleModelPeriod> createNewLoanScheduleListWithDisbursementDetails(final int numberOfRepayments,

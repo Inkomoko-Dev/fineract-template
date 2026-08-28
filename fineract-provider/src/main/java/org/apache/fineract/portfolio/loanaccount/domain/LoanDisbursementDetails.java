@@ -27,6 +27,8 @@ import javax.persistence.Entity;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.Table;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.portfolio.supplier.domain.Supplier;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -161,6 +163,20 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
     @Column(name = "fx_timestamp")
     private LocalDateTime fxTimestamp;
 
+
+    @Column(name = "mfi_code", length = 100)
+    private String mfiCode;
+
+    @Column(name = "budget_location", length = 255)
+    private String budgetLocation;
+
+    @Column(name = "budget_review_required")
+    private Boolean budgetReviewRequired;
+
+    @ManyToOne
+    @JoinColumn(name = "supplier_id")
+    private Supplier supplier;
+
     protected LoanDisbursementDetails() {
 
     }
@@ -175,6 +191,12 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
 
     public void updateLoan(final Loan loan) {
         this.loan = loan;
+    }
+
+    public void applyMfiCodeIfProvided(final String mfiCode) {
+        if (StringUtils.isNotBlank(mfiCode)) {
+            this.mfiCode = mfiCode.trim();
+        }
     }
 
     @Override

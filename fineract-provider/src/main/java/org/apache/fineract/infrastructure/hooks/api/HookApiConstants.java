@@ -40,6 +40,8 @@ public final class HookApiConstants {
 
     public static final String httpSMSTemplateName = "Message Gateway";
 
+    public static final String whatsAppTemplateName = "WhatsApp Gateway";
+
     public static final String smsTemplateName = "SMS Bridge";
 
     public static final String emailTemplateName = "Email Gateway";

@@ -51,6 +51,13 @@ public class LoanApprovalData {
     private CurrencyData currency;
     private LoanDecisionData loanDecisionData;
     private Collection<PaymentTypeData> paymentTypeOptions;
+    private Boolean nextApproverRequired;
+    private Integer predictedNextStage;
+    private BigDecimal maxRecommendedAmount;
+    private BigDecimal dueDiligenceRecommendedAmount;
+    private Integer dueDiligenceTermFrequency;
+    private Integer dueDiligenceTermFrequencyType;
+    private Boolean ideaClient;
 
     public static LoanApprovalData importInstance(LocalDate approvedOnDate, Integer rowIndex, String locale, String dateFormat) {
         return new LoanApprovalData(approvedOnDate, rowIndex, locale, dateFormat);
@@ -126,6 +133,78 @@ public class LoanApprovalData {
 
     public void setApproverOptionsOptions(Collection<AppUserData> approvers) {
         this.approverOptions = approvers;
+    }
+
+    public Collection<AppUserData> getApproverOptions() {
+        return this.approverOptions;
+    }
+
+    public Collection<EnumOptionData> getTermFrequencyTypeOptions() {
+        return this.termFrequencyTypeOptions;
+    }
+
+    public CurrencyData getCurrency() {
+        return this.currency;
+    }
+
+    public LoanDecisionData getLoanDecisionData() {
+        return this.loanDecisionData;
+    }
+
+    public Boolean getNextApproverRequired() {
+        return this.nextApproverRequired;
+    }
+
+    public void setNextApproverRequired(Boolean nextApproverRequired) {
+        this.nextApproverRequired = nextApproverRequired;
+    }
+
+    public Integer getPredictedNextStage() {
+        return this.predictedNextStage;
+    }
+
+    public void setPredictedNextStage(Integer predictedNextStage) {
+        this.predictedNextStage = predictedNextStage;
+    }
+
+    public BigDecimal getMaxRecommendedAmount() {
+        return this.maxRecommendedAmount;
+    }
+
+    public void setMaxRecommendedAmount(BigDecimal maxRecommendedAmount) {
+        this.maxRecommendedAmount = maxRecommendedAmount;
+    }
+
+    public BigDecimal getDueDiligenceRecommendedAmount() {
+        return this.dueDiligenceRecommendedAmount;
+    }
+
+    public void setDueDiligenceRecommendedAmount(BigDecimal dueDiligenceRecommendedAmount) {
+        this.dueDiligenceRecommendedAmount = dueDiligenceRecommendedAmount;
+    }
+
+    public Integer getDueDiligenceTermFrequency() {
+        return this.dueDiligenceTermFrequency;
+    }
+
+    public void setDueDiligenceTermFrequency(Integer dueDiligenceTermFrequency) {
+        this.dueDiligenceTermFrequency = dueDiligenceTermFrequency;
+    }
+
+    public Integer getDueDiligenceTermFrequencyType() {
+        return this.dueDiligenceTermFrequencyType;
+    }
+
+    public void setDueDiligenceTermFrequencyType(Integer dueDiligenceTermFrequencyType) {
+        this.dueDiligenceTermFrequencyType = dueDiligenceTermFrequencyType;
+    }
+
+    public Boolean getIdeaClient() {
+        return this.ideaClient;
+    }
+
+    public void setIdeaClient(Boolean ideaClient) {
+        this.ideaClient = ideaClient;
     }
 
 }

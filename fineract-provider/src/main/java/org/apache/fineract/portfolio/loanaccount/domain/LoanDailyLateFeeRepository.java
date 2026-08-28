@@ -18,13 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
 public interface LoanDailyLateFeeRepository extends JpaRepository<LoanDailyLateFee, Long> {
 
@@ -33,10 +30,4 @@ public interface LoanDailyLateFeeRepository extends JpaRepository<LoanDailyLateF
     List<LoanDailyLateFee> findByLoanIdAndActiveTrueOrderByPenaltyDateAsc(Long loanId);
 
     Optional<LoanDailyLateFee> findByLoanIdAndChargeIdAndPenaltyDate(Long loanId, Long chargeId, LocalDate penaltyDate);
-
-    @Query("select coalesce(sum(lf.penaltyAmount), 0) from LoanDailyLateFee lf where lf.loan.id = :loanId and lf.active = true")
-    BigDecimal sumActivePenaltyAmount(@Param("loanId") Long loanId);
-
-    @Query("select coalesce(sum(lf.penaltyAmount), 0) from LoanDailyLateFee lf where lf.loan.id = :loanId and lf.active = true and lf.penaltyDate < :penaltyDate")
-    BigDecimal sumActivePenaltyAmountBeforeDate(@Param("loanId") Long loanId, @Param("penaltyDate") LocalDate penaltyDate);
 }

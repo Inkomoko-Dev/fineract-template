@@ -102,6 +102,7 @@ import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.CollectionData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
+import org.apache.fineract.portfolio.loanaccount.data.EntityDisbursementDefaultsResult;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApplicationTimelineData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
@@ -126,6 +127,10 @@ import org.apache.fineract.portfolio.loanaccount.data.PaidInAdvanceData;
 import org.apache.fineract.portfolio.loanaccount.data.RepaymentScheduleRelatedLoanData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrix;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrixRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
@@ -152,6 +157,8 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanSc
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
@@ -166,6 +173,7 @@ import org.apache.fineract.useradministration.data.AppUserData;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.service.AppUserReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -214,6 +222,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final LoanTransactionRepository loanTransactionRepository;
     private final AppUserReadPlatformService appUserReadPlatformService;
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
+    private final LoanDecisionStateUtilService loanDecisionStateUtilService;
+    private final LoanApprovalMatrixRepository loanApprovalMatrixRepository;
+    private final LoanDecisionRepository loanDecisionRepository;
+    private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
 
     @Autowired
     public LoanReadPlatformServiceImpl(final PlatformSecurityContext context,
@@ -235,7 +248,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                                        SearchReadPlatformService searchReadPlatformService, final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository,
                                        final ConfigurationReadPlatformService configurationReadPlatformService,
                                        final CurrencyReadPlatformService currencyReadPlatformService, final LoanTransactionRepository loanTransactionRepository,
-                                       AppUserReadPlatformService appUserReadPlatformService, final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper) {
+                                       AppUserReadPlatformService appUserReadPlatformService, final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper,
+                                       @Lazy final LoanDecisionStateUtilService loanDecisionStateUtilService,
+                                       final LoanApprovalMatrixRepository loanApprovalMatrixRepository,
+                                       final LoanDecisionRepository loanDecisionRepository,
+                                       final EntityDisbursementDefaultsService entityDisbursementDefaultsService,
+                                       final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService) {
         this.context = context;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
         this.applicationCurrencyRepository = applicationCurrencyRepository;
@@ -270,6 +288,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.loanTransactionRepository = loanTransactionRepository;
         this.appUserReadPlatformService = appUserReadPlatformService;
         this.dynamicIcReviewLevelHelper = dynamicIcReviewLevelHelper;
+        this.loanDecisionStateUtilService = loanDecisionStateUtilService;
+        this.loanApprovalMatrixRepository = loanApprovalMatrixRepository;
+        this.loanDecisionRepository = loanDecisionRepository;
+        this.entityDisbursementDefaultsService = entityDisbursementDefaultsService;
+        this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
     }
 
     @Override
@@ -289,10 +312,29 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(" left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
             sqlBuilder.append(" where l.id=? and ( o.hierarchy like ? or transferToOffice.hierarchy like ?)");
 
-            return this.jdbcTemplate.queryForObject(sqlBuilder.toString(), rm, loanId, hierarchySearchString, hierarchySearchString);
+            final LoanAccountData loanAccountData = this.jdbcTemplate.queryForObject(sqlBuilder.toString(), rm, loanId,
+                    hierarchySearchString, hierarchySearchString);
+            return enrichThirdPartyDisbursementFlag(loanAccountData);
         } catch (final EmptyResultDataAccessException e) {
             throw new LoanNotFoundException(loanId, e);
         }
+    }
+
+    private LoanAccountData enrichThirdPartyDisbursementFlag(final LoanAccountData loanAccountData) {
+        if (loanAccountData != null && loanAccountData.loanProductId() != null) {
+            final boolean enabled = this.disbursementProviderReadPlatformService
+                    .isThirdPartyDisbursementEnabled(loanAccountData.loanProductId());
+            loanAccountData.setEnableThirdPartyDisbursement(enabled);
+            if (loanAccountData.getId() != null) {
+                loanAccountData.setThirdPartyDisbursementProvider(this.disbursementProviderReadPlatformService
+                        .findLoanDisbursementProviderCode(loanAccountData.getId()).orElse(null));
+            }
+            if (enabled) {
+                loanAccountData.setThirdPartyDisbursementProviderOptions(
+                        this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+            }
+        }
+        return loanAccountData;
     }
 
     @Override
@@ -342,14 +384,31 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         try {
             this.context.authenticatedUser();
 
+            final DisbursementChargeAmounts disbursementChargeAmounts = retrieveDisbursementChargeAmounts(loanId);
             final LoanScheduleResultSetExtractor fullResultsetExtractor = new LoanScheduleResultSetExtractor(
-                    repaymentScheduleRelatedLoanData, disbursementData, isInterestRecalculationEnabled, totalPaidFeeCharges);
+                    repaymentScheduleRelatedLoanData, disbursementData, isInterestRecalculationEnabled, totalPaidFeeCharges,
+                    disbursementChargeAmounts);
             final String sql = "select " + fullResultsetExtractor.schema() + " where ls.loan_id = ? order by ls.loan_id, ls.installment";
 
             return this.jdbcTemplate.query(sql, fullResultsetExtractor, loanId); // NOSONAR
         } catch (final EmptyResultDataAccessException e) {
             throw new LoanNotFoundException(loanId, e);
         }
+    }
+
+    private DisbursementChargeAmounts retrieveDisbursementChargeAmounts(final Long loanId) {
+        final String sql = "select count(lc.id) as chargeCount, coalesce(sum(lc.amount), 0) as amount, "
+                + "coalesce(sum(lc.amount_paid_derived), 0) as amountPaid, "
+                + "coalesce(sum(lc.amount_waived_derived), 0) as amountWaived, "
+                + "coalesce(sum(lc.amount_writtenoff_derived), 0) as amountWrittenOff, "
+                + "coalesce(sum(lc.amount_outstanding_derived), 0) as amountOutstanding "
+                + "from m_loan_charge lc where lc.loan_id = ? and lc.is_active = true and lc.is_penalty = false "
+                + "and lc.charge_time_enum in (?, ?)";
+        return this.jdbcTemplate.queryForObject(sql,
+                (rs, rowNum) -> new DisbursementChargeAmounts(rs.getInt("chargeCount"), rs.getBigDecimal("amount"),
+                        rs.getBigDecimal("amountPaid"), rs.getBigDecimal("amountWaived"), rs.getBigDecimal("amountWrittenOff"),
+                        rs.getBigDecimal("amountOutstanding")),
+                loanId, ChargeTimeType.DISBURSEMENT.getValue(), ChargeTimeType.TRANCHE_DISBURSEMENT.getValue());
     }
 
     @Override
@@ -366,8 +425,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             /***
              * TODO Vishwas: Remove references to "Contra" from the codebase
              ***/
+            final String transactionDisplayOrder = " case tr.transaction_type_enum "
+                    + " when " + LoanTransactionType.DISBURSEMENT.getValue() + " then 0 "
+                    + " when " + LoanTransactionType.INCOME_POSTING.getValue() + " then 1 "
+                    + " when " + LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.getValue() + " then 2 "
+                    + " when " + LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue() + " then 3 "
+                    + " else 4 end ";
             final String sql = "select " + rm.loanPaymentsSchema()
-                    + " where tr.loan_id = ? and tr.transaction_type_enum not in (0, 3) order by tr.transaction_date ASC,id ";
+                    + " where tr.loan_id = ? and tr.transaction_type_enum not in (0, 3) order by tr.transaction_date ASC, "
+                    + transactionDisplayOrder + ", tr.created_on_utc ASC, tr.id ";
             return this.jdbcTemplate.query(sql, rm, loanId); // NOSONAR
         } catch (final EmptyResultDataAccessException e) {
             return null;
@@ -603,10 +669,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         this.context.authenticatedUser();
 
-        RepaymentTransactionTemplateMapper mapper = new RepaymentTransactionTemplateMapper(sqlGenerator);
-        String sql = "select " + mapper.schema();
-        LoanTransactionData loanTransactionData = this.jdbcTemplate.queryForObject(sql, mapper, // NOSONAR
-                LoanTransactionType.REPAYMENT.getValue(), LoanTransactionType.REPAYMENT.getValue(), loanId, loanId);
+        // CGLT-652 / FINERACT-2421: do not require an incomplete schedule row. Overpaid or
+        // fully-settled schedules previously returned 0 rows from queryForObject → 500 ISE,
+        // so the repayment UI never received paymentTypeOptions.
+        final RepaymentTransactionTemplateMapper mapper = new RepaymentTransactionTemplateMapper(sqlGenerator);
+        final LoanTransactionData loanTransactionData;
+        try {
+            loanTransactionData = this.jdbcTemplate.queryForObject("select " + mapper.schema(), mapper, // NOSONAR
+                    LoanTransactionType.REPAYMENT.getValue(), LoanTransactionType.REPAYMENT_AT_DISBURSEMENT.getValue(),
+                    loanId);
+        } catch (final EmptyResultDataAccessException e) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.repayment.template.not.available",
+                    "Unable to build a repayment template for loan {0}. The loan has no repayment schedule.", loanId);
+        }
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         return LoanTransactionData.templateOnTop(loanTransactionData, paymentOptions);
     }
@@ -616,7 +691,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             LocalDate onDate) {
 
         this.context.authenticatedUser();
-        this.loanUtilService.validateRepaymentTransactionType(repaymentTransactionType, false);
+        this.loanUtilService.validateRepaymentTransactionType(repaymentTransactionType, repaymentTransactionType.isPayOff());
 
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         loan.setHelpers(null, null, loanRepaymentScheduleTransactionProcessorFactory);
@@ -701,6 +776,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public LoanApprovalData retrieveApprovalTemplate(final Long loanId, boolean paymentDetailsRequired) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        return retrieveApprovalTemplate(loanId, paymentDetailsRequired, loan.getExpectedDisbursedOnLocalDate());
+    }
+
+    @Override
+    public LoanApprovalData retrieveApprovalTemplate(final Long loanId, boolean paymentDetailsRequired, final LocalDate disbursementDate) {
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
         BigDecimal approvedAmount;
         if (loanDecisionData != null
@@ -722,8 +803,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         LocalDateTime fxTimestamp = null;
         String fxSource = null;
         if ("SSP".equalsIgnoreCase(loan.getCurrencyCode())) {
-            fxRate = this.readWriteNonCoreDataService.getFxLatestRate("Fx_rate", loan.getOfficeId());
-            fxTimestamp = this.readWriteNonCoreDataService.getFxLatestTimestamp("Fx_rate", loan.getOfficeId());
+            final LocalDate fxLookupDate = disbursementDate != null ? disbursementDate : loan.getExpectedDisbursedOnLocalDate();
+            fxRate = this.readWriteNonCoreDataService.getFxRateForDate("Fx_rate", loan.getOfficeId(), fxLookupDate);
+            fxTimestamp = this.readWriteNonCoreDataService.getFxTimestampForDate("Fx_rate", loan.getOfficeId(), fxLookupDate);
             fxSource = "CBS_DAILY_RATE";
         }
 
@@ -732,15 +814,83 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public LoanApprovalData retrieveICReviewTemplate(final Long loanId) {
+        return retrieveICReviewTemplate(loanId, null);
+    }
+
+    @Override
+    public LoanApprovalData retrieveICReviewTemplate(final Long loanId, final Integer approvingLevelNumber) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final String currencyCode = loan.getCurrencyCode();
         final CurrencyData currency = currencyReadPlatformService.retrieveCurrency(currencyCode);
         final Collection<EnumOptionData> termFrequencyTypeOptions = this.loanDropdownReadPlatformService
                 .retrieveLoanTermFrequencyTypeOptions();
         final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
-        Collection<AppUserData> approverOptions = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(), getNextStageApproverPermission(loanDecisionData.getLoanDecisionState()));
-        return new LoanApprovalData(loan.getProposedPrincipal(), DateUtils.getBusinessLocalDate(), loan.getNetDisbursalAmount(),
-                termFrequencyTypeOptions, currency, loanDecisionData, approverOptions);
+
+        Collection<AppUserData> approverOptions = Collections.emptyList();
+        boolean nextApproverRequired = false;
+        Integer predictedNextStage = null;
+
+        if (approvingLevelNumber != null) {
+            final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+            final LoanApprovalMatrix approvalMatrix = this.loanApprovalMatrixRepository
+                    .findLoanApprovalMatrixByCurrency(loan.getCurrencyCode());
+
+            if (loanDecision != null && approvalMatrix != null) {
+                final List<Loan> loanIndividualCounter = loanDecisionStateUtilService.getLoanCounter(loan);
+                final Boolean isLoanFirstCycle = loanDecisionStateUtilService.isLoanFirstCycle(loanIndividualCounter);
+                final Boolean isLoanUnsecure = loanDecisionStateUtilService.isLoanUnSecure(loan);
+                final BigDecimal dueDiligenceRecommendedAmount = loanDecision.getDueDiligenceRecommendedAmount();
+                final Integer originalNextStage = loanDecision.getNextLoanIcReviewDecisionState();
+
+                loanDecisionStateUtilService.determineTheNextDecisionStage(loan, loanDecision, approvalMatrix, isLoanFirstCycle,
+                        isLoanUnsecure, approvingLevelNumber, dueDiligenceRecommendedAmount);
+
+                predictedNextStage = loanDecision.getNextLoanIcReviewDecisionState();
+                loanDecision.setNextLoanIcReviewDecisionState(originalNextStage);
+                if (predictedNextStage != null
+                        && predictedNextStage.equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+                    nextApproverRequired = false;
+                    approverOptions = Collections.emptyList();
+                } else if (predictedNextStage != null && dynamicIcReviewLevelHelper.isIcReviewLevel(predictedNextStage)) {
+                    nextApproverRequired = true;
+                    final Integer nextLevelNumber = dynamicIcReviewLevelHelper.getIcReviewLevelNumber(predictedNextStage);
+                    final String permission = nextLevelNumber != null
+                            ? dynamicIcReviewLevelHelper.getAcceptPermissionForLevel(nextLevelNumber)
+                            : null;
+                    if (permission != null) {
+                        approverOptions = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(),
+                                permission);
+                    } else {
+                        approverOptions = Collections.emptyList();
+                    }
+                }
+            }
+        } else {
+            final String nextStagePermission = getNextStageApproverPermission(loanDecisionData.getLoanDecisionState());
+            if (nextStagePermission != null) {
+                approverOptions = this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(),
+                        nextStagePermission);
+                nextApproverRequired = true;
+            }
+        }
+
+        final LoanApprovalData template = new LoanApprovalData(loan.getProposedPrincipal(), DateUtils.getBusinessLocalDate(),
+                loan.getNetDisbursalAmount(), termFrequencyTypeOptions, currency, loanDecisionData, approverOptions);
+        template.setNextApproverRequired(nextApproverRequired);
+        template.setPredictedNextStage(predictedNextStage);
+
+        final LoanDecision loanDecisionEntity = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+        if (loanDecisionEntity != null) {
+            template.setDueDiligenceRecommendedAmount(loanDecisionEntity.getDueDiligenceRecommendedAmount());
+            template.setDueDiligenceTermFrequency(loanDecisionEntity.getDueDiligenceTermFrequency());
+            template.setDueDiligenceTermFrequencyType(loanDecisionEntity.getDueDiligenceTermFrequencyType());
+            template.setIdeaClient(loanDecisionEntity.getIdeaClient());
+            if (!Boolean.TRUE.equals(loanDecisionEntity.getIdeaClient())) {
+                template.setMaxRecommendedAmount(loanDecisionStateUtilService.getMaxLoanAmountFromCashFlow(loan));
+            }
+        }
+
+        return template;
     }
 
     /**
@@ -771,10 +921,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         }
 
-        LoanDisbursementDetails disbursementDetail = null;
-        if (loan.getDisbursementDetails() != null && !loan.getDisbursementDetails().isEmpty()) {
-            disbursementDetail = loan.getDisbursementDetails().iterator().next();
-        }
+        final LoanDisbursementDetails disbursementDetail = loan.getNextUndisbursedDisbursementDetail();
 
         Long paymentTypeId = null;
         String accountNumber = null;
@@ -785,6 +932,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         String clientAccountNumber = null;
         String clientBankName = null;
         String clientPhoneNumber = null;
+        String mfiCode = null;
 
         if (disbursementDetail != null) {
             if (disbursementDetail.getPaymentType() != null) {
@@ -794,6 +942,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             clientPhoneNumber = disbursementDetail.getClientPhoneNumber();
             clientAccountNumber = disbursementDetail.getClientAccountNumber();
             clientBankName = disbursementDetail.getClientBankName();
+            mfiCode = disbursementDetail.getMfiCode();
             // optional fields if added in entity
             if (disbursementDetail.getCheckNumber() != null) {
                 checkNumber = Integer.valueOf(disbursementDetail.getCheckNumber());
@@ -808,11 +957,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 bankNumber = Integer.valueOf(disbursementDetail.getBankNumber());
             }
         }
-        BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
-
-        BigDecimal netDisbursalAmount= loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);;
+        final int trancheNumber = loan.getDisbursementTrancheNumber(disbursementDetail);
+        final BigDecimal totalDisbursementCharge = trancheNumber == 1 ? getDisbursementChargeAmount(loan) : BigDecimal.ZERO;
+        final BigDecimal disbursementPrincipal = disbursementDetail == null ? loan.getDisburseAmountForTemplate()
+                : disbursementDetail.principal();
+        final BigDecimal netDisbursalAmount = disbursementPrincipal.subtract(totalDisbursementCharge);
         LoanTransactionData loanTransactionData = LoanTransactionData.loanTransactionDataForDisbursalTemplate(transactionType,
-                loan.getExpectedDisbursedOnLocalDateForTemplate(), loan.getDisburseAmountForTemplate(), netDisbursalAmount,
+                loan.getExpectedDisbursedOnLocalDateForTemplate(), disbursementPrincipal, netDisbursalAmount,
                 paymentOptions, loan.retriveLastEmiAmount(), loan.getNextPossibleRepaymentDateForRescheduling(), null,
                 loan.getApprovedPrincipal(), loan.getInterestRateDifferential(), totalDisbursementCharge);
 
@@ -822,6 +973,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final GlobalConfigurationPropertyData enableLoanDisbursementRequest = this.configurationReadPlatformService
                 .retrieveGlobalConfiguration("Enable-loan-disbursement-request");
         loanTransactionData.setLoanDisbursementRequestEnabled(enableLoanDisbursementRequest.isEnabled());
+        loanTransactionData.setDisbursementDetailId(disbursementDetail == null ? null : disbursementDetail.getId());
+        loanTransactionData.setTrancheNumber(trancheNumber);
+        loanTransactionData.setRemainingUndisbursedAmount(loan.getRemainingUndisbursedPrincipal());
 
 
         loanTransactionData.setPaymentTypeId(paymentTypeId);
@@ -841,6 +995,29 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanTransactionData.setUsdAmount(disbursementDetail.getUsdAmount());
             loanTransactionData.setFxSource(disbursementDetail.getFxSource());
             loanTransactionData.setFxTimestamp(disbursementDetail.getFxTimestamp());
+            loanTransactionData.setMfiCode(mfiCode);
+            if (disbursementDetail.getPaymentType() != null) {
+                loanTransactionData.setPaymentTypeName(disbursementDetail.getPaymentType().getPaymentName());
+            }
+            if (disbursementDetail.getSupplier() != null) {
+                loanTransactionData.setSupplierId(disbursementDetail.getSupplier().getId());
+                loanTransactionData.setSupplierExternalId(disbursementDetail.getSupplier().getExternalId());
+                loanTransactionData.setSupplierName(disbursementDetail.getSupplier().getName());
+                loanTransactionData.setSupplierSourceSystem(disbursementDetail.getSupplier().getSourceSystem());
+            }
+        }
+
+        final LocalDate templateDisbursementDate = loan.getExpectedDisbursedOnLocalDateForTemplate();
+        final EntityDisbursementDefaultsResult entityDefaults = this.entityDisbursementDefaultsService
+                .resolve(loan, templateDisbursementDate);
+        if (entityDefaults.isApplicable()) {
+            // Field name kept for API compatibility but now represents any entity-specific disbursement defaults
+            loanTransactionData.setKenyaCapitalDisbursementDefaults(true);
+            loanTransactionData.setDefaultDepartmentId(entityDefaults.getDepartmentId());
+            loanTransactionData.setDefaultDepartmentName(entityDefaults.getDepartmentName());
+            loanTransactionData.setDefaultBudgetLocation(entityDefaults.getBudgetLocation());
+            loanTransactionData.setBudgetReviewRequired(entityDefaults.isBudgetReviewRequired());
+            loanTransactionData.setBudgetLocation(entityDefaults.getBudgetLocation());
         }
 
         return loanTransactionData;
@@ -878,8 +1055,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final LoanTransactionData loanTransactionData = this.jdbcTemplate.queryForObject(sql, rm, loanId, transactionId); // NOSONAR
             final LoanTransaction loanTransaction = this.loanTransactionRepository.findById(transactionId)
                     .orElseThrow(() -> new LoanTransactionNotFoundException(transactionId));
-            if (loanTransaction.isRecoveryRepaymentType()) {
-                populateRecoveryCorrectionMetadata(loanTransactionData, loanTransaction.getLoan(), loanTransaction.getTransactionDate());
+            if (loanTransaction.isRecoveryRepaymentType() || loanTransaction.isRepaymentAtDisbursement()
+                    || loanTransaction.isDisbursementChargeAdjustment()) {
+                // Expose the closed-accounting-period correction window so the "Edit Insurance Payment" screen can warn
+                // when corrections are disallowed and knows the open-period date range. Mirrors the recovery flow.
+                populateClosedPeriodCorrectionMetadata(loanTransactionData, loanTransaction.getLoan(), loanTransaction.getTransactionDate());
             }
             return loanTransactionData;
         } catch (final EmptyResultDataAccessException e) {
@@ -936,7 +1116,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " l.principal_writtenoff_derived as principalWrittenOff,"
                     + " l.principal_outstanding_derived as principalOutstanding," + " l.interest_charged_derived as interestCharged,"
                     + " l.interest_repaid_derived as interestPaid," + " l.interest_waived_derived as interestWaived,"
-                    + " l.interest_writtenoff_derived as interestWrittenOff," + " l.interest_outstanding_derived as interestOutstanding,"
+                    + " l.interest_writtenoff_derived as interestWrittenOff,"
+                    + " l.interest_cancelled_derived as interestCancelled,"
+                    + " l.interest_outstanding_derived as interestOutstanding,"
                     + " l.fee_charges_charged_derived as feeChargesCharged,"
                     + " l.total_charges_due_at_disbursement_derived as feeChargesDueAtDisbursementCharged,"
                     + " l.fee_charges_repaid_derived as feeChargesPaid," + " l.fee_charges_waived_derived as feeChargesWaived,"
@@ -959,7 +1141,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " coalesce((select sum(dlf.penalty_amount) from m_loan_daily_late_fee dlf where dlf.loan_id = l.id and dlf.is_active = true), 0) as dailyLateFeeChargedToDate,"
                     + " coalesce((select sum(lc2.amount_outstanding_derived) from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.loan_id = l.id and dlf2.is_active = true and lc2.is_active = true), 0) as dailyLateFeeOutstanding,"
                     + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
-                    + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(dlf3.penalty_amount) from m_loan_daily_late_fee dlf3 where dlf3.loan_id = l.id and dlf3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,"
+                    + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(lc3.amount) from m_loan_charge lc3 where lc3.loan_id = l.id and lc3.is_penalty = true and lc3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,"
                     + " la.total_overdue_derived as totalOverdue,"
                     + " la.overdue_since_date_derived as overdueSinceDate,"
                     + " l.sync_disbursement_with_meeting as syncDisbursementWithMeeting,"
@@ -989,6 +1171,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " ds.loan_decision_state as loanDecisionState , ds.next_loan_ic_review_decision_state as nextLoanIcReviewDecisionState, "
                     + " l.description as description , l.kiva_id as kivaId , l.kiva_uuid as kivaUUId , lp.allowable_dscr as allowableDscr, "
                     + " l.loan_with_another_institution_amount as loanWithAnotherInstitutionAmount ,c.legal_form_enum as clientLegalForm, c.external_id as clientUid, "
+                    + " l.third_party_disbursement_provider as thirdPartyDisbursementProvider, "
+                    + " lp.enable_third_party_disbursement as enableThirdPartyDisbursement, "
                     + " lds.expected_disburse_date AS expectedDisburseDate, lds.net_disbursal_amount AS expectedNetDisbursalAmount, lds.payment_type_id AS paymentType "
                     + " from m_loan l" //
                     + " join m_product_loan lp on lp.id = l.product_id" //
@@ -1012,7 +1196,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " left join m_loan as topuploan on topuploan.id = topup.closure_loan_id"
                     + " left join m_portfolio_account_associations as paa on l.id = paa.loan_account_id"
                     + " left join m_loan_decision as ds on l.id = ds.loan_id"
-                    + " left join m_loan_disbursement_detail as lds on l.id = lds.loan_id";
+                    // LoanAccountData contains singular legacy fields for the currently applicable disbursement. A direct
+                    // join duplicates the loan row for multi-disbursement loans and breaks retrieveOne(), which uses
+                    // queryForObject. Select one deterministic detail here; the complete collection is loaded separately
+                    // by retrieveLoanDisbursementDetails().
+                    + " left join m_loan_disbursement_detail as lds on lds.id = ("
+                    + " select lds2.id from m_loan_disbursement_detail lds2 where lds2.loan_id = l.id"
+                    + " order by case when lds2.disbursedon_date is null then 0 else 1 end,"
+                    + " case when lds2.disbursedon_date is null then lds2.expected_disburse_date end asc,"
+                    + " case when lds2.disbursedon_date is not null then lds2.disbursedon_date end desc, lds2.id desc limit 1)";
 
         }
 
@@ -1205,6 +1397,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 final BigDecimal interestPaid = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestPaid");
                 final BigDecimal interestWaived = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWaived");
                 final BigDecimal interestWrittenOff = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWrittenOff");
+                final BigDecimal interestCancelled = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestCancelled");
                 final BigDecimal interestOutstanding = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestOutstanding");
                 final BigDecimal interestOverdue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestOverdue");
 
@@ -1244,7 +1437,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
                 loanSummary = new LoanSummaryData(currencyData, principalDisbursed, principalPaid, principalWrittenOff,
                         principalOutstanding, principalOverdue, interestCharged, interestPaid, interestWaived, interestWrittenOff,
-                        interestOutstanding, interestOverdue, feeChargesCharged, feeChargesDueAtDisbursementCharged, feeChargesPaid,
+                        interestCancelled, interestOutstanding, interestOverdue, feeChargesCharged, feeChargesDueAtDisbursementCharged,
+                        feeChargesPaid,
                         feeChargesWaived, feeChargesWrittenOff, feeChargesOutstanding, feeChargesOverdue, penaltyChargesCharged,
                         penaltyChargesPaid, penaltyChargesWaived, penaltyChargesWrittenOff, penaltyChargesOutstanding,
                         penaltyChargesOverdue, dailyLateFeeChargedToDate, dailyLateFeeOutstanding, dailyLateFeeCapAmount,
@@ -1393,6 +1587,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanAccountData.setPaymentType(paymentType);
             loanAccountData.setExpectedDisburseDate(expectedDisburseDate);
             loanAccountData.setExpectedNetDisbursalAmount(expectedNetDisbursalAmount);
+            loanAccountData.setThirdPartyDisbursementProvider(rs.getString("thirdPartyDisbursementProvider"));
+            loanAccountData.setEnableThirdPartyDisbursement(rs.getBoolean("enableThirdPartyDisbursement"));
             return loanAccountData;
         }
     }
@@ -1444,6 +1640,39 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
     }
 
+    private static final class DisbursementChargeAmounts {
+
+        private final int chargeCount;
+        private final BigDecimal amount;
+        private final BigDecimal amountPaid;
+        private final BigDecimal amountWaived;
+        private final BigDecimal amountWrittenOff;
+        private final BigDecimal amountOutstanding;
+
+        private DisbursementChargeAmounts(final int chargeCount, final BigDecimal amount, final BigDecimal amountPaid,
+                final BigDecimal amountWaived, final BigDecimal amountWrittenOff, final BigDecimal amountOutstanding) {
+            this.chargeCount = chargeCount;
+            this.amount = defaultToZero(amount);
+            this.amountPaid = defaultToZero(amountPaid);
+            this.amountWaived = defaultToZero(amountWaived);
+            this.amountWrittenOff = defaultToZero(amountWrittenOff);
+            this.amountOutstanding = defaultToZero(amountOutstanding);
+        }
+
+        static DisbursementChargeAmounts empty() {
+            return new DisbursementChargeAmounts(0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                    BigDecimal.ZERO);
+        }
+
+        boolean matches(final BigDecimal chargeAmount) {
+            return this.chargeCount > 0 && this.amount.compareTo(defaultToZero(chargeAmount)) == 0;
+        }
+
+        private static BigDecimal defaultToZero(final BigDecimal value) {
+            return value == null ? BigDecimal.ZERO : value;
+        }
+    }
+
     private static final class LoanScheduleResultSetExtractor implements ResultSetExtractor<LoanScheduleData> {
 
         private final CurrencyData currency;
@@ -1454,9 +1683,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         private BigDecimal outstandingLoanPrincipalBalance;
         private boolean excludePastUndisbursed;
         private final BigDecimal totalPaidFeeCharges;
+        private final DisbursementChargeAmounts disbursementChargeAmounts;
 
         LoanScheduleResultSetExtractor(final RepaymentScheduleRelatedLoanData repaymentScheduleRelatedLoanData,
-                Collection<DisbursementData> disbursementData, boolean isInterestRecalculationEnabled, BigDecimal totalPaidFeeCharges) {
+                Collection<DisbursementData> disbursementData, boolean isInterestRecalculationEnabled, BigDecimal totalPaidFeeCharges,
+                DisbursementChargeAmounts disbursementChargeAmounts) {
             this.currency = repaymentScheduleRelatedLoanData.getCurrency();
             this.disbursement = repaymentScheduleRelatedLoanData.disbursementData();
             this.totalFeeChargesDueAtDisbursement = repaymentScheduleRelatedLoanData.getTotalFeeChargesAtDisbursement();
@@ -1465,6 +1696,64 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             this.disbursementData = disbursementData;
             this.excludePastUndisbursed = isInterestRecalculationEnabled;
             this.totalPaidFeeCharges = totalPaidFeeCharges;
+            this.disbursementChargeAmounts = disbursementChargeAmounts == null ? DisbursementChargeAmounts.empty()
+                    : disbursementChargeAmounts;
+        }
+
+        private LoanSchedulePeriodData disbursementOnlyPeriod(final LocalDate disbursementDate, final BigDecimal principalDisbursed,
+                final BigDecimal feeChargesDueAtTimeOfDisbursement, final boolean isDisbursed) {
+            if (isDisbursed && this.disbursementChargeAmounts.matches(feeChargesDueAtTimeOfDisbursement)) {
+                return LoanSchedulePeriodData.disbursementOnlyPeriod(disbursementDate, principalDisbursed,
+                        feeChargesDueAtTimeOfDisbursement, this.disbursementChargeAmounts.amountPaid,
+                        this.disbursementChargeAmounts.amountWaived, this.disbursementChargeAmounts.amountWrittenOff,
+                        this.disbursementChargeAmounts.amountOutstanding);
+            }
+            return LoanSchedulePeriodData.disbursementOnlyPeriod(disbursementDate, principalDisbursed,
+                    feeChargesDueAtTimeOfDisbursement, isDisbursed);
+        }
+
+        /**
+         * Disbursement detail rows can store net disbursal, zero, or null principal (common after
+         * insurance-at-disbursement adjustments / schedule repairs) while the repayment schedule still
+         * amortizes approved principal. For single-disbursement loans, prefer the schedule principal
+         * whenever the detail principal is missing or understated so the running loan-balance column
+         * does not go negative.
+         */
+        private BigDecimal principalForLoanBalanceTracking(final DisbursementData data) {
+            final BigDecimal schedulePrincipal = this.disbursement.amount() == null ? BigDecimal.ZERO : this.disbursement.amount();
+            if (this.disbursementData.size() != 1) {
+                return data == null || data.amount() == null ? BigDecimal.ZERO : data.amount();
+            }
+            if (data == null || data.amount() == null) {
+                return schedulePrincipal;
+            }
+            final BigDecimal disbursementDetailPrincipal = data.amount();
+            if (schedulePrincipal.compareTo(disbursementDetailPrincipal) > 0) {
+                return schedulePrincipal;
+            }
+            return disbursementDetailPrincipal;
+        }
+
+        private void applySingleDisbursementPrincipalIfMissing(final Integer period, final Collection<LoanSchedulePeriodData> periods) {
+            if (this.disbursementData.size() != 1 || this.outstandingLoanPrincipalBalance.compareTo(BigDecimal.ZERO) != 0) {
+                return;
+            }
+            if (period != null && period > 1) {
+                return;
+            }
+            final DisbursementData onlyDisbursement = this.disbursementData.iterator().next();
+            if (!onlyDisbursement.isDisbursed()) {
+                return;
+            }
+            final BigDecimal trackedPrincipal = principalForLoanBalanceTracking(onlyDisbursement);
+            if (trackedPrincipal.compareTo(BigDecimal.ZERO) > 0) {
+                this.outstandingLoanPrincipalBalance = trackedPrincipal;
+                if (periods.isEmpty()) {
+                    final LoanSchedulePeriodData disbursementPeriod = disbursementOnlyPeriod(onlyDisbursement.disbursementDate(),
+                            trackedPrincipal, this.totalFeeChargesDueAtDisbursement, onlyDisbursement.isDisbursed());
+                    periods.add(disbursementPeriod);
+                }
+            }
         }
 
         public String schema() {
@@ -1484,9 +1773,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             for (DisbursementData disbursementDetail : disbursementData) {
                 waivedChargeAmount = waivedChargeAmount.add(disbursementDetail.getWaivedChargeAmount());
             }
-            final LoanSchedulePeriodData disbursementPeriod = LoanSchedulePeriodData.disbursementOnlyPeriod(
-                    this.disbursement.disbursementDate(), this.disbursement.amount(), this.totalFeeChargesDueAtDisbursement,
-                    this.disbursement.isDisbursed());
+            final LoanSchedulePeriodData disbursementPeriod = disbursementOnlyPeriod(this.disbursement.disbursementDate(),
+                    this.disbursement.amount(), this.totalFeeChargesDueAtDisbursement, this.disbursement.isDisbursed());
 
             final Collection<LoanSchedulePeriodData> periods = new ArrayList<>();
             final MonetaryCurrency monCurrency = new MonetaryCurrency(this.currency.code(), this.currency.decimalPlaces(),
@@ -1522,10 +1810,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             Money totalOutstanding = Money.zero(monCurrency);
 
             // update totals with details of fees charged during disbursement
-            totalFeeChargesCharged = totalFeeChargesCharged.plus(disbursementPeriod.feeChargesDue().subtract(waivedChargeAmount));
-            totalRepaymentExpected = totalRepaymentExpected.plus(disbursementPeriod.feeChargesDue()).minus(waivedChargeAmount);
-            totalRepayment = totalRepayment.plus(disbursementPeriod.feeChargesPaid()).minus(waivedChargeAmount);
-            totalOutstanding = totalOutstanding.plus(disbursementPeriod.feeChargesDue()).minus(disbursementPeriod.feeChargesPaid());
+            totalFeeChargesCharged = totalFeeChargesCharged.plus(disbursementPeriod.feeChargesDue());
+            totalWaived = totalWaived.plus(disbursementPeriod.feeChargesWaived());
+            totalWrittenOff = totalWrittenOff.plus(disbursementPeriod.feeChargesWrittenOff());
+            totalRepaymentExpected = totalRepaymentExpected.plus(disbursementPeriod.totalDueForPeriod());
+            totalRepayment = totalRepayment.plus(disbursementPeriod.feeChargesPaid());
+            totalOutstanding = totalOutstanding.plus(disbursementPeriod.feeChargesOutstanding());
 
             Integer loanTermInDays = 0;
             while (rs.next()) {
@@ -1542,31 +1832,37 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                         principal = principal.add(data.amount());
                         LoanSchedulePeriodData periodData = null;
                         if (data.getChargeAmount() == null) {
-                            periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
-                                    disbursementChargeAmount, data.isDisbursed());
+                            periodData = disbursementOnlyPeriod(data.disbursementDate(), data.amount(), disbursementChargeAmount,
+                                    data.isDisbursed());
                         } else {
-                            periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
-                                    disbursementChargeAmount.add(data.getChargeAmount()).subtract(waivedChargeAmount), data.isDisbursed());
+                            periodData = disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
+                                    disbursementChargeAmount.add(data.getChargeAmount()).subtract(waivedChargeAmount),
+                                    data.isDisbursed());
                         }
                         periods.add(periodData);
-                        this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.add(data.amount());
+                        this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance
+                                .add(principalForLoanBalanceTracking(data));
                     } else if (data.isDueForDisbursement(fromDate, dueDate)) {
                         if (!excludePastUndisbursed || data.isDisbursed()
                                 || !data.disbursementDate().isBefore(DateUtils.getBusinessLocalDate())) {
                             principal = principal.add(data.amount());
                             LoanSchedulePeriodData periodData;
                             if (data.getChargeAmount() == null) {
-                                periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
-                                        BigDecimal.ZERO, data.isDisbursed());
+                                periodData = disbursementOnlyPeriod(data.disbursementDate(), data.amount(), BigDecimal.ZERO,
+                                        data.isDisbursed());
                             } else {
-                                periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(), data.amount(),
-                                        data.getChargeAmount(), data.isDisbursed());
+                                periodData = disbursementOnlyPeriod(data.disbursementDate(), data.amount(), data.getChargeAmount(),
+                                        data.isDisbursed());
                             }
                             periods.add(periodData);
-                            this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.add(data.amount());
+                            this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance
+                                    .add(principalForLoanBalanceTracking(data));
                         }
                     }
                 }
+                // Single-disburse loans can miss the date match after schedule repairs (or when
+                // detail principal is zero), leaving Balance of Loan as a cumulative negative.
+                applySingleDisbursementPrincipalIfMissing(period, periods);
                 totalPrincipalDisbursed = totalPrincipalDisbursed.add(principal);
 
                 Integer daysInPeriod = 0;
@@ -1641,11 +1937,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 if (fromDate == null) {
                     fromDate = this.lastDueDate;
                 }
-                final BigDecimal outstandingPrincipalBalanceOfLoan = this.outstandingLoanPrincipalBalance.subtract(principalDue);
+                BigDecimal outstandingPrincipalBalanceOfLoan = this.outstandingLoanPrincipalBalance.subtract(principalDue);
+                if (outstandingPrincipalBalanceOfLoan.compareTo(BigDecimal.ZERO) < 0) {
+                    outstandingPrincipalBalanceOfLoan = BigDecimal.ZERO;
+                }
 
                 // update based on current period values
                 this.lastDueDate = dueDate;
                 this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.subtract(principalDue);
+                if (this.outstandingLoanPrincipalBalance.compareTo(BigDecimal.ZERO) < 0) {
+                    this.outstandingLoanPrincipalBalance = BigDecimal.ZERO;
+                }
 
                 final LoanSchedulePeriodData periodData = LoanSchedulePeriodData.repaymentPeriodWithPayments(loanId, period, fromDate,
                         dueDate, obligationsMetOnDate, complete, principalDue, principalPaid, principalWrittenOff, principalOutstanding,
@@ -1686,7 +1988,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " tr.fee_charges_portion_derived as fees, tr.penalty_charges_portion_derived as penalties, "
                     + " tr.overpayment_portion_derived as overpayment, tr.outstanding_loan_balance_derived as outstandingLoanBalance, "
                     + " tr.unrecognized_income_portion as unrecognizedIncome,"
-                    + " tr.original_transaction_id as originalTransactionId, tr.is_reversal as reversalTransaction, tr.correction_date as correctionDate, "
+                    + " tr.original_transaction_id as originalTransactionId, tr.is_reversal as reversalTransaction, tr.is_reversed as reversed, tr.correction_date as correctionDate, "
                     + " tr.submitted_on_date as submittedOnDate,tr.created_on_utc as createdDate, "
                     + " tr.manually_adjusted_or_reversed as manuallyReversed, mo.id officeId,au.id userId, au.username as createdByUsername, mc.id clientId,"
                     + " pd.payment_type_id as paymentType,pd.account_number as accountNumber,pd.check_number as checkNumber, "
@@ -1762,6 +2064,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final String externalId = rs.getString("externalId");
             final Long originalTransactionId = JdbcSupport.getLong(rs, "originalTransactionId");
             final boolean reversalTransaction = rs.getBoolean("reversalTransaction");
+            final boolean reversed = rs.getBoolean("reversed");
             final LocalDate correctionDate = JdbcSupport.getLocalDate(rs, "correctionDate");
 
             final BigDecimal netDisbursalAmount = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "netDisbursalAmount");
@@ -1794,6 +2097,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanTransactionData.setCreatedByUsername(createdByUsername);
             loanTransactionData.setOriginalTransactionId(originalTransactionId);
             loanTransactionData.setReversalTransaction(reversalTransaction);
+            loanTransactionData.setReversed(reversed);
             loanTransactionData.setCorrectionDate(correctionDate);
             return loanTransactionData;
         }
@@ -1875,6 +2179,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         loanAccountData.setCohortOptions(cohortOptions);
         loanAccountData.setCountryOptions(countryOptions);
         loanAccountData.setProgramOptions(programOptions);
+        loanAccountData.setEnableThirdPartyDisbursement(loanProduct.getEnableThirdPartyDisbursement());
+        if (Boolean.TRUE.equals(loanProduct.getEnableThirdPartyDisbursement())) {
+            loanAccountData.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
         return loanAccountData;
     }
 
@@ -1889,6 +2198,16 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         LoanAccountData loanAccountData = LoanAccountData.clientDefaults(clientAccount.id(), clientAccount.accountNo(),
                 clientAccount.displayName(), clientAccount.officeId(), expectedDisbursementDate);
 
+        // Add third-party disbursement provider options if any product has it enabled
+        final Collection<LoanProductData> loanProducts = this.loanProductReadPlatformService.retrieveAllLoanProductsForLookup(true);
+        boolean hasThirdPartyDisbursement = loanProducts.stream()
+                .anyMatch(product -> Boolean.TRUE.equals(product.getEnableThirdPartyDisbursement()));
+        
+        if (hasThirdPartyDisbursement) {
+            loanAccountData.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
+
         return loanAccountData;
     }
 
@@ -1897,7 +2216,20 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.context.authenticatedUser();
         final GroupGeneralData groupAccount = this.groupReadPlatformService.retrieveOne(groupId);
         final LocalDate expectedDisbursementDate = DateUtils.getBusinessLocalDate();
-        return LoanAccountData.groupDefaults(groupAccount, expectedDisbursementDate);
+        
+        LoanAccountData loanAccountData = LoanAccountData.groupDefaults(groupAccount, expectedDisbursementDate);
+
+        // Add third-party disbursement provider options if any product has it enabled
+        final Collection<LoanProductData> loanProducts = this.loanProductReadPlatformService.retrieveAllLoanProductsForLookup(true);
+        boolean hasThirdPartyDisbursement = loanProducts.stream()
+                .anyMatch(product -> Boolean.TRUE.equals(product.getEnableThirdPartyDisbursement()));
+        
+        if (hasThirdPartyDisbursement) {
+            loanAccountData.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
+
+        return loanAccountData;
     }
 
     @Override
@@ -1916,7 +2248,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     collectionMeetingCalendar);
         }
 
-        return LoanAccountData.groupDefaults(groupAccount, expectedDisbursementDate);
+        LoanAccountData loanAccountData = LoanAccountData.groupDefaults(groupAccount, expectedDisbursementDate);
+
+        // Add third-party disbursement provider options if any product has it enabled
+        final Collection<LoanProductData> loanProducts = this.loanProductReadPlatformService.retrieveAllLoanProductsForLookup(true);
+        boolean hasThirdPartyDisbursement = loanProducts.stream()
+                .anyMatch(product -> Boolean.TRUE.equals(product.getEnableThirdPartyDisbursement()));
+        
+        if (hasThirdPartyDisbursement) {
+            loanAccountData.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
+
+        return loanAccountData;
     }
 
     @Override
@@ -1978,32 +2322,23 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public List<Long> retrieveAllLoanIdsWithOverdueInstallments(final Long penaltyWaitPeriod, final Boolean backdatePenalties,
-            Long maxLoanIdInList, int pageSize) {
-        final MusoniOverdueLoanScheduleMapper rm = new MusoniOverdueLoanScheduleMapper();
-
+                                                                Long maxLoanIdInList, int pageSize) {
         final StringBuilder sqlBuilder = new StringBuilder(400);
-        sqlBuilder.append("select distinct ml.id from m_loan_repayment_schedule ls ").append(" inner join m_loan ml on ml.id = ls.loan_id ")
+        sqlBuilder.append("select distinct ml.id from m_loan_repayment_schedule ls ")
+                .append(" inner join m_loan ml on ml.id = ls.loan_id ")
                 .append(" join m_product_loan_charge plc on plc.product_loan_id = ml.product_id ")
-                .append(" join m_charge mc on mc.id = plc.charge_id ")
-                .append(" where " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day") + " > ls.duedate ")
+                .append(" join m_charge mc on mc.id = plc.charge_id ").append(" where ").append(sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day")).append(" > ls.duedate ")
                 .append(" and ml.id > ? ").append(" and ls.completed_derived <> true and mc.charge_applies_to_enum =1 ")
                 .append(" and ls.recalculated_interest_component <> true ")
                 .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ").append(" order by ml.id asc limit ? ");
 
-        if (backdatePenalties) {
-            try {
-                return Collections.synchronizedList(
-                        this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod, maxLoanIdInList, pageSize));
-            } catch (final EmptyResultDataAccessException e) {
-                return new ArrayList<Long>();
-            }
-        }
-
         try {
-            return Collections.synchronizedList(this.jdbcTemplate.queryForList(sqlBuilder.toString(), Long.class, penaltyWaitPeriod,
-                    penaltyWaitPeriod, maxLoanIdInList, pageSize));
+            return Collections.synchronizedList(
+                    this.jdbcTemplate.query(sqlBuilder.toString(),
+                            (rs, rowNum) -> rs.getLong("id"),
+                            penaltyWaitPeriod, maxLoanIdInList, pageSize));
         } catch (final EmptyResultDataAccessException e) {
-            return null;
+            return backdatePenalties ? new ArrayList<Long>() : null;
         }
     }
 
@@ -2061,8 +2396,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         public String schema() {
             return "dd.id as id,dd.expected_disburse_date as expectedDisbursementdate, dd.disbursedon_date as actualDisbursementdate,dd.principal as principal,dd.net_disbursal_amount as netDisbursalAmount,sum(lc.amount) chargeAmount, lc.amount_waived_derived waivedAmount, "
-                    + sqlGenerator.groupConcat("lc.id") + " loanChargeId "
-                    + "from m_loan l inner join m_loan_disbursement_detail dd on dd.loan_id = l.id left join m_loan_tranche_disbursement_charge tdc on tdc.disbursement_detail_id=dd.id "
+                    + sqlGenerator.groupConcat("lc.id") + " loanChargeId, "
+                    + " dd.payment_to as paymentTo, dd.disbursement_type as disbursementType, dd.beneficiary_name as beneficiaryName, "
+                    + " dd.client_phone_number as clientPhoneNumber, dd.client_account_number as clientAccountNumber, "
+                    + " dd.client_bank_name as clientBankName, dd.payment_type_id as paymentTypeId, pt.value as paymentTypeName, "
+                    + " dd.supplier_id as supplierId, s.external_id as supplierExternalId, s.name as supplierName, s.source_system as supplierSourceSystem "
+                    + "from m_loan l inner join m_loan_disbursement_detail dd on dd.loan_id = l.id "
+                    + "left join m_payment_type pt on pt.id = dd.payment_type_id "
+                    + "left join m_supplier s on s.id = dd.supplier_id "
+                    + "left join m_loan_tranche_disbursement_charge tdc on tdc.disbursement_detail_id=dd.id "
                     + "left join m_loan_charge lc on  lc.id=tdc.loan_charge_id and lc.is_active=true";
         }
 
@@ -2080,7 +2422,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 chargeAmount = chargeAmount.subtract(waivedAmount);
             }
             return new DisbursementData(id, expectedDisbursementdate, actualDisbursementdate, principal, netDisbursalAmount, loanChargeId,
-                    chargeAmount, waivedAmount);
+                    chargeAmount, waivedAmount, JdbcSupport.getInteger(rs, "paymentTo"), rs.getString("disbursementType"),
+                    rs.getString("beneficiaryName"), rs.getString("clientPhoneNumber"), rs.getString("clientAccountNumber"),
+                    rs.getString("clientBankName"), JdbcSupport.getLong(rs, "paymentTypeId"), rs.getString("paymentTypeName"),
+                    JdbcSupport.getLong(rs, "supplierId"), rs.getString("supplierExternalId"), rs.getString("supplierName"),
+                    rs.getString("supplierSourceSystem"));
         }
 
     }
@@ -2322,7 +2668,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         if (originalTransactionId != null) {
             final LoanTransaction originalRecoveryTransaction = retrieveRecoveryCorrectionReference(loan, originalTransactionId);
             loanTransactionData.setOriginalTransactionId(originalTransactionId);
-            populateRecoveryCorrectionMetadata(loanTransactionData, loan, originalRecoveryTransaction.getTransactionDate());
+            populateClosedPeriodCorrectionMetadata(loanTransactionData, loan, originalRecoveryTransaction.getTransactionDate());
         }
         return loanTransactionData;
 
@@ -2347,7 +2693,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         return originalTransaction;
     }
 
-    private void populateRecoveryCorrectionMetadata(final LoanTransactionData loanTransactionData, final Loan loan,
+    private void populateClosedPeriodCorrectionMetadata(final LoanTransactionData loanTransactionData, final Loan loan,
             final LocalDate originalTransactionDate) {
         loanTransactionData.setCorrectionAllowed(Boolean.TRUE);
         loanTransactionData.setCorrectionDateRequired(Boolean.FALSE);
@@ -2368,7 +2714,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     }
 
     @Override
-    public LoanTransactionData retrieveLoanWriteoffTemplate(final Long loanId) {
+    public LoanTransactionData retrieveLoanWriteoffTemplate(final Long loanId, final LocalDate writeOffDate) {
 
         final LoanAccountData loan = this.retrieveOne(loanId);
         final BigDecimal outstandingLoanBalance = null;
@@ -2376,10 +2722,47 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final BigDecimal unrecognizedIncomePortion = null;
         final List<CodeValueData> writeOffReasonOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(LoanApiConstants.WRITEOFFREASONS));
+
+        // CGLT-632: break the write-off down as at the selected date so the user sees what will actually be written
+        // off (principal + interest earned by then) versus cancelled (future unaccrued interest, no GL impact).
+        final LocalDate effectiveDate = writeOffDate == null ? DateUtils.getBusinessLocalDate() : writeOffDate;
+        final Loan loanAccount = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final BigDecimal recognisedInterest = loanAccount.getInterestRecognisedAsOf(effectiveDate).getAmount();
+        final BigDecimal futureInterestCancelled = loanAccount.getFutureInterestToCancelAsOf(effectiveDate).getAmount();
+        final BigDecimal principalOutstanding = loanAccount.getSummary().getTotalPrincipalOutstanding();
+        final BigDecimal feesOutstanding = loanAccount.getSummary().getTotalFeeChargesOutstanding();
+        final BigDecimal penaltiesOutstanding = loanAccount.getSummary().getTotalPenaltyChargesOutstanding();
+        final BigDecimal writeOffAmount = principalOutstanding.add(recognisedInterest).add(feesOutstanding).add(penaltiesOutstanding);
+
+        LoanTransactionData loanTransactionData = new LoanTransactionData(null, null, null, transactionType, null, loan.currency(),
+                effectiveDate, writeOffAmount, loan.getNetDisbursalAmount(), principalOutstanding, recognisedInterest, feesOutstanding,
+                penaltiesOutstanding, null, null, null, null, outstandingLoanBalance, unrecognizedIncomePortion, false, null);
+        loanTransactionData.setWriteOffReasonOptions(writeOffReasonOptions);
+        loanTransactionData.setFutureInterestCancelled(futureInterestCancelled);
+        loanTransactionData.setProductBasis(productBasisOf(loanAccount.loanProduct()));
+        return loanTransactionData;
+    }
+
+    private String productBasisOf(final LoanProduct loanProduct) {
+        if (loanProduct.isCashBasedAccountingEnabled()) {
+            return "Cash";
+        }
+        if (loanProduct.isAccrualBasedAccountingEnabled()) {
+            return "Accrual";
+        }
+        return "None";
+    }
+
+    @Override
+    public LoanTransactionData retrieveLoanPartialWriteoffTemplate(final Long loanId) {
+        final LoanAccountData loan = this.retrieveOne(loanId);
+        final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.PARTIAL_WRITEOFF);
+        final BigDecimal unrecognizedIncomePortion = null;
+        
         LoanTransactionData loanTransactionData = new LoanTransactionData(null, null, null, transactionType, null, loan.currency(),
                 DateUtils.getBusinessLocalDate(), loan.getTotalOutstandingAmount(), loan.getNetDisbursalAmount(), null, null, null, null,
-                null, null, null, null, outstandingLoanBalance, unrecognizedIncomePortion, false, null);
-        loanTransactionData.setWriteOffReasonOptions(writeOffReasonOptions);
+                null, null, null, null, loan.getTotalOutstandingAmount(), unrecognizedIncomePortion, false, null);
+        
         return loanTransactionData;
     }
 
@@ -2797,33 +3180,39 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         public String schema() {
-            StringBuilder sqlBuilder = new StringBuilder();
-            sqlBuilder.append("(CASE ");
-            sqlBuilder.append(
-                    "WHEN (select max(tr.transaction_date) as transaction_date from m_loan_transaction tr where tr.loan_id = l.id AND tr.transaction_type_enum = ? AND tr.is_reversed = false) > ls.dueDate ");
-            sqlBuilder.append(
-                    "THEN (select max(tr.transaction_date) as transaction_date from m_loan_transaction tr where tr.loan_id = l.id AND tr.transaction_type_enum = ? AND tr.is_reversed = false) ");
-            sqlBuilder.append("ELSE ls.dueDate END) as transactionDate, ");
-            sqlBuilder.append(
-                    "ls.principal_amount - coalesce(ls.principal_writtenoff_derived, 0) - coalesce(ls.principal_completed_derived, 0) as principalDue, ");
-            sqlBuilder.append(
-                    "ls.interest_amount - coalesce(ls.interest_completed_derived, 0) - coalesce(ls.interest_waived_derived, 0) - coalesce(ls.interest_writtenoff_derived, 0) as interestDue, ");
-            sqlBuilder.append(
-                    "ls.fee_charges_amount - coalesce(ls.fee_charges_completed_derived, 0) - coalesce(ls.fee_charges_writtenoff_derived, 0) - coalesce(ls.fee_charges_waived_derived, 0) as feeDue, ");
-            sqlBuilder.append(
-                    "ls.penalty_charges_amount - coalesce(ls.penalty_charges_completed_derived, 0) - coalesce(ls.penalty_charges_writtenoff_derived, 0) - coalesce(ls.penalty_charges_waived_derived, 0) as penaltyDue, ");
-            sqlBuilder.append(
-                    "l.currency_code as currencyCode, l.currency_digits as currencyDigits, l.currency_multiplesof as inMultiplesOf, l.net_disbursal_amount as netDisbursalAmount, ");
-            sqlBuilder.append("rc." + sqlGenerator.escape("name")
-                    + " as currencyName, rc.display_symbol as currencyDisplaySymbol, rc.internationalized_name_code as currencyNameCode ");
-            sqlBuilder.append("FROM m_loan l ");
-            sqlBuilder.append("JOIN m_currency rc on rc." + sqlGenerator.escape("code") + " = l.currency_code ");
-            sqlBuilder.append("JOIN m_loan_repayment_schedule ls ON ls.loan_id = l.id AND ls.completed_derived = false ");
-            sqlBuilder.append(
-                    "JOIN((SELECT ls.loan_id, ls.duedate as datedue FROM m_loan_repayment_schedule ls WHERE ls.loan_id = ? and ls.completed_derived = false ORDER BY ls.duedate LIMIT 1)) asq on asq.loan_id = ls.loan_id ");
-            sqlBuilder.append("AND asq.datedue = ls.duedate ");
-            sqlBuilder.append("WHERE l.id = ?");
-            return sqlBuilder.toString();
+            // Prefer the earliest incomplete installment when any exist; otherwise fall back to
+            // installment 1 so overpaid / fully-completed schedules still return a template row
+            // (and payment types). LIMIT 1 also guards duplicate due-date schedule rows.
+            return " CASE WHEN loan_transaction.transaction_date IS NOT NULL"
+                    + " AND loan_transaction.transaction_date > ls.duedate"
+                    + " THEN loan_transaction.transaction_date ELSE ls.duedate END as transactionDate,"
+                    + " coalesce(ls.principal_amount, 0) - coalesce(ls.principal_writtenoff_derived, 0)"
+                    + " - coalesce(ls.principal_completed_derived, 0) as principalDue,"
+                    + " coalesce(ls.interest_amount, 0) - coalesce(ls.interest_completed_derived, 0)"
+                    + " - coalesce(ls.interest_waived_derived, 0) - coalesce(ls.interest_writtenoff_derived, 0) as interestDue,"
+                    + " coalesce(ls.fee_charges_amount, 0) - coalesce(ls.fee_charges_completed_derived, 0)"
+                    + " - coalesce(ls.fee_charges_writtenoff_derived, 0) - coalesce(ls.fee_charges_waived_derived, 0) as feeDue,"
+                    + " coalesce(ls.penalty_charges_amount, 0) - coalesce(ls.penalty_charges_completed_derived, 0)"
+                    + " - coalesce(ls.penalty_charges_writtenoff_derived, 0)"
+                    + " - coalesce(ls.penalty_charges_waived_derived, 0) as penaltyDue,"
+                    + " l.currency_code as currencyCode, l.currency_digits as currencyDigits,"
+                    + " l.currency_multiplesof as inMultiplesOf, l.net_disbursal_amount as netDisbursalAmount,"
+                    + " rc." + sqlGenerator.escape("name") + " as currencyName,"
+                    + " rc.display_symbol as currencyDisplaySymbol,"
+                    + " rc.internationalized_name_code as currencyNameCode"
+                    + " FROM m_loan l"
+                    + " JOIN m_currency rc on rc." + sqlGenerator.escape("code") + " = l.currency_code"
+                    + " JOIN m_loan_repayment_schedule ls ON ls.loan_id = l.id"
+                    + " LEFT JOIN ("
+                    + " select tr.loan_id, max(tr.transaction_date) as transaction_date"
+                    + " from m_loan_transaction tr"
+                    + " where tr.transaction_type_enum in (?, ?)"
+                    + " AND tr.is_reversed = false"
+                    + " group by tr.loan_id"
+                    + " ) loan_transaction ON loan_transaction.loan_id = l.id"
+                    + " WHERE l.id = ?"
+                    + " ORDER BY ls.completed_derived ASC, ls.duedate ASC, ls.installment ASC"
+                    + " LIMIT 1";
         }
 
         @Override
@@ -2979,6 +3368,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final List<CodeValueData> writeOffReasonOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(LoanApiConstants.WRITEOFFREASONS));
         loanTransactionData.setWriteOffReasonOptions(writeOffReasonOptions);
+
+        // CGLT-658: surface the future unaccrued interest that will be cancelled (not paid) on this early settlement.
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        loanTransactionData.setFutureInterestCancelled(loan.getFutureInterestToCancelAsOf(payoffDate).getAmount());
         return loanTransactionData;
     }
 
@@ -3659,7 +4052,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + "ld.ic_review_decision_level_two_recommended_amount as icReviewDecisionLevelTwoRecommendedAmount, "
                     + "ld.ic_review_decision_level_three_recommended_amount as icReviewDecisionLevelThreeRecommendedAmount, "
                     + "ld.ic_review_decision_level_four_recommended_amount as icReviewDecisionLevelFourRecommendedAmount, "
-                    + "ld.ic_review_decision_level_five_recommended_amount as icReviewDecisionLevelFiveRecommendedAmount ");
+                    + "ld.ic_review_decision_level_five_recommended_amount as icReviewDecisionLevelFiveRecommendedAmount, "
+                    + "ld.due_diligence_recommended_amount as dueDiligenceRecommendedAmount ");
             sb.append(" FROM m_loan_decision ld ");
             sb.append(" WHERE ld.loan_id= ? ");
             return sb.toString();
@@ -3676,9 +4070,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final BigDecimal icReviewDecisionLevelFourRecommendedAmount = rs.getBigDecimal("icReviewDecisionLevelFourRecommendedAmount");
             final BigDecimal icReviewDecisionLevelFiveRecommendedAmount = rs.getBigDecimal("icReviewDecisionLevelFiveRecommendedAmount");
 
-            return new LoanDecisionData(loanId, loanDecisionState, loanNextDecisionState, icReviewDecisionLevelOneRecommendedAmount,
-                    icReviewDecisionLevelTwoRecommendedAmount, icReviewDecisionLevelThreeRecommendedAmount,
-                    icReviewDecisionLevelFourRecommendedAmount, icReviewDecisionLevelFiveRecommendedAmount);
+            final BigDecimal dueDiligenceRecommendedAmount = rs.getBigDecimal("dueDiligenceRecommendedAmount");
+
+            final LoanDecisionData loanDecisionData = new LoanDecisionData(loanId, loanDecisionState, loanNextDecisionState,
+                    icReviewDecisionLevelOneRecommendedAmount, icReviewDecisionLevelTwoRecommendedAmount,
+                    icReviewDecisionLevelThreeRecommendedAmount, icReviewDecisionLevelFourRecommendedAmount,
+                    icReviewDecisionLevelFiveRecommendedAmount);
+            loanDecisionData.setDueDiligenceRecommendedAmount(dueDiligenceRecommendedAmount);
+            return loanDecisionData;
         }
 
     }
@@ -3917,11 +4316,60 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(LocalDate fromDate, LocalDate toDate, Long officeId, String currency) {
+        return retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(fromDate, toDate, officeId, currency, null);
+    }
+
+    @Override
+    public List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(LocalDate fromDate, LocalDate toDate, Long officeId, String currency, Long transactionId, Integer limit) {
         final LoanTransactionNotPostedToOdooInstanceMapper rm = new LoanTransactionNotPostedToOdooInstanceMapper(sqlGenerator);
 
         String sql = "select " + rm.loanTransactionNotPostedToOdoo();
         List<Object> params = new ArrayList<>();
 
+        if (transactionId != null) {
+            sql = sql + "AND gl.loan_transaction_id = ? ";
+            params.add(transactionId);
+        }
+        if (fromDate != null) {
+            sql = sql + "AND (mlt.transaction_date >= ? OR gl.correction_date >= ?) ";
+            params.add(fromDate);
+            params.add(fromDate);
+        }
+        if (toDate != null) {
+            sql = sql + "AND (mlt.transaction_date <= ? OR gl.correction_date <= ?) ";
+            params.add(toDate);
+            params.add(toDate);
+        }
+        if (officeId != null) {
+            sql = sql + "AND mc.office_id = ? ";
+            params.add(officeId);
+        }
+        if (currency != null) {
+            sql = sql + "AND ml.currency_code = ? ";
+            params.add(currency);
+        }
+
+        sql = sql + "order by mlt.transaction_date DESC ";
+
+        if (limit != null && limit > 0) {
+            sql = sql + sqlGenerator.limit(limit);
+        }
+
+        return this.jdbcTemplate.query(sql, rm, params.toArray());
+    }
+
+    @Override
+    public List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(LocalDate fromDate,
+            LocalDate toDate, Long officeId, String currency, Long transactionId) {
+        final LoanTransactionNotPostedToOdooInstanceMapper rm = new LoanTransactionNotPostedToOdooInstanceMapper(sqlGenerator);
+
+        String sql = "select " + rm.loanTransactionNotPostedToOdoo();
+        List<Object> params = new ArrayList<>();
+
+        if (transactionId != null) {
+            sql = sql + "AND gl.loan_transaction_id = ? ";
+            params.add(transactionId);
+        }
         if (fromDate != null) {
             sql = sql + "AND (mlt.transaction_date >= ? OR gl.correction_date >= ?) ";
             params.add(fromDate);

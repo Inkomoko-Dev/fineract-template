@@ -37,6 +37,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.organisation.holiday.domain.Holiday;
 import org.apache.fineract.organisation.holiday.domain.HolidayRepository;
 import org.apache.fineract.organisation.holiday.domain.HolidayStatusType;
+import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepository;
 import org.apache.fineract.organisation.staff.exception.StaffNotFoundException;
@@ -78,7 +79,9 @@ import org.apache.fineract.portfolio.loanaccount.exception.MultiDisbursementData
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleAssembler;
+import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanTransactionProcessingStrategy;
@@ -281,6 +284,7 @@ public class LoanAssembler {
         Loan loanApplication = null;
         Client client = null;
         Group group = null;
+        Office office = null;
 
         // Here we add Rates to LoanApplication
         final List<Rate> rates = this.rateAssembler.fromParsedJson(element);
@@ -381,6 +385,11 @@ public class LoanAssembler {
             final BigDecimal loanWithAnotherInstitutionAmount = this.fromApiJsonHelper
                     .extractBigDecimalWithLocaleNamed(LoanApiConstants.loanWithAnotherInstitutionAmount, element);
             loanApplication.setLoanWithAnotherInstitutionAmount(loanWithAnotherInstitutionAmount);
+        }
+        if (loanProduct.isEnableThirdPartyDisbursement()) {
+            final String providerCode = ThirdPartyDisbursementProvider.normalize(this.fromApiJsonHelper
+                    .extractStringNamed(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element));
+            loanApplication.setThirdPartyDisbursementProvider(providerCode);
         }
         return loanApplication;
     }

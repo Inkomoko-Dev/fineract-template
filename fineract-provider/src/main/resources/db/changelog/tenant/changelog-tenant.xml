@@ -155,6 +155,12 @@
     <include file="parts/FSI-93_update_IC_minutes_report.xml" relativeToChangelogFile="true"/>
     <include file="parts/FSI-233_update_penalties_section_portfolio_management_report.xml" relativeToChangelogFile="true"/>
     <include file="parts/FSI-231_update_payoff_portfolio_management_report.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-541_harmonize_country_code_values.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-527_standardize_bank_name_in_reports.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-588_kiva_posting_logger.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-658_future_interest_cancellation.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-653_migrate_to_generic_entity_disbursement_defaults.xml" relativeToChangelogFile="true"/>
+    <include file="custom-changelog/CGLT-680_add_partial_writeoff_permissions.xml" relativeToChangelogFile="true"/>
+    <include file="custom-changelog/CGLT-680_create_partial_writeoff_audit_table.xml" relativeToChangelogFile="true"/>
+    <include file="parts/042_add_notes_to_command_source.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

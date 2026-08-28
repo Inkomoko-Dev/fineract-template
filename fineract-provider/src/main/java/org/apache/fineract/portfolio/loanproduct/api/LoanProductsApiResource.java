@@ -79,6 +79,7 @@ import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
+import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.productmix.data.ProductMixData;
 import org.apache.fineract.portfolio.loanproduct.productmix.service.ProductMixReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
@@ -112,7 +113,8 @@ public class LoanProductsApiResource {
             "defaultDifferentialLendingRate", "maxDifferentialLendingRate", "isFloatingInterestRateCalculationAllowed",
             LoanProductConstants.CAN_USE_FOR_TOPUP, LoanProductConstants.IS_EQUAL_AMORTIZATION_PARAM, LoanProductConstants.RATES_PARAM_NAME,
             LoanApiConstants.fixedPrincipalPercentagePerInstallmentParamName, LoanProductConstants.LOAN_TERM_INCLUDES_TOPPED_UP_LOAN_TERM,
-            LoanProductConstants.maintainInterestOnLoanTermExtensionParamName, LoanProductConstants.IS_ISLAMIC));
+            LoanProductConstants.maintainInterestOnLoanTermExtensionParamName, LoanProductConstants.IS_ISLAMIC,
+            LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT));
 
     private final Set<String> productMixDataParameters = new HashSet<>(
             Arrays.asList("productId", "productName", "restrictedProducts", "allowedProducts", "productOptions"));
@@ -139,6 +141,7 @@ public class LoanProductsApiResource {
     private final ConfigurationDomainService configurationDomainService;
     private final InterestRateChartReadPlatformService chartReadPlatformService;
     private final CodeValueReadPlatformService codeValueReadPlatformService;
+    private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
 
     @Autowired
     public LoanProductsApiResource(final PlatformSecurityContext context, final LoanProductReadPlatformService readPlatformService,
@@ -155,7 +158,8 @@ public class LoanProductsApiResource {
             PaymentTypeReadPlatformService paymentTypeReadPlatformService,
             final FloatingRatesReadPlatformService floatingRateReadPlatformService, final RateReadService rateReadService,
             final ConfigurationDomainService configurationDomainService, InterestRateChartReadPlatformService chartReadPlatformService,
-            CodeValueReadPlatformService codeValueReadPlatformService) {
+            CodeValueReadPlatformService codeValueReadPlatformService,
+            final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService) {
         this.context = context;
         this.loanProductReadPlatformService = readPlatformService;
         this.chargeReadPlatformService = chargeReadPlatformService;
@@ -176,6 +180,7 @@ public class LoanProductsApiResource {
         this.configurationDomainService = configurationDomainService;
         this.chartReadPlatformService = chartReadPlatformService;
         this.codeValueReadPlatformService = codeValueReadPlatformService;
+        this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
     }
 
     @POST
@@ -397,6 +402,11 @@ public class LoanProductsApiResource {
         loanProductDataResponse.setBnplLoanProduct(productData.getBnplLoanProduct());
         loanProductDataResponse.setRequiresEquityContribution(productData.getRequiresEquityContribution());
         loanProductDataResponse.setEquityContributionLoanPercentage(productData.getEquityContributionLoanPercentage());
+        loanProductDataResponse.setEnableThirdPartyDisbursement(productData.getEnableThirdPartyDisbursement());
+        if (productData.getEnableThirdPartyDisbursement() != null && productData.getEnableThirdPartyDisbursement()) {
+            loanProductDataResponse.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
         return loanProductDataResponse;
     }
 

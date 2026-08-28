@@ -141,7 +141,7 @@ public class ClientOtherInfoReadPlatformServiceImpl implements ClientOtherInfoRe
     public ClientOtherInfoData retrieveTemplate() {
 
         final List<CodeValueData> nationalityOptions = new ArrayList<>(
-                this.codeValueReadPlatformService.retrieveCodeValuesByCode("COUNTRY"));
+                this.codeValueReadPlatformService.retrieveCodeValuesByCode(ClientApiConstants.NATIONALITY_COUNTRY_OF_ORIGIN));
         final List<CodeValueData> strataOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(ClientApiConstants.STRATA));
         return ClientOtherInfoData.template(nationalityOptions, strataOptions);

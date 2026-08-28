@@ -18,6 +18,8 @@
  */
 package org.apache.fineract.commands.domain;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import javax.persistence.Column;
@@ -38,6 +40,9 @@ import org.apache.logging.log4j.util.Strings;
 @Table(name = "m_portfolio_command_source")
 @Getter
 public class CommandSource extends AbstractPersistableCustom {
+
+    public static final int NOTES_MAX_LENGTH = 500;
+    private static final String NOTES_PARAM_NAME = "notes";
 
     @Column(name = "action_name", nullable = true, length = 100)
     private String actionName;
@@ -72,7 +77,7 @@ public class CommandSource extends AbstractPersistableCustom {
     @Column(name = "subresource_id")
     private Long subresourceId;
 
-    @Column(name = "command_as_json", length = 1000)
+    @Column(name = "command_as_json", columnDefinition = "TEXT")
     private String commandAsJson;
 
     @ManyToOne
@@ -100,6 +105,9 @@ public class CommandSource extends AbstractPersistableCustom {
     @Column(name = "transaction_id", length = 100)
     private String transactionId;
 
+    @Column(name = "notes", length = NOTES_MAX_LENGTH)
+    private String notes;
+
     @Column(name = "creditbureau_id")
     private Long creditBureauId;
 
@@ -107,8 +115,9 @@ public class CommandSource extends AbstractPersistableCustom {
     private Long organisationCreditBureauId;
 
     public static CommandSource fullEntryFrom(final CommandWrapper wrapper, final JsonCommand command, final AppUser maker) {
+        String notes = extractNotes(command.parsedJson());
         return new CommandSource(wrapper.actionName(), wrapper.entityName(), wrapper.getEntityId(), wrapper.getHref(), command.entityId(), command.subentityId(),
-                command.json(), maker, ZonedDateTime.now(DateUtils.getDateTimeZoneOfTenant()));
+                command.json(), maker, ZonedDateTime.now(DateUtils.getDateTimeZoneOfTenant()), notes);
     }
 
     protected CommandSource() {
@@ -116,7 +125,7 @@ public class CommandSource extends AbstractPersistableCustom {
     }
 
     private CommandSource(final String actionName, final String entityName, final Long entityId, final String href, final Long resourceId,
-            final Long subresourceId, final String commandSerializedAsJson, final AppUser maker, final ZonedDateTime madeOnDateTime) {
+            final Long subresourceId, final String commandSerializedAsJson, final AppUser maker, final ZonedDateTime madeOnDateTime, final String notes) {
         this.actionName = actionName;
         this.entityName = entityName;
         this.entityId = entityId;
@@ -127,6 +136,7 @@ public class CommandSource extends AbstractPersistableCustom {
         this.maker = maker;
         this.madeOnDate = madeOnDateTime != null ? madeOnDateTime.toLocalDateTime() : null;
         this.processingResult = CommandProcessingResultType.PROCESSED.getValue();
+        this.notes = notes;
     }
 
     public void setCreditBureauId(Long creditBureauId) {
@@ -135,6 +145,18 @@ public class CommandSource extends AbstractPersistableCustom {
 
     public void setOrganisationCreditBureauId(Long organisationCreditBureauId) {
         this.organisationCreditBureauId = organisationCreditBureauId;
+    }
+
+    private static String extractNotes(final JsonElement parsedJson) {
+        if (parsedJson == null || !parsedJson.isJsonObject()) {
+            return null;
+        }
+        final JsonObject jsonObject = parsedJson.getAsJsonObject();
+        if (!jsonObject.has(NOTES_PARAM_NAME) || !jsonObject.get(NOTES_PARAM_NAME).isJsonPrimitive()) {
+            return null;
+        }
+        final String notes = jsonObject.get(NOTES_PARAM_NAME).getAsString();
+        return notes.length() > NOTES_MAX_LENGTH ? notes.substring(0, NOTES_MAX_LENGTH) : notes;
     }
 
     public void markAsChecked(final AppUser checker, final ZonedDateTime checkedOnDate) {

@@ -64,8 +64,8 @@ public final class LoanApplicationTerms {
     private final PeriodFrequencyType loanTermPeriodFrequencyType;
     private Integer numberOfRepayments;
     private Integer actualNumberOfRepayments;
-    private final Integer repaymentEvery;
-    private final PeriodFrequencyType repaymentPeriodFrequencyType;
+    private Integer repaymentEvery;
+    private PeriodFrequencyType repaymentPeriodFrequencyType;
     private final Integer nthDay;
 
     private final DayOfWeekType weekDayType;
@@ -1137,7 +1137,7 @@ public final class LoanApplicationTerms {
         return outstandingBalance.getAmount().multiply(interestRate, mc);
     }
 
-    private long calculatePeriodsInOneYear(final PaymentPeriodsInOneYearCalculator calculator) {
+    public long calculatePeriodsInOneYear(final PaymentPeriodsInOneYearCalculator calculator) {
 
         // check if daysInYears is set if so change periodsInOneYear to days set
         // in db
@@ -1622,6 +1622,18 @@ public final class LoanApplicationTerms {
         }
     }
 
+    public void updateRepaymentEvery(Integer repaymentEvery) {
+        if (repaymentEvery != null) {
+            this.repaymentEvery = repaymentEvery;
+        }
+    }
+
+    public void updateRepaymentPeriodFrequencyType(PeriodFrequencyType repaymentPeriodFrequencyType) {
+        if (repaymentPeriodFrequencyType != null) {
+            this.repaymentPeriodFrequencyType = repaymentPeriodFrequencyType;
+        }
+    }
+
     public void updateTotalInterestDue(Money totalInterestDue) {
         this.totalInterestDue = totalInterestDue;
     }
@@ -1833,6 +1845,86 @@ public final class LoanApplicationTerms {
 
     public boolean isInterestToBeRecoveredFirstWhenGreaterThanEMIEnabled() {
         return isInterestToBeRecoveredFirstWhenGreaterThanEMI;
+    }
+
+    /**
+     * Calculates the number of repayments when changing repayment frequency while preserving loan term duration.
+     *
+     * <p>Uses calendar-accurate arithmetic (via {@link java.time.temporal.ChronoUnit}) anchored to a fixed reference
+     * date so that real-world month and year lengths are respected, avoiding rounding discrepancies (NFR3).</p>
+     *
+     * @param originalRepaymentEvery the original repayment every value
+     * @param originalRepaymentFrequencyType the original repayment frequency type
+     * @param newRepaymentEvery the new repayment every value
+     * @param newRepaymentFrequencyType the new repayment frequency type
+     * @param originalNumberOfRepayments the original number of repayments
+     * @return the calculated number of repayments for the new frequency, or {@code null} if any input is null
+     */
+    public static Integer calculateNumberOfRepaymentsForFrequencyChange(
+            final Integer originalRepaymentEvery,
+            final PeriodFrequencyType originalRepaymentFrequencyType,
+            final Integer newRepaymentEvery,
+            final PeriodFrequencyType newRepaymentFrequencyType,
+            final Integer originalNumberOfRepayments) {
+
+        if (originalRepaymentEvery == null || originalRepaymentFrequencyType == null
+                || newRepaymentEvery == null || newRepaymentFrequencyType == null
+                || originalNumberOfRepayments == null) {
+            return null;
+        }
+
+        // Use a fixed reference anchor date for calendar-accurate arithmetic.
+        // Anchoring to the first of a month avoids month-boundary edge cases.
+        final java.time.LocalDate anchor = java.time.LocalDate.of(2000, 1, 1);
+
+        // Calculate the end of the original loan term relative to the anchor
+        final java.time.LocalDate originalEnd = addPeriods(anchor, originalRepaymentEvery, originalRepaymentFrequencyType,
+                originalNumberOfRepayments);
+
+        // Calculate the end of one new period relative to the anchor
+        final java.time.LocalDate onePeriodEnd = addPeriods(anchor, newRepaymentEvery, newRepaymentFrequencyType, 1);
+
+        // Total days in original term and days in one new period
+        long totalDays = java.time.temporal.ChronoUnit.DAYS.between(anchor, originalEnd);
+        long onePeriodDays = java.time.temporal.ChronoUnit.DAYS.between(anchor, onePeriodEnd);
+
+        if (onePeriodDays == 0) {
+            return null;
+        }
+
+        int newNumberOfRepayments = (int) (totalDays / onePeriodDays);
+
+        // Ensure at least 1 repayment
+        return Math.max(1, newNumberOfRepayments);
+    }
+
+    /**
+     * Adds {@code count} periods of the given frequency to the anchor date, using calendar-accurate arithmetic.
+     *
+     * @param anchor the reference start date
+     * @param frequency the number of units per period (e.g. 1 for "every 1 month")
+     * @param frequencyType the period frequency type (DAYS, WEEKS, MONTHS, YEARS)
+     * @param count the number of periods to add
+     * @return the resulting date after adding the periods
+     */
+    private static java.time.LocalDate addPeriods(final java.time.LocalDate anchor, final Integer frequency,
+            final PeriodFrequencyType frequencyType, final Integer count) {
+        if (anchor == null || frequency == null || frequencyType == null || count == null) {
+            return anchor;
+        }
+        long totalUnits = (long) frequency * count;
+        switch (frequencyType) {
+            case DAYS:
+                return anchor.plusDays(totalUnits);
+            case WEEKS:
+                return anchor.plusWeeks(totalUnits);
+            case MONTHS:
+                return anchor.plusMonths(totalUnits);
+            case YEARS:
+                return anchor.plusYears(totalUnits);
+            default:
+                return anchor;
+        }
     }
 
     public boolean isPrincipalCompoundingDisabledForOverdueLoans() {

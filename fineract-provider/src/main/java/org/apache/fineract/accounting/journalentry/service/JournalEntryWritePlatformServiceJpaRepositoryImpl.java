@@ -526,18 +526,21 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
             final Office office = this.helper.getOfficeById(loanTransactionDTO.getOfficeId());
             final LoanTransactionEnumData paymentTypeId = loanTransactionDTO.getTransactionType();
             final Long loanId = loanDTO.getLoanId();
+            Long fundSource = loanDTO.getFundId();
 
 
+            // continue, not return: skipping one transaction must not abandon the rest of the batch. CGLT-656 posts
+            // a waiver alongside a reversal and a replacement for every repayment it reallocates.
             if(!Arrays.asList(new Long[]{1L, 2L, 4L, 5L, 6L, 8L, 9L, 10L, 19L, 26L, 27L}).contains(paymentTypeId.id()))
-                return; // not a transaction to post
+                continue; // not a transaction to post
 
             List<JournalEntry> journalEntries = glJournalEntryRepository.findJournalEntriesByLoanTransactionId("L" + transactionId);
 
             if (journalEntries.isEmpty())
-                return;
+                continue;
 
             if(Objects.equals(journalEntries.get(0).getCurrencyCode(), "ETB"))
-                return;
+                continue;
 
             JournalItemData journalItemData;
 
@@ -574,6 +577,10 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
             journalData.setOfficeId(office.getId());
             journalData.setJournalItems(journalItems);
             journalData.setLocation(location);
+
+            if (fundSource != null) {
+                journalData.setFundSource(fundSource);
+            }
 
             AppUser currentUser = this.context.authenticatedUser();
 
@@ -618,7 +625,7 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
         // Publish the event
         eventPublisher.publishEvent(hookEvent);
 
-        log.info("Posted transaction to odoo");
+        log.info("Posted transaction to odoo: {}",payload.toString());
     }
 
     @Transactional

@@ -75,6 +75,8 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
             "error.msg.loan.recovery.payment.date.cannot.be.before.writeoff.date";
     private static final String DUPLICATE_CORRECTED_RECOVERY_ERROR =
             "error.msg.loan.recovery.payment.correction.already.exists";
+    private static final String RECOVERY_PAYMENT_EXCEEDS_WRITTEN_OFF_ERROR =
+            "error.msg.loan.transaction.cannot.be.greater.than.total.written.off";
     private LoanTransactionHelper loanTransactionHelper;
     private LoanTransactionHelper loanTransactionHelperValidationError;
 
@@ -242,6 +244,33 @@ public class LoanWithWaiveInterestAndWriteOffIntegrationTest {
         Assertions.assertTrue(
                 Float.valueOf("250.0").compareTo(Float.valueOf(String.valueOf(loanSummary.get("totalRecovered")))) == 0,
                 "Checking for total recovered ");
+    }
+
+    @Test
+    public void recoveryPaymentCannotExceedRemainingWrittenOffAmount() {
+        final Integer loanID = createDisburseAndWriteOffLoan("01 January 2011");
+        HashMap recoveryTemplate = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
+                "/fineract-provider/api/v1/loans/" + loanID + "/transactions/template?command=" + RECOVERY_PAYMENT + "&"
+                        + Utils.TENANT_IDENTIFIER,
+                "");
+        final Float totalWrittenOff = Float.valueOf(String.valueOf(recoveryTemplate.get("amount")));
+
+        this.loanTransactionHelper.makeRepaymentTypePayment(RECOVERY_PAYMENT, "01 January 2011", totalWrittenOff, loanID, null);
+
+        recoveryTemplate = (HashMap) Utils.performServerGet(this.requestSpec, this.responseSpec,
+                "/fineract-provider/api/v1/loans/" + loanID + "/transactions/template?command=" + RECOVERY_PAYMENT + "&"
+                        + Utils.TENANT_IDENTIFIER,
+                "");
+        Assertions.assertEquals(Float.valueOf("0.0"), Float.valueOf(String.valueOf(recoveryTemplate.get("amount"))),
+                "Recovery template amount should be zero after full recovery ");
+
+        final ArrayList<HashMap> errors = (ArrayList<HashMap>) this.loanTransactionHelperValidationError.makeRepaymentTypePayment(
+                RECOVERY_PAYMENT, "02 January 2011", totalWrittenOff, loanID, CommonConstants.RESPONSE_ERROR);
+        assertEquals(RECOVERY_PAYMENT_EXCEEDS_WRITTEN_OFF_ERROR, errors.get(0).get(CommonConstants.RESPONSE_ERROR_MESSAGE_CODE));
+
+        final HashMap loanSummary = this.loanTransactionHelper.getLoanSummary(requestSpec, responseSpec, loanID);
+        Assertions.assertEquals(totalWrittenOff, Float.valueOf(String.valueOf(loanSummary.get("totalRecovered"))),
+                "Rejected recovery payment should not change total recovered ");
     }
 
     @Test

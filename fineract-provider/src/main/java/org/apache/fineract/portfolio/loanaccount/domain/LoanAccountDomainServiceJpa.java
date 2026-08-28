@@ -177,6 +177,12 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         var loanRedrawAccount = loanRedrawAccountOptional.get();
         loanRedrawAccount.withdraw(transactionAmount, user, DateUtils.getLocalDateTimeOfTenant());
         loanRedrawAccountRepository.saveAndFlush(loanRedrawAccount);
+        
+        // Add the transaction to the loan
+        loan.addLoanTransaction(withdrawFromRedraw);
+        // Update loan summary and status
+        loan.updateLoanSummarAndStatus();
+        
         saveLoanTransactionWithDataIntegrityViolationChecks(withdrawFromRedraw);
         this.loanRepositoryWrapper.saveAndFlush(loan);
 
@@ -254,6 +260,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 scheduleGeneratorDTO, isHolidayValidationDone, bypassLastTransactionDateValidation);
 
         saveLoanTransactionWithDataIntegrityViolationChecks(newRepaymentTransaction);
+
+        // CGLT-658: record any future unaccrued interest cancelled by this settlement as its own audit transaction.
+        final LoanTransaction futureInterestCancellation = loan.reconcileFutureInterestCancellation(newRepaymentTransaction,
+                transactionDate);
+        if (futureInterestCancellation != null) {
+            saveLoanTransactionWithDataIntegrityViolationChecks(futureInterestCancellation);
+        }
 
         /***
          * TODO Vishwas Batch save is giving me a HibernateOptimisticLockingFailureException, looping and saving for the

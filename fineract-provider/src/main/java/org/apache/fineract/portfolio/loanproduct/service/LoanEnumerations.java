@@ -372,6 +372,10 @@ public final class LoanEnumerations {
                 optionData = new LoanTransactionEnumData(LoanTransactionType.WRITEOFF.getValue().longValue(),
                         LoanTransactionType.WRITEOFF.getCode(), "Close (as written-off)");
             break;
+            case PARTIAL_WRITEOFF:
+                optionData = new LoanTransactionEnumData(LoanTransactionType.PARTIAL_WRITEOFF.getValue().longValue(),
+                        LoanTransactionType.PARTIAL_WRITEOFF.getCode(), "Partial Write-off");
+            break;
             case RECOVERY_REPAYMENT:
                 optionData = new LoanTransactionEnumData(LoanTransactionType.RECOVERY_REPAYMENT.getValue().longValue(),
                         LoanTransactionType.RECOVERY_REPAYMENT.getCode(), "Repayment (after write-off)");
@@ -454,11 +458,15 @@ public final class LoanEnumerations {
                 optionData = new LoanTransactionEnumData(LoanTransactionType.PAY_OFF.getValue().longValue(),
                         LoanTransactionType.PAY_OFF.getCode(), "Payoff");
             break;
-            case INSURANCE_CHARGE_ADJUSTMENT:
+            case DISBURSEMENT_CHARGE_ADJUSTMENT:
                 optionData = new LoanTransactionEnumData(
-                        LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getValue().longValue(),
-                        LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getCode(),
-                        "Insurance Charge Adjustment");
+                        LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue().longValue(),
+                        LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getCode(),
+                        "Disbursement Charge Adjustment");
+            break;
+            case FUTURE_INTEREST_CANCELLATION:
+                optionData = new LoanTransactionEnumData(LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getValue().longValue(),
+                        LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getCode(), "Future Interest Cancellation");
             break;
         }
         return optionData;
@@ -635,6 +643,14 @@ public final class LoanEnumerations {
             case INTEREST_RATE_FROM_INSTALLMENT:
                 optionData = new EnumOptionData(LoanTermVariationType.INTEREST_RATE_FROM_INSTALLMENT.getValue().longValue(),
                         LoanTermVariationType.INTEREST_RATE_FROM_INSTALLMENT.getCode(), "interestRateForInstallment");
+            break;
+            case REPAYMENT_FREQUENCY:
+                optionData = new EnumOptionData(LoanTermVariationType.REPAYMENT_FREQUENCY.getValue().longValue(),
+                        LoanTermVariationType.REPAYMENT_FREQUENCY.getCode(), "repaymentFrequency");
+            break;
+            case REPAYMENT_EVERY:
+                optionData = new EnumOptionData(LoanTermVariationType.REPAYMENT_EVERY.getValue().longValue(),
+                        LoanTermVariationType.REPAYMENT_EVERY.getCode(), "repaymentEvery");
             break;
             default:
                 optionData = new EnumOptionData(LoanTermVariationType.INVALID.getValue().longValue(),

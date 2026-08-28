@@ -120,11 +120,7 @@ public class ProvisioningCriteriaDefinitionJsonDeserializer implements Provision
                         .longZeroOrGreater();
 
                 Long maximumAge = this.fromApiJsonHelper.extractLongNamed(ProvisioningCriteriaConstants.JSON_MAXIMUM_AGE_PARAM, jsonObject);
-                if (maximumAge != null) {
-                    baseDataValidator.reset().parameter(ProvisioningCriteriaConstants.JSON_MAXIMUM_AGE_PARAM)
-                            .parameterAtIndexArray(ProvisioningCriteriaConstants.JSON_MAXIMUM_AGE_PARAM, i + 1).value(maximumAge)
-                            .longGreaterThanNumber(ProvisioningCriteriaConstants.JSON_MINIMUM_AGE_PARAM, minimumAge, (i + 1));
-                }
+                validateMaximumAge(dataValidationErrors, minimumAge, maximumAge, i + 1);
 
                 BigDecimal provisioningpercentage = this.fromApiJsonHelper
                         .extractBigDecimalNamed(ProvisioningCriteriaConstants.JSON_PROVISIONING_PERCENTAGE_PARAM, jsonObject, locale);
@@ -214,11 +210,7 @@ public class ProvisioningCriteriaDefinitionJsonDeserializer implements Provision
                         .longZeroOrGreater();
 
                 Long maximumAge = this.fromApiJsonHelper.extractLongNamed(ProvisioningCriteriaConstants.JSON_MAXIMUM_AGE_PARAM, jsonObject);
-                if (maximumAge != null) {
-                    baseDataValidator.reset().parameter(ProvisioningCriteriaConstants.JSON_MAXIMUM_AGE_PARAM)
-                            .parameterAtIndexArray(ProvisioningCriteriaConstants.JSON_MAXIMUM_AGE_PARAM, i + 1).value(maximumAge)
-                            .longGreaterThanNumber(ProvisioningCriteriaConstants.JSON_MINIMUM_AGE_PARAM, minimumAge, (i + 1));
-                }
+                validateMaximumAge(dataValidationErrors, minimumAge, maximumAge, i + 1);
 
                 BigDecimal provisioningpercentage = this.fromApiJsonHelper
                         .extractBigDecimalNamed(ProvisioningCriteriaConstants.JSON_PROVISIONING_PERCENTAGE_PARAM, jsonObject, locale);
@@ -264,6 +256,21 @@ public class ProvisioningCriteriaDefinitionJsonDeserializer implements Provision
         if (StringUtils.isNotBlank(reason)) {
             new DataValidatorBuilder(dataValidationErrors).resource("provisioningcriteria").reset()
                     .parameter(ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM).value(reason).notExceedingLengthOf(500);
+        }
+    }
+
+    private void validateMaximumAge(final List<ApiParameterError> dataValidationErrors, final Long minimumAge, final Long maximumAge,
+            final int index) {
+        if (maximumAge == null) {
+            return;
+        }
+        if (minimumAge != null && maximumAge < minimumAge) {
+            final String parameter = ProvisioningCriteriaConstants.JSON_MAXIMUM_AGE_PARAM;
+            final String validationErrorCode = "validation.msg.provisioningcriteria." + parameter + ".not.greater.than.or.equal.to."
+                    + ProvisioningCriteriaConstants.JSON_MINIMUM_AGE_PARAM + ".at.Index." + index;
+            final String defaultEnglishMessage = "The parameter `" + parameter + "` must be greater than or equal to " + minimumAge;
+            dataValidationErrors.add(ApiParameterError.parameterError(validationErrorCode, defaultEnglishMessage, parameter, maximumAge,
+                    minimumAge));
         }
     }
 

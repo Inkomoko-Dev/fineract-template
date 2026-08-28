@@ -40,7 +40,9 @@ import javax.persistence.OneToOne;
 import javax.persistence.Table;
 import javax.persistence.UniqueConstraint;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
@@ -49,6 +51,7 @@ import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.exception.LoanChargeWithoutMandatoryFieldException;
+import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.command.LoanChargeCommand;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidDetail;
 
@@ -339,6 +342,13 @@ public class LoanCharge extends AbstractPersistableCustom {
         this.paid = true;
     }
 
+    public void updateAmountPaidForDisbursementChargeAdjustment(final BigDecimal amount, final BigDecimal amountPaid) {
+        this.amount = amount;
+        this.amountPaid = amountPaid == null ? BigDecimal.ZERO : amountPaid;
+        this.amountOutstanding = calculateOutstanding();
+        this.paid = BigDecimal.ZERO.compareTo(this.amountOutstanding) == 0;
+    }
+
     public boolean isFullyPaid() {
         return this.paid;
     }
@@ -383,12 +393,52 @@ public class LoanCharge extends AbstractPersistableCustom {
             }
             return amountWaived;
         }
-        this.amountWaived = this.amountOutstanding;
+        final Money amountWaived = getAmountOutstanding(currency);
+        this.amountWaived = getAmountWaived(currency).plus(amountWaived).getAmount();
         this.amountOutstanding = BigDecimal.ZERO;
         this.paid = false;
         this.waived = true;
-        return getAmountWaived(currency);
+        return amountWaived;
 
+    }
+
+    /**
+     * Waives part of the outstanding balance rather than all of it. Unlike {@link #waive(MonetaryCurrency, Integer)},
+     * {@code waived} is set only once nothing remains outstanding, so a partially waived charge is not mistaken for a
+     * CGLT-624 residual penalty ({@code isWaived() && amountOutstanding > 0}).
+     */
+    public Money waivePartially(final MonetaryCurrency currency, final Integer loanInstallmentNumber, final BigDecimal amountToWaive) {
+
+        if (isInstalmentFee()) {
+            // Spreading a partial waiver across LoanInstallmentCharge rows is a separate allocation problem.
+            throw partialWaiverError("error.msg.loan.charge.partial.waiver.not.supported.for.instalment.fee",
+                    "A partial waiver is not supported for an instalment fee charge.", amountToWaive);
+        }
+
+        final Money requested = Money.of(currency, amountToWaive);
+        if (!requested.isGreaterThanZero()) {
+            throw partialWaiverError("error.msg.loan.charge.partial.waiver.amount.not.greater.than.zero",
+                    "The waiver amount must be greater than zero.", amountToWaive);
+        }
+
+        final Money outstanding = getAmountOutstanding(currency);
+        if (requested.isGreaterThan(outstanding)) {
+            throw partialWaiverError("error.msg.loan.charge.partial.waiver.amount.exceeds.outstanding",
+                    "The waiver amount may not exceed the outstanding charge balance of " + outstanding.getAmount() + ".", amountToWaive);
+        }
+
+        this.amountWaived = getAmountWaived(currency).plus(requested).getAmount();
+        this.amountOutstanding = outstanding.minus(requested).getAmount();
+        this.paid = false;
+        this.waived = BigDecimal.ZERO.compareTo(this.amountOutstanding) == 0;
+        return requested;
+    }
+
+    private PlatformApiDataValidationException partialWaiverError(final String code, final String message, final BigDecimal value) {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        dataValidationErrors.add(ApiParameterError.parameterError(code, message, LoanApiConstants.waiverAmountParamName, value));
+        return new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                dataValidationErrors);
     }
 
     public BigDecimal getAmountPercentageAppliedTo() {

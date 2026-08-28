@@ -58,6 +58,10 @@ public final class LoanApplicationTransitionApiJsonValidator {
     }
 
     public void validateApproval(final String json) {
+        validateApproval(json, true);
+    }
+
+    public void validateApproval(final String json, final boolean requirePaymentTypeId) {
 
         if (StringUtils.isBlank(json)) {
             throw new InvalidJsonException();
@@ -70,6 +74,7 @@ public final class LoanApplicationTransitionApiJsonValidator {
                         LoanApiConstants.disbursementDataParameterName, LoanApiConstants.disbursementDateParameterName,
                         "paymentTypeId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
                         "clientPhoneNumber", "clientAccountNumber","clientBankName","transactionAmount",
+                        LoanApiConstants.mfiCodeParameterName,
                         LoanApiConstants.paymentToParameterName, LoanApiConstants.beneficiaryNameParameterName,
                         LoanApiConstants.disbursementTypeParameterName, LoanApiConstants.fxRateParameterName,
                         LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName,
@@ -105,7 +110,11 @@ public final class LoanApplicationTransitionApiJsonValidator {
         baseDataValidator.reset().parameter(LoanApiConstants.noteParameterName).value(note).notExceedingLengthOf(1000);
 
         final Long paymentTypeId = this.fromApiJsonHelper.extractLongNamed("paymentTypeId", element);
-        baseDataValidator.reset().parameter("paymentTypeId").value(paymentTypeId).notNull();
+        if (requirePaymentTypeId) {
+            baseDataValidator.reset().parameter("paymentTypeId").value(paymentTypeId).notNull();
+        } else {
+            baseDataValidator.reset().parameter("paymentTypeId").value(paymentTypeId).ignoreIfNull().longGreaterThanZero();
+        }
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }

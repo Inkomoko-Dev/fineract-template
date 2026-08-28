@@ -111,7 +111,9 @@ public class AccountingProcessorHelper {
         final Long officeId = (Long) accountingBridgeData.get("officeId");
         final CurrencyData currencyData = (CurrencyData) accountingBridgeData.get("currency");
         final List<LoanTransactionDTO> newLoanTransactions = new ArrayList<>();
-        boolean isAccountTransfer = (Boolean) accountingBridgeData.get("isAccountTransfer");
+        final boolean isAccountTransfer = (Boolean) accountingBridgeData.get("isAccountTransfer");
+        final Boolean isLoanToLoanTransferFromCommand = (Boolean) accountingBridgeData.get("isLoanToLoanTransfer");
+        final Long fundId = (Long) accountingBridgeData.get("fundId");
 
         @SuppressWarnings("unchecked")
         final List<Map<String, Object>> newTransactionsMap = (List<Map<String, Object>>) accountingBridgeData.get("newLoanTransactions");
@@ -151,26 +153,34 @@ public class AccountingProcessorHelper {
                 }
             }
 
-            if (!isAccountTransfer) {
-                isAccountTransfer = this.accountTransfersReadPlatformService.isAccountTransfer(Long.parseLong(transactionId),
+            /***
+             * Both transfer flags are scoped to the transaction being posted, so a transfer leg in the batch does not
+             * turn the remaining transactions into transfers. When entries are re-posted outside of the original
+             * transfer command (e.g. after a charge edit reprocesses the loan) the command flags are gone, so the flags
+             * are re-derived from the stored transfer legs to keep posting against the financial activity the original
+             * entries used - Asset Transfer for a loan-to-loan (top-up) leg, Liability Transfer otherwise.
+             ***/
+            boolean transactionIsAccountTransfer = isAccountTransfer;
+            if (!transactionIsAccountTransfer) {
+                transactionIsAccountTransfer = this.accountTransfersReadPlatformService.isAccountTransfer(Long.parseLong(transactionId),
                         PortfolioAccountType.LOAN);
+            }
+            boolean transactionIsLoanToLoanTransfer = Boolean.TRUE.equals(isLoanToLoanTransferFromCommand);
+            if (transactionIsAccountTransfer && !transactionIsLoanToLoanTransfer) {
+                transactionIsLoanToLoanTransfer = this.accountTransfersReadPlatformService
+                        .isLoanToLoanTransfer(Long.parseLong(transactionId));
             }
             final LoanTransactionDTO transaction = new LoanTransactionDTO(transactionOfficeId, paymentTypeId, transactionId,
                     transactionDate, transactionType, amount, principal, interest, fees, penalties, overPayments, reversed,
-                    penaltyPaymentDetails, feePaymentDetails, isAccountTransfer);
+                    penaltyPaymentDetails, feePaymentDetails, transactionIsAccountTransfer);
             transaction.setCorrectionDate(correctionDate);
-            Boolean isLoanToLoanTransfer = (Boolean) accountingBridgeData.get("isLoanToLoanTransfer");
-            if (isLoanToLoanTransfer != null && isLoanToLoanTransfer) {
-                transaction.setLoanToLoanTransfer(true);
-            } else {
-                transaction.setLoanToLoanTransfer(false);
-            }
+            transaction.setLoanToLoanTransfer(transactionIsLoanToLoanTransfer);
             newLoanTransactions.add(transaction);
 
         }
 
         return new LoanDTO(loanId, loanProductId, officeId, currencyData.code(), cashBasedAccountingEnabled,
-                upfrontAccrualBasedAccountingEnabled, periodicAccrualBasedAccountingEnabled, newLoanTransactions);
+                upfrontAccrualBasedAccountingEnabled, periodicAccrualBasedAccountingEnabled, newLoanTransactions,fundId);
     }
 
     public SavingsDTO populateSavingsDtoFromMap(final Map<String, Object> accountingBridgeData, final boolean cashBasedAccountingEnabled,

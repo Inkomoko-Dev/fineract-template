@@ -43,6 +43,10 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import javax.ws.rs.core.UriInfo;
 
 import lombok.extern.slf4j.Slf4j;
@@ -59,7 +63,9 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.portfolio.charge.data.ChargeData;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.data.HistoricalPenaltyWaiverPreviewData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
+import org.apache.fineract.portfolio.loanaccount.service.HistoricalPenaltyWaiverPreviewService;
 import org.apache.fineract.portfolio.loanaccount.data.LoanInstallmentChargeData;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -89,18 +95,53 @@ public class LoanChargesApiResource {
     private final DefaultToApiJsonSerializer<LoanChargeData> toApiJsonSerializer;
     private final ApiRequestParameterHelper apiRequestParameterHelper;
     private final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService;
+    private final HistoricalPenaltyWaiverPreviewService historicalPenaltyWaiverPreviewService;
+    private final DefaultToApiJsonSerializer<HistoricalPenaltyWaiverPreviewData> previewSerializer;
 
     @Autowired
     public LoanChargesApiResource(final PlatformSecurityContext context, final ChargeReadPlatformService chargeReadPlatformService,
                                   final LoanChargeReadPlatformService loanChargeReadPlatformService,
                                   final DefaultToApiJsonSerializer<LoanChargeData> toApiJsonSerializer, final ApiRequestParameterHelper apiRequestParameterHelper,
-                                  final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService) {
+                                  final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService,
+                                  final HistoricalPenaltyWaiverPreviewService historicalPenaltyWaiverPreviewService,
+                                  final DefaultToApiJsonSerializer<HistoricalPenaltyWaiverPreviewData> previewSerializer) {
         this.context = context;
         this.chargeReadPlatformService = chargeReadPlatformService;
         this.loanChargeReadPlatformService = loanChargeReadPlatformService;
         this.toApiJsonSerializer = toApiJsonSerializer;
         this.apiRequestParameterHelper = apiRequestParameterHelper;
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
+        this.historicalPenaltyWaiverPreviewService = historicalPenaltyWaiverPreviewService;
+        this.previewSerializer = previewSerializer;
+    }
+
+    @GET
+    @Path("{chargeId}/historicalwaiver/preview")
+    @Consumes({MediaType.APPLICATION_JSON})
+    @Produces({MediaType.APPLICATION_JSON})
+    @Operation(summary = "Preview a historical penalty waiver", description = "Runs the correction and rolls it back, "
+            + "so the caller sees exactly what submitting would do without changing anything.")
+    public String previewHistoricalPenaltyWaiver(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+                                                 @PathParam("chargeId") @Parameter(description = "chargeId") final Long loanChargeId,
+                                                 @QueryParam("waiverAmount") @Parameter(description = "waiverAmount") final BigDecimal waiverAmount,
+                                                 @QueryParam("waiverEffectiveDate") @Parameter(description = "waiverEffectiveDate") final String waiverEffectiveDate,
+                                                 @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat,
+                                                 @QueryParam("locale") @Parameter(description = "locale") final String locale) {
+
+        this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
+
+        final LocalDate effectiveDate = parseDate(waiverEffectiveDate, dateFormat, locale);
+        return this.previewSerializer
+                .serialize(this.historicalPenaltyWaiverPreviewService.preview(loanId, loanChargeId, waiverAmount, effectiveDate));
+    }
+
+    private LocalDate parseDate(final String value, final String dateFormat, final String locale) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        final DateTimeFormatter formatter = StringUtils.isBlank(dateFormat) ? DateTimeFormatter.ISO_LOCAL_DATE
+                : DateTimeFormatter.ofPattern(dateFormat, StringUtils.isBlank(locale) ? Locale.ENGLISH : new Locale(locale));
+        return LocalDate.parse(value, formatter);
     }
 
     private boolean is(final String commandParam, final String commandValue) {
@@ -237,7 +278,10 @@ public class LoanChargesApiResource {
             final CommandWrapper commandRequest = builder.payLoanCharge(loanId, loanChargeId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else if (is(commandParam, "adjust")) {
-            final CommandWrapper commandRequest = builder.adjustLoanInsuranceCharge(loanId, loanChargeId).build();
+            final CommandWrapper commandRequest = builder.adjustLoanDisbursementCharge(loanId, loanChargeId).build();
+            result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        } else if (is(commandParam, "historicalwaive")) {
+            final CommandWrapper commandRequest = builder.historicalWaiveLoanCharge(loanId, loanChargeId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else {
             throw new UnrecognizedQueryParamException("command", commandParam);

@@ -173,6 +173,19 @@ public class LoanDecisionApiResource {
 
     }
 
+    @GET
+    @Path("details/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveLoanDecisionDetails(@PathParam("loanId") final long loanId) {
+
+        this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
+
+        final LoanDecisionData loanDecisionData = this.loanReadPlatformService.retrieveLoanDecisionByLoanId(loanId);
+
+        return this.toApiJsonSerializer.serialize(loanDecisionData);
+    }
+
     @POST
     @Path("collateralReview/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })

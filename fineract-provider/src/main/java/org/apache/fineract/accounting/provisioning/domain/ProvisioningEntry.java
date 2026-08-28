@@ -57,17 +57,38 @@ public class ProvisioningEntry extends AbstractPersistableCustom {
     @Column(name = "lastmodified_date")
     private LocalDate lastModifiedDate;
 
+    @Column(name = "executed_at")
+    private java.time.LocalDateTime executedAt;
+
     protected ProvisioningEntry() {
 
     }
 
     public ProvisioningEntry(AppUser createdBy, LocalDate createdDate, AppUser lastModifiedBy, LocalDate lastModifiedDate,
             Set<LoanProductProvisioningEntry> provisioningEntries) {
+        this(createdBy, createdDate, lastModifiedBy, lastModifiedDate, provisioningEntries, null);
+    }
+
+    public ProvisioningEntry(AppUser createdBy, LocalDate createdDate, AppUser lastModifiedBy, LocalDate lastModifiedDate,
+            Set<LoanProductProvisioningEntry> provisioningEntries, java.time.LocalDateTime executedAt) {
         this.provisioningEntries = provisioningEntries;
         this.createdBy = createdBy;
         this.createdDate = createdDate;
         this.lastModifiedBy = lastModifiedBy;
         this.lastModifiedDate = lastModifiedDate;
+        this.executedAt = executedAt;
+    }
+
+    public void setExecutedAt(java.time.LocalDateTime executedAt) {
+        this.executedAt = executedAt;
+    }
+
+    public java.time.LocalDateTime getExecutedAt() {
+        return this.executedAt;
+    }
+
+    public Boolean getJournalEntryCreated() {
+        return this.isJournalEntryCreated;
     }
 
     public void setProvisioningEntries(Collection<LoanProductProvisioningEntry> provisioningEntries) {

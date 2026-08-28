@@ -255,6 +255,68 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder createBulkReschedule() {
+        this.actionName = "CREATE";
+        this.entityName = "RESCHEDULELOAN";
+        this.entityId = null;
+        this.href = "/bulk-reschedule";
+        return this;
+    }
+
+    public CommandWrapperBuilder submitBulkRescheduleForApproval(final Long executionId) {
+        // Submission is part of creation and intentionally reuses CREATE_RESCHEDULELOAN.
+        this.actionName = "CREATE";
+        this.entityName = "RESCHEDULELOAN";
+        this.entityId = executionId;
+        this.href = "/bulk-reschedule/" + executionId + "/submit-for-approval";
+        return this;
+    }
+
+    public CommandWrapperBuilder deleteBulkReschedule(final Long executionId) {
+        this.actionName = "DELETE";
+        this.entityName = "RESCHEDULELOAN";
+        this.entityId = executionId;
+        this.href = "/bulk-reschedule/" + executionId;
+        return this;
+    }
+
+    public CommandWrapperBuilder approveBulkReschedule(final Long executionId) {
+        this.actionName = "APPROVE";
+        this.entityName = "RESCHEDULELOAN";
+        this.entityId = executionId;
+        this.href = "/bulk-reschedule/" + executionId + "/approve";
+        return this;
+    }
+
+    public CommandWrapperBuilder rejectBulkReschedule(final Long executionId) {
+        this.actionName = "REJECT";
+        this.entityName = "RESCHEDULELOAN";
+        this.entityId = executionId;
+        this.href = "/bulk-reschedule/" + executionId + "/reject";
+        return this;
+    }
+
+    public CommandWrapperBuilder rollbackBulkReschedule(final Long executionId) {
+        this.actionName = "UNDO";
+        this.entityName = "RESCHEDULELOAN";
+        this.entityId = executionId;
+        this.href = "/bulk-reschedule/" + executionId + "/rollback";
+        return this;
+    }
+
+    public CommandWrapperBuilder recoverBulkReschedule(final Long executionId) {
+        this.actionName = "RECOVER";
+        this.entityName = "RESCHEDULELOAN";
+        this.entityId = executionId;
+        this.href = "/bulk-reschedule/" + executionId + "/recover";
+        return this;
+    }
+
+    public CommandWrapperBuilder withTransactionId(final String transactionId) {
+        this.transactionId = transactionId;
+        return this;
+    }
+
     public CommandWrapperBuilder updateUser(final Long userId) {
         this.actionName = "UPDATE";
         this.entityName = "USER";
@@ -795,12 +857,37 @@ public class CommandWrapperBuilder {
         return this;
     }
 
-    public CommandWrapperBuilder adjustLoanInsuranceCharge(final Long loanId, final Long loanChargeId) {
-        this.actionName = "ADJUSTINSURANCE";
+    public CommandWrapperBuilder adjustLoanDisbursementCharge(final Long loanId, final Long loanChargeId) {
+        this.actionName = "ADJUSTDISBURSEMENTCHARGE";
         this.entityName = "LOANCHARGE";
         this.loanId = loanId;
         this.entityId = loanChargeId;
         this.href = "/loans/" + loanId + "/charges/" + loanChargeId;
+        return this;
+    }
+
+    public CommandWrapperBuilder historicalWaiveLoanCharge(final Long loanId, final Long loanChargeId) {
+        this.actionName = "HISTORICALWAIVE";
+        this.entityName = "LOANCHARGE";
+        this.loanId = loanId;
+        this.entityId = loanChargeId;
+        this.href = "/loans/" + loanId + "/charges/" + loanChargeId;
+        return this;
+    }
+
+    public CommandWrapperBuilder approveHistoricalPenaltyWaiver(final Long waiverId) {
+        this.actionName = "APPROVE";
+        this.entityName = "HISTORICALPENALTYWAIVER";
+        this.entityId = waiverId;
+        this.href = "/loans/historicalpenaltywaivers/" + waiverId;
+        return this;
+    }
+
+    public CommandWrapperBuilder rejectHistoricalPenaltyWaiver(final Long waiverId) {
+        this.actionName = "REJECT";
+        this.entityName = "HISTORICALPENALTYWAIVER";
+        this.entityId = waiverId;
+        this.href = "/loans/historicalpenaltywaivers/" + waiverId;
         return this;
     }
 
@@ -876,6 +963,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder partialWriteOffLoanTransaction(final Long loanId) {
+        this.actionName = "PARTIALWRITEOFF";
+        this.entityName = "LOAN";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/transactions/template?command=partialwriteoff";
+        return this;
+    }
+
     public CommandWrapperBuilder undoWriteOffLoanTransaction(final Long loanId) {
         this.actionName = "UNDOWRITEOFF";
         this.entityName = "LOAN";
@@ -921,12 +1017,12 @@ public class CommandWrapperBuilder {
         return this;
     }
 
-    public CommandWrapperBuilder editDisbursementInsuranceTransaction(final Long loanId, final Long transactionId) {
+    public CommandWrapperBuilder editDisbursementChargeTransaction(final Long loanId, final Long transactionId) {
         this.actionName = "ADJUST";
         this.entityName = "LOAN";
         this.entityId = transactionId;
         this.loanId = loanId;
-        this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=editDisbursementInsurance";
+        this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=editDisbursementCharge";
         return this;
     }
 
@@ -2919,6 +3015,22 @@ public class CommandWrapperBuilder {
         this.entityName = PaymentTypeApiResourceConstants.ENTITY_NAME;
         this.entityId = null;
         this.href = "/" + PaymentTypeApiResourceConstants.RESOURCE_NAME;
+        return this;
+    }
+
+    public CommandWrapperBuilder createSupplier() {
+        this.actionName = "CREATE";
+        this.entityName = "SUPPLIER";
+        this.entityId = null;
+        this.href = "/suppliers/callback";
+        return this;
+    }
+
+    public CommandWrapperBuilder createDisbursementInstruction() {
+        this.actionName = "DISBURSEMENTINSTRUCTION";
+        this.entityName = "LOAN";
+        this.entityId = null;
+        this.href = "/loans/disbursement-instruction";
         return this;
     }
 

@@ -30,4 +30,6 @@ public interface TransunionCrbHeaderRepository
     @Query("from TransunionCrbHeader m where m.loanId.id=:loanId ")
     List<TransunionCrbHeader> findByLoanId(@Param("loanId") Long loanId);
 
+    @Query("SELECT t FROM TransunionCrbHeader t WHERE t.clientId.id = :clientId ORDER BY t.reportDate DESC")
+    List<TransunionCrbHeader> findLatestByClientId(@Param("clientId") Long clientId);
 }

@@ -248,6 +248,11 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                 adjustedDueDate = jsonCommand.localDateValueOfParameterNamed(RescheduleLoansApiConstants.adjustedDueDateParamName);
             }
 
+            // Get repayment frequency and repayment every parameters
+            final Integer repaymentEvery = jsonCommand.integerValueOfParameterNamed(RescheduleLoansApiConstants.repaymentEveryParamName);
+            final Integer repaymentFrequencyType = jsonCommand.integerValueOfParameterNamed(RescheduleLoansApiConstants.repaymentFrequencyTypeParamName);
+            final Boolean preserveLoanTermDuration = jsonCommand.booleanPrimitiveValueOfParameterNamed(RescheduleLoansApiConstants.preserveLoanTermDurationParamName);
+
             final LoanRescheduleRequest loanRescheduleRequest = LoanRescheduleRequest.instance(loan,
                     LoanStatus.SUBMITTED_AND_PENDING_APPROVAL.getValue(), rescheduleFromInstallment, rescheduleFromDate,
                     recalculateInterest, rescheduleReasonCodeValue, rescheduleReasonComment, submittedOnDate,
@@ -262,7 +267,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             // create term variations for flat and declining balance loans
             createLoanTermVariationsForRegularLoans(loan, graceOnPrincipal, graceOnInterest, extraTerms, interestRate, rescheduleFromDate,
                     adjustedDueDate, loanRescheduleRequest, loanRescheduleRequestToTermVariationMappings, isActive, isSpecificToInstallment,
-                    decimalValue, dueDate, endDate, emi, newPrincipalDueFixedAmount);
+                    decimalValue, dueDate, endDate, emi, newPrincipalDueFixedAmount, repaymentEvery, repaymentFrequencyType, preserveLoanTermDuration);
 
             // create a new entry in the m_loan_reschedule_request table
             // read optional parameter from request
@@ -292,6 +297,17 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             loanRescheduleRequest.setCarryForwardChargeId(carryForwardChargeId);
             loanRescheduleRequest.setCarryForwardChargeDueDate(carryForwardChargeDueDate);
 
+            // Set the repayment frequency and every fields
+            if (repaymentEvery != null) {
+                loanRescheduleRequest.setRepaymentEvery(repaymentEvery);
+            }
+            if (repaymentFrequencyType != null) {
+                loanRescheduleRequest.setRepaymentFrequencyType(repaymentFrequencyType);
+            }
+            if (preserveLoanTermDuration != null) {
+                loanRescheduleRequest.setPreserveLoanTermDuration(preserveLoanTermDuration);
+            }
+
             this.loanRescheduleRequestRepository.saveAndFlush(loanRescheduleRequest);
 
             return new CommandProcessingResultBuilder().withCommandId(jsonCommand.commandId()).withEntityId(loanRescheduleRequest.getId())
@@ -313,7 +329,8 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             final LoanRescheduleRequest loanRescheduleRequest,
             List<LoanRescheduleRequestToTermVariationMapping> loanRescheduleRequestToTermVariationMappings, final Boolean isActive,
             final boolean isSpecificToInstallment, BigDecimal decimalValue, LocalDate dueDate, LocalDate endDate, final BigDecimal emi,
-            final BigDecimal newPrincipalDueFixedAmount) {
+            final BigDecimal newPrincipalDueFixedAmount, final Integer repaymentEvery, final Integer repaymentFrequencyType,
+            final Boolean preserveLoanTermDuration) {
 
         if (rescheduleFromDate != null && endDate != null && emi != null) {
             createEMIVariation(loan, rescheduleFromDate, loanRescheduleRequest, loanRescheduleRequestToTermVariationMappings, isActive,
@@ -368,6 +385,58 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     loanRescheduleRequestToTermVariationMappings, isActive, isSpecificToInstallment, BigDecimal.valueOf(extraTerms),
                     parent);
         }
+
+        // Create term variations for repayment every and repayment frequency type
+        if (rescheduleFromDate != null && repaymentEvery != null) {
+            LoanTermVariations parent = null;
+            final Integer termType = LoanTermVariationType.REPAYMENT_EVERY.getValue();
+            createLoanTermVariations(loanRescheduleRequest, termType, loan, rescheduleFromDate, dueDate,
+                    loanRescheduleRequestToTermVariationMappings, isActive, isSpecificToInstallment, BigDecimal.valueOf(repaymentEvery),
+                    parent);
+        }
+
+        if (rescheduleFromDate != null && repaymentFrequencyType != null) {
+            LoanTermVariations parent = null;
+            final Integer termType = LoanTermVariationType.REPAYMENT_FREQUENCY.getValue();
+            createLoanTermVariations(loanRescheduleRequest, termType, loan, rescheduleFromDate, dueDate,
+                    loanRescheduleRequestToTermVariationMappings, isActive, isSpecificToInstallment, BigDecimal.valueOf(repaymentFrequencyType),
+                    parent);
+        }
+
+        // If preserveLoanTermDuration is true and frequency is changing, calculate and apply new number of repayments
+        if (preserveLoanTermDuration != null && preserveLoanTermDuration && repaymentEvery != null && repaymentFrequencyType != null) {
+            final Integer originalRepaymentEvery = loan.repaymentScheduleDetail().getRepayEvery();
+            final Integer originalRepaymentFrequencyType = loan.repaymentScheduleDetail().getRepaymentPeriodFrequencyType() != null
+                    ? loan.repaymentScheduleDetail().getRepaymentPeriodFrequencyType().getValue() : null;
+            final Integer originalNumberOfRepayments = loan.getNumberOfRepayments();
+
+            if (originalRepaymentEvery != null && originalRepaymentFrequencyType != null && originalNumberOfRepayments != null) {
+                final Integer newNumberOfRepayments = LoanApplicationTerms.calculateNumberOfRepaymentsForFrequencyChange(
+                        originalRepaymentEvery,
+                        loan.repaymentScheduleDetail().getRepaymentPeriodFrequencyType(),
+                        repaymentEvery,
+                        org.apache.fineract.portfolio.common.domain.PeriodFrequencyType.fromInt(repaymentFrequencyType),
+                        originalNumberOfRepayments);
+
+                if (newNumberOfRepayments != null && !newNumberOfRepayments.equals(originalNumberOfRepayments)) {
+                    // Calculate the difference and create an EXTEND_REPAYMENT_PERIOD variation only when
+                    // the new number of repayments is GREATER than the original (i.e. loan is being extended).
+                    // When the frequency increases (e.g. monthly → weekly) the difference is negative;
+                    // passing a negative value to EXTEND_REPAYMENT_PERIOD produces undefined schedule behaviour,
+                    // so we skip it — the reduced repayment count is already captured by the REPAYMENT_EVERY /
+                    // REPAYMENT_FREQUENCY term variations applied above.
+                    final Integer termsDifference = newNumberOfRepayments - originalNumberOfRepayments;
+                    if (termsDifference > 0) {
+                        LoanTermVariations parent = null;
+                        final Integer termType = LoanTermVariationType.EXTEND_REPAYMENT_PERIOD.getValue();
+                        createLoanTermVariations(loanRescheduleRequest, termType, loan, rescheduleFromDate, dueDate,
+                                loanRescheduleRequestToTermVariationMappings, isActive, isSpecificToInstallment,
+                                BigDecimal.valueOf(termsDifference), parent);
+                    }
+                }
+            }
+        }
+
         loanRescheduleRequest.updateLoanRescheduleRequestToTermVariationMappings(loanRescheduleRequestToTermVariationMappings);
     }
 
@@ -711,9 +780,11 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
     private void handleDataIntegrityViolation(final NonTransientDataAccessException dve) {
 
         LOG.error("Error occured.", dve);
-
+        final Throwable mostSpecificCause = dve.getMostSpecificCause();
+        final String causeMessage = mostSpecificCause != null && mostSpecificCause.getMessage() != null
+                ? mostSpecificCause.getMessage() : dve.getMessage();
         throw new PlatformDataIntegrityException("error.msg.loan.reschedule.unknown.data.integrity.issue",
-                "Unknown data integrity issue with resource.");
+                "Unable to persist loan reschedule request: " + causeMessage);
     }
 
     private BigDecimal getTotalOutstandingOverdueCharges(Loan loan, LocalDate rescheduleDate) {

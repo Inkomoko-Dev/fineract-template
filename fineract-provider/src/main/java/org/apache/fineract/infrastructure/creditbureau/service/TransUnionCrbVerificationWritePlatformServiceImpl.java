@@ -24,6 +24,8 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -44,6 +46,7 @@ import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
@@ -120,6 +123,21 @@ public class  TransUnionCrbVerificationWritePlatformServiceImpl implements Trans
         Boolean isClient = false;
         String requestToCrb = null;
         TransunionCrbHeader transunionCrbHeader = null;
+
+
+        TransunionCrbHeader existingHeader = this.transunionCrbHeaderRepository
+                .findLatestByClientId(clientObj.getId())
+                .stream().findFirst().orElse(null);
+
+        if (existingHeader != null && !isReportExpired(existingHeader)) {
+            LOG.info("Skipping TransUnion Rwanda call - valid report (id={}) already exists for client {}, generated on {}",
+                    existingHeader.getId(), clientObj.getId(), existingHeader.getCreatedDate());
+
+            return new CommandProcessingResultBuilder()
+                    .withCommandId(command.commandId())
+                    .withEntityId(clientObj.getId())
+                    .withResourceIdAsString(existingHeader.getId().toString()).build();
+        }
 
         if (clientObj.getLegalForm().equals(LegalForm.PERSON.getValue())) {
             isClient = true;
@@ -246,6 +264,17 @@ public class  TransUnionCrbVerificationWritePlatformServiceImpl implements Trans
 
         }
         return transunionCrbHeader;
+    }
+
+    private boolean isReportExpired(TransunionCrbHeader header) {
+        int validityDays = Integer.parseInt(getConfigProperty("fineract.integrations.transUnion.crb.report.validityDays"));
+
+        LocalDate generatedOn = OffsetDateTime
+                .parse(header.getReportDate())
+                .toLocalDate();
+
+        LocalDate expiryDate = generatedOn.plusDays(validityDays);
+        return DateUtils.getBusinessLocalDate().isAfter(expiryDate);
     }
 
     private String getConfigProperty(String propertyName) {
