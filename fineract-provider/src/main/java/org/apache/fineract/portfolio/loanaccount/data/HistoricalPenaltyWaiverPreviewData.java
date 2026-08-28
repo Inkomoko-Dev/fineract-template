@@ -51,8 +51,8 @@ public class HistoricalPenaltyWaiverPreviewData implements Serializable {
     /** Transaction date of the earliest live repayment that paid this penalty. */
     private final LocalDate suggestedEffectiveDate;
 
-    private final Integer loanStatusBefore;
-    private final Integer loanStatusAfter;
+    private final LoanStatusEnumData loanStatusBefore;
+    private final LoanStatusEnumData loanStatusAfter;
     private final BigDecimal totalOutstandingBefore;
     private final BigDecimal totalOutstandingAfter;
 
