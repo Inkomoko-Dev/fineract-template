@@ -1816,6 +1816,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // Update loan summary to reflect the write-off changes before capturing balance
         loan.updateLoanSummaryDerivedFields();
 
+        // Recalculate repayment schedule to reflect the reduced balance (per requirements)
+        if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
+            loan.recalculateScheduleFromLastTransaction(scheduleGeneratorDTO, existingTransactionIds,
+                    existingReversedTransactionIds);
+            createAndSaveLoanScheduleArchive(loan, scheduleGeneratorDTO);
+        } else {
+            // For loans without interest recalculation, regenerate schedule to reflect new balance
+            loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
+        }
+
         saveLoanWithDataIntegrityViolationChecks(loan);
         
         // Capture loan balance after write-off (now that installments are updated)

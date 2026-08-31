@@ -465,6 +465,43 @@ public final class LoanEventApiJsonValidator {
                     "Total write-off amount cannot exceed outstanding loan balance of " + outstandingBalance);
         }
 
+        // Validate individual components don't exceed their respective outstanding amounts
+        if (principalPortion != null && principalPortion.compareTo(BigDecimal.ZERO) > 0) {
+            final BigDecimal outstandingPrincipal = loan.getLoanSummary().getTotalPrincipalOutstanding();
+            if (principalPortion.compareTo(outstandingPrincipal) > 0) {
+                baseDataValidator.reset().parameter("principalPortion")
+                        .failWithCode("principal.portion.exceeds.outstanding",
+                        "Principal write-off portion cannot exceed outstanding principal of " + outstandingPrincipal);
+            }
+        }
+
+        if (interestPortion != null && interestPortion.compareTo(BigDecimal.ZERO) > 0) {
+            final BigDecimal outstandingInterest = loan.getLoanSummary().getTotalInterestOutstanding();
+            if (interestPortion.compareTo(outstandingInterest) > 0) {
+                baseDataValidator.reset().parameter("interestPortion")
+                        .failWithCode("interest.portion.exceeds.outstanding",
+                        "Interest write-off portion cannot exceed outstanding interest of " + outstandingInterest);
+            }
+        }
+
+        if (feeChargesPortion != null && feeChargesPortion.compareTo(BigDecimal.ZERO) > 0) {
+            final BigDecimal feeChargesOutstanding = loan.getLoanSummary().getTotalFeeChargesOutstanding();
+            if (feeChargesPortion.compareTo(feeChargesOutstanding) > 0) {
+                baseDataValidator.reset().parameter("feeChargesPortion")
+                        .failWithCode("fee.portion.exceeds.outstanding",
+                        "Fee write-off portion cannot exceed outstanding fees of " + feeChargesOutstanding);
+            }
+        }
+
+        if (penaltyChargesPortion != null && penaltyChargesPortion.compareTo(BigDecimal.ZERO) > 0) {
+            final BigDecimal penaltyChargesOutstanding = loan.getLoanSummary().getTotalPenaltyChargesOutstanding();
+            if (penaltyChargesPortion.compareTo(penaltyChargesOutstanding) > 0) {
+                baseDataValidator.reset().parameter("penaltyChargesPortion")
+                        .failWithCode("penalty.portion.exceeds.outstanding",
+                        "Penalty write-off portion cannot exceed outstanding penalties of " + penaltyChargesOutstanding);
+            }
+        }
+
         // Validate no duplicate partial write-off on same day for same loan
         if (transactionDate != null) {
             final boolean hasSameDayPartialWriteOff = loan.getLoanTransactions().stream()
