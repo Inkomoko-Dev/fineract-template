@@ -134,6 +134,7 @@ public class ClientPersonImportHandler implements ImportHandler {
             }
         }
         Boolean isStaff = ImportHandlerUtils.readAsBoolean(ClientPersonConstants.IS_STAFF_COL, row);
+        Boolean migrated = ImportHandlerUtils.readAsBoolean(ClientPersonConstants.MIGRATED_COL, row);
 
         AddressData addressDataObj = null;
         Collection<AddressData> addressList = null;
@@ -181,7 +182,7 @@ public class ClientPersonImportHandler implements ImportHandler {
         }
         return ClientData.importClientPersonInstance(legalFormId, row.getRowNum(), firstName, lastName, middleName, submittedOn,
                 activationDate, active, externalId, officeId, staffId, mobileNo, dob, clientTypeId, genderId, clientClassificationId,
-                isStaff, addressList, locale, dateFormat, null);
+                isStaff, addressList, locale, dateFormat, null, migrated);
 
     }
 

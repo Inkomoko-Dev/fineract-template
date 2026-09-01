@@ -707,6 +707,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             builder.append("c.fullname as fullname, c.display_name as displayName, ");
             builder.append("c.mobile_no as mobileNo, ");
             builder.append("c.is_staff as isStaff, ");
+            builder.append("c.is_migrated as migrated, ");
             builder.append("c.created_on_utc as createdDate, ");
             builder.append("c.email_address as emailAddress, ");
             builder.append("c.date_of_birth as dateOfBirth, ");
@@ -897,11 +898,13 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
                     submittedByLastname, activationDate, activatedByUsername, activatedByFirstname, activatedByLastname, closedOnDate,
                     closedByUsername, closedByFirstname, closedByLastname);
 
-            return ClientData.instance(accountNo, status, subStatus, officeId, officeName, transferToOfficeId, transferToOfficeName, id,
-                    firstname, middlename, lastname, fullname, displayName, externalId, mobileNo, emailAddress, dateOfBirth, gender,
-                    activationDate, imageId, staffId, staffName, timeline, savingsProductId, savingsProductName, savingsAccountId,
-                    clienttype, classification, legalForm, clientNonPerson, isStaff, clientLevel, dailyWithDrawLimit, singleWithDrawLimit,
-                    clientAdditionalInfo, createdDate, kivaId);
+            final ClientData clientData = ClientData.instance(accountNo, status, subStatus, officeId, officeName, transferToOfficeId,
+                    transferToOfficeName, id, firstname, middlename, lastname, fullname, displayName, externalId, mobileNo, emailAddress,
+                    dateOfBirth, gender, activationDate, imageId, staffId, staffName, timeline, savingsProductId, savingsProductName,
+                    savingsAccountId, clienttype, classification, legalForm, clientNonPerson, isStaff, clientLevel, dailyWithDrawLimit,
+                    singleWithDrawLimit, clientAdditionalInfo, createdDate, kivaId);
+            clientData.setMigrated(rs.getBoolean("migrated"));
+            return clientData;
 
         }
     }

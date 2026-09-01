@@ -103,6 +103,7 @@ public class ClientApiConstants {
     public static final String reactivationDateParamName = "reactivationDate";
     public static final String staffIdParamName = "staffId";
     public static final String isStaffParamName = "isStaff";
+    public static final String migratedParamName = "migrated";
     public static final String closureDateParamName = "closureDate";
     public static final String closureReasonIdParamName = "closureReasonId";
     public static final String reopenedDateParamName = "reopenedDate";
@@ -269,7 +270,7 @@ public class ClientApiConstants {
             staffOptionsParamName, dateOfBirthParamName, genderParamName, clientTypeParamName, clientClassificationParamName,
             legalFormParamName, clientNonPersonDetailsParamName, isStaffParamName, clientLevelIdParamName, dailyWithdrawLimit,
             singleWithdrawLimit, initialsParam, maritalStatusIdParamName, mnemonicsParamNameParam, altMobileNoParam, createdDate,
-            clientAdditionalInfoData, "clientBusinessDetailData"));
+            clientAdditionalInfoData, "clientBusinessDetailData", migratedParamName));
 
     protected static final Set<String> CLIENT_CHARGES_RESPONSE_DATA_PARAMETERS = new HashSet<>(Arrays.asList(chargeIdParamName,
             clientIdParamName, chargeNameParamName, penaltyParamName, chargeTimeTypeParamName, dueAsOfDateParamName,
