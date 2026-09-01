@@ -182,7 +182,7 @@ public class ClientPersonImportHandler implements ImportHandler {
         }
         return ClientData.importClientPersonInstance(legalFormId, row.getRowNum(), firstName, lastName, middleName, submittedOn,
                 activationDate, active, externalId, officeId, staffId, mobileNo, dob, clientTypeId, genderId, clientClassificationId,
-                isStaff, addressList, locale, dateFormat, null, migrated, null, null);
+                isStaff, addressList, locale, dateFormat, null, migrated);
 
     }
 

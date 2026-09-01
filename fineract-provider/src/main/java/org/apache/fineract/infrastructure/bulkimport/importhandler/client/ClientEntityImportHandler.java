@@ -198,7 +198,7 @@ public class ClientEntityImportHandler implements ImportHandler {
         }
         return ClientData.importClientEntityInstance(legalFormId, row.getRowNum(), name, officeId, clientTypeId, clientClassicationId,
                 staffId, active, activationDate, submittedOn, externalId, incorportionDate, mobileNo, clientNonPersonData, addressList,
-                locale, dateFormat, migrated, null, null);
+                locale, dateFormat, migrated);
     }
 
     public Count importEntity(String dateFormat) {
