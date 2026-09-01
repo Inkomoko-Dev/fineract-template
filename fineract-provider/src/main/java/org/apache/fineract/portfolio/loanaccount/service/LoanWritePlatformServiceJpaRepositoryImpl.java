@@ -1208,14 +1208,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     originalRecoveryTransaction == null ? null : originalRecoveryTransaction.getId(), correctionDate,
                     originalRecoveryTransaction != null);
 
-            if (repaymentTransactionType.isPayOff()) {
-                final List<Long> cancelledTrancheIds = loan.cancelUndisbursedTranchesAfterPayoff();
-                if (!cancelledTrancheIds.isEmpty()) {
-                    changes.put("cancelledUndisbursedTrancheIds", cancelledTrancheIds);
-                    changes.put("trancheCancellationReason", "Loan paid off in full");
-                }
-            }
-
             // Update loan transaction on repayment.
             if (AccountType.fromInt(loan.getLoanType()).isIndividualAccount()) {
                 Set<LoanCollateralManagement> loanCollateralManagements = loan.getLoanCollateralManagements();
