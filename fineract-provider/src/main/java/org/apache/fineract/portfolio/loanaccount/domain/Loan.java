@@ -3789,6 +3789,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             return;
         }
 
+        // Repaying the currently utilized amount does not settle a multi-disbursement facility while another approved tranche is
+        // still available. Closing here would prevent that pending tranche from being disbursed.
+        if (hasPendingApprovedDisbursement()) {
+            return;
+        }
+
         if (isOverPaid()) {
             // FIXME - kw - update account balance to negative amount.
             handleLoanOverpayment(loanLifecycleStateMachine);
@@ -4556,6 +4562,35 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
         return principal;
+    }
+
+    public LoanDisbursementDetails getNextUndisbursedDisbursementDetail() {
+        return this.disbursementDetails.stream().filter(detail -> detail.actualDisbursementDate() == null)
+                .sorted(Comparator.comparing(LoanDisbursementDetails::expectedDisbursementDate,
+                        Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(LoanDisbursementDetails::getId,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
+                .findFirst().orElse(null);
+    }
+
+    public boolean hasPendingApprovedDisbursement() {
+        return this.loanProduct != null && this.loanProduct.isMultiDisburseLoan() && getNextUndisbursedDisbursementDetail() != null;
+    }
+
+    public int getDisbursementTrancheNumber(final LoanDisbursementDetails selectedDetail) {
+        if (selectedDetail == null) {
+            return 0;
+        }
+        final List<LoanDisbursementDetails> orderedDetails = this.disbursementDetails.stream()
+                .sorted(Comparator.comparing(LoanDisbursementDetails::expectedDisbursementDate,
+                        Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(LoanDisbursementDetails::getId,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
+                .collect(Collectors.toList());
+        return orderedDetails.indexOf(selectedDetail) + 1;
+    }
+
+    public BigDecimal getRemainingUndisbursedPrincipal() {
+        return this.disbursementDetails.stream().filter(detail -> detail.actualDisbursementDate() == null)
+                .map(LoanDisbursementDetails::principal).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     public LocalDate getExpectedFirstRepaymentOnDate() {
@@ -6204,23 +6239,6 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         // Use persisted schedule with pro-rata accrued interest for all loans so the prepayment
         // template matches what transaction processors apply on the live repayment schedule.
         return this.getTotalOutstandingOnLoanAsOfDate(onDate);
-    }
-
-    /**
-     * A completed payoff terminates the remaining multi-disbursement facility. Keeping pending tranche rows on a closed loan makes
-     * them appear available for a later disbursement even though the account has no outstanding obligation.
-     */
-    public List<Long> cancelUndisbursedTranchesAfterPayoff() {
-        final List<Long> cancelledTrancheIds = new ArrayList<>();
-        if (this.loanProduct.isMultiDisburseLoan() && status().isClosed()) {
-            for (final LoanDisbursementDetails detail : this.disbursementDetails) {
-                if (detail.actualDisbursementDate() == null) {
-                    cancelledTrancheIds.add(detail.getId());
-                }
-            }
-            removeDisbursementDetail();
-        }
-        return cancelledTrancheIds;
     }
 
     public LoanApplicationTerms constructLoanApplicationTerms(final ScheduleGeneratorDTO scheduleGeneratorDTO) {

@@ -659,24 +659,48 @@ public class LoanTest {
     }
 
     @Test
-    public void completedMultiDisbursementPayoffCancelsOnlyPendingTranches() {
+    public void fullyRepaidMultiDisbursementLoanRemainsActiveWithPendingApprovedTranche() {
         final Loan loan = new Loan();
         final LoanProduct loanProduct = mock(LoanProduct.class);
         final LocalDate disbursementDate = LocalDate.of(2026, 8, 25);
+        final LocalDate repaymentDate = LocalDate.of(2026, 9, 25);
         final LoanDisbursementDetails disbursedTranche = new LoanDisbursementDetails(disbursementDate, disbursementDate,
-                new BigDecimal("3000000.00"), new BigDecimal("2940000.00"));
+                new BigDecimal("1000000.00"), new BigDecimal("1000000.00"));
         final LoanDisbursementDetails pendingTranche = new LoanDisbursementDetails(LocalDate.of(2026, 12, 1), null,
-                new BigDecimal("7000000.00"), new BigDecimal("7000000.00"));
+                new BigDecimal("1000000.00"), new BigDecimal("1000000.00"));
+        final LoanProductRelatedDetail scheduleDetail = mock(LoanProductRelatedDetail.class);
+        when(scheduleDetail.getCurrency()).thenReturn(KES);
+        when(scheduleDetail.getPrincipal()).thenReturn(Money.of(KES, new BigDecimal("1000000.00")));
+        final LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 1, disbursementDate,
+                repaymentDate, new BigDecimal("1000000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        installment.payPrincipalComponent(repaymentDate, Money.of(KES, new BigDecimal("1000000.00")));
+        final LoanTransaction disbursement = LoanTransaction.disbursement(mock(Office.class),
+                Money.of(KES, new BigDecimal("1000000.00")), null, disbursementDate, null);
+        final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("1000000.00")),
+                null, repaymentDate, null);
+        disbursement.updateLoan(loan);
+        repayment.updateLoan(loan);
 
         when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
         ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
-        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.CLOSED_OBLIGATIONS_MET.getValue());
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.ACTIVE.getValue());
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "actualDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "summary", LoanSummary.create(BigDecimal.ZERO));
+        ReflectionTestUtils.setField(loan, "loanSummaryWrapper", new LoanSummaryWrapper());
+        ReflectionTestUtils.setField(loan, "loanLifecycleStateMachine",
+                new DefaultLoanLifecycleStateMachine(Arrays.asList(LoanStatus.values())));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.singletonList(installment));
+        ReflectionTestUtils.setField(loan, "loanTransactions", new ArrayList<>(Arrays.asList(disbursement, repayment)));
+        ReflectionTestUtils.setField(loan, "charges", Collections.emptySet());
         ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(List.of(disbursedTranche, pendingTranche)));
 
-        loan.cancelUndisbursedTranchesAfterPayoff();
+        loan.updateLoanSummarAndStatus();
 
-        assertEquals(1, loan.getDisbursementDetails().size());
-        assertEquals(disbursedTranche, loan.getDisbursementDetails().get(0));
+        assertEquals(LoanStatus.ACTIVE.getValue(), ReflectionTestUtils.getField(loan, "loanStatus"));
+        assertNull(ReflectionTestUtils.getField(loan, "closedOnDate"));
+        assertEquals(pendingTranche, loan.getNextUndisbursedDisbursementDetail());
     }
 
     @Test
