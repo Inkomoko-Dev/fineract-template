@@ -26,28 +26,57 @@ import static org.mockito.Mockito.verify;
 
 import java.time.LocalDate;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
+import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 public class OdooServiceImplTest {
 
     @InjectMocks
     private OdooServiceImpl odooService;
+
+    // postJournalEntryToOddo() and postJournalEntryToOddoOnDisburseTask(...) both touch tenant
+    // timezone / business-date thread-locals unconditionally; without this, tests here only pass
+    // when another test class happens to leak that state in first
+    @BeforeEach
+    void setUpTenantContext() {
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
+        ThreadLocalContextUtil.setBusinessDates(new HashMap<>(Map.of(BusinessDateType.BUSINESS_DATE, LocalDate.of(2026, 6, 8))));
+        // genericExecutorService is populated by @PostConstruct in real use, which @InjectMocks never
+        // runs — wire the mock in directly rather than relying on Mockito's field-injection heuristics
+        ReflectionTestUtils.setField(odooService, "genericExecutorService", genericExecutorService);
+    }
+
+    @AfterEach
+    void tearDownTenantContext() {
+        ThreadLocalContextUtil.clear();
+    }
 
     @Mock
     private ClientRepositoryWrapper clientRepository;
@@ -71,6 +100,9 @@ public class OdooServiceImplTest {
     private EntityDisbursementDefaultsService entityDisbursementDefaultsService;
 
     @Mock
+    private LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository;
+
+    @Mock
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
 
     @Mock
@@ -78,6 +110,12 @@ public class OdooServiceImplTest {
 
     @Mock
     private FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository;
+
+    @Mock
+    private AfterCommitExecutor afterCommitExecutor;
+
+    @Mock
+    private ExecutorService genericExecutorService;
 
     @Test
     public void scheduledJournalPostingFetchesAllUnpostedTransactions() throws JobExecutionException {
@@ -90,5 +128,29 @@ public class OdooServiceImplTest {
         verify(loanReadPlatformService).retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo();
         verify(loanReadPlatformService, never()).retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(any(LocalDate.class),
                 any(LocalDate.class), isNull(), isNull());
+    }
+
+    // AfterCommitExecutor.execute is static, so it runs its real "no active transaction ->
+    // run immediately" fallback here — the disburse task synchronously reaches the background
+    // executor within this call, then we drive the submitted task ourselves to prove it lands
+    // on the same transaction-scoped query the cron uses, not the bulk unposted-backlog scan
+    @Test
+    public void disburseTaskDefersToBackgroundExecutorAndQueriesOnlyThatTransaction() {
+        final Long loanTransactionId = 42L;
+        given(configurationDomainService.isOdooIntegrationEnabled()).willReturn(true);
+        given(loanReadPlatformService.retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(null, null, null, null,
+                loanTransactionId)).willReturn(Collections.emptyList());
+
+        odooService.postJournalEntryToOddoOnDisburseTask(loanTransactionId);
+
+        final ArgumentCaptor<Runnable> submittedTask = ArgumentCaptor.forClass(Runnable.class);
+        verify(genericExecutorService).execute(submittedTask.capture());
+
+        // simulate the executor thread actually running the submitted task
+        submittedTask.getValue().run();
+
+        verify(loanReadPlatformService).retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(null, null, null, null,
+                loanTransactionId);
+        verify(loanReadPlatformService, never()).retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo();
     }
 }
