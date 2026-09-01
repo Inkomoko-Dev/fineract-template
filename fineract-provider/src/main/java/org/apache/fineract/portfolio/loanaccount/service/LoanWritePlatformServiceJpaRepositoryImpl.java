@@ -5276,6 +5276,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
         }
         loan.updateLoanSummarAndStatus();
+        loan.reopenIfBalanceRestored();
         saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
         this.loanAccountDomainService.recalculateAccruals(loan);
     }
