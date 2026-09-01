@@ -70,6 +70,22 @@ public class LoanApplicationMultiDisburseFlatInterestTest {
         return errors.stream().anyMatch(e -> INTEREST_TYPE_NOT_DECLINING_ERROR.equals(e.getUserMessageGlobalisationCode()));
     }
 
+    private List<ApiParameterError> validateTrancheAmounts(final BigDecimal firstTranche, final BigDecimal secondTranche) {
+        final String json = "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"disbursementData\":["
+                + "{\"expectedDisbursementDate\":\"01 January 2024\",\"principal\":" + firstTranche + "},"
+                + "{\"expectedDisbursementDate\":\"01 February 2024\",\"principal\":" + secondTranche + "}]}";
+        final JsonElement element = new FromJsonHelper().parse(json);
+        final List<ApiParameterError> errors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(errors).resource("loan");
+        helper.validateLoanMultiDisbursementDate(element, baseDataValidator, LocalDate.of(2024, 1, 1), new BigDecimal("10000"));
+        return errors;
+    }
+
+    private boolean hasTrancheTotalError(final List<ApiParameterError> errors) {
+        return errors.stream().anyMatch(e -> e.getUserMessageGlobalisationCode()
+                .endsWith("sum.of.multi.disburse.amounts.must.equal.with.total.principal"));
+    }
+
     @Test
     public void flatInterestIsAllowedForMultiDisburseLoan() {
         // CGLT-641: a flat-interest multi-disburse payload must NOT be rejected by the interestType validation.
@@ -92,5 +108,20 @@ public class LoanApplicationMultiDisburseFlatInterestTest {
         final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(errors).resource("loan");
         helper.validateLoanMultiDisbursementDate(element, baseDataValidator, LocalDate.of(2024, 1, 1), new BigDecimal("10000"));
         assertTrue(errors.isEmpty(), "Single-disburse flat loan should not trigger multi-disbursement validation");
+    }
+
+    @Test
+    public void trancheTotalBelowApprovedPrincipalIsRejected() {
+        assertTrue(hasTrancheTotalError(validateTrancheAmounts(new BigDecimal("4000"), new BigDecimal("5000"))));
+    }
+
+    @Test
+    public void trancheTotalAboveApprovedPrincipalIsRejected() {
+        assertTrue(hasTrancheTotalError(validateTrancheAmounts(new BigDecimal("6000"), new BigDecimal("5000"))));
+    }
+
+    @Test
+    public void trancheTotalEqualToApprovedPrincipalIsAccepted() {
+        assertFalse(hasTrancheTotalError(validateTrancheAmounts(new BigDecimal("5000"), new BigDecimal("5000"))));
     }
 }
