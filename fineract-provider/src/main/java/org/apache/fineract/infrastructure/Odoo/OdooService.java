@@ -56,6 +56,9 @@ public interface OdooService {
 
     void postJournalEntryToOddo() throws JobExecutionException;
 
+    // fires right after a disbursement commits, instead of waiting for the next cron run
+    void postJournalEntryToOddoOnDisburseTask(Long loanTransactionId);
+
     void postClientToOdooOnCreateTask(Client client);
 
     void postClientToOdooOnUpdateTask(final Map<String, Object> changes, Client client);
