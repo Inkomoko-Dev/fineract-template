@@ -56,6 +56,8 @@ public final class AppUserData {
     @SuppressWarnings("unused")
     private Set<ClientData> clients;
 
+    private Collection<OfficeData> assignedOffices;
+
     public static AppUserData importInstance(Long officeId, Long staffId, String username, String firstname, String lastname, String email,
             Boolean sendPasswordToEmail, Boolean passwordNeverExpires, List<Long> roleIds, Integer rowIndex) {
         return new AppUserData(officeId, staffId, username, firstname, lastname, email, sendPasswordToEmail, passwordNeverExpires, roleIds,
@@ -90,9 +92,20 @@ public final class AppUserData {
     }
 
     public static AppUserData template(final AppUserData user, final Collection<OfficeData> officesForDropdown) {
-        return new AppUserData(user.id, user.username, user.email, user.officeId, user.officeName, user.firstname, user.lastname,
-                user.availableRoles, user.selfServiceRoles, user.selectedRoles, officesForDropdown, user.staff, user.passwordNeverExpires,
-                user.isSelfServiceUser);
+        final AppUserData templated = new AppUserData(user.id, user.username, user.email, user.officeId, user.officeName, user.firstname,
+                user.lastname, user.availableRoles, user.selfServiceRoles, user.selectedRoles, officesForDropdown, user.staff,
+                user.passwordNeverExpires, user.isSelfServiceUser);
+        templated.assignedOffices = user.assignedOffices;
+        templated.clients = user.clients;
+        return templated;
+    }
+
+    public void setAssignedOffices(final Collection<OfficeData> assignedOffices) {
+        this.assignedOffices = assignedOffices;
+    }
+
+    public Collection<OfficeData> getAssignedOffices() {
+        return this.assignedOffices;
     }
 
     public static AppUserData template(final Collection<OfficeData> offices, final Collection<RoleData> availableRoles,

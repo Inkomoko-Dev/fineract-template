@@ -197,6 +197,8 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         }
 
         final AppUser currentUser = this.context.authenticatedUser();
+        // Allows sql query to restrict data by every office the user may see, hierarchical and multi-location alike
+        sql = OfficeScopeReportSqlRewriter.rewrite(sql, this.context.officeAccessScope());
         // Allows sql query to restrict data by office hierarchy if required
         sql = this.genericDataService.replace(sql, "${currentUserHierarchy}", currentUser.getOffice().getHierarchy());
         // Allows sql query to restrict data by current user Id if required

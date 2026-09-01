@@ -25,11 +25,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.UnrecognizedQueryParamException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.infrastructure.security.utils.SQLBuilder;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.exception.StaffNotFoundException;
 import org.apache.fineract.portfolio.client.domain.ClientStatus;
@@ -170,13 +172,14 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
         // adding the Authorization criteria so that a user cannot see an
         // employee who does not belong to his office or a sub office for his
         // office.
-        final String hierarchy = this.context.authenticatedUser().getOffice().getHierarchy() + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final Long defaultOfficeId = defaultToUsersOfficeIfNull(officeId);
 
-        final String sql = "select " + this.lookupMapper.schema() + " where s.office_id = ? and s.is_active=true and o.hierarchy like ? ";
+        final String sql = "select " + this.lookupMapper.schema() + " where s.office_id = ? and s.is_active=true and "
+                + officeAccessScope.sqlPredicate("o.hierarchy") + " ";
 
-        return this.jdbcTemplate.query(sql, this.lookupMapper, new Object[] { defaultOfficeId, hierarchy }); // NOSONAR
+        return this.jdbcTemplate.query(sql, this.lookupMapper, new Object[] { defaultOfficeId }); // NOSONAR
     }
 
     private Long defaultToUsersOfficeIfNull(final Long officeId) {
@@ -193,13 +196,13 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
         // adding the Authorization criteria so that a user cannot see an
         // employee who does not belong to his office or a sub office for his
         // office.
-        final String hierarchy = this.context.authenticatedUser().getOffice().getHierarchy() + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         try {
             final StaffMapper rm = new StaffMapper();
-            final String sql = "select " + rm.schema() + " where s.id = ? and o.hierarchy like ? ";
+            final String sql = "select " + rm.schema() + " where s.id = ? and " + officeAccessScope.sqlPredicate("o.hierarchy") + " ";
 
-            return this.jdbcTemplate.queryForObject(sql, rm, new Object[] { staffId, hierarchy }); // NOSONAR
+            return this.jdbcTemplate.queryForObject(sql, rm, new Object[] { staffId }); // NOSONAR
         } catch (final EmptyResultDataAccessException e) {
             throw new StaffNotFoundException(staffId, e);
         }
@@ -216,13 +219,15 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
         final StaffMapper rm = new StaffMapper();
         String sql = "select " + rm.schema();
 
-        final String hierarchy = this.context.authenticatedUser().getOffice().getHierarchy() + "%";
         // adding the Authorization criteria so that a user cannot see an
-        // employee who does not belong to his office or a sub office for his
-        // office.
-        extraCriteria.addCriteria(" o.hierarchy like ", hierarchy);
+        // employee who does not belong to one of the offices they are assigned to.
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
-        sql += " " + extraCriteria.getSQLTemplate();
+        sql += " where " + officeAccessScope.sqlPredicate("o.hierarchy");
+        final String furtherCriteria = extraCriteria.getSQLTemplate();
+        if (StringUtils.isNotBlank(furtherCriteria)) {
+            sql += " and " + furtherCriteria.replaceFirst("(?i)\\s*WHERE\\s+", "");
+        }
         sql = sql + " order by s.lastname ";
 
         return this.jdbcTemplate.query(sql, rm, extraCriteria.getArguments()); // NOSONAR

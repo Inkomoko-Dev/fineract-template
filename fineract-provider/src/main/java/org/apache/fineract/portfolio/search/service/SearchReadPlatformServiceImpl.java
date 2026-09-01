@@ -39,6 +39,7 @@ import org.apache.fineract.infrastructure.core.filters.FilterConstraint;
 import org.apache.fineract.infrastructure.core.filters.FilterType;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.office.data.OfficeData;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.teller.util.DateRange;
@@ -83,19 +84,20 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
 
     @Override
     public Collection<SearchData> retriveMatchingData(final SearchConditions searchConditions) {
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
+        this.context.authenticatedUser();
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final SearchMapper rm = new SearchMapper();
 
         final MapSqlParameterSource params = new MapSqlParameterSource();
-        params.addValue("hierarchy", hierarchy + "%");
         if (searchConditions.getExactMatch()) {
             params.addValue("search", searchConditions.getSearchQuery().toLowerCase());
         } else {
             params.addValue("search", "%" + searchConditions.getSearchQuery().toLowerCase() + "%");
         }
-        return this.namedParameterJdbcTemplate.query(rm.searchSchema(searchConditions), params, rm);
+        final String sql = rm.searchSchema(searchConditions).replace("o.hierarchy like :hierarchy",
+                officeAccessScope.sqlPredicate("o.hierarchy"));
+        return this.namedParameterJdbcTemplate.query(sql, params, rm);
     }
 
     private static final class SearchMapper implements RowMapper<SearchData> {

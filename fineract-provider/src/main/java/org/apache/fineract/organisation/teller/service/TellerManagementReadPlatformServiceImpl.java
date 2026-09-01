@@ -35,6 +35,7 @@ import org.apache.fineract.infrastructure.core.service.SearchParameters;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.service.CurrencyReadPlatformService;
 import org.apache.fineract.organisation.office.data.OfficeData;
@@ -346,20 +347,15 @@ public class TellerManagementReadPlatformServiceImpl implements TellerManagement
         return null;
     }
 
-    @Cacheable(value = "tellers", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat(#root.target.context.authenticatedUser().getOffice().getHierarchy()+'of')")
+    @Cacheable(value = "tellers", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat(#root.target.context.officeAccessScope().toString()+'of')")
     public Collection<TellerData> retrieveAllTellers(final boolean includeAllTellers) {
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        String hierarchySearchString = null;
-        if (includeAllTellers) {
-            hierarchySearchString = "." + "%";
-        } else {
-            hierarchySearchString = hierarchy + "%";
-        }
+        this.context.authenticatedUser();
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final String officePredicate = includeAllTellers ? "o.hierarchy like '.%'" : officeAccessScope.sqlPredicate("o.hierarchy");
         final TellerMapper tm = new TellerMapper();
-        final String sql = "select " + tm.schema() + "where o.hierarchy like ? order by o.hierarchy";
+        final String sql = "select " + tm.schema() + "where " + officePredicate + " order by o.hierarchy";
 
-        return this.jdbcTemplate.query(sql, tm, new Object[] { hierarchySearchString }); // NOSONAR
+        return this.jdbcTemplate.query(sql, tm); // NOSONAR
     }
 
     @Override

@@ -49,6 +49,7 @@ import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecific
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.infrastructure.security.utils.SQLBuilder;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.office.data.OfficeData;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.staff.data.StaffData;
@@ -313,15 +314,15 @@ public class CenterReadPlatformServiceImpl implements CenterReadPlatformService 
 
         this.paginationParametersDataValidator.validateParameterValues(parameters, SUPPORTED_ORDER_BY_VALUES, "audits");
         final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(this.centerMapper.schema());
         final SQLBuilder extraCriteria = getCenterExtraCriteria(this.centerMapper.schema(), searchParameters);
-        extraCriteria.addNonNullCriteria("o.hierarchy like ", hierarchySearchString);
-        sqlBuilder.append(' ').append(extraCriteria.getSQLTemplate());
+        final String furtherCriteria = extraCriteria.getSQLTemplate();
+        sqlBuilder.append(' ').append(furtherCriteria);
+        sqlBuilder.append(furtherCriteria.isEmpty() ? " where " : " and ").append(officeAccessScope.sqlPredicate("o.hierarchy"));
         if (searchParameters.isOrderByRequested()) {
             sqlBuilder.append(" order by ").append(searchParameters.getOrderBy()).append(' ').append(searchParameters.getSortOrder());
             this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getOrderBy(),
@@ -347,15 +348,15 @@ public class CenterReadPlatformServiceImpl implements CenterReadPlatformService 
             this.paginationParametersDataValidator.validateParameterValues(parameters, SUPPORTED_ORDER_BY_VALUES, "audits");
         }
         final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select ");
         sqlBuilder.append(this.centerMapper.schema());
         final SQLBuilder extraCriteria = getCenterExtraCriteria(this.centerMapper.schema(), searchParameters);
-        extraCriteria.addNonNullCriteria("o.hierarchy like ", hierarchySearchString);
-        sqlBuilder.append(' ').append(extraCriteria.getSQLTemplate());
+        final String furtherCriteria = extraCriteria.getSQLTemplate();
+        sqlBuilder.append(' ').append(furtherCriteria);
+        sqlBuilder.append(furtherCriteria.isEmpty() ? " where " : " and ").append(officeAccessScope.sqlPredicate("o.hierarchy"));
         if (searchParameters != null) {
             if (searchParameters.isOrderByRequested()) {
                 sqlBuilder.append(" order by ").append(searchParameters.getOrderBy()).append(' ').append(searchParameters.getSortOrder());
@@ -380,13 +381,12 @@ public class CenterReadPlatformServiceImpl implements CenterReadPlatformService 
     public Collection<CenterData> retrieveAllForDropdown(final Long officeId) {
 
         final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
-        final String sql = "select " + this.centerMapper.schema()
-                + " where g.office_id = ? and g.parent_id is null and g.level_Id = ? and o.hierarchy like ? order by g.hierarchy";
+        final String sql = "select " + this.centerMapper.schema() + " where g.office_id = ? and g.parent_id is null and g.level_Id = ? and "
+                + officeAccessScope.sqlPredicate("o.hierarchy") + " order by g.hierarchy";
 
-        return this.jdbcTemplate.query(sql, this.centerMapper, new Object[] { officeId, GroupTypes.CENTER.getId(), hierarchySearchString }); // NOSONAR
+        return this.jdbcTemplate.query(sql, this.centerMapper, new Object[] { officeId, GroupTypes.CENTER.getId() }); // NOSONAR
     }
 
     @Override
@@ -435,11 +435,10 @@ public class CenterReadPlatformServiceImpl implements CenterReadPlatformService 
 
         try {
             final AppUser currentUser = this.context.authenticatedUser();
-            final String hierarchy = currentUser.getOffice().getHierarchy();
-            final String hierarchySearchString = hierarchy + "%";
+            final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
-            final String sql = "select " + this.centerMapper.schema() + " where g.id = ? and o.hierarchy like ?";
-            return this.jdbcTemplate.queryForObject(sql, this.centerMapper, new Object[] { centerId, hierarchySearchString }); // NOSONAR
+            final String sql = "select " + this.centerMapper.schema() + " where g.id = ? and " + officeAccessScope.sqlPredicate("o.hierarchy");
+            return this.jdbcTemplate.queryForObject(sql, this.centerMapper, new Object[] { centerId }); // NOSONAR
 
         } catch (final EmptyResultDataAccessException e) {
             throw new CenterNotFoundException(centerId, e);

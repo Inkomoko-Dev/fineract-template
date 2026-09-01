@@ -47,7 +47,7 @@ public final class UserDataValidator {
      */
     private final Set<String> supportedParameters = new HashSet<>(Arrays.asList("username", "firstname", "lastname", "password",
             "repeatPassword", "email", "officeId", "notSelectedRoles", "roles", "sendPasswordToEmail", "staffId", "passwordNeverExpires",
-            AppUserConstants.IS_SELF_SERVICE_USER, AppUserConstants.CLIENTS, AppUserConstants.NOTES));
+            AppUserConstants.IS_SELF_SERVICE_USER, AppUserConstants.CLIENTS, AppUserConstants.NOTES, AppUserConstants.OFFICE_IDS));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -145,8 +145,25 @@ public final class UserDataValidator {
         final String notes = this.fromApiJsonHelper.extractStringNamed(AppUserConstants.NOTES, element);
         baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).notBlank().notExceedingLengthOf(500);
 
+        validateOfficeIds(element, baseDataValidator);
+
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
+
+    private void validateOfficeIds(final JsonElement element, final DataValidatorBuilder baseDataValidator) {
+        if (!this.fromApiJsonHelper.parameterExists(AppUserConstants.OFFICE_IDS, element)) {
+            return;
+        }
+        final JsonArray officeIdsArray = this.fromApiJsonHelper.extractJsonArrayNamed(AppUserConstants.OFFICE_IDS, element);
+        baseDataValidator.reset().parameter(AppUserConstants.OFFICE_IDS).value(officeIdsArray).notNull();
+        if (officeIdsArray == null) {
+            return;
+        }
+        for (final JsonElement officeIdElement : officeIdsArray) {
+            baseDataValidator.reset().parameter(AppUserConstants.OFFICE_IDS).value(officeIdElement.getAsLong()).longGreaterThanZero();
+        }
+    }
+
 
     private void throwExceptionIfValidationWarningsExist(final List<ApiParameterError> dataValidationErrors) {
         if (!dataValidationErrors.isEmpty()) {
@@ -246,6 +263,8 @@ public final class UserDataValidator {
 
         final String notes = this.fromApiJsonHelper.extractStringNamed(AppUserConstants.NOTES, element);
         baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).notBlank().notExceedingLengthOf(500);
+
+        validateOfficeIds(element, baseDataValidator);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
