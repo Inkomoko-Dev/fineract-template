@@ -117,7 +117,8 @@ public final class LoanProductDataValidator {
             LoanProductConstants.OVER_APPLIED_NUMBER, LoanProductConstants.MAX_NUMBER_OF_LOAN_EXTENSIONS_ALLOWED,
             LoanProductConstants.LOAN_TERM_INCLUDES_TOPPED_UP_LOAN_TERM, LoanProductConstants.IS_ACCOUNT_LEVEL_ARREARS_TOLERANCE_ENABLE,
             DepositsApiConstants.chartsParamName, LoanProductConstants.advancePaymentInterestForExactDaysInPeriodParamName,
-            LoanProductConstants.isBnplLoanProductParamName, LoanProductConstants.requiresEquityContributionParamName,
+            LoanProductConstants.isBnplLoanProductParamName, LoanProductConstants.residualAutoCloseEnabledParamName,
+            LoanProductConstants.residualClosureThresholdParamName, LoanProductConstants.requiresEquityContributionParamName,
             LoanProductConstants.equityContributionLoanPercentageParamName, LoanProductConstants.LOAN_PRODUCT_CATEGORY,
             LoanProductConstants.LOAN_PRODUCT_TYPE, LoanProductConstants.maintainInterestOnLoanTermExtensionParamName,
             LoanProductConstants.IS_ISLAMIC, LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT,
@@ -699,6 +700,8 @@ public final class LoanProductDataValidator {
             baseDataValidator.reset().parameter(LoanProductConstants.isBnplLoanProductParamName).value(isBnplLoanProduct).ignoreIfNull()
                     .validateForBooleanValue();
         }
+
+        validateResidualClosureConfiguration(baseDataValidator, element, false, null);
 
         Boolean requiresEquityContribution = false;
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.requiresEquityContributionParamName, element)) {
@@ -1623,6 +1626,8 @@ public final class LoanProductDataValidator {
                     .validateForBooleanValue();
         }
 
+        validateResidualClosureConfiguration(baseDataValidator, element, true, loanProduct);
+
         Boolean requiresEquityContribution = null;
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.requiresEquityContributionParamName, element)) {
             requiresEquityContribution = this.fromApiJsonHelper
@@ -1655,6 +1660,31 @@ public final class LoanProductDataValidator {
         validateBnplValues(baseDataValidator, isBnplLoanProduct, requiresEquityContribution, equityContributionLoanPercentage);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    private void validateResidualClosureConfiguration(final DataValidatorBuilder baseDataValidator, final JsonElement element,
+            final boolean update, final LoanProduct loanProduct) {
+        Boolean enabled = null;
+        BigDecimal threshold = null;
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.residualAutoCloseEnabledParamName, element)) {
+            enabled = this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.residualAutoCloseEnabledParamName, element);
+            baseDataValidator.reset().parameter(LoanProductConstants.residualAutoCloseEnabledParamName).value(enabled).notNull()
+                    .validateForBooleanValue();
+        }
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.residualClosureThresholdParamName, element)) {
+            threshold = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(LoanProductConstants.residualClosureThresholdParamName,
+                    element);
+            baseDataValidator.reset().parameter(LoanProductConstants.residualClosureThresholdParamName).value(threshold).ignoreIfNull()
+                    .zeroOrPositiveAmount();
+        }
+        if (update && loanProduct != null) {
+            enabled = enabled == null ? loanProduct.isResidualAutoCloseEnabled() : enabled;
+            threshold = threshold == null ? loanProduct.getResidualClosureThreshold() : threshold;
+        }
+        if (Boolean.TRUE.equals(enabled)) {
+            baseDataValidator.reset().parameter(LoanProductConstants.residualClosureThresholdParamName).value(threshold).notNull()
+                    .positiveAmount();
+        }
     }
 
     /*

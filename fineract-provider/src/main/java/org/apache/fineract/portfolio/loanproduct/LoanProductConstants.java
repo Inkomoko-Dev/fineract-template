@@ -104,6 +104,9 @@ public interface LoanProductConstants {
 
     String advancePaymentInterestForExactDaysInPeriodParamName = "advancePaymentInterestForExactDaysInPeriod";
     String isBnplLoanProductParamName = "isBnplLoanProduct";
+    String residualAutoCloseEnabledParamName = "residualAutoCloseEnabled";
+    String residualClosureThresholdParamName = "residualClosureThreshold";
+    String CONFIGURE_RESIDUAL_CLOSURE_PERMISSION = "CONFIGURE_RESIDUAL_CLOSURE_LOANPRODUCT";
     String requiresEquityContributionParamName = "requiresEquityContribution";
     String equityContributionLoanPercentageParamName = "equityContributionLoanPercentage";
 
