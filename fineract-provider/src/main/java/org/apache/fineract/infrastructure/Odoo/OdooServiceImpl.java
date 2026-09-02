@@ -537,6 +537,12 @@ public class OdooServiceImpl implements OdooService {
         Map<Long, JournalEntry> journalEntryMap = journalEntries.stream()
                 .collect(Collectors.toMap(JournalEntry::getId, je -> je));
 
+        // one round trip for the whole message instead of one saveAndFlush per journal-entry line —
+        // under concurrent write load (web traffic, the daily posting cron, other outcome-listener
+        // threads) each extra flush is a fresh chance to queue behind a row lock, and this loop can
+        // run dozens of times for a single multi-line disbursement
+        List<JournalEntry> toSave = new ArrayList<>();
+
         if ("POSTED".equals(responseCode) || "REVERSED".equals(responseCode) || "EXISTING".equals(responseCode)) {
             String odooJournalId = getStringField(odooRequest, "journal_entry_no");
 
@@ -565,7 +571,7 @@ public class OdooServiceImpl implements OdooService {
                         if (je.getOdooResponse() == null)
                             je.setOdooResponse(responseCode);
                         je.setOddoPosted(true);
-                        journalEntryRepository.saveAndFlush(je);
+                        toSave.add(je);
                     }
                 }
             }
@@ -574,14 +580,18 @@ public class OdooServiceImpl implements OdooService {
             for (JournalEntry je : journalEntries) {
                 je.setOddoPosted(true);
                 je.setOdooResponse(responseCode + ": " + responseMessage);
-                journalEntryRepository.saveAndFlush(je);
+                toSave.add(je);
             }
         } else {
             LOG.info("Loan Transaction Not Posted to Odoo - Code:{} - Message: {}", responseCode, responseMessage);
             for (JournalEntry je : journalEntries) {
                 je.setOdooResponse(responseCode + ": " + responseMessage);
-                journalEntryRepository.saveAndFlush(je);
+                toSave.add(je);
             }
+        }
+
+        if (!toSave.isEmpty()) {
+            journalEntryRepository.saveAllAndFlush(toSave);
         }
 
         response.addProperty("success", true);
