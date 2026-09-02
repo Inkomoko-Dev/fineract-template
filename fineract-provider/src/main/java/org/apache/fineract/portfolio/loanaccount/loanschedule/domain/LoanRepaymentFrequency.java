@@ -26,6 +26,12 @@ import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 /**
  * Named monthly repayment intervals reuse the existing monthly schedule engine
  * ({@code repaymentEvery} + {@link PeriodFrequencyType#MONTHS}): 1 = monthly, 3 = quarterly, 6 = semi-annual.
+ * <p>
+ * Interest, principal, fees and penalties continue to use the product's existing interest method (flat, declining
+ * balance, etc.). The repayment interval only changes the length of each schedule period: quarterly and semi-annual
+ * installments accrue over 3- and 6-month periods respectively, with the same first-due-date, grace, and last-installment
+ * rounding rules as monthly loans. Reports and collections views must use installment due dates and
+ * {@code numberOfRepayments}; they must not assume installments equal term-in-months.
  */
 public final class LoanRepaymentFrequency {
 
@@ -92,6 +98,17 @@ public final class LoanRepaymentFrequency {
             return termFrequency * 12;
         }
         return null;
+    }
+
+    /**
+     * Products do not store a separate loan term; implied term is {@code numberOfRepayments * repaymentEvery} months.
+     * Returns null when the term is not an exact multiple of the interval.
+     */
+    public static Integer installmentCount(final Integer termMonths, final Integer repaymentEvery) {
+        if (termMonths == null || repaymentEvery == null || repaymentEvery <= 0 || termMonths % repaymentEvery != 0) {
+            return null;
+        }
+        return termMonths / repaymentEvery;
     }
 
     public static void validateProduct(final List<ApiParameterError> dataValidationErrors, final Integer numberOfRepayments,

@@ -93,4 +93,12 @@ class LoanRepaymentFrequencyTest {
         LoanRepaymentFrequency.validateLoan(errors, 12, MONTHS, 12, 1, MONTHS);
         assertTrue(errors.isEmpty());
     }
+
+    @Test
+    void installmentCountMapsTermToNamedIntervals() {
+        assertEquals(4, LoanRepaymentFrequency.installmentCount(12, 3));
+        assertEquals(2, LoanRepaymentFrequency.installmentCount(12, 6));
+        assertEquals(12, LoanRepaymentFrequency.installmentCount(12, 1));
+        assertEquals(null, LoanRepaymentFrequency.installmentCount(10, 3));
+    }
 }
