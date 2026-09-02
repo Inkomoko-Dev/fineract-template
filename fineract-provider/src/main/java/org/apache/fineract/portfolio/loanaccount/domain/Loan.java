@@ -129,6 +129,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.DefaultSche
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.TrancheDisbursementAfterMaturityException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
@@ -2857,6 +2858,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 LoanStatus.fromInt(this.loanStatus));
 
         final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        validateTrancheDisbursementDateIsNotAfterMaturity(actualDisbursementDate);
 
         this.loanStatus = statusEnum.getValue();
         actualChanges.put("status", LoanEnumerations.status(this.loanStatus));
@@ -3918,6 +3920,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             return;
         }
 
+        // Repaying the currently utilized amount does not settle a multi-disbursement facility while another approved tranche is
+        // still available. Closing here would prevent that pending tranche from being disbursed.
+        if (hasPendingApprovedDisbursement()) {
+            return;
+        }
+
         if (isOverPaid()) {
             // FIXME - kw - update account balance to negative amount.
             handleLoanOverpayment(loanLifecycleStateMachine);
@@ -4712,6 +4720,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                         Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(LoanDisbursementDetails::getId,
                                 Comparator.nullsLast(Comparator.naturalOrder())))
                 .findFirst().orElse(null);
+    }
+
+    public boolean hasPendingApprovedDisbursement() {
+        return this.loanProduct != null && this.loanProduct.isMultiDisburseLoan() && getNextUndisbursedDisbursementDetail() != null;
     }
 
     public int getDisbursementTrancheNumber(final LoanDisbursementDetails selectedDetail) {
@@ -5926,6 +5938,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 locale);
         final LocalDate expectedDisbursementDate = command
                 .localDateValueOfParameterNamed(LoanApiConstants.updatedDisbursementDateParameterName);
+        validateTrancheDisbursementDateIsNotAfterMaturity(expectedDisbursementDate);
         disbursementDetails.updateExpectedDisbursementDateAndAmount(expectedDisbursementDate, principal);
         actualChanges.put(LoanApiConstants.disbursementDateParameterName,
                 command.stringValueOfParameterNamed(LoanApiConstants.disbursementDateParameterName));
@@ -5967,6 +5980,25 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         return changedTransactionDetail;
+    }
+
+    public void validateTrancheDisbursementDatesAreNotAfterMaturity() {
+        if (!this.loanProduct.isMultiDisburseLoan()) {
+            return;
+        }
+        for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+            validateTrancheDisbursementDateIsNotAfterMaturity(detail.expectedDisbursementDate());
+        }
+    }
+
+    public void validateTrancheDisbursementDateIsNotAfterMaturity(final LocalDate disbursementDate) {
+        if (!this.loanProduct.isMultiDisburseLoan() || disbursementDate == null) {
+            return;
+        }
+        final LocalDate maturityDate = this.actualMaturityDate != null ? this.actualMaturityDate : this.expectedMaturityDate;
+        if (maturityDate != null && disbursementDate.isAfter(maturityDate)) {
+            throw new TrancheDisbursementAfterMaturityException(disbursementDate, maturityDate);
+        }
     }
 
     public BigDecimal retriveLastEmiAmount() {
@@ -6357,23 +6389,6 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         // Use persisted schedule with pro-rata accrued interest for all loans so the prepayment
         // template matches what transaction processors apply on the live repayment schedule.
         return this.getTotalOutstandingOnLoanAsOfDate(onDate);
-    }
-
-    /**
-     * A completed payoff terminates the remaining multi-disbursement facility. Keeping pending tranche rows on a closed loan makes
-     * them appear available for a later disbursement even though the account has no outstanding obligation.
-     */
-    public List<Long> cancelUndisbursedTranchesAfterPayoff() {
-        final List<Long> cancelledTrancheIds = new ArrayList<>();
-        if (this.loanProduct.isMultiDisburseLoan() && status().isClosed()) {
-            for (final LoanDisbursementDetails detail : this.disbursementDetails) {
-                if (detail.actualDisbursementDate() == null) {
-                    cancelledTrancheIds.add(detail.getId());
-                }
-            }
-            removeDisbursementDetail();
-        }
-        return cancelledTrancheIds;
     }
 
     public LoanApplicationTerms constructLoanApplicationTerms(final ScheduleGeneratorDTO scheduleGeneratorDTO) {
