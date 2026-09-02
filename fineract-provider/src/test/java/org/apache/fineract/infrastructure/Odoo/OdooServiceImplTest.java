@@ -20,6 +20,7 @@ package org.apache.fineract.infrastructure.Odoo;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
@@ -40,12 +41,17 @@ import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
+import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
+import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDisbursalBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
@@ -121,6 +127,9 @@ public class OdooServiceImplTest {
     @Mock
     private ExecutorService genericExecutorService;
 
+    @Mock
+    private BusinessEventNotifierService businessEventNotifierService;
+
     @Test
     public void scheduledJournalPostingFetchesAllUnpostedTransactions() throws JobExecutionException {
         given(configurationDomainService.isOdooIntegrationEnabled()).willReturn(true);
@@ -185,5 +194,28 @@ public class OdooServiceImplTest {
         verify(journalEntryRepository).saveAllAndFlush(savedCaptor.capture());
         assertEquals(2, savedCaptor.getValue().size());
         verify(journalEntryRepository, never()).saveAndFlush(any(JournalEntry.class));
+    }
+
+    @Test
+    public void disbursalListenerSkipsNonDisbursementTransactionsToFindTheRealOne() {
+        odooService.registerBusinessEventListeners();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<BusinessEventListener<LoanDisbursalBusinessEvent>> listenerCaptor = ArgumentCaptor.forClass(BusinessEventListener.class);
+        verify(businessEventNotifierService).addPostBusinessEventListener(eq(LoanDisbursalBusinessEvent.class), listenerCaptor.capture());
+
+        // a disbursement charge is appended after the disbursement transaction itself
+        LoanTransaction disbursementTransaction = mock(LoanTransaction.class);
+        given(disbursementTransaction.isDisbursement()).willReturn(true);
+        given(disbursementTransaction.getId()).willReturn(99L);
+        LoanTransaction disbursementCharge = mock(LoanTransaction.class);
+        given(disbursementCharge.isDisbursement()).willReturn(false);
+
+        Loan loan = mock(Loan.class);
+        given(loan.getLoanTransactions()).willReturn(List.of(disbursementTransaction, disbursementCharge));
+
+        listenerCaptor.getValue().onBusinessEvent(new LoanDisbursalBusinessEvent(loan));
+
+        verify(genericExecutorService).execute(any(Runnable.class));
     }
 }

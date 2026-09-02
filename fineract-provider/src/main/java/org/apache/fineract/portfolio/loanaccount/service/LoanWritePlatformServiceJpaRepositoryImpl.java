@@ -75,7 +75,6 @@ import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChe
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
-import org.apache.fineract.infrastructure.Odoo.OdooService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.notification.service.ActiveMqNotificationDomainServiceImpl;
 import org.apache.fineract.organisation.holiday.domain.Holiday;
@@ -304,7 +303,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final AccountAssociationsRepository accountAssociationRepository;
     private final AccountTransferDetailRepository accountTransferDetailRepository;
     private final BusinessEventNotifierService businessEventNotifierService;
-    private final OdooService odooService;
     private final GuarantorDomainService guarantorDomainService;
     private final LoanUtilService loanUtilService;
     private final LoanDailyLateFeeService loanDailyLateFeeService;
@@ -650,9 +648,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // During a disbursement, the entityId should be the disbursement transaction id
         if (!isAccountTransfer) {
             entityId = loan.getLoanTransactions().get(loan.getLoanTransactions().size() - 1).getId();
-            // account-transfer-funded disbursements stay on the cron-only path for now — entityId
-            // above isn't the disbursement transaction id in that branch
-            this.odooService.postJournalEntryToOddoOnDisburseTask(entityId);
         }
 
         return new CommandProcessingResultBuilder() //

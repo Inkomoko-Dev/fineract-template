@@ -82,6 +82,9 @@ import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigration;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
+import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
+import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDisbursalBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionNotPostedToOdooInstanceData;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigration;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
@@ -160,6 +163,7 @@ public class OdooServiceImpl implements OdooService {
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
     private final LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository;
     private final AfterCommitExecutor afterCommitExecutor;
+    private final BusinessEventNotifierService businessEventNotifierService;
     private ExecutorService genericExecutorService;
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
     private FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository;
@@ -171,6 +175,7 @@ public class OdooServiceImpl implements OdooService {
             LoanTransactionRepository loanTransactionRepository, LoanRepositoryWrapper loanRepositoryWrapper,
             EntityDisbursementDefaultsService entityDisbursementDefaultsService,
             LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository, AfterCommitExecutor afterCommitExecutor,
+            BusinessEventNotifierService businessEventNotifierService,
             FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository,
             FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository,
             FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository) {
@@ -183,6 +188,7 @@ public class OdooServiceImpl implements OdooService {
         this.entityDisbursementDefaultsService = entityDisbursementDefaultsService;
         this.loanHistoricalPenaltyWaiverRepository = loanHistoricalPenaltyWaiverRepository;
         this.afterCommitExecutor = afterCommitExecutor;
+        this.businessEventNotifierService = businessEventNotifierService;
         this.failedClientCreationOnDataMigrationRepository = failedClientCreationOnDataMigrationRepository;
         this.failedLoanCreationOnDataMigrationRepository = failedLoanCreationOnDataMigrationRepository;
         this.failedLoanRepaymentOnDataMigrationRepository = failedLoanRepaymentOnDataMigrationRepository;
@@ -191,6 +197,12 @@ public class OdooServiceImpl implements OdooService {
     @PostConstruct
     public void initializeExecutorService() {
         genericExecutorService = Executors.newSingleThreadExecutor();
+    }
+
+    // decouples other reactions to a disbursement from this class and from LoanWritePlatformServiceJpaRepositoryImpl
+    @PostConstruct
+    public void registerBusinessEventListeners() {
+        businessEventNotifierService.addPostBusinessEventListener(LoanDisbursalBusinessEvent.class, new OnLoanDisbursalListener());
     }
 
     @Override
@@ -1013,6 +1025,24 @@ public class OdooServiceImpl implements OdooService {
         public void onApplicationEvent(ContextClosedEvent event) {
             genericExecutorService.shutdown();
             LOG.info("Shutting down the ExecutorService");
+        }
+    }
+
+    // fires pre-commit — postJournalEntryToOddoOnDisburseTask still owns the after-commit deferral
+    private class OnLoanDisbursalListener implements BusinessEventListener<LoanDisbursalBusinessEvent> {
+
+        @Override
+        public void onBusinessEvent(LoanDisbursalBusinessEvent event) {
+            Loan loan = event.get();
+            // last-added disbursement transaction — skips a disbursement charge appended after it
+            List<LoanTransaction> transactions = loan.getLoanTransactions();
+            for (int i = transactions.size() - 1; i >= 0; i--) {
+                LoanTransaction transaction = transactions.get(i);
+                if (transaction.isDisbursement()) {
+                    postJournalEntryToOddoOnDisburseTask(transaction.getId());
+                    return;
+                }
+            }
         }
     }
 
