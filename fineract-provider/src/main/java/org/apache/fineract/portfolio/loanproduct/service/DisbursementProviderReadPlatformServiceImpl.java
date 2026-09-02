@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.portfolio.loanproduct.domain.DisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.domain.DisbursementProviderRepository;
 import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -39,6 +40,11 @@ public class DisbursementProviderReadPlatformServiceImpl implements Disbursement
     @Override
     public Collection<String> retrieveActiveProviderCodes() {
         return this.disbursementProviderRepository.findAllActiveCodes();
+    }
+
+    @Override
+    public Collection<DisbursementProvider> retrieveActiveProviders() {
+        return this.disbursementProviderRepository.findAllActive();
     }
 
     @Override

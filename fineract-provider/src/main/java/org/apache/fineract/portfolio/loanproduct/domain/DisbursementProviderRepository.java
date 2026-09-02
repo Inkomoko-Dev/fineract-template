@@ -31,6 +31,9 @@ public interface DisbursementProviderRepository extends JpaRepository<Disburseme
     @Query("select dp from DisbursementProvider dp where dp.code = :code and dp.active = true")
     Optional<DisbursementProvider> findActiveByCode(@Param("code") String code);
 
+    @Query("select dp from DisbursementProvider dp where dp.active = true order by dp.name")
+    List<DisbursementProvider> findAllActive();
+
     @Query("select dp.code from DisbursementProvider dp where dp.active = true order by dp.code")
     List<String> findAllActiveCodes();
 }
