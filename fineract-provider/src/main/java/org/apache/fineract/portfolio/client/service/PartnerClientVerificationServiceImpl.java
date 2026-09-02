@@ -19,20 +19,21 @@
 package org.apache.fineract.portfolio.client.service;
 
 import java.util.List;
-
+import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.portfolio.client.data.PartnerClientVerificationRequest;
 import org.apache.fineract.portfolio.client.data.PartnerClientVerificationResponse;
-import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientOtherInfo;
 import org.apache.fineract.portfolio.client.domain.ClientOtherInfoRepository;
-import org.apache.fineract.portfolio.client.domain.ClientRepository;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.PartnerClientVerificationAudit;
 import org.apache.fineract.portfolio.client.domain.PartnerClientVerificationAuditRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,33 +41,41 @@ import org.springframework.transaction.annotation.Transactional;
 public class PartnerClientVerificationServiceImpl implements PartnerClientVerificationService {
 
     private static final Logger logger = LoggerFactory.getLogger(PartnerClientVerificationServiceImpl.class);
+    private static final int WRITTEN_OFF_STATUS = 601;
 
-    private final ClientRepository clientRepository;
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final ClientOtherInfoRepository clientOtherInfoRepository;
     private final PartnerClientVerificationAuditRepository auditRepository;
-    private final PlatformSecurityContext context;
+    private final JdbcTemplate jdbcTemplate;
+    private final PartnerClientVerificationRateLimiter rateLimiter;
 
     @Autowired
-    public PartnerClientVerificationServiceImpl(final ClientRepository clientRepository,
-            final ClientRepositoryWrapper clientRepositoryWrapper,
-            final ClientOtherInfoRepository clientOtherInfoRepository,
-            final PartnerClientVerificationAuditRepository auditRepository,
-            final PlatformSecurityContext context) {
-        this.clientRepository = clientRepository;
+    public PartnerClientVerificationServiceImpl(final ClientRepositoryWrapper clientRepositoryWrapper,
+            final ClientOtherInfoRepository clientOtherInfoRepository, final PartnerClientVerificationAuditRepository auditRepository,
+            final JdbcTemplate jdbcTemplate, final PartnerClientVerificationRateLimiter rateLimiter) {
         this.clientRepositoryWrapper = clientRepositoryWrapper;
         this.clientOtherInfoRepository = clientOtherInfoRepository;
         this.auditRepository = auditRepository;
-        this.context = context;
+        this.jdbcTemplate = jdbcTemplate;
+        this.rateLimiter = rateLimiter;
     }
 
     @Override
     @Transactional
     public PartnerClientVerificationResponse verifyClient(final PartnerClientVerificationRequest request) {
-        logger.info("Partner client verification request from {}: nationalId={}, phoneNumber={}", 
-                request.getSourceSystem(), maskNationalId(request.getNationalId()), maskPhoneNumber(request.getPhoneNumber()));
+        this.rateLimiter.check(request.getNationalId(), request.getPhoneNumber());
 
-        Client client = findClientByNationalIdOrPhoneNumber(request.getNationalId(), request.getPhoneNumber());
+        logger.info("Partner client verification request from {}: nationalIdHash={}, phoneHash={}", request.getSourceSystem(),
+                PartnerClientVerificationRateLimiter.hashIdentifier(request.getNationalId()),
+                PartnerClientVerificationRateLimiter.hashIdentifier(request.getPhoneNumber()));
+
+        Client client;
+        try {
+            client = findClientByNationalIdOrPhoneNumber(request.getNationalId(), request.getPhoneNumber());
+        } catch (final DataAccessException ex) {
+            logger.error("Database failure during partner client verification: {}", ex.getMessage());
+            throw ex;
+        }
 
         if (client == null) {
             logger.info("Client not found for provided identifiers");
@@ -74,96 +83,83 @@ public class PartnerClientVerificationServiceImpl implements PartnerClientVerifi
             return PartnerClientVerificationResponse.notRegistered();
         }
 
-        boolean isEligible = checkClientEligibility(client);
-        String remarks = isEligible ? "Client active and eligible for financing" : 
-                "Client not eligible for financing (status: " + client.getStatus() + ")";
+        final boolean isEligible = checkClientEligibility(client);
+        final String remarks = isEligible ? "Client active and eligible for financing"
+                : "Client not eligible for financing (status: " + client.getStatus() + ")";
 
-        PartnerClientVerificationResponse response = isEligible ? 
-                PartnerClientVerificationResponse.verifiedEligible(client.getId().toString(), remarks) :
-                PartnerClientVerificationResponse.verifiedIneligible(client.getId().toString(), remarks);
+        final PartnerClientVerificationResponse response = isEligible
+                ? PartnerClientVerificationResponse.verifiedEligible(client.getId().toString(), remarks)
+                : PartnerClientVerificationResponse.verifiedIneligible(client.getId().toString(), remarks);
 
         logVerificationAttempt(request, client, true, "VERIFIED", isEligible ? "ELIGIBLE" : "NOT_ELIGIBLE", remarks);
 
-        logger.info("Verification completed for client {}: isRegistered={}, eligibilityStatus={}", 
-                client.getId(), response.isRegistered(), response.getEligibilityStatus());
+        logger.info("Verification completed for client {}: isRegistered={}, eligibilityStatus={}", client.getId(), response.isRegistered(),
+                response.getEligibilityStatus());
 
         return response;
     }
 
     private Client findClientByNationalIdOrPhoneNumber(final String nationalId, final String phoneNumber) {
-        // First try to find by national ID
-        if (nationalId != null && !nationalId.trim().isEmpty()) {
-            List<ClientOtherInfo> clientOtherInfos = clientOtherInfoRepository.findByNationalIdentificationNumber(nationalId.trim());
-            if (!clientOtherInfos.isEmpty()) {
-                try {
-                    return clientRepositoryWrapper.findOneWithNotFoundDetection(clientOtherInfos.get(0).getClient().getId());
-                } catch (Exception e) {
-                    logger.warn("Error finding client by national ID: {}", e.getMessage());
-                }
+        if (StringUtils.isNotBlank(nationalId)) {
+            final List<ClientOtherInfo> clientOtherInfos = this.clientOtherInfoRepository
+                    .findByNationalIdentificationNumber(nationalId.trim());
+            if (!clientOtherInfos.isEmpty() && clientOtherInfos.get(0).getClient() != null) {
+                return this.clientRepositoryWrapper.findOneWithNotFoundDetection(clientOtherInfos.get(0).getClient().getId());
             }
         }
 
-        // Then try to find by phone number
-        if (phoneNumber != null && !phoneNumber.trim().isEmpty()) {
-            try {
-                return clientRepositoryWrapper.findByMobileNo(phoneNumber.trim());
-            } catch (Exception e) {
-                logger.warn("Error finding client by phone number: {}", e.getMessage());
-            }
+        if (StringUtils.isNotBlank(phoneNumber)) {
+            return this.clientRepositoryWrapper.findByMobileNo(phoneNumber.trim());
         }
 
         return null;
     }
 
     private boolean checkClientEligibility(final Client client) {
-        // Check if client is active
         if (!client.isActive()) {
             return false;
         }
-
-        // Check for write-offs in the last 12 months
-        // This is a simplified check - in production, you would query loan accounts
-        // for write-offs within the last 12 months
-        // For now, we return true for active clients as a basic eligibility check
-        return true;
+        return !hasActiveWriteOff(client.getId());
     }
 
-    private void logVerificationAttempt(final PartnerClientVerificationRequest request, final Client client,
-            final boolean isRegistered, final String verificationStatus, final String eligibilityStatus, final String remarks) {
+    private boolean hasActiveWriteOff(final Long clientId) {
         try {
-            String clientIdentifier = client != null ? client.getId().toString() : "NOT_FOUND";
-            String tenantId = "default"; // Fallback tenant identifier
+            final Integer count = this.jdbcTemplate.queryForObject(
+                    "select count(*) from m_loan where client_id = ? and loan_status_id = ?", Integer.class, clientId, WRITTEN_OFF_STATUS);
+            return count != null && count > 0;
+        } catch (final DataAccessException ex) {
+            logger.error("Failed to check write-offs for client {}: {}", clientId, ex.getMessage());
+            throw ex;
+        }
+    }
 
-            PartnerClientVerificationAudit audit = PartnerClientVerificationAudit.create(
-                    maskNationalId(request.getNationalId()),
-                    maskPhoneNumber(request.getPhoneNumber()),
-                    request.getFullName(),
-                    request.getSourceSystem(),
-                    clientIdentifier,
-                    isRegistered,
-                    verificationStatus,
-                    eligibilityStatus,
-                    remarks,
-                    tenantId
-            );
+    private void logVerificationAttempt(final PartnerClientVerificationRequest request, final Client client, final boolean isRegistered,
+            final String verificationStatus, final String eligibilityStatus, final String remarks) {
+        try {
+            final String clientIdentifier = client != null ? client.getId().toString() : "NOT_FOUND";
+            String tenantId = "default";
+            if (ThreadLocalContextUtil.getTenant() != null) {
+                tenantId = ThreadLocalContextUtil.getTenant().getTenantIdentifier();
+            }
+
+            final PartnerClientVerificationAudit audit = PartnerClientVerificationAudit.create(maskNationalId(request.getNationalId()),
+                    maskPhoneNumber(request.getPhoneNumber()), request.getFullName(), request.getSourceSystem(), clientIdentifier,
+                    isRegistered, verificationStatus, eligibilityStatus, remarks, tenantId);
 
             this.auditRepository.save(audit);
-
-            logger.info("Partner verification audit saved - source: {}, client: {}, isRegistered: {}, verificationStatus: {}, eligibilityStatus: {}",
-                    request.getSourceSystem(), clientIdentifier, isRegistered, verificationStatus, eligibilityStatus);
-        } catch (Exception e) {
+        } catch (final Exception e) {
             logger.error("Error logging verification attempt: {}", e.getMessage());
         }
     }
 
-    private String maskNationalId(String nationalId) {
+    private String maskNationalId(final String nationalId) {
         if (nationalId == null || nationalId.length() < 8) {
             return "XXXX";
         }
         return nationalId.substring(0, 4) + "XXXXXXXX" + nationalId.substring(nationalId.length() - 4);
     }
 
-    private String maskPhoneNumber(String phoneNumber) {
+    private String maskPhoneNumber(final String phoneNumber) {
         if (phoneNumber == null || phoneNumber.length() < 4) {
             return "XXXX";
         }

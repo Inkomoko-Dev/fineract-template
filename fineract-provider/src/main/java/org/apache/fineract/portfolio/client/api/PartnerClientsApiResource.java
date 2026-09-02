@@ -152,8 +152,8 @@ public class PartnerClientsApiResource {
     public String retrieveOne(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
         final AppUser user = this.context.authenticatedUser();
         
-        // Check if user has admin permission to read any partner client
-        final boolean isAdmin = user.hasAnyPermission("ALL_FUNCTIONS", "ADMIN_READ_PARTNERCLIENT", PartnerClientApiConstants.WRITE_PARTNERCLIENT_CLIENT);
+        final boolean isAdmin = user.hasAnyPermission("ALL_FUNCTIONS", "ADMIN_READ_PARTNERCLIENT", "CREATE_PARTNERCLIENT",
+                "UPDATE_PARTNERCLIENT", PartnerClientApiConstants.WRITE_PARTNERCLIENT_CLIENT);
         
         if (isAdmin) {
             // Admin users can retrieve any partner client without partner binding
@@ -189,6 +189,25 @@ public class PartnerClientsApiResource {
 
             return this.toApiJsonSerializer.serialize(client);
         }
+    }
+
+    @GET
+    @Path("{clientId}/assignment")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Retrieve current partner assignment", description = "Staff read of the client's active partner mapping. Returns an empty object when unassigned.")
+    public String retrieveAssignment(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
+        final AppUser user = this.context.authenticatedUser();
+        if (!user.hasAnyPermission("ALL_FUNCTIONS", PartnerClientApiConstants.READ_PARTNERCLIENT_CLIENT, "CREATE_PARTNERCLIENT",
+                "UPDATE_PARTNERCLIENT")) {
+            user.validateHasReadPermission(PartnerClientApiConstants.PERMISSION_CODE);
+        }
+
+        final PartnerClientData client = this.readPlatformService.retrievePartnerClientForAdmin(clientId);
+        if (client == null) {
+            return "{}";
+        }
+        return this.toApiJsonSerializer.serialize(client);
     }
 
     @GET
