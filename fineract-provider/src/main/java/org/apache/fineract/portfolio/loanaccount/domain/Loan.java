@@ -1560,6 +1560,31 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     }
 
+    /**
+     * CGLT-562: editing a disbursement charge upwards on an already settled loan restores an outstanding balance.
+     * {@code doPostLoanTransactionChecks} only ever moves a loan forward (to overpaid or closed) and never demotes,
+     * so the reopen has to be applied explicitly - otherwise the loan stays CLOSED while owing money and never shows
+     * up in arrears or collections. The maturity date is deliberately left intact: the loan really did run its term,
+     * it simply owes a charge.
+     *
+     * @return true when the loan was reopened
+     */
+    public boolean reopenIfBalanceRestored() {
+        if (this.summary == null || this.loanStatus == null) {
+            return false;
+        }
+        final LoanStatus currentStatus = LoanStatus.fromInt(this.loanStatus);
+        if (!(currentStatus.isClosedObligationsMet() || currentStatus.isOverpaid())) {
+            return false;
+        }
+        if (!this.summary.getTotalOutstanding(loanCurrency()).isGreaterThanZero()) {
+            return false;
+        }
+        this.loanStatus = LoanStatus.ACTIVE.getValue();
+        this.closedOnDate = null;
+        return true;
+    }
+
     public void updateLoanScheduleDependentDerivedFields() {
         if (this.getLoanRepaymentScheduleInstallmentsSize() > 0) {
             this.expectedMaturityDate = determineExpectedMaturityDate();

@@ -205,6 +205,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanOverdueInstallmentCh
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminder;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminderRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.LoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleTransactionProcessorFactory;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
@@ -1807,10 +1808,32 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // Add transaction to loan and save
         loan.addLoanTransaction(partialWriteOffTransaction);
         this.loanTransactionRepository.saveAndFlush(partialWriteOffTransaction);
-        
+
+        // Set helpers on loan to enable transaction processing
+        loan.setHelpers(defaultLoanLifecycleStateMachine(), this.loanSummaryWrapper, this.transactionProcessingStrategy);
+
+        // Process the partial write-off through the transaction processor to update installments
+        final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessingStrategy
+                .determineProcessor(loan.transactionProcessingStrategy());
+        loanRepaymentScheduleTransactionProcessor.handlePartialWriteOff(partialWriteOffTransaction, loan.getCurrency(),
+                loan.getRepaymentScheduleInstallments());
+
+        // Update loan summary to reflect the write-off changes before capturing balance
+        loan.updateLoanSummaryDerivedFields();
+
+        // Recalculate repayment schedule to reflect the reduced balance (per requirements)
+        if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
+            loan.recalculateScheduleFromLastTransaction(scheduleGeneratorDTO, existingTransactionIds,
+                    existingReversedTransactionIds);
+            createAndSaveLoanScheduleArchive(loan, scheduleGeneratorDTO);
+        } else {
+            // For loans without interest recalculation, regenerate schedule to reflect new balance
+            loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
+        }
+
         saveLoanWithDataIntegrityViolationChecks(loan);
         
-        // Capture loan balance after write-off
+        // Capture loan balance after write-off (now that installments are updated)
         final Money loanBalanceAfter = loan.getLoanSummary().getTotalOutstanding(loan.getCurrency());
 
         // Verify loan status remains active after partial write-off
@@ -5281,6 +5304,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
         }
         loan.updateLoanSummarAndStatus();
+        loan.reopenIfBalanceRestored();
         saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
         this.loanAccountDomainService.recalculateAccruals(loan);
     }

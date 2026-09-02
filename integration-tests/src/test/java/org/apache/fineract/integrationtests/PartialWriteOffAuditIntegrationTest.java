@@ -224,6 +224,124 @@ public class PartialWriteOffAuditIntegrationTest {
         }
     }
 
+    @Test
+    public void testComponentLevelValidation() {
+        // CREATE CLIENT
+        final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec, DATE_OF_JOINING);
+        ClientHelper.verifyClientCreatedOnServer(this.requestSpec, this.responseSpec, clientID);
+
+        // CREATE LOAN PRODUCT
+        final Integer loanProductID = createLoanProduct();
+        LoanProductTestBuilder.verifyLoanProductCreated(loanProductID);
+
+        // CREATE LOAN APPLICATION
+        final Integer loanID = createLoanApplication(clientID, loanProductID);
+        LoanStatusChecker.verifyLoanIsPending(loanID);
+
+        // APPROVE LOAN
+        LoanStatusChecker.approveLoan(loanID);
+        LoanStatusChecker.verifyLoanIsApproved(loanID);
+
+        // DISBURSE LOAN
+        LoanStatusChecker.disburseLoan(loanID, DISBURSEMENT_DATE);
+        LoanStatusChecker.verifyLoanIsActive(loanID);
+
+        // GET LOAN COMPONENT OUTSTANDING BALANCES
+        final String loanDetails = Utils.performServerGet("/loans/" + loanID, "", requestSpec, responseSpec);
+        final JsonPath loanJson = new JsonPath(loanDetails);
+        
+        final String principalOutstanding = loanJson.getString("summary.principalOutstanding");
+        final String interestOutstanding = loanJson.getString("summary.interestOutstanding");
+        final String feeChargesOutstanding = loanJson.getString("summary.feeChargesOutstanding");
+        final String penaltyChargesOutstanding = loanJson.getString("summary.penaltyChargesOutstanding");
+        
+        assertNotNull(principalOutstanding, "Principal outstanding should not be null");
+        assertNotNull(interestOutstanding, "Interest outstanding should not be null");
+        
+        LOG.info("Principal outstanding: {}", principalOutstanding);
+        LOG.info("Interest outstanding: {}", interestOutstanding);
+        
+        // ATTEMPT TO WRITE OFF MORE INTEREST THAN OUTSTANDING (SHOULD FAIL)
+        final BigDecimal outstandingInterest = new BigDecimal(interestOutstanding);
+        final BigDecimal excessiveInterestAmount = outstandingInterest.multiply(new BigDecimal("2")); // 2x outstanding
+        
+        final String partialWriteOffDate = "15 March 2026";
+        final HashMap<String, Object> excessiveWriteOffMap = new HashMap<>();
+        excessiveWriteOffMap.put("transactionDate", partialWriteOffDate);
+        excessiveWriteOffMap.put("interestPortion", excessiveInterestAmount.toString());
+        excessiveWriteOffMap.put("reason", "Attempt to write off more interest than outstanding");
+        excessiveWriteOffMap.put("note", "Should fail due to component-level validation");
+
+        final String excessiveWriteOffJson = new Gson().toJson(excessiveWriteOffMap);
+        final LoanTransactionHelper errorHelper = new LoanTransactionHelper(this.requestSpec, new ResponseSpecBuilder().build());
+        
+        try {
+            errorHelper.partialWriteOffLoan(loanID, excessiveWriteOffJson);
+            assertTrue(false, "Write-off exceeding component outstanding should have failed");
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("exceeds") || e.getMessage().contains("outstanding"),
+                "Error should indicate component amount exceeds outstanding");
+            LOG.info("CGLT-680 Component-level validation test passed successfully");
+        }
+    }
+
+    @Test
+    public void testScheduleRecalculationAfterPartialWriteOff() {
+        // CREATE CLIENT
+        final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec, DATE_OF_JOINING);
+        ClientHelper.verifyClientCreatedOnServer(this.requestSpec, this.responseSpec, clientID);
+
+        // CREATE LOAN PRODUCT WITH INTEREST RECALCULATION ENABLED
+        final Integer loanProductID = createLoanProductWithInterestRecalculation();
+        LoanProductTestBuilder.verifyLoanProductCreated(loanProductID);
+
+        // CREATE LOAN APPLICATION
+        final Integer loanID = createLoanApplication(clientID, loanProductID);
+        LoanStatusChecker.verifyLoanIsPending(loanID);
+
+        // APPROVE LOAN
+        LoanStatusChecker.approveLoan(loanID);
+        LoanStatusChecker.verifyLoanIsApproved(loanID);
+
+        // DISBURSE LOAN
+        LoanStatusChecker.disburseLoan(loanID, DISBURSEMENT_DATE);
+        LoanStatusChecker.verifyLoanIsActive(loanID);
+
+        // GET LOAN BALANCE BEFORE WRITE-OFF
+        final String loanBalanceBefore = getLoanOutstandingBalance(loanID);
+        assertNotNull(loanBalanceBefore, "Loan balance before write-off should not be null");
+        LOG.info("Loan balance before partial write-off: {}", loanBalanceBefore);
+
+        // PERFORM PARTIAL WRITE-OFF
+        final String partialWriteOffDate = "15 March 2026";
+        final HashMap<String, Object> partialWriteOffMap = new HashMap<>();
+        partialWriteOffMap.put("transactionDate", partialWriteOffDate);
+        partialWriteOffMap.put("principalPortion", "500.00");
+        partialWriteOffMap.put("reason", "Test schedule recalculation");
+        partialWriteOffMap.put("note", "Integration test for schedule recalculation validation");
+
+        final String partialWriteOffJson = new Gson().toJson(partialWriteOffMap);
+        this.loanTransactionHelper = new LoanTransactionHelper(this.requestSpec, new ResponseSpecBuilder().build());
+        this.loanTransactionHelper.partialWriteOffLoan(loanID, partialWriteOffJson);
+
+        // VERIFY LOAN REMAINS ACTIVE
+        LoanStatusChecker.verifyLoanIsActive(loanID);
+
+        // VERIFY OUTSTANDING BALANCE REDUCED
+        final String loanBalanceAfter = getLoanOutstandingBalance(loanID);
+        final BigDecimal beforeBalance = new BigDecimal(loanBalanceBefore);
+        final BigDecimal afterBalance = new BigDecimal(loanBalanceAfter);
+        final BigDecimal expectedReduction = new BigDecimal("500.00");
+        final BigDecimal actualReduction = beforeBalance.subtract(afterBalance);
+        
+        // The outstanding balance should have reduced by the write-off amount
+        // This verifies the schedule was recalculated with the new reduced balance
+        assertEquals(expectedReduction, actualReduction, 
+            "Balance reduction should match partial write-off amount");
+
+        LOG.info("CGLT-680 Schedule recalculation test passed successfully");
+    }
+
     private Integer createLoanProduct() {
         final String productJSON = new LoanProductTestBuilder()
                 .withPrincipal(LP_PRINCIPAL)
@@ -236,6 +354,23 @@ public class PartialWriteOffAuditIntegrationTest {
                 .withAmortizationTypeAsEqualPrincipalPayments()
                 .withInterestTypeAsDecliningBalance()
                 .withInterestCalculationPeriodTypeAsSameAsRepaymentPeriod()
+                .build(null);
+        return LoanProductTestBuilder.createLoanProduct(productJSON);
+    }
+
+    private Integer createLoanProductWithInterestRecalculation() {
+        final String productJSON = new LoanProductTestBuilder()
+                .withPrincipal(LP_PRINCIPAL)
+                .withNumberOfRepayments(LP_REPAYMENTS)
+                .withRepaymentPeriod(LP_REPAYMENT_PERIOD)
+                .withRepaymentPeriodAsMonths()
+                .withInterestRate(LP_INTEREST_RATE)
+                .withInterestRateAsPerAnnum()
+                .withInterestRateFrequencyTypeAsMonths()
+                .withAmortizationTypeAsEqualPrincipalPayments()
+                .withInterestTypeAsDecliningBalance()
+                .withInterestCalculationPeriodTypeAsSameAsRepaymentPeriod()
+                .withInterestRecalculationDetails("None", "Reschedule next repayment", "1")
                 .build(null);
         return LoanProductTestBuilder.createLoanProduct(productJSON);
     }

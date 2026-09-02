@@ -18,17 +18,21 @@
  */
 package org.apache.fineract.infrastructure.Odoo;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -152,5 +156,34 @@ public class OdooServiceImplTest {
         verify(loanReadPlatformService).retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(null, null, null, null,
                 loanTransactionId);
         verify(loanReadPlatformService, never()).retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo();
+    }
+
+    // the whole point of the fix: one round trip for a multi-line Odoo response instead of a
+    // saveAndFlush per journal-entry line, which is what was driving per-message processing time
+    // high enough to blow the outcome consumer's max.poll.interval.ms budget
+    @Test
+    public void applyOdooStatusBatchesJournalEntrySavesInOneRoundTrip() {
+        JournalEntry line1 = mock(JournalEntry.class);
+        given(line1.getId()).willReturn(1L);
+        JournalEntry line2 = mock(JournalEntry.class);
+        given(line2.getId()).willReturn(2L);
+        given(journalEntryRepository.findJournalEntriesByLoanTransactionId("L555")).willReturn(List.of(line1, line2));
+
+        String odooResponse = "{"
+                + "\"cbs_journal_entry_id\":\"555\","
+                + "\"responseCode\":\"POSTED\","
+                + "\"journal_entry_no\":\"JE-1\","
+                + "\"journalDetails\":["
+                + "{\"id\":1,\"credit\":100,\"gl_account\":\"1000\"},"
+                + "{\"id\":2,\"debit\":100,\"gl_account\":\"2000\"}"
+                + "]}";
+
+        odooService.updateJournalEntryWithOdooStatus(odooResponse);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<JournalEntry>> savedCaptor = ArgumentCaptor.forClass(List.class);
+        verify(journalEntryRepository).saveAllAndFlush(savedCaptor.capture());
+        assertEquals(2, savedCaptor.getValue().size());
+        verify(journalEntryRepository, never()).saveAndFlush(any(JournalEntry.class));
     }
 }

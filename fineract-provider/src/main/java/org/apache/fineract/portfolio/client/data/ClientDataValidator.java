@@ -194,7 +194,7 @@ public final class ClientDataValidator {
         }
 
         final Integer legalFormId = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ClientApiConstants.legalFormIdParamName, element);
-        final boolean isIndividual = legalFormId != null && legalFormId == LegalForm.PERSON.getValue();
+        final boolean isIndividual = legalFormId != null && legalFormId.equals(LegalForm.PERSON.getValue());
 
         final LocalDate dateOfBirth = this.fromApiJsonHelper.extractLocalDateNamed(ClientApiConstants.dateOfBirthParamName, element);
         if (isIndividual || this.fromApiJsonHelper.parameterExists(ClientApiConstants.dateOfBirthParamName, element)) {
