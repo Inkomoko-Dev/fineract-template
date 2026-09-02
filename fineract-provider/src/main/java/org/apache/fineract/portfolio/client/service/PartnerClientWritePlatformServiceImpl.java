@@ -18,9 +18,12 @@
  */
 package org.apache.fineract.portfolio.client.service;
 
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
@@ -60,105 +63,97 @@ public class PartnerClientWritePlatformServiceImpl implements PartnerClientWrite
 
     @Override
     public CommandProcessingResult assignClientToPartner(final Long clientId, final String partnerCode, final String reason) {
-        // Validate partner code
-        if (!disbursementProviderReadPlatformService.isValidPartnerCode(partnerCode)) {
-            throw new IllegalArgumentException("Invalid partner code: " + partnerCode);
-        }
+        validatePartnerCode(partnerCode);
 
-        // Check if client exists
         final Client client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(clientId);
 
-        // Check if mapping already exists
-        if (this.partnerClientMappingRepository.findByClientIdAndPartnerCodeAndIsActiveTrue(clientId, partnerCode).isPresent()) {
-            throw new IllegalStateException("Client is already assigned to partner: " + partnerCode);
+        final PartnerClientMapping activeMapping = this.partnerClientMappingRepository.findByClientIdAndIsActiveTrue(clientId).orElse(null);
+        if (activeMapping != null) {
+            if (partnerCode.equals(activeMapping.getPartnerCode())) {
+                throw validationError("validation.msg.partnerClient.alreadyAssigned",
+                        "Client is already assigned to partner: " + partnerCode, "partnerCode", partnerCode);
+            }
+            return reassignClient(clientId, partnerCode, reason);
         }
 
-        // Create new mapping
         final AppUser assignedBy = this.context.authenticatedUser();
         final PartnerClientMapping mapping = PartnerClientMapping.create(client, partnerCode, assignedBy);
         this.partnerClientMappingRepository.save(mapping);
 
-        // Create history entry
         final PartnerClientMappingHistory history = PartnerClientMappingHistory.createAssignment(mapping, assignedBy, reason);
         this.partnerClientMappingHistoryRepository.save(history);
 
         log.info("Assigned client {} to partner {} by user {}", clientId, partnerCode, assignedBy.getId());
 
-        return new CommandProcessingResultBuilder().withEntityId(mapping.getId()).withClientId(clientId)
-                .withCommandId(assignedBy.getId()).build();
+        return assignmentResult(mapping.getId(), clientId);
     }
 
     @Override
     public CommandProcessingResult reassignClient(final Long clientId, final String partnerCode, final String reason) {
-        // Validate new partner code
-        if (!disbursementProviderReadPlatformService.isValidPartnerCode(partnerCode)) {
-            throw new IllegalArgumentException("Invalid partner code: " + partnerCode);
-        }
+        validatePartnerCode(partnerCode);
 
-        // Check if client exists
         final Client client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(clientId);
 
-        // Get existing active mapping
-        final PartnerClientMapping existingMapping = this.partnerClientMappingRepository.findByClientId(clientId)
-                .orElseThrow(() -> new IllegalStateException("No active partner mapping found for client: " + clientId));
-
-        if (!existingMapping.isActive()) {
-            throw new IllegalStateException("Client has no active partner mapping: " + clientId);
-        }
+        final PartnerClientMapping existingMapping = this.partnerClientMappingRepository.findByClientIdAndIsActiveTrue(clientId)
+                .orElseThrow(() -> validationError("validation.msg.partnerClient.mapping.notFound",
+                        "No active partner mapping found for client: " + clientId, "clientId", clientId));
 
         final String previousPartnerCode = existingMapping.getPartnerCode();
-
-        // Check if reassigning to same partner
         if (previousPartnerCode.equals(partnerCode)) {
-            throw new IllegalStateException("Client is already assigned to partner: " + partnerCode);
+            throw validationError("validation.msg.partnerClient.alreadyAssigned",
+                    "Client is already assigned to partner: " + partnerCode, "partnerCode", partnerCode);
         }
 
-        // Deactivate old mapping
         existingMapping.deactivate();
         this.partnerClientMappingRepository.save(existingMapping);
 
-        // Create new mapping
         final AppUser assignedBy = this.context.authenticatedUser();
         final PartnerClientMapping newMapping = PartnerClientMapping.create(client, partnerCode, assignedBy);
         this.partnerClientMappingRepository.save(newMapping);
 
-        // Create history entry for reassignment
-        final PartnerClientMappingHistory history = PartnerClientMappingHistory.createReassignment(newMapping,
-                previousPartnerCode, partnerCode, assignedBy, reason);
+        final PartnerClientMappingHistory history = PartnerClientMappingHistory.createReassignment(newMapping, previousPartnerCode,
+                partnerCode, assignedBy, reason);
         this.partnerClientMappingHistoryRepository.save(history);
 
         log.info("Reassigned client {} from {} to {} by user {}", clientId, previousPartnerCode, partnerCode, assignedBy.getId());
 
-        return new CommandProcessingResultBuilder().withEntityId(newMapping.getId()).withClientId(clientId)
-                .withCommandId(assignedBy.getId()).build();
+        return assignmentResult(newMapping.getId(), clientId);
     }
 
     @Override
     public CommandProcessingResult deactivateClientMapping(final Long clientId, final String reason) {
-        // Check if client exists
-        final Client client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(clientId);
+        this.clientRepositoryWrapper.findOneWithNotFoundDetection(clientId);
 
-        // Get existing active mapping
-        final PartnerClientMapping existingMapping = this.partnerClientMappingRepository.findByClientId(clientId)
-                .orElseThrow(() -> new IllegalStateException("No active partner mapping found for client: " + clientId));
+        final PartnerClientMapping existingMapping = this.partnerClientMappingRepository.findByClientIdAndIsActiveTrue(clientId)
+                .orElseThrow(() -> validationError("validation.msg.partnerClient.mapping.notFound",
+                        "No active partner mapping found for client: " + clientId, "clientId", clientId));
 
-        if (!existingMapping.isActive()) {
-            throw new IllegalStateException("Client has no active partner mapping: " + clientId);
-        }
-
-        // Deactivate mapping
         existingMapping.deactivate();
         this.partnerClientMappingRepository.save(existingMapping);
 
-        // Create history entry for deactivation
         final AppUser changedBy = this.context.authenticatedUser();
-        final PartnerClientMappingHistory history = PartnerClientMappingHistory.createDeactivation(existingMapping, changedBy,
-                reason);
+        final PartnerClientMappingHistory history = PartnerClientMappingHistory.createDeactivation(existingMapping, changedBy, reason);
         this.partnerClientMappingHistoryRepository.save(history);
 
         log.info("Deactivated partner mapping for client {} by user {}", clientId, changedBy.getId());
 
-        return new CommandProcessingResultBuilder().withEntityId(existingMapping.getId()).withClientId(clientId)
-                .withCommandId(changedBy.getId()).build();
+        return assignmentResult(existingMapping.getId(), clientId);
+    }
+
+    private void validatePartnerCode(final String partnerCode) {
+        if (!this.disbursementProviderReadPlatformService.isValidPartnerCode(partnerCode)) {
+            throw validationError("validation.msg.partnerClient.partnerCode.invalid", "Invalid partner code: " + partnerCode,
+                    "partnerCode", partnerCode);
+        }
+    }
+
+    private static CommandProcessingResult assignmentResult(final Long mappingId, final Long clientId) {
+        return new CommandProcessingResultBuilder().withEntityId(mappingId).withClientId(clientId).build();
+    }
+
+    private static PlatformApiDataValidationException validationError(final String code, final String message, final String parameter,
+            final Object value) {
+        return new PlatformApiDataValidationException(code, message,
+                List.of(ApiParameterError.parameterError(code, message, parameter, value)));
     }
 }

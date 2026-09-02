@@ -25,11 +25,6 @@ import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
-import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
-import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
-import org.apache.fineract.portfolio.client.data.PartnerClientVerificationRequest;
-import org.apache.fineract.portfolio.client.data.PartnerClientVerificationResponse;
-import org.apache.fineract.portfolio.client.service.PartnerClientVerificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -40,32 +35,19 @@ import org.springframework.stereotype.Component;
 @Tag(name = "Partner Client Verification", description = "Partner client verification for onboarding")
 public class PartnerClientVerificationApiResource {
 
-    private final PlatformSecurityContext context;
-    private final PartnerClientVerificationService verificationService;
-    private final DefaultToApiJsonSerializer<PartnerClientVerificationResponse> toApiJsonSerializer;
+    private final PartnerClientVerificationApiDelegate delegate;
 
     @Autowired
-    public PartnerClientVerificationApiResource(final PlatformSecurityContext context,
-            final PartnerClientVerificationService verificationService,
-            final DefaultToApiJsonSerializer<PartnerClientVerificationResponse> toApiJsonSerializer) {
-        this.context = context;
-        this.verificationService = verificationService;
-        this.toApiJsonSerializer = toApiJsonSerializer;
+    public PartnerClientVerificationApiResource(final PartnerClientVerificationApiDelegate delegate) {
+        this.delegate = delegate;
     }
 
     @POST
     @Path("/verify")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Verify client identity and eligibility", description = "Verifies if a client exists in CBS and checks eligibility for partner financing")
-    public String verifyClient(final PartnerClientVerificationRequest request) {
-        this.context.authenticatedUser();
-
-        if (request.getNationalId() == null && request.getPhoneNumber() == null) {
-            throw new IllegalArgumentException("Either nationalId or phoneNumber must be provided");
-        }
-
-        PartnerClientVerificationResponse response = this.verificationService.verifyClient(request);
-        return this.toApiJsonSerializer.serialize(response);
+    @Operation(summary = "Verify client identity and eligibility", description = "POST /partner-verification/verify")
+    public String verifyClient(final String apiRequestBodyAsJson) {
+        return this.delegate.verify(apiRequestBodyAsJson);
     }
 }
