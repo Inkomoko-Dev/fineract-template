@@ -43,6 +43,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.calendar.service.CalendarUtils;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
@@ -721,6 +722,8 @@ public final class LoanProductDataValidator {
         validateThirdPartyDisbursement(baseDataValidator, element, null);
 
         validateBnplValues(baseDataValidator, isBnplLoanProduct, requiresEquityContribution, equityContributionLoanPercentage);
+
+        LoanRepaymentFrequency.validateProduct(dataValidationErrors, numberOfRepayments, repaymentEvery, repaymentFrequencyType);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
@@ -1653,6 +1656,18 @@ public final class LoanProductDataValidator {
                 : equityContributionLoanPercentage;
 
         validateBnplValues(baseDataValidator, isBnplLoanProduct, requiresEquityContribution, equityContributionLoanPercentage);
+
+        Integer numberOfRepaymentsForFrequency = this.fromApiJsonHelper.parameterExists("numberOfRepayments", element)
+                ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("numberOfRepayments", element)
+                : loanProduct.getNumberOfRepayments();
+        Integer repaymentEveryForFrequency = this.fromApiJsonHelper.parameterExists("repaymentEvery", element)
+                ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("repaymentEvery", element)
+                : loanProduct.getLoanProductRelatedDetail().getRepayEvery();
+        Integer repaymentFrequencyTypeForFrequency = this.fromApiJsonHelper.parameterExists("repaymentFrequencyType", element)
+                ? this.fromApiJsonHelper.extractIntegerNamed("repaymentFrequencyType", element, Locale.getDefault())
+                : loanProduct.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue();
+        LoanRepaymentFrequency.validateProduct(dataValidationErrors, numberOfRepaymentsForFrequency, repaymentEveryForFrequency,
+                repaymentFrequencyTypeForFrequency);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }

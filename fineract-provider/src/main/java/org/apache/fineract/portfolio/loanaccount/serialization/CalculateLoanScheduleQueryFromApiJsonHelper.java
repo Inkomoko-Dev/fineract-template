@@ -34,6 +34,7 @@ import org.apache.fineract.infrastructure.core.exception.InvalidJsonException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -117,6 +118,8 @@ public final class CalculateLoanScheduleQueryFromApiJsonHelper {
         // - that the repayment structure is 6 repayments every bi-monthly.
         validateSelectedPeriodFrequencyTypeIsTheSame(dataValidationErrors, loanTermFrequency, loanTermFrequencyType, numberOfRepayments,
                 repaymentEvery, repaymentEveryType, schedulesToCarryForward);
+        LoanRepaymentFrequency.validateLoan(dataValidationErrors, loanTermFrequency, loanTermFrequencyType, numberOfRepayments,
+                repaymentEvery, repaymentEveryType);
 
         final String expectedDisbursementDateParameterName = "expectedDisbursementDate";
         final LocalDate expectedDisbursementDate = this.fromApiJsonHelper.extractLocalDateNamed(expectedDisbursementDateParameterName,

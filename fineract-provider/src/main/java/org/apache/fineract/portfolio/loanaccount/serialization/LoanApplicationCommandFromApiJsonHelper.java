@@ -48,6 +48,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidAmountOfCollateralQuantity;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidAmountOfCollaterals;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
@@ -586,6 +587,8 @@ public final class LoanApplicationCommandFromApiJsonHelper {
         validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal);
         validatePartialPeriodSupport(interestCalculationPeriodType, baseDataValidator, element, loanProduct);
         validateThirdPartyDisbursementProvider(baseDataValidator, element, loanProduct, null);
+        LoanRepaymentFrequency.validateLoan(dataValidationErrors, loanTermFrequency, loanTermFrequencyType, numberOfRepayments,
+                repaymentEvery, repaymentEveryType);
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
@@ -1223,6 +1226,24 @@ public final class LoanApplicationCommandFromApiJsonHelper {
         final Long loanPurposeId = this.fromApiJsonHelper.extractLongNamed(loanPurposeIdParameterName, element);
         baseDataValidator.reset().parameter(loanPurposeIdParameterName).value(loanPurposeId).notNull().integerGreaterThanZero();
 
+        final Integer loanTermFrequencyForFrequency = this.fromApiJsonHelper.parameterExists("loanTermFrequency", element)
+                ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("loanTermFrequency", element)
+                : existingLoanApplication.getTermFrequency();
+        final Integer loanTermFrequencyTypeForFrequency = this.fromApiJsonHelper.parameterExists("loanTermFrequencyType", element)
+                ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("loanTermFrequencyType", element)
+                : existingLoanApplication.getTermPeriodFrequencyType();
+        final Integer numberOfRepaymentsForFrequency = this.fromApiJsonHelper.parameterExists("numberOfRepayments", element)
+                ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("numberOfRepayments", element)
+                : existingLoanApplication.getNumberOfRepayments();
+        final Integer repaymentEveryForFrequency = this.fromApiJsonHelper.parameterExists("repaymentEvery", element)
+                ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("repaymentEvery", element)
+                : existingLoanApplication.repaymentScheduleDetail().getRepayEvery();
+        final Integer repaymentEveryTypeForFrequency = this.fromApiJsonHelper.parameterExists("repaymentFrequencyType", element)
+                ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("repaymentFrequencyType", element)
+                : existingLoanApplication.repaymentScheduleDetail().getRepaymentPeriodFrequencyType().getValue();
+        LoanRepaymentFrequency.validateLoan(dataValidationErrors, loanTermFrequencyForFrequency, loanTermFrequencyTypeForFrequency,
+                numberOfRepaymentsForFrequency, repaymentEveryForFrequency, repaymentEveryTypeForFrequency);
+
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
                     dataValidationErrors);
@@ -1280,6 +1301,8 @@ public final class LoanApplicationCommandFromApiJsonHelper {
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
         this.apiJsonHelper.validateSelectedPeriodFrequencyTypeIsTheSame(dataValidationErrors, loanTermFrequency, loanTermFrequencyType,
                 numberOfRepayments, repaymentEvery, repaymentEveryType, schedulesToCarryForward);
+        LoanRepaymentFrequency.validateLoan(dataValidationErrors, loanTermFrequency, loanTermFrequencyType, numberOfRepayments,
+                repaymentEvery, repaymentEveryType);
 
         /**
          * For multi-disbursal loans where schedules are auto-generated based on a fixed EMI, ensure the number of
