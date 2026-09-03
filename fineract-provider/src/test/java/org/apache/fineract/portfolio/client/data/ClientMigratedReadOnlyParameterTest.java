@@ -25,6 +25,8 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import java.time.LocalDate;
 import java.util.HashMap;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.exception.UnsupportedParameterException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.serialization.GoogleGsonSerializerHelper;
@@ -55,7 +57,9 @@ public class ClientMigratedReadOnlyParameterTest extends ClientApiCollectionCons
 
     @Test
     public void migratedIsAcceptedOnCreateSoTheMigrationTemplateCanSetIt() {
-        final String json = "{\"officeId\":1,\"firstname\":\"Wanjiku\",\"lastname\":\"Kamau\",\"legalFormId\":1,\"migrated\":true}";
+        final String json = "{\"officeId\":1,\"firstname\":\"Wanjiku\",\"lastname\":\"Kamau\",\"legalFormId\":1,"
+                + "\"migrated\":true,\"migratedOnDate\":\"2026-08-01\",\"migratedFromOfficeId\":3,"
+                + "\"locale\":\"en\",\"dateFormat\":\"yyyy-MM-dd\"}";
 
         final Throwable thrown = catchThrowable(() -> this.validator.validateForCreate(json));
 
@@ -82,15 +86,31 @@ public class ClientMigratedReadOnlyParameterTest extends ClientApiCollectionCons
 
     @Test
     public void migratedIsSettableAtCreationButNeverOnUpdate() {
-        assertThat(CLIENT_RESPONSE_DATA_PARAMETERS).contains(ClientApiConstants.migratedParamName);
-        assertThat(CLIENT_CREATE_REQUEST_DATA_PARAMETERS).contains(ClientApiConstants.migratedParamName);
-        assertThat(CLIENT_UPDATE_REQUEST_DATA_PARAMETERS).doesNotContain(ClientApiConstants.migratedParamName);
+        for (final String param : new String[] { ClientApiConstants.migratedParamName, ClientApiConstants.migratedOnDateParamName,
+                ClientApiConstants.migratedFromOfficeIdParamName }) {
+            assertThat(CLIENT_CREATE_REQUEST_DATA_PARAMETERS).contains(param);
+            assertThat(CLIENT_UPDATE_REQUEST_DATA_PARAMETERS).doesNotContain(param);
+        }
+        assertThat(CLIENT_RESPONSE_DATA_PARAMETERS).contains(ClientApiConstants.migratedParamName,
+                ClientApiConstants.migratedOnDateParamName, ClientApiConstants.migratedFromOfficeIdParamName,
+                ClientApiConstants.migratedFromOfficeNameParamName);
+    }
+
+    @Test
+    public void aMigratedClientMustSayWhenAndFromWhereItWasMigrated() {
+        final String json = "{\"officeId\":1,\"firstname\":\"Wanjiku\",\"lastname\":\"Kamau\",\"legalFormId\":1,"
+                + "\"migrated\":true,\"locale\":\"en\",\"dateFormat\":\"yyyy-MM-dd\"}";
+
+        assertThatThrownBy(() -> this.validator.validateForCreate(json))
+                .isInstanceOfSatisfying(PlatformApiDataValidationException.class, e -> assertThat(e.getErrors().stream()
+                        .map(ApiParameterError::getParameterName).toList()).contains("migratedOnDate", "migratedFromOfficeId"));
     }
 
     private static String importPayload(final Boolean migrated) {
         final ClientData imported = ClientData.importClientPersonInstance(1L, 1, "Wanjiku", "Kamau", null, LocalDate.of(2026, 1, 1),
                 LocalDate.of(2026, 1, 1), Boolean.TRUE, "KE-EXT-1", 120L, null, "254700000000", null, null, null, null, Boolean.FALSE, null,
-                "en", "dd MMMM yyyy", null, migrated);
+                "en", "dd MMMM yyyy", null, migrated, migrated == null ? null : LocalDate.of(2026, 8, 1),
+                migrated == null ? null : 3L);
 
         return GoogleGsonSerializerHelper.createGsonBuilder().create().toJson(imported);
     }

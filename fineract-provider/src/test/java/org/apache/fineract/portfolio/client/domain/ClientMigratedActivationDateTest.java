@@ -45,6 +45,7 @@ public class ClientMigratedActivationDateTest {
     private static final LocalDate BUSINESS_DATE = LocalDate.of(2026, 9, 1);
     private static final LocalDate OFFICE_OPENING_DATE = LocalDate.of(2020, 1, 1);
     private static final LocalDate ACTIVATION_BEFORE_OFFICE_OPENED = LocalDate.of(2015, 6, 30);
+    private static final LocalDate MIGRATED_ON_DATE = LocalDate.of(2026, 8, 1);
 
     @BeforeEach
     public void setUp() {
@@ -107,6 +108,16 @@ public class ClientMigratedActivationDateTest {
     }
 
     @Test
+    public void aMigratedClientRecordsWhenAndFromWhereItWasMigrated() {
+        final Client client = createClientFromImportPayload(true);
+
+        assertThat(client.isMigrated()).isTrue();
+        assertThat(client.getMigratedOnDate()).isEqualTo(MIGRATED_ON_DATE);
+        assertThat(client.getMigratedFromOffice()).isNotNull();
+        assertThat(client.getMigratedFromOffice().getName()).isEqualTo("Inkomoko - Kenya");
+    }
+
+    @Test
     public void migrationTemplateStillRejectsANonMigratedClientActivatedBeforeTheOfficeOpened() {
         assertThatThrownBy(() -> createClientFromImportPayload(false))
                 .isInstanceOfSatisfying(PlatformApiDataValidationException.class,
@@ -136,15 +147,19 @@ public class ClientMigratedActivationDateTest {
         final String json = String.format(
                 "{\"officeId\":120,\"firstname\":\"Wanjiku\",\"lastname\":\"Kamau\",\"active\":true,"
                         + "\"activationDate\":\"%s\",\"submittedOnDate\":\"%s\",\"locale\":\"en\","
-                        + "\"dateFormat\":\"yyyy-MM-dd\",\"migrated\":%s}",
-                ACTIVATION_BEFORE_OFFICE_OPENED, ACTIVATION_BEFORE_OFFICE_OPENED, migrated);
+                        + "\"dateFormat\":\"yyyy-MM-dd\",\"migrated\":%s,\"migratedOnDate\":\"%s\"}",
+                ACTIVATION_BEFORE_OFFICE_OPENED, ACTIVATION_BEFORE_OFFICE_OPENED, migrated, MIGRATED_ON_DATE);
 
         final FromJsonHelper helper = new FromJsonHelper();
         final JsonElement parsed = helper.parse(json);
         final JsonCommand command = JsonCommand.from(json, parsed, helper, null, null, null, null, null, null, null, null, null, null,
                 null, null);
 
-        return Client.createNew(null, office, null, null, null, null, null, null, 1, command);
+        return Client.createNew(null, office, null, null, null, null, null, null, 1, sourceOffice(), command);
+    }
+
+    private static Office sourceOffice() {
+        return Office.headOffice("Inkomoko - Kenya", LocalDate.of(2009, 11, 22), null);
     }
 
     private static java.util.List<String> errorCodes(final PlatformApiDataValidationException exception) {
