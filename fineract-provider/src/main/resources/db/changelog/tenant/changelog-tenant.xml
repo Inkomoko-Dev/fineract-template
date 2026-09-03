@@ -163,4 +163,6 @@
     <include file="custom-changelog/CGLT-680_add_partial_writeoff_permissions.xml" relativeToChangelogFile="true"/>
     <include file="custom-changelog/CGLT-680_create_partial_writeoff_audit_table.xml" relativeToChangelogFile="true"/>
     <include file="parts/042_add_notes_to_command_source.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-749_add_report_count_sql_to_stretchy_report.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-749_optimise_portfolio_management_report.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

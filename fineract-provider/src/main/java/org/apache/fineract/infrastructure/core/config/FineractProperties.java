@@ -41,6 +41,8 @@ public class FineractProperties {
 
     private FineractTemplateProperties template;
 
+    private FineractReportProperties report;
+
     @Getter
     @Setter
     public static class FineractTenantProperties {
@@ -115,5 +117,13 @@ public class FineractProperties {
 
         private boolean regexWhitelistEnabled;
         private List<String> regexWhitelist;
+    }
+
+    @Getter
+    @Setter
+    public static class FineractReportProperties {
+
+        private int queryTimeoutSeconds;
+        private int exportFetchSize;
     }
 }
