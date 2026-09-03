@@ -158,5 +158,6 @@
     <include file="parts/CGLT-541_harmonize_country_code_values.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-527_standardize_bank_name_in_reports.xml" relativeToChangelogFile="true"/>
     <include file="parts/042_add_notes_to_command_source.xml" relativeToChangelogFile="true"/>
-    <include file="parts/CGLT-753_add_migrated_flag_to_client.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-749_add_report_count_sql_to_stretchy_report.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-749_optimise_portfolio_management_report.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
