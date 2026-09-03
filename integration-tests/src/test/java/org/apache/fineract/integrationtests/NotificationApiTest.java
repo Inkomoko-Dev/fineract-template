@@ -65,7 +65,7 @@ public class NotificationApiTest {
         PostUsersRequest createUserRequest = new PostUsersRequest().username(username)
                 .firstname(Utils.randomNameGenerator("NotificationFN", 4)).lastname(Utils.randomNameGenerator("NotificationLN", 4))
                 .email("whatever@mifos.org").password(password).repeatPassword(password).sendPasswordToEmail(false)
-                .roles(List.of(Long.toString(SUPER_USER_ROLE_ID))).officeId(headOffice.getId());
+                .roles(List.of(Long.toString(SUPER_USER_ROLE_ID))).officeId(headOffice.getId()).notes("Auto-generated test user");
 
         PostUsersResponse userCreationResponse = UserHelper.createUser(requestSpec, responseSpec, createUserRequest);
         Assertions.assertNotNull(userCreationResponse.getResourceId());

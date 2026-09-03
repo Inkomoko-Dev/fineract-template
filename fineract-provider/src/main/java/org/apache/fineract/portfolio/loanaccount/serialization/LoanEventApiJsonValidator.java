@@ -49,6 +49,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanRepaymentScheduleNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -204,7 +205,8 @@ public final class LoanEventApiJsonValidator {
         final Set<String> transactionParameters = new HashSet<>(Arrays.asList("transactionDate", "transactionAmount", "externalId", "note",
                 "locale", "dateFormat", "paymentTypeId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
                 "correctionDate", LoanApiConstants.disbursementTypeParameterName, LoanApiConstants.fxRateParameterName,
-                LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName));
+                LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName,
+                LoanApiConstants.mfiCodeParameterName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, transactionParameters);
@@ -237,7 +239,8 @@ public final class LoanEventApiJsonValidator {
                         "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber", "loanId",
                         "originalTransactionId", "correctionDate", LoanApiConstants.disbursementTypeParameterName,
                         LoanApiConstants.fxRateParameterName, LoanApiConstants.usdAmountParameterName,
-                        LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName));
+                        LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName,
+                        LoanApiConstants.mfiCodeParameterName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, transactionParameters);
@@ -336,6 +339,180 @@ public final class LoanEventApiJsonValidator {
 
         final String note = this.fromApiJsonHelper.extractStringNamed("note", element);
         baseDataValidator.reset().parameter("note").value(note).notExceedingLengthOf(1000);
+
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    public void validatePartialWriteOffTransaction(final String json) {
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> partialWriteOffParameters = new HashSet<>(
+                Arrays.asList("transactionDate", "note", "locale", "dateFormat", "externalId", 
+                        "principalPortion", "interestPortion", "feeChargesPortion", "penaltyChargesPortion", "reason"));
+
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, partialWriteOffParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
+
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed("transactionDate", element);
+        baseDataValidator.reset().parameter("transactionDate").value(transactionDate).notNull();
+
+        final String note = this.fromApiJsonHelper.extractStringNamed("note", element);
+        baseDataValidator.reset().parameter("note").value(note).ignoreIfNull().notExceedingLengthOf(1000);
+
+        final String reason = this.fromApiJsonHelper.extractStringNamed("reason", element);
+        baseDataValidator.reset().parameter("reason").value(reason).notNull().notExceedingLengthOf(500);
+
+        final Locale locale = this.fromApiJsonHelper.extractLocaleParameter(element.getAsJsonObject());
+
+        final BigDecimal principalPortion = this.fromApiJsonHelper.extractBigDecimalNamed("principalPortion", element, locale);
+        baseDataValidator.reset().parameter("principalPortion").value(principalPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal interestPortion = this.fromApiJsonHelper.extractBigDecimalNamed("interestPortion", element, locale);
+        baseDataValidator.reset().parameter("interestPortion").value(interestPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal feeChargesPortion = this.fromApiJsonHelper.extractBigDecimalNamed("feeChargesPortion", element, locale);
+        baseDataValidator.reset().parameter("feeChargesPortion").value(feeChargesPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal penaltyChargesPortion = this.fromApiJsonHelper.extractBigDecimalNamed("penaltyChargesPortion", element, locale);
+        baseDataValidator.reset().parameter("penaltyChargesPortion").value(penaltyChargesPortion).ignoreIfNull().positiveAmount();
+
+        // Validate that at least one portion is provided
+        if (principalPortion == null && interestPortion == null && feeChargesPortion == null && penaltyChargesPortion == null) {
+            baseDataValidator.reset().parameter("writeOffPortions").failWithCode("at.least.one.portion.required",
+                    "At least one write-off portion (principal, interest, fees, or penalties) must be provided");
+        }
+
+        // Validate that total write-off amount is positive
+        final BigDecimal totalWriteOffAmount = (principalPortion != null ? principalPortion : BigDecimal.ZERO)
+                .add(interestPortion != null ? interestPortion : BigDecimal.ZERO)
+                .add(feeChargesPortion != null ? feeChargesPortion : BigDecimal.ZERO)
+                .add(penaltyChargesPortion != null ? penaltyChargesPortion : BigDecimal.ZERO);
+        
+        if (totalWriteOffAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            baseDataValidator.reset().parameter("totalWriteOffAmount").failWithCode("total.write.off.amount.must.be.positive",
+                    "Total write-off amount must be greater than zero");
+        }
+
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    public void validatePartialWriteOffTransactionForLoan(final String json, final Loan loan) {
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> partialWriteOffParameters = new HashSet<>(
+                Arrays.asList("transactionDate", "note", "locale", "dateFormat", "externalId",
+                        "principalPortion", "interestPortion", "feeChargesPortion", "penaltyChargesPortion", "reason"));
+
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, partialWriteOffParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
+
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed("transactionDate", element);
+        baseDataValidator.reset().parameter("transactionDate").value(transactionDate).notNull();
+
+        final String note = this.fromApiJsonHelper.extractStringNamed("note", element);
+        baseDataValidator.reset().parameter("note").value(note).ignoreIfNull().notExceedingLengthOf(1000);
+
+        final String reason = this.fromApiJsonHelper.extractStringNamed("reason", element);
+        baseDataValidator.reset().parameter("reason").value(reason).notNull().notExceedingLengthOf(500);
+
+        final Locale locale = this.fromApiJsonHelper.extractLocaleParameter(element.getAsJsonObject());
+
+        final BigDecimal principalPortion = this.fromApiJsonHelper.extractBigDecimalNamed("principalPortion", element, locale);
+        baseDataValidator.reset().parameter("principalPortion").value(principalPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal interestPortion = this.fromApiJsonHelper.extractBigDecimalNamed("interestPortion", element, locale);
+        baseDataValidator.reset().parameter("interestPortion").value(interestPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal feeChargesPortion = this.fromApiJsonHelper.extractBigDecimalNamed("feeChargesPortion", element, locale);
+        baseDataValidator.reset().parameter("feeChargesPortion").value(feeChargesPortion).ignoreIfNull().positiveAmount();
+
+        final BigDecimal penaltyChargesPortion = this.fromApiJsonHelper.extractBigDecimalNamed("penaltyChargesPortion", element, locale);
+        baseDataValidator.reset().parameter("penaltyChargesPortion").value(penaltyChargesPortion).ignoreIfNull().positiveAmount();
+
+        // Validate that at least one portion is provided
+        if (principalPortion == null && interestPortion == null && feeChargesPortion == null && penaltyChargesPortion == null) {
+            baseDataValidator.reset().parameter("writeOffPortions").failWithCode("at.least.one.portion.required",
+                    "At least one write-off portion (principal, interest, fees, or penalties) must be provided");
+        }
+
+        // Validate loan status - only active loans can have partial write-offs
+        if (loan.status().compareTo(LoanStatus.ACTIVE) != 0 && loan.status().compareTo(LoanStatus.OVERPAID) != 0) {
+            baseDataValidator.reset().parameter("loanStatus").failWithCode("loan.not.active",
+                    "Partial write-off can only be performed on active or overpaid loans");
+        }
+
+        // Validate amounts don't exceed outstanding balance
+        final BigDecimal totalWriteOffAmount = (principalPortion != null ? principalPortion : BigDecimal.ZERO)
+                .add(interestPortion != null ? interestPortion : BigDecimal.ZERO)
+                .add(feeChargesPortion != null ? feeChargesPortion : BigDecimal.ZERO)
+                .add(penaltyChargesPortion != null ? penaltyChargesPortion : BigDecimal.ZERO);
+        
+        final BigDecimal outstandingBalance = loan.getLoanSummary().getTotalOutstanding(loan.getCurrency()).getAmount();
+        if (totalWriteOffAmount.compareTo(outstandingBalance) > 0) {
+            baseDataValidator.reset().parameter("totalWriteOffAmount").failWithCode("amount.exceeds.outstanding.balance",
+                    "Total write-off amount cannot exceed outstanding loan balance of " + outstandingBalance);
+        }
+
+        // Validate individual components don't exceed their respective outstanding amounts
+        if (principalPortion != null && principalPortion.compareTo(BigDecimal.ZERO) > 0) {
+            final BigDecimal outstandingPrincipal = loan.getLoanSummary().getTotalPrincipalOutstanding();
+            if (principalPortion.compareTo(outstandingPrincipal) > 0) {
+                baseDataValidator.reset().parameter("principalPortion")
+                        .failWithCode("principal.portion.exceeds.outstanding",
+                        "Principal write-off portion cannot exceed outstanding principal of " + outstandingPrincipal);
+            }
+        }
+
+        if (interestPortion != null && interestPortion.compareTo(BigDecimal.ZERO) > 0) {
+            final BigDecimal outstandingInterest = loan.getLoanSummary().getTotalInterestOutstanding();
+            if (interestPortion.compareTo(outstandingInterest) > 0) {
+                baseDataValidator.reset().parameter("interestPortion")
+                        .failWithCode("interest.portion.exceeds.outstanding",
+                        "Interest write-off portion cannot exceed outstanding interest of " + outstandingInterest);
+            }
+        }
+
+        if (feeChargesPortion != null && feeChargesPortion.compareTo(BigDecimal.ZERO) > 0) {
+            final BigDecimal feeChargesOutstanding = loan.getLoanSummary().getTotalFeeChargesOutstanding();
+            if (feeChargesPortion.compareTo(feeChargesOutstanding) > 0) {
+                baseDataValidator.reset().parameter("feeChargesPortion")
+                        .failWithCode("fee.portion.exceeds.outstanding",
+                        "Fee write-off portion cannot exceed outstanding fees of " + feeChargesOutstanding);
+            }
+        }
+
+        if (penaltyChargesPortion != null && penaltyChargesPortion.compareTo(BigDecimal.ZERO) > 0) {
+            final BigDecimal penaltyChargesOutstanding = loan.getLoanSummary().getTotalPenaltyChargesOutstanding();
+            if (penaltyChargesPortion.compareTo(penaltyChargesOutstanding) > 0) {
+                baseDataValidator.reset().parameter("penaltyChargesPortion")
+                        .failWithCode("penalty.portion.exceeds.outstanding",
+                        "Penalty write-off portion cannot exceed outstanding penalties of " + penaltyChargesOutstanding);
+            }
+        }
+
+        // Validate no duplicate partial write-off on same day for same loan
+        if (transactionDate != null) {
+            final boolean hasSameDayPartialWriteOff = loan.getLoanTransactions().stream()
+                    .filter(t -> t.isPartialWriteOff() && t.isNotReversed())
+                    .anyMatch(t -> t.getTransactionDate().equals(transactionDate));
+            
+            if (hasSameDayPartialWriteOff) {
+                baseDataValidator.reset().parameter("transactionDate").failWithCode("duplicate.partial.writeoff",
+                        "A partial write-off already exists for this loan on " + transactionDate + ". Multiple partial write-offs on the same day are not allowed.");
+            }
+        }
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
@@ -519,6 +696,62 @@ public final class LoanEventApiJsonValidator {
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
 
+    /**
+     * CGLT-656. A whitelist of its own rather than a widening of
+     * {@link #validateInstallmentChargeTransaction(String)}, so the standard waive endpoint keeps rejecting these
+     * parameters. Whether the effective date falls inside the loan's own window is checked by the write service, which
+     * has the loan.
+     */
+    public void validateHistoricalPenaltyWaiver(final String json) {
+
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> supportedParameters = new HashSet<>(Arrays.asList("locale", "dateFormat", "installmentNumber",
+                LoanApiConstants.waiverAmountParamName, LoanApiConstants.waiverEffectiveDateParamName,
+                LoanApiConstants.expectedPaidAmountParamName, LoanApiConstants.nextApproverUserIdParamName,
+                LoanApiConstants.reasonParamName, LoanApiConstants.noteParamName));
+
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, supportedParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors)
+                .resource("loan.charge.historical.penalty.waiver");
+
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+
+        final LocalDate waiverEffectiveDate = this.fromApiJsonHelper
+                .extractLocalDateNamed(LoanApiConstants.waiverEffectiveDateParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.waiverEffectiveDateParamName).value(waiverEffectiveDate).notNull();
+
+        final BigDecimal expectedPaidAmount = this.fromApiJsonHelper
+                .extractBigDecimalWithLocaleNamed(LoanApiConstants.expectedPaidAmountParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.expectedPaidAmountParamName).value(expectedPaidAmount).notNull()
+                .zeroOrPositiveAmount();
+
+        // Absent means waive whatever the penalty is worth; present means waive exactly this much.
+        final BigDecimal waiverAmount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(LoanApiConstants.waiverAmountParamName,
+                element);
+        baseDataValidator.reset().parameter(LoanApiConstants.waiverAmountParamName).value(waiverAmount).ignoreIfNull().positiveAmount();
+
+        final Integer installmentNumber = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("installmentNumber", element);
+        baseDataValidator.reset().parameter("installmentNumber").value(installmentNumber).ignoreIfNull().integerGreaterThanZero();
+
+        final Long nextApproverUserId = this.fromApiJsonHelper.extractLongNamed(LoanApiConstants.nextApproverUserIdParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.nextApproverUserIdParamName).value(nextApproverUserId).ignoreIfNull()
+                .longGreaterThanZero();
+
+        final String reason = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.reasonParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.reasonParamName).value(reason).notBlank().notExceedingLengthOf(1000);
+
+        final String note = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.noteParamName, element);
+        baseDataValidator.reset().parameter(LoanApiConstants.noteParamName).value(note).ignoreIfNull().notExceedingLengthOf(1000);
+
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
     public void validateUpdateDisbursementDateAndAmount(final String json, LoanDisbursementDetails loanDisbursementDetails) {
 
         if (StringUtils.isBlank(json)) {
@@ -528,7 +761,10 @@ public final class LoanEventApiJsonValidator {
         final Set<String> disbursementParameters = new HashSet<>(
                 Arrays.asList("locale", "dateFormat", LoanApiConstants.disbursementDataParameterName,
                         LoanApiConstants.approvedLoanAmountParameterName, LoanApiConstants.updatedDisbursementDateParameterName,
-                        LoanApiConstants.updatedDisbursementPrincipalParameterName, LoanApiConstants.disbursementDateParameterName));
+                        LoanApiConstants.updatedDisbursementPrincipalParameterName, LoanApiConstants.disbursementDateParameterName,
+                        "paymentTypeId", LoanApiConstants.paymentToParameterName, LoanApiConstants.beneficiaryNameParameterName,
+                        "clientPhoneNumber", "clientAccountNumber", "clientBankName", LoanApiConstants.mfiCodeParameterName,
+                        LoanApiConstants.disbursementTypeParameterName, LoanApiConstants.fxRateParameterName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, disbursementParameters);

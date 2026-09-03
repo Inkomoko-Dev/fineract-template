@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,6 +38,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -57,8 +59,10 @@ import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
+import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.TrancheDisbursementAfterMaturityException;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
@@ -512,7 +516,8 @@ public class LoanTest {
         final Money calculatedOverpayment = ReflectionTestUtils.invokeMethod(loan, "calculateTotalOverpayment");
 
         assertTrue(calculatedOverpayment.isGreaterThanZero());
-        assertFalse(ReflectionTestUtils.invokeMethod(loan, "isOverPaid"));
+        final Boolean isOverpaid = ReflectionTestUtils.invokeMethod(loan, "isOverPaid");
+        assertFalse(isOverpaid);
     }
 
     private Loan redrawGateLoan(final BigDecimal totalOutstanding, final BigDecimal totalOverpaid) {
@@ -573,6 +578,152 @@ public class LoanTest {
 
         assertEquals(0, new BigDecimal("5000.00").compareTo(disburseAmount.getAmount()));
         assertEquals(0, new BigDecimal("5000.00").compareTo(disbursementDetails.principal()));
+    }
+
+    @Test
+    public void multiDisbursementBooksNextTranchePrincipalWhenSubmittedAmountIsNet() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("10000000.00"));
+        final LoanDisbursementDetails firstTranche = new LoanDisbursementDetails(LocalDate.of(2026, 8, 25), null,
+                new BigDecimal("3000000.00"), new BigDecimal("2940000.00"));
+        final LoanDisbursementDetails secondTranche = new LoanDisbursementDetails(LocalDate.of(2026, 9, 25), null,
+                new BigDecimal("7000000.00"), new BigDecimal("7000000.00"));
+        final JsonCommand command = jsonCommand("{\"transactionAmount\":2940000,\"netDisbursalAmount\":2940000,\"locale\":\"en\"}");
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("10000000.00"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(List.of(firstTranche, secondTranche)));
+        firstTranche.updateLoan(loan);
+        secondTranche.updateLoan(loan);
+
+        final Money disburseAmount = loan.adjustDisburseAmount(command, LocalDate.of(2026, 8, 25));
+
+        assertEquals(0, new BigDecimal("3000000.00").compareTo(disburseAmount.getAmount()));
+        assertEquals(LocalDate.of(2026, 8, 25), firstTranche.actualDisbursementDate());
+        assertNull(secondTranche.actualDisbursementDate());
+        assertEquals(0, new BigDecimal("3000000.00").compareTo(firstTranche.principal()));
+    }
+
+    @Test
+    public void multiDisbursementRejectsFutureTrancheBeforeItsExpectedDate() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("7000000.00"));
+        final LoanDisbursementDetails futureTranche = new LoanDisbursementDetails(LocalDate.of(2026, 12, 15), null,
+                new BigDecimal("7000000.00"), new BigDecimal("7000000.00"));
+        final JsonCommand command = jsonCommand("{\"transactionAmount\":7000000,\"locale\":\"en\"}");
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("7000000.00"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Collections.singletonList(futureTranche)));
+        futureTranche.updateLoan(loan);
+
+        final LoanDisbursalException exception = assertThrows(LoanDisbursalException.class,
+                () -> loan.adjustDisburseAmount(command, LocalDate.of(2026, 8, 24)));
+
+        assertEquals("error.msg.loan.actualdisbursementdate.before.expectedtranchedate", exception.getGlobalisationMessageCode());
+        assertNull(futureTranche.actualDisbursementDate());
+    }
+
+    @Test
+    public void multiDisbursementPrepaymentPrincipalIsLimitedToDisbursedExposure() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("10000000.00"));
+        final LocalDate prepaymentDate = LocalDate.of(2026, 8, 25);
+        final LoanDisbursementDetails disbursedTranche = new LoanDisbursementDetails(prepaymentDate, prepaymentDate,
+                new BigDecimal("3000000.00"), new BigDecimal("2940000.00"));
+        final LoanDisbursementDetails pendingTranche = new LoanDisbursementDetails(LocalDate.of(2026, 12, 1), null,
+                new BigDecimal("7000000.00"), new BigDecimal("7000000.00"));
+        final LoanRepaymentScheduleInstallment inflatedInstallment = new LoanRepaymentScheduleInstallment(null, 1, prepaymentDate,
+                LocalDate.of(2027, 2, 25), new BigDecimal("9500000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        final LoanSummary summary = LoanSummary.create(BigDecimal.ZERO);
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(summary, "totalPrincipalRepaid", new BigDecimal("500000.00"));
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "summary", summary);
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", new ArrayList<>(List.of(inflatedInstallment)));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(List.of(disbursedTranche, pendingTranche)));
+
+        final LoanRepaymentScheduleInstallment prepayment = loan.fetchPrepaymentDetail(null, prepaymentDate);
+
+        assertEquals(0, new BigDecimal("2500000.00").compareTo(prepayment.getPrincipalOutstanding(KES).getAmount()));
+    }
+
+    @Test
+    public void fullyRepaidMultiDisbursementLoanRemainsActiveWithPendingApprovedTranche() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LocalDate disbursementDate = LocalDate.of(2026, 8, 25);
+        final LocalDate repaymentDate = LocalDate.of(2026, 9, 25);
+        final LoanDisbursementDetails disbursedTranche = new LoanDisbursementDetails(disbursementDate, disbursementDate,
+                new BigDecimal("1000000.00"), new BigDecimal("1000000.00"));
+        final LoanDisbursementDetails pendingTranche = new LoanDisbursementDetails(LocalDate.of(2026, 12, 1), null,
+                new BigDecimal("1000000.00"), new BigDecimal("1000000.00"));
+        final LoanProductRelatedDetail scheduleDetail = mock(LoanProductRelatedDetail.class);
+        when(scheduleDetail.getCurrency()).thenReturn(KES);
+        when(scheduleDetail.getPrincipal()).thenReturn(Money.of(KES, new BigDecimal("1000000.00")));
+        final LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 1, disbursementDate,
+                repaymentDate, new BigDecimal("1000000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+        installment.payPrincipalComponent(repaymentDate, Money.of(KES, new BigDecimal("1000000.00")));
+        final LoanTransaction disbursement = LoanTransaction.disbursement(mock(Office.class),
+                Money.of(KES, new BigDecimal("1000000.00")), null, disbursementDate, null);
+        final LoanTransaction repayment = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("1000000.00")),
+                null, repaymentDate, null);
+        disbursement.updateLoan(loan);
+        repayment.updateLoan(loan);
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.ACTIVE.getValue());
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "actualDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "summary", LoanSummary.create(BigDecimal.ZERO));
+        ReflectionTestUtils.setField(loan, "loanSummaryWrapper", new LoanSummaryWrapper());
+        ReflectionTestUtils.setField(loan, "loanLifecycleStateMachine",
+                new DefaultLoanLifecycleStateMachine(Arrays.asList(LoanStatus.values())));
+        ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", Collections.singletonList(installment));
+        ReflectionTestUtils.setField(loan, "loanTransactions", new ArrayList<>(Arrays.asList(disbursement, repayment)));
+        ReflectionTestUtils.setField(loan, "charges", Collections.emptySet());
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(List.of(disbursedTranche, pendingTranche)));
+
+        loan.updateLoanSummarAndStatus();
+
+        assertEquals(LoanStatus.ACTIVE.getValue(), ReflectionTestUtils.getField(loan, "loanStatus"));
+        assertNull(ReflectionTestUtils.getField(loan, "closedOnDate"));
+        assertEquals(pendingTranche, loan.getNextUndisbursedDisbursementDetail());
+    }
+
+    @Test
+    public void trancheDisbursementDateAfterMaturityIsRejected() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "expectedMaturityDate", LocalDate.of(2027, 2, 28));
+
+        assertThrows(TrancheDisbursementAfterMaturityException.class,
+                () -> loan.validateTrancheDisbursementDateIsNotAfterMaturity(LocalDate.of(2027, 3, 1)));
+    }
+
+    @Test
+    public void trancheDisbursementDateOnMaturityIsAllowed() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "expectedMaturityDate", LocalDate.of(2027, 2, 28));
+
+        loan.validateTrancheDisbursementDateIsNotAfterMaturity(LocalDate.of(2027, 2, 28));
     }
 
     @Test
@@ -654,5 +805,41 @@ public class LoanTest {
     private JsonCommand jsonCommand(final String json) {
         return JsonCommand.from(json, JsonParser.parseString(json), new FromJsonHelper(), null, null, null, null, null, null, null,
                 null, null, null, null, null);
+    }
+
+    @Test
+    void undoDisbursalResetsActualDisbursementDateOnSingleDisbursementLoanDetails() {
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(false);
+
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("5000000.00"));
+        final LoanLifecycleStateMachine stateMachine = mock(LoanLifecycleStateMachine.class);
+        when(stateMachine.transition(any(), any())).thenReturn(LoanStatus.APPROVED);
+
+        final LocalDate expectedDate = LocalDate.of(2026, 7, 7);
+        final LocalDate actualDate = LocalDate.of(2026, 7, 7);
+        final LoanDisbursementDetails detail = new LoanDisbursementDetails(expectedDate, actualDate, new BigDecimal("5000000.00"), null);
+
+        final Loan loan = new Loan();
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "loanLifecycleStateMachine", stateMachine);
+        ReflectionTestUtils.setField(loan, "summary", LoanSummary.create(BigDecimal.ZERO));
+
+        final List<LoanDisbursementDetails> details = Collections.singletonList(detail);
+        ReflectionTestUtils.setField(loan, "disbursementDetails", details);
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.ACTIVE.getValue());
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", expectedDate);
+        ReflectionTestUtils.setField(loan, "actualDisbursementDate", actualDate);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("5000000.00"));
+
+        final org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO scheduleGeneratorDTO = mock(
+                org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO.class);
+
+        loan.undoDisbursal(scheduleGeneratorDTO, new ArrayList<>(), new ArrayList<>());
+
+        assertNull(detail.actualDisbursementDate());
+        assertNull(ReflectionTestUtils.getField(loan, "actualDisbursementDate"));
+        assertEquals(LoanStatus.APPROVED.getValue(), loan.getLoanStatus());
     }
 }

@@ -1381,15 +1381,13 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             for (int i = 0; i < variationArray.size(); i++) {
                 final JsonObject jsonObject1 = variationArray.get(i).getAsJsonObject();
                 if (jsonObject1.has(LoanApiConstants.disbursementDateParameterName)) {
-                    LocalDate date1 = this.fromApiJsonHelper.extractLocalDateNamed(LoanApiConstants.disbursementDateParameterName,
-                            jsonObject1, dateFormat, locale);
+                    LocalDate date1 = extractDisbursementDate(jsonObject1, dateFormat, locale);
 
                     for (int j = i + 1; j < variationArray.size(); j++) {
                         final JsonObject jsonObject2 = variationArray.get(j).getAsJsonObject();
                         if (jsonObject2.has(LoanApiConstants.disbursementDateParameterName)) {
-                            LocalDate date2 = this.fromApiJsonHelper.extractLocalDateNamed(LoanApiConstants.disbursementDateParameterName,
-                                    jsonObject2, dateFormat, locale);
-                            if (date1.isAfter(date2)) {
+                            LocalDate date2 = extractDisbursementDate(jsonObject2, dateFormat, locale);
+                            if (date1 != null && date2 != null && date1.isAfter(date2)) {
                                 baseDataValidator.reset().parameter(LoanApiConstants.disbursementDataParameterName)
                                         .failWithCode(LoanApiConstants.DISBURSEMENT_DATES_NOT_IN_ORDER);
                             }
@@ -1399,6 +1397,16 @@ public final class LoanApplicationCommandFromApiJsonHelper {
 
             }
         }
+    }
+
+    private LocalDate extractDisbursementDate(final JsonObject disbursement, final String dateFormat, final Locale locale) {
+        final JsonElement date = disbursement.get(LoanApiConstants.disbursementDateParameterName);
+        if (date != null && date.isJsonArray()) {
+            return this.fromApiJsonHelper.extractLocalDateAsArrayNamed(LoanApiConstants.disbursementDateParameterName, disbursement,
+                    new HashSet<>());
+        }
+        return this.fromApiJsonHelper.extractLocalDateNamed(LoanApiConstants.disbursementDateParameterName, disbursement, dateFormat,
+                locale);
     }
 
     public void validateLoanMultiDisbursementDate(final JsonElement element, final DataValidatorBuilder baseDataValidator,
@@ -1427,8 +1435,7 @@ public final class LoanApplicationCommandFromApiJsonHelper {
                 int i = 0;
                 do {
                     final JsonObject jsonObject = variationArray.get(i).getAsJsonObject();
-                    LocalDate expectedDisbursementDate = this.fromApiJsonHelper
-                            .extractLocalDateNamed(LoanApiConstants.disbursementDateParameterName, jsonObject, dateFormat, locale);
+                    LocalDate expectedDisbursementDate = extractDisbursementDate(jsonObject, dateFormat, locale);
                     baseDataValidator.reset().parameter(LoanApiConstants.disbursementDataParameterName)
                             .parameterAtIndexArray(LoanApiConstants.disbursementDateParameterName, i).value(expectedDisbursementDate)
                             .notNull();
@@ -1456,9 +1463,9 @@ public final class LoanApplicationCommandFromApiJsonHelper {
                     i++;
                 } while (i < variationArray.size());
 
-                if (tatalDisbursement.compareTo(totalPrincipal) > 0) {
+                if (tatalDisbursement.compareTo(totalPrincipal) != 0) {
                     baseDataValidator.reset().parameter(LoanApiConstants.disbursementPrincipalParameterName)
-                            .failWithCode(LoanApiConstants.APPROVED_AMOUNT_IS_LESS_THAN_SUM_OF_TRANCHES);
+                            .failWithCode(LoanApiConstants.PRINCIPAL_AMOUNT_SHOULD_BE_SAME);
                 }
                 // CGLT-641: flat interest is permitted for multi-disburse loans. The FLAT schedule generator already
                 // supports tranche disbursements, so we no longer force interestType == DECLINING_BALANCE here.

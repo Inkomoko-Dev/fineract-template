@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- Request, approval record, audit trail and status machine for a historical penalty waiver, in one row. -->
+    <changeSet id="CGLT-656_create_m_loan_historical_penalty_waiver" author="wilfredn@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_historical_penalty_waiver"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_historical_penalty_waiver">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <!-- Assigned from the row id once inserted, so it identifies a posted correction and never a request. -->
+            <column name="correction_reference" type="VARCHAR(32)"/>
+
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false" foreignKeyName="fk_hpw_loan" references="m_loan(id)"/>
+            </column>
+            <column name="client_id" type="BIGINT"/>
+            <column name="product_id" type="BIGINT"/>
+            <column name="office_id" type="BIGINT"/>
+            <column name="loan_charge_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="charge_id" type="BIGINT"/>
+            <column name="charge_name" type="VARCHAR(200)"/>
+            <column name="charge_due_date" type="DATE"/>
+            <column name="penalty_age_days" type="INT"/>
+            <column name="installment_number" type="INT"/>
+
+            <column name="original_charge_amount" type="DECIMAL(19,6)"/>
+            <column name="amount_paid_before" type="DECIMAL(19,6)"/>
+            <column name="amount_waived_before" type="DECIMAL(19,6)"/>
+            <column name="amount_outstanding_before" type="DECIMAL(19,6)"/>
+            <column name="waiver_amount" type="DECIMAL(19,6)"/>
+            <column name="amount_waived_after" type="DECIMAL(19,6)"/>
+            <column name="amount_outstanding_after" type="DECIMAL(19,6)"/>
+            <column name="is_partial_waiver" type="BOOLEAN" defaultValueBoolean="false"/>
+
+            <column name="waiver_effective_date" type="DATE"/>
+            <column name="reason" type="VARCHAR(1000)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="requires_approval" type="BOOLEAN" defaultValueBoolean="false"/>
+            <column name="approval_trigger" type="VARCHAR(20)"/>
+            <column name="next_approver_id" type="BIGINT"/>
+            <column name="submitted_by_id" type="BIGINT"/>
+            <column name="submitted_on_date" type="DATETIME"/>
+            <column name="approved_by_id" type="BIGINT"/>
+            <column name="approved_on_date" type="DATETIME"/>
+            <column name="rejected_by_id" type="BIGINT"/>
+            <column name="rejected_on_date" type="DATETIME"/>
+            <column name="decision_reason" type="VARCHAR(1000)"/>
+            <column name="escalated_on_date" type="DATETIME"/>
+            <column name="escalated_to_id" type="BIGINT"/>
+
+            <column name="status" type="VARCHAR(40)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="failure_message" type="VARCHAR(1000)"/>
+            <column name="waive_transaction_id" type="BIGINT"/>
+            <column name="reprocessed_transaction_count" type="INT"/>
+            <column name="loan_status_before" type="SMALLINT"/>
+            <column name="loan_status_after" type="SMALLINT"/>
+            <column name="total_outstanding_before" type="DECIMAL(19,6)"/>
+            <column name="total_outstanding_after" type="DECIMAL(19,6)"/>
+            <column name="transaction_processing_strategy_id" type="BIGINT"/>
+            <column name="transaction_processing_strategy_name" type="VARCHAR(200)"/>
+            <column name="accounting_rule_type" type="SMALLINT"/>
+            <column name="correction_date" type="DATE"/>
+            <column name="gl_closure_id" type="BIGINT"/>
+            <column name="odoo_sync_completed_on_date" type="DATETIME"/>
+
+            <column name="performed_by_id" type="BIGINT"/>
+            <column name="performed_by_username" type="VARCHAR(100)"/>
+            <column name="performed_by_roles" type="VARCHAR(1000)"/>
+            <column name="created_on_date" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="CGLT-656_index_m_loan_historical_penalty_waiver" author="wilfredn@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_hpw_loan"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_hpw_loan" tableName="m_loan_historical_penalty_waiver">
+            <column name="loan_id"/>
+        </createIndex>
+        <createIndex indexName="idx_hpw_charge" tableName="m_loan_historical_penalty_waiver">
+            <column name="loan_charge_id"/>
+        </createIndex>
+        <createIndex indexName="idx_hpw_status" tableName="m_loan_historical_penalty_waiver">
+            <column name="status"/>
+        </createIndex>
+        <createIndex indexName="idx_hpw_submitted" tableName="m_loan_historical_penalty_waiver">
+            <column name="submitted_on_date"/>
+        </createIndex>
+        <addUniqueConstraint tableName="m_loan_historical_penalty_waiver" columnNames="correction_reference"
+                             constraintName="uq_hpw_correction_reference"/>
+    </changeSet>
+
+    <!-- The transactions each correction touched. Makes the Odoo completion sweep a join rather than a text search. -->
+    <changeSet id="CGLT-656_create_m_loan_historical_penalty_waiver_txn" author="wilfredn@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_historical_penalty_waiver_txn"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_historical_penalty_waiver_txn">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="waiver_id" type="BIGINT">
+                <constraints nullable="false" foreignKeyName="fk_hpw_txn_waiver"
+                             references="m_loan_historical_penalty_waiver(id)"/>
+            </column>
+            <column name="loan_transaction_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <!-- WAIVE, REVERSED or REPLACEMENT -->
+            <column name="txn_role" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="principal_before" type="DECIMAL(19,6)"/>
+            <column name="interest_before" type="DECIMAL(19,6)"/>
+            <column name="fees_before" type="DECIMAL(19,6)"/>
+            <column name="penalties_before" type="DECIMAL(19,6)"/>
+            <column name="principal_after" type="DECIMAL(19,6)"/>
+            <column name="interest_after" type="DECIMAL(19,6)"/>
+            <column name="fees_after" type="DECIMAL(19,6)"/>
+            <column name="penalties_after" type="DECIMAL(19,6)"/>
+        </createTable>
+        <createIndex indexName="idx_hpw_txn_waiver" tableName="m_loan_historical_penalty_waiver_txn">
+            <column name="waiver_id"/>
+        </createIndex>
+        <createIndex indexName="idx_hpw_txn_transaction" tableName="m_loan_historical_penalty_waiver_txn">
+            <column name="loan_transaction_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!--
+        Product-scoped approvers. Fineract permissions are role and office scoped with no product dimension, so this
+        mapping is the only way to restrict who may approve a correction on a given loan product.
+    -->
+    <changeSet id="CGLT-656_create_m_historical_correction_product_approver" author="wilfredn@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_historical_correction_product_approver"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_historical_correction_product_approver">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_product_id" type="BIGINT">
+                <constraints nullable="false" foreignKeyName="fk_hcpa_product" references="m_product_loan(id)"/>
+            </column>
+            <column name="appuser_id" type="BIGINT">
+                <constraints nullable="false" foreignKeyName="fk_hcpa_appuser" references="m_appuser(id)"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="m_historical_correction_product_approver"
+                             columnNames="loan_product_id, appuser_id" constraintName="uq_hcpa_product_user"/>
+    </changeSet>
+
+    <changeSet id="CGLT-656_add_historical_penalty_waiver_permissions" author="wilfredn@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'HISTORICALWAIVE_LOANCHARGE'
+            </sqlCheck>
+        </preConditions>
+        <comment>Permissions for the historical penalty waiver and its approval workflow</comment>
+        <insert tableName="m_permission">
+            <column name="grouping" value="transaction_loan"/>
+            <column name="code" value="HISTORICALWAIVE_LOANCHARGE"/>
+            <column name="entity_name" value="LOANCHARGE"/>
+            <column name="action_name" value="HISTORICALWAIVE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+        <insert tableName="m_permission">
+            <column name="grouping" value="transaction_loan"/>
+            <column name="code" value="READ_HISTORICALPENALTYWAIVER"/>
+            <column name="entity_name" value="HISTORICALPENALTYWAIVER"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+        <insert tableName="m_permission">
+            <column name="grouping" value="transaction_loan"/>
+            <column name="code" value="APPROVE_HISTORICALPENALTYWAIVER"/>
+            <column name="entity_name" value="HISTORICALPENALTYWAIVER"/>
+            <column name="action_name" value="APPROVE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+        <insert tableName="m_permission">
+            <column name="grouping" value="transaction_loan"/>
+            <column name="code" value="REJECT_HISTORICALPENALTYWAIVER"/>
+            <column name="entity_name" value="HISTORICALPENALTYWAIVER"/>
+            <column name="action_name" value="REJECT"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="CREATE_HISTORICALCORRECTIONPRODUCTAPPROVER"/>
+            <column name="entity_name" value="HISTORICALCORRECTIONPRODUCTAPPROVER"/>
+            <column name="action_name" value="CREATE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="DELETE_HISTORICALCORRECTIONPRODUCTAPPROVER"/>
+            <column name="entity_name" value="HISTORICALCORRECTIONPRODUCTAPPROVER"/>
+            <column name="action_name" value="DELETE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-656_add_historical_penalty_waiver_configuration" author="wilfredn@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM c_configuration WHERE name = 'historical-penalty-waiver-approval-amount-threshold'
+            </sqlCheck>
+        </preConditions>
+        <comment>Thresholds that decide when a historical penalty waiver needs approval</comment>
+        <insert tableName="c_configuration">
+            <column name="name" value="historical-penalty-waiver-approval-amount-threshold"/>
+            <column name="value" valueNumeric="50000"/>
+            <column name="enabled" valueBoolean="true"/>
+            <column name="is_trap_door" valueBoolean="false"/>
+            <column name="description"
+                    value="Waiver amounts above this value require approval. Disable this row to switch the amount trigger off."/>
+        </insert>
+        <insert tableName="c_configuration">
+            <column name="name" value="historical-penalty-waiver-approval-age-days"/>
+            <column name="value" valueNumeric="90"/>
+            <column name="enabled" valueBoolean="true"/>
+            <column name="is_trap_door" valueBoolean="false"/>
+            <column name="description"
+                    value="Penalties older than this many days require approval. Disable this row to switch the age trigger off."/>
+        </insert>
+        <insert tableName="c_configuration">
+            <column name="name" value="historical-penalty-waiver-escalation-hours"/>
+            <column name="value" valueNumeric="48"/>
+            <column name="enabled" valueBoolean="true"/>
+            <column name="is_trap_door" valueBoolean="false"/>
+            <column name="description"
+                    value="Hours a correction may sit awaiting approval before it is escalated to the parent office."/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="wilfredn@inkomoko.com" id="CGLT-656_add_escalate_pending_historical_corrections_job">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(1) FROM job WHERE name = 'Escalate Pending Historical Corrections'
+                </sqlCheck>
+            </not>
+        </preConditions>
+
+        <insert tableName="job">
+            <column name="name" value="Escalate Pending Historical Corrections"/>
+            <column name="display_name" value="Escalate Pending Historical Corrections"/>
+            <column name="cron_expression" value="0 30 6 1/1 * ? *"/>
+            <column name="create_time" value="now()"/>
+            <column name="task_priority" value="5"/>
+            <column name="group_name" value="null"/>
+            <column name="previous_run_start_time" value="null"/>
+            <column name="next_run_time" value="null"/>
+            <column name="job_key" value="Escalate Pending Historical Corrections _ DEFAULT"/>
+            <column name="initializing_errorlog" value="null"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="currently_running" valueBoolean="false"/>
+            <column name="updates_allowed" valueBoolean="true"/>
+            <column name="scheduler_group" value="1"/>
+            <column name="is_misfired" valueBoolean="false"/>
+            <column name="node_id" value="0"/>
+            <column name="is_mismatched_job" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <!--
+        Approvers now resolve the same way the loan IC review does: users holding APPROVE_HISTORICALPENALTYWAIVER
+        within the loan's office hierarchy. The product-scoped mapping never had an API, handler or screen, so it
+        could only ever be populated by hand and left the approver dropdown permanently empty.
+    -->
+    <changeSet id="CGLT-656_drop_m_historical_correction_product_approver" author="wilfredn@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_historical_correction_product_approver"/>
+        </preConditions>
+        <dropTable tableName="m_historical_correction_product_approver"/>
+    </changeSet>
+
+    <changeSet id="CGLT-656_drop_historical_correction_product_approver_permissions" author="wilfredn@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="2">
+                SELECT COUNT(*) FROM m_permission WHERE entity_name = 'HISTORICALCORRECTIONPRODUCTAPPROVER'
+            </sqlCheck>
+        </preConditions>
+        <comment>Nothing ever implemented these; the mapping they guarded is gone</comment>
+        <delete tableName="m_role_permission">
+            <where>permission_id IN (SELECT id FROM m_permission WHERE entity_name = 'HISTORICALCORRECTIONPRODUCTAPPROVER')</where>
+        </delete>
+        <delete tableName="m_permission">
+            <where>entity_name = 'HISTORICALCORRECTIONPRODUCTAPPROVER'</where>
+        </delete>
+    </changeSet>
+
+</databaseChangeLog>

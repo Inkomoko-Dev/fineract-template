@@ -26,10 +26,15 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.savings.domain.SavingsAccount;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface NoteRepository extends JpaRepository<Note, Long>, JpaSpecificationExecutor<Note> {
 
     List<Note> findByLoanId(Long id);
+
+    @Query("SELECT CASE WHEN COUNT(n) > 0 THEN true ELSE false END FROM Note n WHERE n.loan.id = :loanId AND n.note LIKE :marker")
+    boolean existsLoanNoteContaining(@Param("loanId") Long loanId, @Param("marker") String marker);
 
     List<Note> findByClient(Client id);
 

@@ -33,6 +33,7 @@ public interface LoanApiConstants {
     String usdAmountParameterName = "usdAmount";
     String fxSourceParameterName = "fxSource";
     String fxTimestampParameterName = "fxTimestamp";
+    String mfiCodeParameterName = "mfiCode";
     String updatedDisbursementDateParameterName = "updatedExpectedDisbursementDate";
     String updatedDisbursementPrincipalParameterName = "updatedPrincipal";
     String disbursementIdParameterName = "id";
@@ -163,6 +164,12 @@ public interface LoanApiConstants {
     String noteParamName = "note";
     String expectedResidualAmountParamName = "expectedResidualAmount";
     String reasonParamName = "reason";
+
+    // historical penalty waiver (CGLT-656)
+    String waiverAmountParamName = "waiverAmount";
+    String waiverEffectiveDateParamName = "waiverEffectiveDate";
+    String expectedPaidAmountParamName = "expectedPaidAmount";
+    String nextApproverUserIdParamName = "nextApproverUserId";
 
     String canUseForTopup = "canUseForTopup";
     String clientActiveLoanOptions = "clientActiveLoanOptions";

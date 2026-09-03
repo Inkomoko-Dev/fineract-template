@@ -129,6 +129,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.DefaultSche
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.TrancheDisbursementAfterMaturityException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
@@ -1159,6 +1160,120 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return waiveLoanChargeTransaction;
     }
 
+    /**
+     * Waives a penalty an earlier repayment already settled, reprocessing every dependent repayment in the same action.
+     * Unlike {@link #waiveLoanCharge}, the replay's {@link ChangedTransactionDetail} is returned rather than discarded,
+     * so the caller can persist the replacements and post the correcting journal entries.
+     *
+     * @param waiverAmount
+     *            portion to waive, or {@code null} for all of it
+     * @param effectiveDate
+     *            date to record the waiver on, or {@code null} to derive it as the ordinary waive path does
+     */
+    public HistoricalPenaltyWaiverResult waiveLoanChargeHistorically(final LoanCharge loanCharge, final Map<String, Object> changes,
+            final List<Long> existingTransactionIds, final List<Long> existingReversedTransactionIds, final Integer loanInstallmentNumber,
+            final BigDecimal waiverAmount, final LocalDate effectiveDate, final Money accruedCharge) {
+
+        // waive() acts on the outstanding balance, which is zero once a repayment has paid the charge. Releasing the
+        // paid amount first (this preserves amountWaived) is what gives both the waiver and the replay something to
+        // work with.
+        loanCharge.resetPaidAmount(loanCurrency());
+
+        final Money amountWaived = waiverAmount == null ? loanCharge.waive(loanCurrency(), loanInstallmentNumber)
+                : loanCharge.waivePartially(loanCurrency(), loanInstallmentNumber, waiverAmount);
+
+        changes.put("amount", amountWaived.getAmount());
+
+        final Money[] components = splitWaivedChargeIntoAccrualComponents(loanCharge, loanInstallmentNumber, amountWaived, accruedCharge);
+        final Money chargeComponent = components[0];
+        final Money unrecognizedIncome = components[1];
+
+        Money feeChargesWaived = chargeComponent;
+        Money penaltyChargesWaived = Money.zero(loanCurrency());
+        if (loanCharge.isPenaltyCharge()) {
+            penaltyChargesWaived = chargeComponent;
+            feeChargesWaived = Money.zero(loanCurrency());
+        }
+
+        final LocalDate transactionDate = effectiveDate != null ? effectiveDate
+                : deriveChargeWaiverTransactionDate(loanCharge, loanInstallmentNumber);
+
+        updateSummaryWithTotalFeeChargesDueAtDisbursement(deriveSumTotalOfChargesDueAtDisbursement());
+
+        // Snapshot before the replay reverses anything, so deriveAccountingBridgeData can tell reversals from new
+        // entries.
+        existingTransactionIds.addAll(findExistingTransactionIds());
+        existingReversedTransactionIds.addAll(findExistingReversedTransactionIds());
+
+        final LoanTransaction waiveLoanChargeTransaction = LoanTransaction.waiveLoanCharge(this, getOffice(), amountWaived, transactionDate,
+                feeChargesWaived, penaltyChargesWaived, unrecognizedIncome);
+        final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(waiveLoanChargeTransaction, loanCharge,
+                waiveLoanChargeTransaction.getAmount(getCurrency()).getAmount(), loanInstallmentNumber);
+        waiveLoanChargeTransaction.getLoanChargesPaid().add(loanChargePaidBy);
+        addLoanTransaction(waiveLoanChargeTransaction);
+
+        final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
+                .determineProcessor(this.transactionProcessingStrategy);
+        final List<LoanTransaction> allNonContraTransactionsPostDisbursement = retreiveListOfTransactionsPostDisbursement();
+        final ChangedTransactionDetail changedTransactionDetail = loanRepaymentScheduleTransactionProcessor.handleTransaction(
+                getDisbursementDate(), allNonContraTransactionsPostDisbursement, getCurrency(), getRepaymentScheduleInstallments(),
+                charges());
+
+        // As reprocessTransactions(): replacements must be visible to the summary calculation, but the caller
+        // persists them rather than this method adding them to the collection.
+        for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
+            mapEntry.getValue().updateLoan(this);
+        }
+        this.loanTransactions.addAll(changedTransactionDetail.getNewTransactionMappings().values());
+        updateLoanSummaryDerivedFields();
+        this.loanTransactions.removeAll(changedTransactionDetail.getNewTransactionMappings().values());
+
+        return new HistoricalPenaltyWaiverResult(waiveLoanChargeTransaction, changedTransactionDetail);
+    }
+
+    /**
+     * Splits a waived charge into the already-accrued receivable and the income never recognised, which decides how the
+     * waiver posts to the ledger.
+     *
+     * @return {charge component, unrecognized income}
+     */
+    private Money[] splitWaivedChargeIntoAccrualComponents(final LoanCharge loanCharge, final Integer loanInstallmentNumber,
+            final Money amountWaived, final Money accruedCharge) {
+
+        Money unrecognizedIncome = amountWaived.zero();
+        Money chargeComponent = amountWaived;
+        if (isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            Money receivableCharge;
+            if (loanInstallmentNumber != null) {
+                receivableCharge = accruedCharge
+                        .minus(loanCharge.getInstallmentLoanCharge(loanInstallmentNumber).getAmountPaid(getCurrency()));
+            } else {
+                receivableCharge = accruedCharge.minus(loanCharge.getAmountPaid(getCurrency()));
+            }
+            if (receivableCharge.isLessThanZero()) {
+                receivableCharge = amountWaived.zero();
+            }
+            if (amountWaived.isGreaterThan(receivableCharge)) {
+                chargeComponent = receivableCharge;
+                unrecognizedIncome = amountWaived.minus(receivableCharge);
+            }
+        }
+        return new Money[] { chargeComponent, unrecognizedIncome };
+    }
+
+    /** The date the ordinary waive path would record a charge waiver on. */
+    private LocalDate deriveChargeWaiverTransactionDate(final LoanCharge loanCharge, final Integer loanInstallmentNumber) {
+        if (loanCharge.isDueDateCharge()) {
+            if (loanCharge.getDueLocalDate().isAfter(DateUtils.getBusinessLocalDate())) {
+                return DateUtils.getBusinessLocalDate();
+            }
+            return loanCharge.getDueLocalDate();
+        } else if (loanCharge.isInstalmentFee()) {
+            return loanCharge.getInstallmentLoanCharge(loanInstallmentNumber).getRepaymentInstallment().getDueDate();
+        }
+        return getDisbursementDate();
+    }
+
     public Client client() {
         return this.client;
     }
@@ -1444,6 +1559,31 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
 
+    }
+
+    /**
+     * CGLT-562: editing a disbursement charge upwards on an already settled loan restores an outstanding balance.
+     * {@code doPostLoanTransactionChecks} only ever moves a loan forward (to overpaid or closed) and never demotes,
+     * so the reopen has to be applied explicitly - otherwise the loan stays CLOSED while owing money and never shows
+     * up in arrears or collections. The maturity date is deliberately left intact: the loan really did run its term,
+     * it simply owes a charge.
+     *
+     * @return true when the loan was reopened
+     */
+    public boolean reopenIfBalanceRestored() {
+        if (this.summary == null || this.loanStatus == null) {
+            return false;
+        }
+        final LoanStatus currentStatus = LoanStatus.fromInt(this.loanStatus);
+        if (!(currentStatus.isClosedObligationsMet() || currentStatus.isOverpaid())) {
+            return false;
+        }
+        if (!this.summary.getTotalOutstanding(loanCurrency()).isGreaterThanZero()) {
+            return false;
+        }
+        this.loanStatus = LoanStatus.ACTIVE.getValue();
+        this.closedOnDate = null;
+        return true;
     }
 
     public void updateLoanScheduleDependentDerivedFields() {
@@ -2718,6 +2858,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 LoanStatus.fromInt(this.loanStatus));
 
         final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        validateTrancheDisbursementDateIsNotAfterMaturity(actualDisbursementDate);
 
         this.loanStatus = statusEnum.getValue();
         actualChanges.put("status", LoanEnumerations.status(this.loanStatus));
@@ -2861,6 +3002,22 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
         BigDecimal diff = BigDecimal.ZERO;
         Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
+        if (this.loanProduct().isMultiDisburseLoan()) {
+            final LoanDisbursementDetails nextDisbursementDetail = getNextUndisbursedDisbursementDetail();
+            if (nextDisbursementDetail != null) {
+                if (nextDisbursementDetail.expectedDisbursementDate() != null
+                        && actualDisbursementDate.isBefore(nextDisbursementDetail.expectedDisbursementDate())) {
+                    final String errorMsg = "Loan tranche can't be disbursed before its expected disbursement date ";
+                    throw new LoanDisbursalException(errorMsg, "actualdisbursementdate.before.expectedtranchedate",
+                            nextDisbursementDetail.expectedDisbursementDate(), actualDisbursementDate);
+                }
+                // The payment instruction contains the net cash delivered to the client. Fineract
+                // must book the gross scheduled tranche; repayment-at-disbursement accounts for
+                // the difference (for example, insurance deducted from the first tranche).
+                principalDisbursed = nextDisbursementDetail.principal();
+                details = Collections.singletonList(nextDisbursementDetail);
+            }
+        }
         if (principalDisbursed == null) {
             // For single disbursement loans, ensure repayment schedule principal is approved principal
             if (!this.loanProduct().isMultiDisburseLoan()) {
@@ -3274,10 +3431,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                     ? Boolean.FALSE
                     : Boolean.TRUE;
             this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
-            if (this.loanProduct.isMultiDisburseLoan()) {
-                for (final LoanDisbursementDetails details : this.disbursementDetails) {
-                    details.updateActualDisbursementDate(null);
-                }
+            for (final LoanDisbursementDetails details : this.disbursementDetails) {
+                details.updateActualDisbursementDate(null);
             }
             boolean isEmiAmountChanged = this.loanTermVariations.size() > 0;
 
@@ -3765,6 +3920,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             return;
         }
 
+        // Repaying the currently utilized amount does not settle a multi-disbursement facility while another approved tranche is
+        // still available. Closing here would prevent that pending tranche from being disbursed.
+        if (hasPendingApprovedDisbursement()) {
+            return;
+        }
+
         if (isOverPaid()) {
             // FIXME - kw - update account balance to negative amount.
             handleLoanOverpayment(loanLifecycleStateMachine);
@@ -3778,7 +3939,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         boolean isAllChargesPaid = true;
         for (final LoanCharge loanCharge : this.charges) {
             if (loanCharge.isActive() && loanCharge.amount().compareTo(BigDecimal.ZERO) > 0
-                    && !(loanCharge.isPaid() || loanCharge.isWaived())) {
+                    && !(loanCharge.isPaid() || loanCharge.isWaived()) && !isChargeSettledAtCurrencyPrecision(loanCharge)) {
                 isAllChargesPaid = false;
                 break;
             }
@@ -3796,6 +3957,15 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             this.loanStatus = statusEnum.getValue();
         }
         processIncomeAccrualTransactionOnLoanClosure();
+    }
+
+    /**
+     * A charge whose outstanding balance is zero once expressed at the loan currency's precision carries no real debt -
+     * it is a rounding residue left by a charge that was stored at a finer scale than the currency supports. Such a
+     * residue must not hold the loan open once the schedule itself is repaid in full.
+     */
+    private boolean isChargeSettledAtCurrencyPrecision(final LoanCharge loanCharge) {
+        return Money.of(loanCurrency(), loanCharge.amountOutstanding()).isZero();
     }
 
     private void processIncomeAccrualTransactionOnLoanClosure() {
@@ -4056,6 +4226,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         ChangedTransactionDetail changedTransactionDetail = loanRepaymentScheduleTransactionProcessor.handleTransaction(
                 getDisbursementDate(), allNonContraTransactionsPostDisbursement, getCurrency(), getRepaymentScheduleInstallments(),
                 charges());
+        // CGLT-632: the reprocess reinstates the cancelled interest, so unwind its audit transaction too.
+        reconcileFutureInterestCancellation(writeOffTransaction, writeOffTransaction.getTransactionDate());
         updateLoanSummaryDerivedFields();
         return changedTransactionDetail;
     }
@@ -4522,11 +4694,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             expectedDisbursementDate = this.expectedDisbursementDate;
         }
 
-        Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
-        if (!details.isEmpty()) {
-            for (LoanDisbursementDetails disbursementDetails : details) {
-                expectedDisbursementDate = disbursementDetails.expectedDisbursementDate();
-            }
+        final LoanDisbursementDetails nextDetail = getNextUndisbursedDisbursementDetail();
+        if (nextDetail != null) {
+            expectedDisbursementDate = nextDetail.expectedDisbursementDate();
         }
         return expectedDisbursementDate;
     }
@@ -4537,14 +4707,40 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     public BigDecimal getDisburseAmountForTemplate() {
         BigDecimal principal = this.loanRepaymentScheduleDetail.getPrincipal().getAmount();
-        Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
-        if (!details.isEmpty()) {
-            principal = BigDecimal.ZERO;
-            for (LoanDisbursementDetails disbursementDetails : details) {
-                principal = principal.add(disbursementDetails.principal());
-            }
+        final LoanDisbursementDetails nextDetail = getNextUndisbursedDisbursementDetail();
+        if (nextDetail != null) {
+            principal = nextDetail.principal();
         }
         return principal;
+    }
+
+    public LoanDisbursementDetails getNextUndisbursedDisbursementDetail() {
+        return this.disbursementDetails.stream().filter(detail -> detail.actualDisbursementDate() == null)
+                .sorted(Comparator.comparing(LoanDisbursementDetails::expectedDisbursementDate,
+                        Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(LoanDisbursementDetails::getId,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
+                .findFirst().orElse(null);
+    }
+
+    public boolean hasPendingApprovedDisbursement() {
+        return this.loanProduct != null && this.loanProduct.isMultiDisburseLoan() && getNextUndisbursedDisbursementDetail() != null;
+    }
+
+    public int getDisbursementTrancheNumber(final LoanDisbursementDetails selectedDetail) {
+        if (selectedDetail == null) {
+            return 0;
+        }
+        final List<LoanDisbursementDetails> orderedDetails = this.disbursementDetails.stream()
+                .sorted(Comparator.comparing(LoanDisbursementDetails::expectedDisbursementDate,
+                        Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(LoanDisbursementDetails::getId,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
+                .collect(Collectors.toList());
+        return orderedDetails.indexOf(selectedDetail) + 1;
+    }
+
+    public BigDecimal getRemainingUndisbursedPrincipal() {
+        return this.disbursementDetails.stream().filter(detail -> detail.actualDisbursementDate() == null)
+                .map(LoanDisbursementDetails::principal).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     public LocalDate getExpectedFirstRepaymentOnDate() {
@@ -5284,6 +5480,15 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return total;
     }
 
+    // CGLT-632: interest earned/recognised by asOfDate, i.e. the interest a write-off on that date would write off.
+    public Money getInterestRecognisedAsOf(final LocalDate asOfDate) {
+        Money total = Money.zero(getCurrency());
+        for (final LoanRepaymentScheduleInstallment installment : getRepaymentScheduleInstallments()) {
+            total = total.plus(installment.getInterestPayableOnEarlySettlement(getCurrency(), asOfDate));
+        }
+        return total;
+    }
+
     private Money getActiveFutureInterestCancellationTotal() {
         Money total = Money.zero(getCurrency());
         for (final LoanTransaction transaction : this.loanTransactions) {
@@ -5733,6 +5938,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 locale);
         final LocalDate expectedDisbursementDate = command
                 .localDateValueOfParameterNamed(LoanApiConstants.updatedDisbursementDateParameterName);
+        validateTrancheDisbursementDateIsNotAfterMaturity(expectedDisbursementDate);
         disbursementDetails.updateExpectedDisbursementDateAndAmount(expectedDisbursementDate, principal);
         actualChanges.put(LoanApiConstants.disbursementDateParameterName,
                 command.stringValueOfParameterNamed(LoanApiConstants.disbursementDateParameterName));
@@ -5774,6 +5980,25 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         return changedTransactionDetail;
+    }
+
+    public void validateTrancheDisbursementDatesAreNotAfterMaturity() {
+        if (!this.loanProduct.isMultiDisburseLoan()) {
+            return;
+        }
+        for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+            validateTrancheDisbursementDateIsNotAfterMaturity(detail.expectedDisbursementDate());
+        }
+    }
+
+    public void validateTrancheDisbursementDateIsNotAfterMaturity(final LocalDate disbursementDate) {
+        if (!this.loanProduct.isMultiDisburseLoan() || disbursementDate == null) {
+            return;
+        }
+        final LocalDate maturityDate = this.actualMaturityDate != null ? this.actualMaturityDate : this.expectedMaturityDate;
+        if (maturityDate != null && disbursementDate.isAfter(maturityDate)) {
+            throw new TrancheDisbursementAfterMaturityException(disbursementDate, maturityDate);
+        }
     }
 
     public BigDecimal retriveLastEmiAmount() {
@@ -6317,8 +6542,27 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
 
+        // Defence in depth for multi-disbursement loans. An old or incorrectly regenerated schedule can contain the approved
+        // facility amount. A client can only prepay principal that has actually been disbursed, less principal already settled.
+        if (this.loanProduct.isMultiDisburseLoan()) {
+            BigDecimal principalSettled = BigDecimal.ZERO;
+            if (this.summary != null) {
+                principalSettled = defaultToZero(this.summary.getTotalPrincipalRepaid())
+                        .add(defaultToZero(this.summary.getTotalPrincipalWrittenOff()));
+            }
+            final BigDecimal disbursedPrincipalOutstanding = getDisbursedAmount().subtract(principalSettled).max(BigDecimal.ZERO);
+            final Money exposureLimit = Money.of(loanCurrency(), disbursedPrincipalOutstanding);
+            if (totalPrincipal.isGreaterThan(exposureLimit)) {
+                totalPrincipal = exposureLimit;
+            }
+        }
+
         return new LoanRepaymentScheduleInstallment(null, 0, effectiveDate, effectiveDate, totalPrincipal.getAmount(),
                 totalAccruedInterest.getAmount(), feeCharges.getAmount(), penaltyCharges.getAmount(), false, compoundingDetails);
+    }
+
+    private static BigDecimal defaultToZero(final BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     public LocalDate getAccruedTill() {

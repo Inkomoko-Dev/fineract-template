@@ -51,6 +51,10 @@ public interface OdooService {
 
     JsonObject postJournalEntryToOddo(LocalDate fromDate, LocalDate toDate, Long officeId, String currency);
 
+    JsonObject postJournalEntryToOddo(LocalDate fromDate, LocalDate toDate, Long officeId, String currency, Long transactionId);
+
+    JsonObject postJournalEntryToOddoTest(LocalDate fromDate, LocalDate toDate, Long officeId, String currency, Long transactionId, int limit);
+
     void postJournalEntryToOddo() throws JobExecutionException;
 
     void postClientToOdooOnCreateTask(Client client);

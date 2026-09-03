@@ -60,4 +60,12 @@ public class LoanTransactionDTO {
     private LocalDate correctionDate;
     @Setter
     private boolean isLoanToLoanTransfer;
+
+    public BigDecimal getFeeCharges() {
+        return this.fees;
+    }
+
+    public BigDecimal getPenaltyCharges() {
+        return this.penalties;
+    }
 }

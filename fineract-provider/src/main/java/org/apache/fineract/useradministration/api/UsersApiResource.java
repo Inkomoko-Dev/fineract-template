@@ -212,14 +212,18 @@ public class UsersApiResource {
     @DELETE
     @Path("{userId}")
     @Operation(summary = "Delete a User", description = "Removes the user and the associated roles and permissions.")
+    @RequestBody(required = true, content = @Content(
+            schema = @Schema(implementation = UsersApiResourceSwagger.DeleteUsersUserIdRequest.class)))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = UsersApiResourceSwagger.DeleteUsersUserIdResponse.class))) })
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String delete(@PathParam("userId") @Parameter(description = "userId") final Long userId) {
+    public String delete(@PathParam("userId") @Parameter(description = "userId") final Long userId,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder() //
                 .deleteUser(userId) //
+                .withJson(apiRequestBodyAsJson) //
                 .build();
 
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);

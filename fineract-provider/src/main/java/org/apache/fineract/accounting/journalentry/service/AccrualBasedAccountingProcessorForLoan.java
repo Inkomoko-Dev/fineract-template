@@ -99,6 +99,11 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                 createJournalEntriesForRepaymentsAndWriteOffs(loanDTO, loanTransactionDTO, office, true, false);
             }
 
+            /** Handle Partial Write Offs **/
+            else if (loanTransactionDTO.getTransactionType().isPartialWriteOff()) {
+                createJournalEntriesForPartialWriteOffs(loanDTO, loanTransactionDTO, office);
+            }
+
             /** Logic for Refunds of Active Loans **/
             else if (loanTransactionDTO.getTransactionType().isRefundForActiveLoans()) {
                 createJournalEntriesForRefundForActiveLoan(loanDTO, loanTransactionDTO, office);
@@ -316,6 +321,98 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                                 transactionDate, totalDebitAmount, isReversal, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Handles partial write-offs using the following posting rules:
+     * 
+     * <b>Principal Partial Write off</b>: Debits "Losses Written Off" and Credits "Loan Portfolio"
+     * <b>Interest Partial Write off</b>: Debits "Losses Written off" and Credits "Receivable Interest"
+     * <b>Fee Partial Write off</b>: Debits "Losses Written off" and Credits "Receivable Fees"
+     * <b>Penalty Partial Write off</b>: Debits "Losses Written off" and Credits "Receivable Penalties"
+     * 
+     * In case the loan transaction has been reversed, all debits are turned into credits and vice versa
+     */
+    private void createJournalEntriesForPartialWriteOffs(final LoanDTO loanDTO, final LoanTransactionDTO loanTransactionDTO,
+            final Office office) {
+        // loan properties
+        final Long loanProductId = loanDTO.getLoanProductId();
+        final Long loanId = loanDTO.getLoanId();
+        final String currencyCode = loanDTO.getCurrencyCode();
+
+        // transaction properties
+        final String transactionId = loanTransactionDTO.getTransactionId();
+        final LocalDate transactionDate = loanTransactionDTO.getTransactionDate();
+        final BigDecimal principalAmount = loanTransactionDTO.getPrincipal();
+        final BigDecimal interestAmount = loanTransactionDTO.getInterest();
+        final BigDecimal feesAmount = loanTransactionDTO.getFeeCharges();
+        final BigDecimal penaltiesAmount = loanTransactionDTO.getPenaltyCharges();
+        final Long paymentTypeId = loanTransactionDTO.getPaymentTypeId();
+        final boolean isReversal = loanTransactionDTO.isReversed();
+
+        // Handle principal partial write-off
+        if (principalAmount != null && principalAmount.compareTo(BigDecimal.ZERO) > 0) {
+            // Credit Loan Portfolio
+            GLAccount loanPortfolioAccount = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
+                    AccrualAccountsForLoan.LOAN_PORTFOLIO.getValue(), paymentTypeId);
+            if (loanPortfolioAccount != null) {
+                this.helper.createCreditJournalEntryOrReversalForLoan(office, currencyCode, loanId, transactionId, transactionDate,
+                        principalAmount, isReversal, loanPortfolioAccount, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
+                
+                // Debit Losses Written Off
+                this.helper.createDebitJournalEntryOrReversalForLoan(office, currencyCode,
+                        AccrualAccountsForLoan.LOSSES_WRITTEN_OFF.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
+                        transactionDate, principalAmount, isReversal, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
+            }
+        }
+
+        // Handle interest partial write-off
+        if (interestAmount != null && interestAmount.compareTo(BigDecimal.ZERO) > 0) {
+            // Credit Interest Receivable
+            GLAccount interestReceivableAccount = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
+                    AccrualAccountsForLoan.INTEREST_RECEIVABLE.getValue(), paymentTypeId);
+            if (interestReceivableAccount != null) {
+                this.helper.createCreditJournalEntryOrReversalForLoan(office, currencyCode, loanId, transactionId, transactionDate,
+                        interestAmount, isReversal, interestReceivableAccount, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
+                
+                // Debit Losses Written Off
+                this.helper.createDebitJournalEntryOrReversalForLoan(office, currencyCode,
+                        AccrualAccountsForLoan.LOSSES_WRITTEN_OFF.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
+                        transactionDate, interestAmount, isReversal, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
+            }
+        }
+
+        // Handle fee charges partial write-off
+        if (feesAmount != null && feesAmount.compareTo(BigDecimal.ZERO) > 0) {
+            // Credit Fees Receivable
+            GLAccount feesReceivableAccount = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
+                    AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(), paymentTypeId);
+            if (feesReceivableAccount != null) {
+                this.helper.createCreditJournalEntryOrReversalForLoan(office, currencyCode, loanId, transactionId, transactionDate,
+                        feesAmount, isReversal, feesReceivableAccount, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
+                
+                // Debit Losses Written Off
+                this.helper.createDebitJournalEntryOrReversalForLoan(office, currencyCode,
+                        AccrualAccountsForLoan.LOSSES_WRITTEN_OFF.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
+                        transactionDate, feesAmount, isReversal, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
+            }
+        }
+
+        // Handle penalty charges partial write-off
+        if (penaltiesAmount != null && penaltiesAmount.compareTo(BigDecimal.ZERO) > 0) {
+            // Credit Penalties Receivable
+            GLAccount penaltiesReceivableAccount = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
+                    AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(), paymentTypeId);
+            if (penaltiesReceivableAccount != null) {
+                this.helper.createCreditJournalEntryOrReversalForLoan(office, currencyCode, loanId, transactionId, transactionDate,
+                        penaltiesAmount, isReversal, penaltiesReceivableAccount, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
+                
+                // Debit Losses Written Off
+                this.helper.createDebitJournalEntryOrReversalForLoan(office, currencyCode,
+                        AccrualAccountsForLoan.LOSSES_WRITTEN_OFF.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
+                        transactionDate, penaltiesAmount, isReversal, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
             }
         }
     }

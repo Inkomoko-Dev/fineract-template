@@ -1,0 +1,263 @@
+# SigNoz overlay for docker-compose.server.yml (mysql + fineract network).
+# UI: http://localhost:3301  |  cAdvisor: http://localhost:8081
+#
+# Usage:
+#   bash scripts/signoz-bootstrap.sh
+#   docker compose --env-file .env.server \
+#     -f docker-compose.server.yml -f docker-compose.signoz.server.yml up -d
+
+x-signoz-logging: &signoz-logging
+  logging:
+    options:
+      max-size: 50m
+      max-file: "3"
+
+services:
+  # --- Fineract instrumentation (server layout: mysql service, fineract network) ---
+  fineract-server:
+    volumes:
+      - ./signoz/agent:/otel:ro
+    environment:
+      # Preserves server heap (e.g. -Xmx17G) via SIGNOZ_FINERACT_JAVA_TOOL_OPTIONS in .env.server
+      JAVA_TOOL_OPTIONS: >-
+        ${SIGNOZ_FINERACT_JAVA_TOOL_OPTIONS:--Xmx -javaagent:/otel/opentelemetry-javaagent.jar -Dmanagement.endpoints.web.exposure.include=health,info,prometheus,metrics}
+      OTEL_SERVICE_NAME: fineract-server
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${SIGNOZ_DEPLOYMENT_ENV:-dev},service.namespace=fineract
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_INSTRUMENTATION_LOGBACK_APPENDER_EXPERIMENTAL_CAPTURE_MDC_ATTRIBUTES: "*"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    networks:
+      - fineract
+      - signoz-net
+
+  # Bridges fineract app network and signoz internal network.
+  otel-collector:
+    <<: *signoz-logging
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    container_name: fineract_otel_collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./signoz/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - /proc:/hostfs/proc:ro
+      - /sys:/hostfs/sys:ro
+      - /:/hostfs:ro
+    depends_on:
+      signoz-otel-collector:
+        condition: service_started
+      cadvisor:
+        condition: service_started
+    networks:
+      - fineract
+      - signoz-net
+
+  cadvisor:
+    <<: *signoz-logging
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: fineract_cadvisor
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8081:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - signoz-net
+
+  signoz-init-clickhouse:
+    <<: *signoz-logging
+    image: clickhouse/clickhouse-server:25.5.6
+    container_name: fineract_signoz_init_clickhouse
+    restart: on-failure
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if [ -x /var/lib/clickhouse/user_scripts/histogramQuantile ]; then
+          echo "histogramQuantile already present"
+          exit 0
+        fi
+        version="v0.0.1"
+        node_os=$$(uname -s | tr '[:upper:]' '[:lower:]')
+        node_arch=$$(uname -m | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)
+        cd /tmp
+        wget -q -O histogram-quantile.tar.gz \
+          "https://github.com/SigNoz/signoz/releases/download/histogram-quantile%2F$${version}/histogram-quantile_$${node_os}_$${node_arch}.tar.gz"
+        tar -xzf histogram-quantile.tar.gz
+        mv histogram-quantile /var/lib/clickhouse/user_scripts/histogramQuantile
+        chmod +x /var/lib/clickhouse/user_scripts/histogramQuantile
+    volumes:
+      - ./signoz/clickhouse/user_scripts:/var/lib/clickhouse/user_scripts
+    networks:
+      - signoz-net
+
+  signoz-zookeeper:
+    <<: *signoz-logging
+    image: signoz/zookeeper:3.7.1
+    container_name: fineract_signoz_zookeeper
+    restart: unless-stopped
+    user: root
+    environment:
+      - ZOO_SERVER_ID=1
+      - ALLOW_ANONYMOUS_LOGIN=yes
+      - ZOO_AUTOPURGE_INTERVAL=1
+      - ZOO_ENABLE_PROMETHEUS_METRICS=yes
+      - ZOO_PROMETHEUS_METRICS_PORT_NUMBER=9141
+    volumes:
+      - signoz_zookeeper:/bitnami/zookeeper
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -s -m 2 http://localhost:8080/commands/ruok | grep error | grep null
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - signoz-net
+
+  signoz-clickhouse:
+    <<: *signoz-logging
+    image: clickhouse/clickhouse-server:25.5.6
+    container_name: fineract_signoz_clickhouse
+    restart: unless-stopped
+    tty: true
+    environment:
+      - CLICKHOUSE_SKIP_USER_SETUP=1
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ./signoz/clickhouse/config.xml:/etc/clickhouse-server/config.xml:ro
+      - ./signoz/clickhouse/users.xml:/etc/clickhouse-server/users.xml:ro
+      - ./signoz/clickhouse/custom-function.xml:/etc/clickhouse-server/custom-function.xml:ro
+      - ./signoz/clickhouse/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./signoz/clickhouse/user_scripts:/var/lib/clickhouse/user_scripts
+      - signoz_clickhouse:/var/lib/clickhouse
+    depends_on:
+      signoz-init-clickhouse:
+        condition: service_completed_successfully
+      signoz-zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --spider
+        - -q
+        - 0.0.0.0:8123/ping
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - signoz-net
+
+  signoz-telemetrystore-migrator:
+    <<: *signoz-logging
+    image: signoz/signoz-otel-collector:v0.144.4
+    container_name: fineract_signoz_telemetrystore_migrator
+    restart: on-failure
+    environment:
+      - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN=tcp://signoz-clickhouse:9000
+      - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_CLUSTER=cluster
+      - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION=false
+      - SIGNOZ_OTEL_COLLECTOR_TIMEOUT=10m
+    entrypoint:
+      - /bin/sh
+    command:
+      - -c
+      - |
+        /signoz-otel-collector migrate bootstrap &&
+        /signoz-otel-collector migrate sync up &&
+        /signoz-otel-collector migrate async up
+    depends_on:
+      signoz-clickhouse:
+        condition: service_healthy
+    networks:
+      - signoz-net
+
+  signoz-otel-collector:
+    <<: *signoz-logging
+    image: signoz/signoz-otel-collector:v0.144.4
+    container_name: fineract_signoz_otel_collector
+    restart: unless-stopped
+    environment:
+      - OTEL_RESOURCE_ATTRIBUTES=host.name=fineract-signoz-host,os.type=linux
+      - LOW_CARDINAL_EXCEPTION_GROUPING=false
+      - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN=tcp://signoz-clickhouse:9000
+      - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_CLUSTER=cluster
+      - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION=false
+      - SIGNOZ_OTEL_COLLECTOR_TIMEOUT=10m
+    entrypoint:
+      - /bin/sh
+    command:
+      - -c
+      - |
+        /signoz-otel-collector migrate sync check &&
+        /signoz-otel-collector --config=/etc/otel-collector-config.yaml
+    volumes:
+      - ./signoz/signoz-otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    depends_on:
+      signoz-clickhouse:
+        condition: service_healthy
+      signoz-telemetrystore-migrator:
+        condition: service_completed_successfully
+    networks:
+      - signoz-net
+
+  signoz:
+    <<: *signoz-logging
+    image: signoz/signoz:v0.124.0
+    container_name: fineract_signoz
+    restart: unless-stopped
+    ports:
+      - "3301:8080"
+    environment:
+      - SIGNOZ_ALERTMANAGER_PROVIDER=signoz
+      - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://signoz-clickhouse:9000
+      - SIGNOZ_SQLSTORE_SQLITE_PATH=/var/lib/signoz/signoz.db
+      - SIGNOZ_TOKENIZER_JWT_SECRET=${SIGNOZ_JWT_SECRET:-fineract-local-signoz-secret}
+    volumes:
+      - signoz_sqlite:/var/lib/signoz
+    depends_on:
+      signoz-clickhouse:
+        condition: service_healthy
+      signoz-telemetrystore-migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --spider
+        - -q
+        - localhost:8080/api/v1/health
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - signoz-net
+
+networks:
+  signoz-net:
+    name: fineract-signoz-net
+
+volumes:
+  signoz_clickhouse:
+    name: fineract_signoz_clickhouse
+  signoz_sqlite:
+    name: fineract_signoz_sqlite
+  signoz_zookeeper:
+    name: fineract_signoz_zookeeper

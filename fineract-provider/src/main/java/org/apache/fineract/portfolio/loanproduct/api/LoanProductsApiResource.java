@@ -403,6 +403,10 @@ public class LoanProductsApiResource {
         loanProductDataResponse.setRequiresEquityContribution(productData.getRequiresEquityContribution());
         loanProductDataResponse.setEquityContributionLoanPercentage(productData.getEquityContributionLoanPercentage());
         loanProductDataResponse.setEnableThirdPartyDisbursement(productData.getEnableThirdPartyDisbursement());
+        if (productData.getEnableThirdPartyDisbursement() != null && productData.getEnableThirdPartyDisbursement()) {
+            loanProductDataResponse.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
+        }
         return loanProductDataResponse;
     }
 

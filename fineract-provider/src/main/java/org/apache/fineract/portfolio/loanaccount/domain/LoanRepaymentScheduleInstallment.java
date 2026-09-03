@@ -37,6 +37,7 @@ import javax.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecks;
@@ -212,6 +213,19 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     public Loan getLoan() {
         return this.loan;
+    }
+
+    // CGLT-562: a loan that has run past its maturity date has no future interest left to forgo. Replaying its
+    // history (e.g. after a disbursement-charge edit) must not treat an old payment as a prepayment, otherwise
+    // interest the borrower already earned and paid is retro-written-off and the cash becomes a phantom overpayment.
+    public boolean isLoanPastMaturity() {
+        final Loan owningLoan = getLoan();
+        if (owningLoan == null) {
+            return false;
+        }
+        final LocalDate maturityDate = owningLoan.getMaturityDate() != null ? owningLoan.getMaturityDate()
+                : owningLoan.getExpectedMaturityDate();
+        return maturityDate != null && DateUtils.getBusinessLocalDate().isAfter(maturityDate);
     }
 
     public Integer getInstallmentNumber() {
@@ -763,6 +777,24 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return interestDue;
     }
 
+    // CGLT-632: write off only interest earned by the write-off date; cancel the unearned remainder (no GL impact).
+    public Money writeOffOutstandingInterestAndCancelUnearned(final LocalDate writeOffDate, final MonetaryCurrency currency) {
+
+        final Money recognisedInterest = getInterestPayableOnEarlySettlement(currency, writeOffDate);
+        final Money cancellableInterest = getCancellableFutureInterest(currency, writeOffDate);
+
+        this.interestWrittenOff = defaultToNullIfZero(recognisedInterest.getAmount());
+
+        if (cancellableInterest.isGreaterThanZero()) {
+            this.interestCancelled = getInterestCancelled(currency).plus(cancellableInterest).getAmount();
+            this.interestCancelled = defaultToNullIfZero(this.interestCancelled);
+        }
+
+        checkIfRepaymentPeriodObligationsAreMet(writeOffDate, currency);
+
+        return recognisedInterest;
+    }
+
     public Money writeOffOutstandingFeeCharges(final LocalDate transactionDate, final MonetaryCurrency currency) {
         final Money feeChargesOutstanding = getFeeChargesOutstanding(currency);
         this.feeChargesWrittenOff = defaultToNullIfZero(feeChargesOutstanding.getAmount());
@@ -779,6 +811,74 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
 
         return penaltyChargesOutstanding;
+    }
+
+    public Money writeOffPartialPrincipal(final LocalDate transactionDate, final MonetaryCurrency currency, Money amountToWriteOff) {
+        final Money principalOutstanding = getPrincipalOutstanding(currency);
+        Money writeOffAmount = amountToWriteOff;
+        
+        if (principalOutstanding.isLessThan(amountToWriteOff)) {
+            writeOffAmount = principalOutstanding;
+        }
+        
+        this.principalWrittenOff = (this.principalWrittenOff != null ? this.principalWrittenOff : BigDecimal.ZERO)
+                .add(writeOffAmount.getAmount());
+        this.principalWrittenOff = defaultToNullIfZero(this.principalWrittenOff);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return writeOffAmount;
+    }
+
+    public Money writeOffPartialInterest(final LocalDate transactionDate, final MonetaryCurrency currency, Money amountToWriteOff) {
+        final Money interestOutstanding = getInterestOutstanding(currency);
+        Money writeOffAmount = amountToWriteOff;
+        
+        if (interestOutstanding.isLessThan(amountToWriteOff)) {
+            writeOffAmount = interestOutstanding;
+        }
+        
+        this.interestWrittenOff = (this.interestWrittenOff != null ? this.interestWrittenOff : BigDecimal.ZERO)
+                .add(writeOffAmount.getAmount());
+        this.interestWrittenOff = defaultToNullIfZero(this.interestWrittenOff);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return writeOffAmount;
+    }
+
+    public Money writeOffPartialFeeCharges(final LocalDate transactionDate, final MonetaryCurrency currency, Money amountToWriteOff) {
+        final Money feeChargesOutstanding = getFeeChargesOutstanding(currency);
+        Money writeOffAmount = amountToWriteOff;
+        
+        if (feeChargesOutstanding.isLessThan(amountToWriteOff)) {
+            writeOffAmount = feeChargesOutstanding;
+        }
+        
+        this.feeChargesWrittenOff = (this.feeChargesWrittenOff != null ? this.feeChargesWrittenOff : BigDecimal.ZERO)
+                .add(writeOffAmount.getAmount());
+        this.feeChargesWrittenOff = defaultToNullIfZero(this.feeChargesWrittenOff);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return writeOffAmount;
+    }
+
+    public Money writeOffPartialPenaltyCharges(final LocalDate transactionDate, final MonetaryCurrency currency, Money amountToWriteOff) {
+        final Money penaltyChargesOutstanding = getPenaltyChargesOutstanding(currency);
+        Money writeOffAmount = amountToWriteOff;
+        
+        if (penaltyChargesOutstanding.isLessThan(amountToWriteOff)) {
+            writeOffAmount = penaltyChargesOutstanding;
+        }
+        
+        this.penaltyChargesWrittenOff = (this.penaltyChargesWrittenOff != null ? this.penaltyChargesWrittenOff : BigDecimal.ZERO)
+                .add(writeOffAmount.getAmount());
+        this.penaltyChargesWrittenOff = defaultToNullIfZero(this.penaltyChargesWrittenOff);
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        return writeOffAmount;
     }
 
     public boolean isOverdueOn(final LocalDate date) {
@@ -804,7 +904,8 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
     public void updateDerivedFields(final MonetaryCurrency currency, final LocalDate actualDisbursementDate) {
         if (!this.obligationsMet && getTotalOutstanding(currency).isZero()) {
             this.obligationsMet = true;
-            this.obligationsMetOnDate = actualDisbursementDate;
+            // obligationsMetOnDate should only be set during actual payment transactions
+            // via checkIfRepaymentPeriodObligationsAreMet, not during disbursement
         }
     }
 

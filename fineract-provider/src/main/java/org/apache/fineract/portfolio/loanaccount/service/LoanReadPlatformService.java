@@ -137,7 +137,9 @@ public interface LoanReadPlatformService {
 
     LoanTransactionData retrieveRecoveryPaymentTemplate(Long loanId, Long originalTransactionId);
 
-    LoanTransactionData retrieveLoanWriteoffTemplate(Long loanId);
+    LoanTransactionData retrieveLoanWriteoffTemplate(Long loanId, LocalDate writeOffDate);
+
+    LoanTransactionData retrieveLoanPartialWriteoffTemplate(Long loanId);
 
     Collection<LoanScheduleAccrualData> retrivePeriodicAccrualData(LocalDate tillDate);
 
@@ -230,6 +232,10 @@ public interface LoanReadPlatformService {
     List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo();
 
     List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(LocalDate fromDate, LocalDate toDate, Long OfficeId, String currency);
+
+    List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(LocalDate fromDate, LocalDate toDate, Long OfficeId, String currency, Long transactionId, Integer limit);
+
+    List<LoanTransactionNotPostedToOdooInstanceData> retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(LocalDate fromDate, LocalDate toDate, Long officeId, String currency, Long transactionId);
 
     List<Pair<Long, Long>> getLoansForReprocessing();
 

@@ -21,6 +21,9 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleFilterDto;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.LoanBulkRescheduleSpecification;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -175,5 +178,20 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
 
     @Query(FIND_LOAN_ACCOUNTS_TO_BE_POSTED_TO_KIVA)
     List<Loan> findLoanAccountsToBePostedToKiva();
+
+    /**
+     * Finds loans matching the bulk reschedule filter criteria. Uses JPA Specification to
+     * dynamically build queries based on the provided filter DTO and user's accessible offices.
+     *
+     * @param filters the filter criteria
+     * @param userAccessibleOffices list of office IDs accessible to the user
+     * @param pageable pagination information (recommended batch size: 500)
+     * @return list of loans matching the criteria
+     */
+    default List<Loan> findByBulkRescheduleFilters(final BulkRescheduleFilterDto filters,
+            final List<Long> userAccessibleOffices, final Pageable pageable) {
+        return findAll(LoanBulkRescheduleSpecification.createSpecification(filters, userAccessibleOffices), pageable)
+                .getContent();
+    }
 
 }

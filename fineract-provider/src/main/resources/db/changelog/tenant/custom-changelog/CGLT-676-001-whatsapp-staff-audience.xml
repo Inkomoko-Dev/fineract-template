@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260808-01-whatsapp-campaign-recipient-type" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="whatsapp_campaign" columnName="recipient_type"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="whatsapp_campaign">
+            <column name="recipient_type" type="VARCHAR(20)" defaultValue="CLIENT">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="20260808-02-whatsapp-staff-audience-report" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1) FROM stretchy_report WHERE report_name = 'WhatsApp Staff Campaign - Active Staff by Office'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report">
+            <column name="report_name" value="WhatsApp Staff Campaign - Active Staff by Office"/>
+            <column name="description" value="Active staff with a mobile number, for WhatsApp employee campaigns"/>
+            <column name="report_type" value="WHATSAPP"/>
+            <column name="report_subtype" value="Staff"/>
+            <column name="report_sql">
+                <![CDATA[
+                SELECT
+                    s.id AS id,
+                    s.mobile_no AS mobileNo,
+                    s.display_name AS FullName,
+                    s.firstname AS firstname,
+                    s.lastname AS lastname,
+                    o.id AS officeId,
+                    o.name AS officeName
+                FROM m_staff s
+                JOIN m_office o ON o.id = s.office_id
+                WHERE s.is_active = true
+                    AND s.mobile_no IS NOT NULL
+                    AND s.mobile_no <> ''
+                    AND o.hierarchy LIKE CONCAT((SELECT ounder.hierarchy FROM m_office ounder WHERE ounder.id = ${officeId}), '%')
+                ]]>
+            </column>
+            <column name="core_report" valueBoolean="false"/>
+            <column name="use_report" valueBoolean="true"/>
+            <column name="self_service_user_report" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20260808-03-whatsapp-staff-audience-report-params" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1)
+                FROM stretchy_report_parameter srp
+                    INNER JOIN stretchy_report sr ON sr.id = srp.report_id
+                WHERE sr.report_name = 'WhatsApp Staff Campaign - Active Staff by Office'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            VALUES ((SELECT id FROM stretchy_report WHERE report_name = 'WhatsApp Staff Campaign - Active Staff by Office'), 5, 'officeId');
+        </sql>
+    </changeSet>
+
+    <changeSet id="20260808-04-add-whatsapp-whitelist-property" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1)
+                FROM c_external_service_properties esp
+                    INNER JOIN c_external_service es ON esp.external_service_id = es.id
+                WHERE es.name = 'MESSAGE_GATEWAY'
+                  AND esp.name = 'whatsapp_whitelist'
+            </sqlCheck>
+        </preConditions>
+        <comment>Seed QA WhatsApp whitelist numbers under MESSAGE_GATEWAY external service config</comment>
+        <sql>
+            INSERT INTO c_external_service_properties (name, value, external_service_id)
+            SELECT 'whatsapp_whitelist', '+254708881885', es.id
+            FROM c_external_service es
+            WHERE es.name = 'MESSAGE_GATEWAY'
+        </sql>
+    </changeSet>
+
+    <changeSet id="20260808-05-add-whatsapp-whitelist-enabled-property" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1)
+                FROM c_external_service_properties esp
+                    INNER JOIN c_external_service es ON esp.external_service_id = es.id
+                WHERE es.name = 'MESSAGE_GATEWAY'
+                  AND esp.name = 'whatsapp_whitelist_enabled'
+            </sqlCheck>
+        </preConditions>
+        <comment>Seed WhatsApp whitelist toggle under MESSAGE_GATEWAY; enabled by default for QA safety</comment>
+        <sql>
+            INSERT INTO c_external_service_properties (name, value, external_service_id)
+            SELECT 'whatsapp_whitelist_enabled', 'true', es.id
+            FROM c_external_service es
+            WHERE es.name = 'MESSAGE_GATEWAY'
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

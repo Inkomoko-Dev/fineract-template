@@ -1,0 +1,48 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.fineract.portfolio.loanaccount.domain;
+
+/**
+ * Lifecycle of a historical penalty waiver.
+ *
+ * <p>
+ * The ticket asks for Processing, Loan Reprocessed and Accounting Corrected as separate states. They all complete
+ * inside one database transaction, so no reader can ever observe one without the next; they collapse into
+ * {@link #PROCESSING}. Only the Odoo hand-off is genuinely asynchronous and therefore genuinely observable.
+ * </p>
+ *
+ * <p>
+ * For the same reason the ticket's Failed - Loan Processing and Failed - Accounting states do not exist here: a
+ * failure in either rolls the whole transaction back, taking this row with it, so nothing survives to carry the
+ * status. The operator re-submits instead. {@link #FAILED_ODOO_SYNC} is kept because the Odoo hand-off commits
+ * separately and a persistent failure there does need to become visible.
+ * </p>
+ */
+public enum HistoricalPenaltyWaiverStatus {
+
+    PENDING_APPROVAL, REJECTED, PROCESSING, PENDING_ODOO_SYNC, COMPLETED, FAILED_ODOO_SYNC;
+
+    public boolean isPendingApproval() {
+        return this == PENDING_APPROVAL;
+    }
+
+    public boolean isTerminal() {
+        return this == REJECTED || this == COMPLETED;
+    }
+}

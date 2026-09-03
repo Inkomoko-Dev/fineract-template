@@ -1,0 +1,63 @@
+{
+  "alert": "Fineract API Crash (Sentry-style)",
+  "alertType": "TRACES_BASED_ALERT",
+  "ruleType": "threshold_rule",
+  "version": "v5",
+  "description": "Error spans on fineract-server grouped by exception and route",
+  "evalWindow": "5m0s",
+  "frequency": "1m0s",
+  "condition": {
+    "compositeQuery": {
+      "queryType": "builder",
+      "panelType": "graph",
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "signal": "traces",
+            "stepInterval": 60,
+            "aggregations": [
+              {
+                "expression": "count()",
+                "alias": "count"
+              }
+            ],
+            "groupBy": [
+              { "key": "exception.type", "type": "tag", "isColumn": false },
+              { "key": "http.route", "type": "tag", "isColumn": false },
+              { "key": "http.method", "type": "tag", "isColumn": false }
+            ],
+            "filters": {
+              "op": "AND",
+              "items": [
+                {
+                  "key": { "key": "service.name", "type": "resource", "isColumn": false },
+                  "op": "=",
+                  "value": "fineract-server"
+                },
+                {
+                  "key": { "key": "hasError", "type": "tag", "isColumn": false },
+                  "op": "=",
+                  "value": "true"
+                }
+              ]
+            },
+            "disabled": false
+          }
+        }
+      ]
+    },
+    "op": "1",
+    "target": 1,
+    "matchType": "4",
+    "selectedQueryName": "A"
+  },
+  "labels": { "severity": "warning", "service": "fineract-server" },
+  "annotations": {
+    "summary": "{{$labels.exception.type}} on {{$labels.service.name}}",
+    "description": "{{$labels.http.method}} {{$labels.http.route}}\nException: {{$labels.exception.type}}"
+  },
+  "disabled": false,
+  "preferredChannels": []
+}

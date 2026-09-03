@@ -27,6 +27,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
@@ -371,6 +372,17 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return new LoanTransaction(loan, office, LoanTransactionType.WRITEOFF, null, writeOffDate, externalId);
     }
 
+    public static LoanTransaction partialWriteoff(final Loan loan, final Office office, final LocalDate writeOffDate, 
+            final BigDecimal amount, final BigDecimal principalPortion, final BigDecimal interestPortion,
+            final BigDecimal feeChargesPortion, final BigDecimal penaltyChargesPortion, final String externalId) {
+        final LoanTransaction partialWriteOff = new LoanTransaction(loan, office, LoanTransactionType.PARTIAL_WRITEOFF, amount, writeOffDate, externalId);
+        partialWriteOff.principalPortion = principalPortion;
+        partialWriteOff.interestPortion = interestPortion;
+        partialWriteOff.feeChargesPortion = feeChargesPortion;
+        partialWriteOff.penaltyChargesPortion = penaltyChargesPortion;
+        return partialWriteOff;
+    }
+
     private LoanTransaction(final Loan loan, final Office office, final LoanTransactionType type, final BigDecimal amount,
             final LocalDate date, final String externalId) {
         this.loan = loan;
@@ -676,6 +688,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return getTypeOf().isWriteOff() && isNotReversed();
     }
 
+    public boolean isPartialWriteOff() {
+        return getTypeOf().isPartialWriteOff() && isNotReversed();
+    }
+
     public boolean isIdentifiedBy(final Long identifier) {
         return getId().equals(identifier);
     }
@@ -871,6 +887,45 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
             isLatest = this.getCreatedDateTime().isBefore(loanTransaction.getCreatedDateTime());
         }
         return isLatest;
+    }
+
+    public void updateLoanChargesPaid(final Set<LoanChargePaidBy> recalculatedChargesPaid) {
+        if (hasSameChargeAllocationAs(recalculatedChargesPaid)) {
+            return;
+        }
+        this.loanChargesPaid.clear();
+        for (final LoanChargePaidBy recalculated : recalculatedChargesPaid) {
+            this.loanChargesPaid.add(new LoanChargePaidBy(this, recalculated.getLoanCharge(), recalculated.getAmount(),
+                    recalculated.getInstallmentNumber()));
+        }
+    }
+
+    private boolean hasSameChargeAllocationAs(final Set<LoanChargePaidBy> recalculatedChargesPaid) {
+        if (this.loanChargesPaid.size() != recalculatedChargesPaid.size()) {
+            return false;
+        }
+        for (final LoanChargePaidBy recalculated : recalculatedChargesPaid) {
+            boolean matched = false;
+            for (final LoanChargePaidBy existing : this.loanChargesPaid) {
+                if (isSameCharge(existing.getLoanCharge(), recalculated.getLoanCharge())
+                        && existing.getAmount().compareTo(recalculated.getAmount()) == 0
+                        && Objects.equals(existing.getInstallmentNumber(), recalculated.getInstallmentNumber())) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isSameCharge(final LoanCharge one, final LoanCharge other) {
+        if (one == other) {
+            return true;
+        }
+        return one != null && other != null && one.getId() != null && one.getId().equals(other.getId());
     }
 
     public void updateLoanTransactionToRepaymentScheduleMappings(final Collection<LoanTransactionToRepaymentScheduleMapping> mappings) {

@@ -198,6 +198,24 @@ public class SynchronousCommandProcessingService implements CommandProcessingSer
             } else {
                 throw new UnsupportedCommandException(wrapper.commandName());
             }
+        } else if (wrapper.isBulkRescheduleResource()) {
+            if (wrapper.isSubmitBulkRescheduleForApproval()) {
+                handler = this.applicationContext.getBean("submitBulkRescheduleForApprovalCommandHandler", NewCommandSourceHandler.class);
+            } else if (wrapper.isCreate()) {
+                handler = this.applicationContext.getBean("createBulkRescheduleCommandHandler", NewCommandSourceHandler.class);
+            } else if ("APPROVE".equalsIgnoreCase(wrapper.actionName())) {
+                handler = this.applicationContext.getBean("approveBulkRescheduleCommandHandler", NewCommandSourceHandler.class);
+            } else if ("REJECT".equalsIgnoreCase(wrapper.actionName())) {
+                handler = this.applicationContext.getBean("rejectBulkRescheduleCommandHandler", NewCommandSourceHandler.class);
+            } else if ("UNDO".equalsIgnoreCase(wrapper.actionName())) {
+                handler = this.applicationContext.getBean("undoBulkRescheduleCommandHandler", NewCommandSourceHandler.class);
+            } else if ("RECOVER".equalsIgnoreCase(wrapper.actionName())) {
+                handler = this.applicationContext.getBean("recoverBulkRescheduleCommandHandler", NewCommandSourceHandler.class);
+            } else if (wrapper.isDelete()) {
+                handler = this.applicationContext.getBean("deleteBulkRescheduleCommandHandler", NewCommandSourceHandler.class);
+            } else {
+                throw new UnsupportedCommandException(wrapper.commandName());
+            }
         } else {
             handler = this.commandHandlerProvider.getHandler(wrapper.entityName(), wrapper.actionName());
         }

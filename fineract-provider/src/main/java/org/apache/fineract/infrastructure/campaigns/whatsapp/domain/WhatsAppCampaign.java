@@ -28,11 +28,14 @@ import java.util.Locale;
 import java.util.Map;
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.Table;
 import javax.persistence.UniqueConstraint;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.campaigns.constants.CampaignType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
@@ -72,6 +75,7 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
     private static final String FREQUENCY = "frequency";
     private static final String INTERVAL = "interval";
     private static final String REPEATS_ON_DAY = "repeatsOnDay";
+    private static final String RECIPIENT_TYPE = "recipientType";
 
     @Column(name = "campaign_name", nullable = false)
     private String campaignName;
@@ -140,12 +144,17 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
     @Column(name = "is_visible", nullable = true)
     private boolean isVisible;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "recipient_type", nullable = false, length = 20)
+    private RecipientType recipientType;
+
     public WhatsAppCampaign() {}
 
     private WhatsAppCampaign(final String campaignName, final Integer campaignType, final Integer triggerType, final Report businessRuleId,
             final String paramValue, final String message, final String atTemplateName, final String languageCode,
             final String bodyVariableMapping, final LocalDate submittedOnDate, final AppUser submittedBy, final String recurrence,
-            final LocalDateTime localDateTime) {
+            final LocalDateTime localDateTime, final RecipientType recipientType) {
+        this.recipientType = recipientType == null ? RecipientType.CLIENT : recipientType;
         this.campaignName = campaignName;
         this.campaignType = campaignType;
         this.triggerType = WhatsAppCampaignTriggerType.fromInt(triggerType).getValue();
@@ -178,6 +187,7 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
         final String atTemplateName = command.stringValueOfParameterNamed(AT_TEMPLATE_NAME);
         final String languageCode = command.stringValueOfParameterNamed(LANGUAGE_CODE);
         final String bodyVariableMapping = command.jsonFragment(BODY_VARIABLE_MAPPING);
+        final RecipientType recipientType = resolveRecipientType(command.stringValueOfParameterNamedAllowingNull(RECIPIENT_TYPE));
 
         LocalDate submittedOnDate = DateUtils.getBusinessLocalDate();
         if (command.hasParameter(SUBMITTED_ON_DATE)) {
@@ -202,7 +212,15 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
         }
 
         return new WhatsAppCampaign(campaignName, campaignType.intValue(), triggerType.intValue(), report, paramValue, message,
-                atTemplateName, languageCode, bodyVariableMapping, submittedOnDate, submittedBy, recurrence, recurrenceStartDate);
+                atTemplateName, languageCode, bodyVariableMapping, submittedOnDate, submittedBy, recurrence, recurrenceStartDate,
+                recipientType);
+    }
+
+    private static RecipientType resolveRecipientType(final String value) {
+        if (StringUtils.isBlank(value)) {
+            return RecipientType.CLIENT;
+        }
+        return RecipientType.valueOf(value.trim().toUpperCase(Locale.ENGLISH));
     }
 
     public Map<String, Object> update(final JsonCommand command) {
@@ -238,6 +256,13 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
             final String newValue = command.jsonFragment(BODY_VARIABLE_MAPPING);
             actualChanges.put(BODY_VARIABLE_MAPPING, newValue);
             this.bodyVariableMapping = StringUtils.defaultIfEmpty(newValue, null);
+        }
+        if (command.parameterExists(RECIPIENT_TYPE)) {
+            final RecipientType newValue = resolveRecipientType(command.stringValueOfParameterNamedAllowingNull(RECIPIENT_TYPE));
+            if (newValue != this.recipientType) {
+                actualChanges.put(RECIPIENT_TYPE, newValue.name());
+                this.recipientType = newValue;
+            }
         }
         if (command.isChangeInIntegerParameterNamed(CAMPAIGN_TYPE, this.campaignType)) {
             final Integer newValue = command.integerValueOfParameterNamed(CAMPAIGN_TYPE);
@@ -527,6 +552,14 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
 
     public String getBodyVariableMapping() {
         return this.bodyVariableMapping;
+    }
+
+    public RecipientType getRecipientType() {
+        return this.recipientType == null ? RecipientType.CLIENT : this.recipientType;
+    }
+
+    public boolean isStaffCampaign() {
+        return RecipientType.STAFF == getRecipientType();
     }
 
     public String getRecurrence() {

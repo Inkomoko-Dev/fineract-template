@@ -87,10 +87,9 @@ public class WhatsAppCampaignReadPlatformServiceImpl implements WhatsAppCampaign
         final Collection<EnumOptionData> weekDays = this.smsCampaignDropdownReadPlatformService.retrieveWeeks();
         final Collection<EnumOptionData> frequencyTypeOptions = this.calendarDropdownReadPlatformService
                 .retrieveCalendarFrequencyTypeOptions();
-        final Collection<EnumOptionData> periodFrequencyOptions = this.smsCampaignDropdownReadPlatformService
-                .retrivePeriodFrequencyTypes();
+        final Collection<EnumOptionData> periodFrequencyOptions = this.smsCampaignDropdownReadPlatformService.retrivePeriodFrequencyTypes();
         return WhatsAppCampaignData.template(businessRulesOptions, campaignTypeOptions, campaignTriggerTypeOptions, months, weekDays,
-                frequencyTypeOptions, periodFrequencyOptions);
+                frequencyTypeOptions, periodFrequencyOptions, WhatsAppCampaignEnumerations.whatsAppRecipientTypeOptions());
     }
 
     @Override
@@ -124,12 +123,13 @@ public class WhatsAppCampaignReadPlatformServiceImpl implements WhatsAppCampaign
                 WhatsAppCampaignEnumerations.whatsAppCampaignType(CampaignType.fromInt(campaign.getCampaignType())),
                 WhatsAppCampaignEnumerations.whatsAppCampaignTriggerType(WhatsAppCampaignTriggerType.fromInt(campaign.getTriggerType())),
                 runReportId, reportName, campaign.getParamValue(),
-                WhatsAppCampaignEnumerations.whatsAppCampaignStatus(
-                        org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus
+                WhatsAppCampaignEnumerations
+                        .whatsAppCampaignStatus(org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus
                                 .fromInt(campaign.getStatus())),
                 campaign.getMessage(), campaign.getNextTriggerDate(), campaign.getLastTriggerDate(), timeline,
                 campaign.getRecurrenceStartDate(), campaign.getRecurrence(), campaign.getAtTemplateName(), campaign.getLanguageCode(),
-                campaign.getBodyVariableMapping(), parseBodyVariableMappingList(campaign.getBodyVariableMapping()));
+                campaign.getBodyVariableMapping(), parseBodyVariableMappingList(campaign.getBodyVariableMapping()),
+                campaign.getRecipientType().name());
     }
 
     private List<String> parseBodyVariableMappingList(final String bodyVariableMapping) {
@@ -148,7 +148,8 @@ public class WhatsAppCampaignReadPlatformServiceImpl implements WhatsAppCampaign
 
         final String schema;
 
-        private BusinessRuleMapper(final org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator sqlGenerator) {
+        private BusinessRuleMapper(
+                final org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator sqlGenerator) {
             final StringBuilder sql = new StringBuilder(300);
             sql.append("sr.id as id, ");
             sql.append("sr.report_name as reportName, ");

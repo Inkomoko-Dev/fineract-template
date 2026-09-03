@@ -27,3 +27,9 @@ licenses
 **/images/diag-*.svg
 target/
 fineract-provider/src/main/resources/application-local.properties
+.env.signoz
+.env.server
+.env.server.example
+data/server-mysql/
+signoz/agent/opentelemetry-javaagent.jar
+signoz/clickhouse/user_scripts/histogramQuantile
