@@ -20,8 +20,10 @@ package org.apache.fineract.useradministration.service;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.stream.StreamSupport;
 import java.util.List;
 import java.util.Map;
@@ -126,6 +128,7 @@ public class AppUserWritePlatformServiceJpaRepositoryImpl implements AppUserWrit
             }
 
             AppUser appUser = AppUser.fromJson(userOffice, linkedStaff, allRoles, clients, command);
+            appUser.updateAdditionalOffices(assembleAdditionalOffices(command));
 
             final Boolean sendPasswordToEmail = command.booleanObjectValueOfParameterNamed("sendPasswordToEmail");
             this.userDomainService.create(appUser, sendPasswordToEmail);
@@ -199,6 +202,10 @@ public class AppUserWritePlatformServiceJpaRepositoryImpl implements AppUserWrit
                 userToUpdate.changeStaff(linkedStaff);
             }
 
+            if (command.hasParameter(AppUserConstants.OFFICE_IDS)) {
+                changes.putAll(userToUpdate.updateAdditionalOfficesWithChanges(assembleAdditionalOffices(command)));
+            }
+
             if (changes.containsKey("roles")) {
                 JsonArray roleArray = command.arrayOfParameterNamed("roles");
                 String[] roleIds = StreamSupport.stream(roleArray.spliterator(), false)
@@ -255,6 +262,25 @@ public class AppUserWritePlatformServiceJpaRepositoryImpl implements AppUserWrit
         }
 
         return currentPasswordToSaveAsPreview;
+    }
+
+    private Collection<Office> assembleAdditionalOffices(final JsonCommand command) {
+        final List<Office> offices = new ArrayList<>();
+        if (!command.hasParameter(AppUserConstants.OFFICE_IDS)) {
+            return offices;
+        }
+        final JsonArray officeIdsArray = command.arrayOfParameterNamed(AppUserConstants.OFFICE_IDS);
+        if (officeIdsArray == null) {
+            return offices;
+        }
+        final Set<Long> officeIds = new LinkedHashSet<>();
+        for (final JsonElement officeIdElement : officeIdsArray) {
+            officeIds.add(officeIdElement.getAsLong());
+        }
+        for (final Long officeId : officeIds) {
+            offices.add(this.officeRepositoryWrapper.findOneWithNotFoundDetection(officeId));
+        }
+        return offices;
     }
 
     private Set<Role> assembleSetOfRoles(final String[] rolesArray) {

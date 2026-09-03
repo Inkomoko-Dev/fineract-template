@@ -52,6 +52,7 @@ import org.apache.fineract.infrastructure.dataqueries.data.StatusEnum;
 import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChecksReadService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
@@ -211,20 +212,18 @@ public class SavingsAccountReadPlatformServiceImpl implements SavingsAccountRead
     @Override
     public Page<SavingsAccountData> retrieveAll(final SearchParameters searchParameters) {
 
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        this.context.authenticatedUser();
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(this.savingAccountMapper.schema());
 
         sqlBuilder.append(" join m_office o on (o.id = c.office_id or o.id = g.office_id)");
-        sqlBuilder.append(" where o.hierarchy like ?");
+        sqlBuilder.append(" where ").append(officeAccessScope.sqlPredicate("o.hierarchy"));
 
-        final Object[] objectArray = new Object[2];
-        objectArray[0] = hierarchySearchString;
-        int arrayPos = 1;
+        final Object[] objectArray = new Object[3];
+        int arrayPos = 0;
         if (searchParameters != null) {
             String sqlQueryCriteria = searchParameters.getSqlSearch();
             if (StringUtils.isNotBlank(sqlQueryCriteria)) {

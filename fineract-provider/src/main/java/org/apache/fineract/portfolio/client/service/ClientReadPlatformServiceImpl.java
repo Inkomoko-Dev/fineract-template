@@ -57,6 +57,7 @@ import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChe
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.organisation.office.data.OfficeData;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
@@ -231,19 +232,14 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
 
-        final String userOfficeHierarchy = this.context.officeHierarchy();
-        final String underHierarchySearchString = userOfficeHierarchy + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
         final String appUserID = String.valueOf(context.authenticatedUser().getId());
 
-        // if (searchParameters.isScopedByOfficeHierarchy()) {
-        // this.context.validateAccessRights(searchParameters.getHierarchy());
-        // underHierarchySearchString = searchParameters.getHierarchy() + "%";
-        // }
-        List<Object> paramList = new ArrayList<>(Arrays.asList(underHierarchySearchString, underHierarchySearchString));
+        List<Object> paramList = new ArrayList<>();
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(this.clientMapper.schema());
-        sqlBuilder.append(" where (o.hierarchy like ? or transferToOffice.hierarchy like ?) ");
+        sqlBuilder.append(" where ").append(officeAccessScope.sqlPredicate("o.hierarchy", "transferToOffice.hierarchy")).append(" ");
 
         if (searchParameters != null) {
             if (searchParameters.isSelfUser()) {
@@ -393,13 +389,11 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
     @Override
     public ClientData retrieveOne(final Long clientId) {
         try {
-            final String hierarchy = this.context.officeHierarchy();
-            final String hierarchySearchString = hierarchy + "%";
+            final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
-            final String sql = "select " + this.clientMapper.schema()
-                    + " where ( o.hierarchy like ? or transferToOffice.hierarchy like ?) and c.id = ?";
-            final ClientData clientData = this.jdbcTemplate.queryForObject(sql, this.clientMapper, // NOSONAR
-                    hierarchySearchString, hierarchySearchString, clientId);
+            final String sql = "select " + this.clientMapper.schema() + " where "
+                    + officeAccessScope.sqlPredicate("o.hierarchy", "transferToOffice.hierarchy") + " and c.id = ?";
+            final ClientData clientData = this.jdbcTemplate.queryForObject(sql, this.clientMapper, clientId); // NOSONAR
             // Get client collaterals
             final Collection<ClientCollateralManagement> clientCollateralManagements = this.clientCollateralManagementRepositoryWrapper
                     .getCollateralsPerClient(clientId);
@@ -467,27 +461,24 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
     @Override
     public Collection<ClientData> retrieveClientMembersOfGroup(final Long groupId) {
 
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
-        final String sql = "select " + this.membersOfGroupMapper.schema() + " where o.hierarchy like ? and pgc.group_id = ?";
+        final String sql = "select " + this.membersOfGroupMapper.schema() + " where " + officeAccessScope.sqlPredicate("o.hierarchy")
+                + " and pgc.group_id = ?";
 
-        return this.jdbcTemplate.query(sql, this.membersOfGroupMapper, hierarchySearchString, groupId); // NOSONAR
+        return this.jdbcTemplate.query(sql, this.membersOfGroupMapper, groupId); // NOSONAR
     }
 
     @Override
     public Collection<ClientData> retrieveActiveClientMembersOfGroup(final Long groupId) {
 
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
-        final String sql = "select " + this.membersOfGroupMapper.schema()
-                + " where o.hierarchy like ? and pgc.group_id = ? and c.status_enum = ? ";
+        final String sql = "select " + this.membersOfGroupMapper.schema() + " where " + officeAccessScope.sqlPredicate("o.hierarchy")
+                + " and pgc.group_id = ? and c.status_enum = ? ";
 
         return this.jdbcTemplate.query(sql, this.membersOfGroupMapper, // NOSONAR
-                hierarchySearchString, groupId, ClientStatus.ACTIVE.getValue());
+                groupId, ClientStatus.ACTIVE.getValue());
     }
 
     private static final class ClientMembersOfGroupMapper implements RowMapper<ClientData> {
@@ -678,15 +669,13 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
     @Override
     public Collection<ClientData> retrieveActiveClientMembersOfCenter(final Long centerId) {
 
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
-        final String sql = "select " + this.membersOfGroupMapper.schema()
-                + " left join m_group g on pgc.group_id=g.id where o.hierarchy like ? and g.parent_id = ? and c.status_enum = ? group by c.id";
+        final String sql = "select " + this.membersOfGroupMapper.schema() + " left join m_group g on pgc.group_id=g.id where "
+                + officeAccessScope.sqlPredicate("o.hierarchy") + " and g.parent_id = ? and c.status_enum = ? group by c.id";
 
         return this.jdbcTemplate.query(sql, this.membersOfGroupMapper, // NOSONAR
-                hierarchySearchString, centerId, ClientStatus.ACTIVE.getValue());
+                centerId, ClientStatus.ACTIVE.getValue());
     }
 
     private static final class ClientMapper implements RowMapper<ClientData> {
@@ -1176,13 +1165,12 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
         try {
 
             List<Object> params = new ArrayList<>();
-            final String userOfficeHierarchy = this.context.officeHierarchy();
-            final String underHierarchySearchString = userOfficeHierarchy + "%";
-            List<Object> paramList = new ArrayList<>(Arrays.asList(underHierarchySearchString, underHierarchySearchString));
+            final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+            List<Object> paramList = new ArrayList<>();
             final StringBuilder sqlBuilder = new StringBuilder(200);
             sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
             sqlBuilder.append(this.clientMapper.schema());
-            sqlBuilder.append(" where (o.hierarchy like ? or transferToOffice.hierarchy like ?) ");
+            sqlBuilder.append(" where ").append(officeAccessScope.sqlPredicate("o.hierarchy", "transferToOffice.hierarchy")).append(" ");
 
             FilterConstraint[] filterConstraints = mapper.readValue(filterConstraintJson, FilterConstraint[].class);
             final String extraCriteria = searchReadPlatformService.buildSqlStringFromFilterConstraints(filterConstraints, params,

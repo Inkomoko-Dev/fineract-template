@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.security.service;
 
 import org.apache.fineract.commands.domain.CommandWrapper;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.useradministration.domain.AppUser;
 
 public interface PlatformSecurityContext {
@@ -40,6 +41,11 @@ public interface PlatformSecurityContext {
     void validateAccessRights(String resourceOfficeHierarchy);
 
     String officeHierarchy();
+
+    /**
+     * Every office the authenticated user may read data from, honouring their hierarchical and multi-location access.
+     */
+    OfficeAccessScope officeAccessScope();
 
     boolean doesPasswordHasToBeRenewed(AppUser currentUser);
 

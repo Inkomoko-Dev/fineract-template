@@ -63,6 +63,7 @@ import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecific
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.infrastructure.security.utils.SQLInjectionValidator;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.domain.ApplicationCurrency;
 import org.apache.fineract.organisation.monetary.domain.ApplicationCurrencyRepositoryWrapper;
@@ -299,9 +300,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     public LoanAccountData retrieveOne(final Long loanId) {
 
         try {
-            final AppUser currentUser = this.context.authenticatedUser();
-            final String hierarchy = currentUser.getOffice().getHierarchy();
-            final String hierarchySearchString = hierarchy + "%";
+            final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
             final LoanMapper rm = new LoanMapper(sqlGenerator, paymentTypeReadPlatformService);
 
@@ -310,10 +309,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(rm.loanSchema());
             sqlBuilder.append(" join m_office o on (o.id = c.office_id or o.id = g.office_id) ");
             sqlBuilder.append(" left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
-            sqlBuilder.append(" where l.id=? and ( o.hierarchy like ? or transferToOffice.hierarchy like ?)");
+            sqlBuilder.append(" where l.id=? and ")
+                    .append(officeAccessScope.sqlPredicate("o.hierarchy", "transferToOffice.hierarchy"));
 
-            final LoanAccountData loanAccountData = this.jdbcTemplate.queryForObject(sqlBuilder.toString(), rm, loanId,
-                    hierarchySearchString, hierarchySearchString);
+            final LoanAccountData loanAccountData = this.jdbcTemplate.queryForObject(sqlBuilder.toString(), rm, loanId);
             return enrichThirdPartyDisbursementFlag(loanAccountData);
         } catch (final EmptyResultDataAccessException e) {
             throw new LoanNotFoundException(loanId, e);
@@ -447,8 +446,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         Boolean isExtendLoanLifeCycleConfig = configurationReadPlatformService
                 .retrieveGlobalConfiguration("Add-More-Stages-To-A-Loan-Life-Cycle").isEnabled();
 
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
@@ -461,17 +459,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         // but that at present is an edge case
         sqlBuilder.append(" join m_office o on (o.id = c.office_id or o.id = g.office_id) ");
         sqlBuilder.append(" left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
-        sqlBuilder.append(" where ( o.hierarchy like ? or transferToOffice.hierarchy like ?)");
+        sqlBuilder.append(" where ").append(officeAccessScope.sqlPredicate("o.hierarchy", "transferToOffice.hierarchy"));
 
         if (isExtendLoanLifeCycleConfig) {
             sqlBuilder.append(
                     " and (ds.next_loan_ic_review_decision_state = 1900 and l.loan_decision_state = 1900 or l.loan_decision_state is null)  ");
         }
 
-        int arrayPos = 2;
+        int arrayPos = 0;
         List<Object> extraCriterias = new ArrayList<>();
-        extraCriterias.add(hierarchySearchString);
-        extraCriterias.add(hierarchySearchString);
 
         if (searchParameters != null) {
 
@@ -529,8 +525,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         final AppUser currentUser = this.context.authenticatedUser();
 
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
@@ -543,12 +538,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         // but that at present is an edge case
         sqlBuilder.append(" join m_office o on (o.id = c.office_id or o.id = g.office_id) ");
         sqlBuilder.append(" left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
-        sqlBuilder.append(" where ( o.hierarchy like ? or transferToOffice.hierarchy like ?) and l.loan_status_id = 300");
+        sqlBuilder.append(" where ").append(officeAccessScope.sqlPredicate("o.hierarchy", "transferToOffice.hierarchy"))
+                .append(" and l.loan_status_id = 300");
 
-        int arrayPos = 2;
+        int arrayPos = 0;
         List<Object> extraCriterias = new ArrayList<>();
-        extraCriterias.add(hierarchySearchString);
-        extraCriterias.add(hierarchySearchString);
 
         if (searchParameters != null) {
 
@@ -3875,14 +3869,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public Collection<LoanAccountData> getAllLoansPendingDecisionEngine(Integer loanDecisionState) {
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
+        this.context.authenticatedUser();
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
         final LoanMapper rm = new LoanMapper(sqlGenerator,paymentTypeReadPlatformService);
         final StringBuilder sqlBuilder = new StringBuilder(200);
 
         String sql = "select " + rm.loanSchema();
-        if (!hierarchy.equals(".")) {
-            sql += " join m_office o2 on o2.id = c.office_id and o2.hierarchy like '" + hierarchy + "%' ";
+        if (!".".equals(officeAccessScope.primaryHierarchy()) || !officeAccessScope.isIncludeDescendants()) {
+            sql += " join m_office o2 on o2.id = c.office_id and " + officeAccessScope.sqlPredicate("o2.hierarchy") + " ";
         }
         sqlBuilder.append(sql);
         sqlBuilder.append(" where l.loan_status_id=100  ");

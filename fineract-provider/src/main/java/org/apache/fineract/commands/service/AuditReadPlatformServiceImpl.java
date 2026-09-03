@@ -48,6 +48,7 @@ import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecific
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.infrastructure.security.utils.SQLBuilder;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.office.data.OfficeData;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.staff.data.StaffData;
@@ -96,7 +97,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
 
     private static final class AuditMapper implements RowMapper<AuditData> {
 
-        public String schema(final boolean includeJson, final String hierarchy) {
+        public String schema(final boolean includeJson, final OfficeAccessScope officeAccessScope) {
 
             String commandAsJsonString = "";
             if (includeJson) {
@@ -119,8 +120,8 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
 
             // data scoping: head office (hierarchy = ".") can see all audit
             // entries
-            if (!hierarchy.equals(".")) {
-                partSql += " join m_office o2 on o2.id = aud.office_id and o2.hierarchy like '" + hierarchy + "%' ";
+            if (!".".equals(officeAccessScope.primaryHierarchy()) || !officeAccessScope.isIncludeDescendants()) {
+                partSql += " join m_office o2 on o2.id = aud.office_id and " + officeAccessScope.sqlPredicate("o2.hierarchy") + " ";
             }
 
             return partSql;
@@ -175,12 +176,12 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
 
         this.paginationParametersDataValidator.validateParameterValues(parameters, supportedOrderByValues, "audits");
         final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final AuditMapper rm = new AuditMapper();
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(rm.schema(includeJson, hierarchy));
+        sqlBuilder.append(rm.schema(includeJson, officeAccessScope));
         sqlBuilder.append(' ').append(extraCriteria.getSQLTemplate());
         if (parameters.isOrderByRequested()) {
             sqlBuilder.append(' ').append(parameters.orderBySql());
@@ -214,10 +215,10 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
         }
 
         final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final AuditMapper rm = new AuditMapper();
-        String sql = "select " + rm.schema(includeJson, hierarchy);
+        String sql = "select " + rm.schema(includeJson, officeAccessScope);
 
         Boolean isLimitedChecker = false;
         if (useType.equals("makerchecker")) {
@@ -242,11 +243,11 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
     public AuditData retrieveAuditEntry(final Long auditId) {
 
         final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
 
         final AuditMapper rm = new AuditMapper();
 
-        final String sql = "select " + rm.schema(true, hierarchy) + " where aud.id = ? ";
+        final String sql = "select " + rm.schema(true, officeAccessScope) + " where aud.id = ? ";
 
         final AuditData auditResult = this.jdbcTemplate.queryForObject(sql, rm, auditId); // NOSONAR
 
