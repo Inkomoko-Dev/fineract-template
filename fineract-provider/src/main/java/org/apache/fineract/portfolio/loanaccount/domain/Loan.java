@@ -6076,15 +6076,39 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
         final LoanTransaction adjustment = LoanTransaction.residualBalanceAdjustment(this, getOffice(), transactionDate, signedResidual,
                 null);
-        addLoanTransaction(adjustment);
         final LoanRepaymentScheduleTransactionProcessor processor = this.transactionProcessorFactory
                 .determineProcessor(this.transactionProcessingStrategy);
-        processor.handleWriteOff(adjustment, loanCurrency(), getRepaymentScheduleInstallments());
+        processor.handleResidualBalanceAdjustment(adjustment, loanCurrency(), getRepaymentScheduleInstallments(),
+                product.isCashBasedAccountingEnabled());
+        final boolean scheduleAllocationWasEmpty = adjustment.getAmount(loanCurrency()).isZero();
+        if (scheduleAllocationWasEmpty) {
+            applyResidualComponentsFromLoanSummary(adjustment);
+        }
+        if (adjustment.getAmount(loanCurrency()).isZero()) {
+            return null;
+        }
+        if (!adjustment.getAmount(loanCurrency()).isEqualTo(Money.of(loanCurrency(), signedResidual))) {
+            throw new IllegalStateException("Residual balance adjustment does not match the outstanding balance for loan " + getId());
+        }
+        addLoanTransaction(adjustment);
         updateLoanSummaryDerivedFields();
+        if (this.summary.getTotalOutstanding() == null || this.summary.getTotalOutstanding().compareTo(BigDecimal.ZERO) != 0) {
+            throw new IllegalStateException("Residual balance adjustment did not reduce loan " + getId() + " to zero");
+        }
         this.loanStatus = LoanStatus.CLOSED_OBLIGATIONS_MET.getValue();
         this.closedOnDate = transactionDate;
         this.actualMaturityDate = transactionDate;
         return adjustment;
+    }
+
+    private void applyResidualComponentsFromLoanSummary(final LoanTransaction adjustment) {
+        final MonetaryCurrency currency = loanCurrency();
+        final Money principal = Money.of(currency, this.summary.getTotalPrincipalOutstanding());
+        final Money interest = Money.of(currency, this.summary.getTotalInterestOutstanding());
+        final Money fees = Money.of(currency, this.summary.getTotalFeeChargesOutstanding());
+        final Money penalties = Money.of(currency, this.summary.getTotalPenaltyChargesOutstanding());
+        adjustment.resetDerivedComponents();
+        adjustment.updateComponentsAndTotal(principal, interest, fees, penalties);
     }
 
     /**

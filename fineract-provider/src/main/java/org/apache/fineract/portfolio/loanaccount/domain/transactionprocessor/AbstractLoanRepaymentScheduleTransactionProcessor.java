@@ -208,7 +208,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 handlePartialWriteOff(loanTransaction, currency, installments);
             } else if (loanTransaction.isResidualBalanceAdjustment()) {
                 loanTransaction.resetDerivedComponents();
-                handleWriteOff(loanTransaction, currency, installments);
+                handleResidualBalanceAdjustment(loanTransaction, currency, installments,
+                        loanTransaction.getLoan().getLoanProduct().isCashBasedAccountingEnabled());
             } else if (loanTransaction.isRefundForActiveLoan()) {
                 loanTransaction.resetDerivedComponents();
 
@@ -504,6 +505,33 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         }
 
         loanTransaction.updateComponentsAndTotal(principalPortion, interestPortion, feeChargesPortion, penaltychargesPortion);
+    }
+
+    @Override
+    public void handleResidualBalanceAdjustment(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
+            final List<LoanRepaymentScheduleInstallment> installments, final boolean cashBasedAccounting) {
+        if (!cashBasedAccounting) {
+            handleWriteOff(loanTransaction, currency, installments);
+            return;
+        }
+
+        final LocalDate transactionDate = loanTransaction.getTransactionDate();
+        Money principalPortion = Money.zero(currency);
+        Money interestPortion = Money.zero(currency);
+        Money feeChargesPortion = Money.zero(currency);
+        Money penaltyChargesPortion = Money.zero(currency);
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            if (installment.isNotFullyPaidOff()) {
+                principalPortion = principalPortion.plus(installment.writeOffOutstandingPrincipal(transactionDate, currency));
+                interestPortion = interestPortion
+                        .plus(installment.waiveInterestComponent(transactionDate, installment.getInterestOutstanding(currency)));
+                feeChargesPortion = feeChargesPortion
+                        .plus(installment.waiveFeeChargesComponent(transactionDate, installment.getFeeChargesOutstanding(currency)));
+                penaltyChargesPortion = penaltyChargesPortion.plus(
+                        installment.waivePenaltyChargesComponent(transactionDate, installment.getPenaltyChargesOutstanding(currency)));
+            }
+        }
+        loanTransaction.updateComponentsAndTotal(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
     }
 
     @Override
