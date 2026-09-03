@@ -40,6 +40,7 @@ import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInboundConversationService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,6 +56,7 @@ public class AfricasTalkingWhatsAppService {
     private final StaffRepositoryWrapper staffRepositoryWrapper;
     private final FromJsonHelper fromJsonHelper;
     private final NotificationCommandService notificationCommandService;
+    private final WhatsAppInboundConversationService inboundConversationService;
 
     @Transactional
     public CommandProcessingResult queueOutboundMessage(final String json) {
@@ -122,6 +124,8 @@ public class AfricasTalkingWhatsAppService {
         final CommunicationMessage message = CommunicationMessage.inboundWhatsApp(recipient.getNormalizedPhoneNumber(),
                 recipient.getRecipientType(), client, staff, messageBody, externalId);
         communicationMessageRepository.save(message);
+        inboundConversationService.handleInbound(recipient.getNormalizedPhoneNumber(), messageBody, recipient.getRecipientType(), client,
+                staff);
     }
 
     @Transactional
