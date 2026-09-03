@@ -18,16 +18,33 @@
  */
 package org.apache.fineract.infrastructure.whatsapp.interactive.domain;
 
-import java.util.List;
-import java.util.Optional;
-import org.springframework.data.jpa.repository.JpaRepository;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.Table;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 
-public interface WhatsAppMenuOptionRepository extends JpaRepository<WhatsAppMenuOption, Long> {
+@Entity
+@Table(name = "whatsapp_menu_definition")
+@Getter
+@Setter
+@NoArgsConstructor
+public class WhatsAppMenuDefinition extends AbstractPersistableCustom {
 
-    List<WhatsAppMenuOption> findByMenuKeyAndLanguageCodeAndEnabledTrueOrderByOptionNumberAsc(String menuKey, String languageCode);
+    @Column(name = "menu_key", length = 100, nullable = false)
+    private String menuKey;
 
-    Optional<WhatsAppMenuOption> findByMenuKeyAndLanguageCodeAndOptionNumberAndEnabledTrue(String menuKey, String languageCode,
-            int optionNumber);
+    @Column(name = "language_code", length = 15, nullable = false)
+    private String languageCode;
 
-    List<WhatsAppMenuOption> findByMenuKeyAndLanguageCodeOrderByOptionNumberAsc(String menuKey, String languageCode);
+    @Column(name = "header_text", length = 500, nullable = false)
+    private String headerText;
+
+    @Column(name = "parent_menu_key", length = 100)
+    private String parentMenuKey;
+
+    @Column(name = "enabled", nullable = false)
+    private boolean enabled = true;
 }

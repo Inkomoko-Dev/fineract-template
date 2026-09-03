@@ -16,9 +16,11 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.whatsapp.interactive.constants;
+package org.apache.fineract.infrastructure.whatsapp.interactive;
 
-public enum WhatsAppMenuActionType {
+public final class WhatsAppInteractiveConstants {
 
-    LOAN_SERVICE, CONTENT, ADVISOR_HANDOFF, LANGUAGE_SELECT, SUBMENU
+    public static final String RESOURCE_NAME = "COMMUNICATION";
+
+    private WhatsAppInteractiveConstants() {}
 }

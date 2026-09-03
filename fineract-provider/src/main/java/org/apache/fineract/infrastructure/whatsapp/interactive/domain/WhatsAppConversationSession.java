@@ -68,6 +68,9 @@ public class WhatsAppConversationSession extends AbstractPersistableCustom {
     @Column(name = "current_menu_key", length = 100)
     private String currentMenuKey;
 
+    @Column(name = "session_context")
+    private String sessionContext;
+
     @Column(name = "authenticated", nullable = false)
     private boolean authenticated = false;
 

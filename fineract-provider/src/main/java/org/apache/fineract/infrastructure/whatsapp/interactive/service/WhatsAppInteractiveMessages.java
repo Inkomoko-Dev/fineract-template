@@ -79,4 +79,14 @@ public final class WhatsAppInteractiveMessages {
     public static String invalidSelection(final String languageCode) {
         return "rw".equalsIgnoreCase(languageCode) ? "Hitamo imibare iri mu menu." : "Please choose a valid menu option.";
     }
+
+    public static String navigationHint(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Andika MENU cyangwa 0 gusubira inyuma."
+                : "Reply MENU for main menu or 0/BACK to go back.";
+    }
+
+    public static String otherEnquiryPrompt(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Sobanura icyifuzo cyawe mu ncamake:"
+                : "Please describe your enquiry in a short message:";
+    }
 }

@@ -21,14 +21,11 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConversationType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppSessionStatus;
 import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConversationSession;
-import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuOption;
-import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuOptionRepository;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.springframework.stereotype.Service;
@@ -43,8 +40,8 @@ public class WhatsAppInboundConversationService {
     private final WhatsAppOptOutService optOutService;
     private final WhatsAppConsentService consentService;
     private final WhatsAppConversationSessionService sessionService;
-    private final WhatsAppMenuRenderer menuRenderer;
-    private final WhatsAppMenuOptionRepository menuOptionRepository;
+    private final WhatsAppMenuNavigationService menuNavigationService;
+    private final WhatsAppInboundMessageRouter messageRouter;
     private final WhatsAppReplyService replyService;
     private final WhatsAppInteractiveProperties properties;
 
@@ -72,10 +69,18 @@ public class WhatsAppInboundConversationService {
         }
 
         WhatsAppConversationSession session = sessionService.startOrResume(phoneNumber, conversationType, client, staff);
+        if (handleGlobalNavigation(session, normalizedBody, recipientType, client, staff)) {
+            return;
+        }
+
         switch (session.getSessionStatus()) {
             case LANGUAGE_SELECTION -> session = handleLanguageSelection(session, normalizedBody, recipientType, client, staff);
             case CONSENT_PENDING -> session = handleConsent(session, normalizedBody, recipientType, client, staff);
-            case MAIN_MENU -> handleMainMenuSelection(session, normalizedBody, recipientType, client, staff);
+            case MAIN_MENU -> messageRouter.routeMenuSelection(session, normalizedBody, recipientType, client, staff);
+            case AWAITING_INPUT -> messageRouter.handleAwaitingInput(session, normalizedBody, recipientType, client, staff);
+            case AUTHENTICATING -> replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
+                    WhatsAppInteractiveMessages.loanServicePending(
+                            StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage())));
             default -> {
                 session.setSessionStatus(WhatsAppSessionStatus.LANGUAGE_SELECTION);
                 session.setCurrentMenuKey("LANGUAGE");
@@ -83,6 +88,23 @@ public class WhatsAppInboundConversationService {
                 sendLanguagePrompt(phoneNumber, recipientType, client, staff);
             }
         }
+    }
+
+    private boolean handleGlobalNavigation(final WhatsAppConversationSession session, final String body, final RecipientType recipientType,
+            final Client client, final Staff staff) {
+        if (session.getSessionStatus() == WhatsAppSessionStatus.LANGUAGE_SELECTION
+                || session.getSessionStatus() == WhatsAppSessionStatus.CONSENT_PENDING) {
+            return false;
+        }
+        if (keywordMatcher.matchesMainMenu(body)) {
+            menuNavigationService.navigateToMainMenu(session, recipientType, client, staff);
+            return true;
+        }
+        if (keywordMatcher.matchesBackMenu(body) || "0".equals(body)) {
+            menuNavigationService.navigateBack(session, recipientType, client, staff);
+            return true;
+        }
+        return false;
     }
 
     private void handleOptOut(final String phoneNumber, final String keyword, final RecipientType recipientType, final Client client,
@@ -112,9 +134,9 @@ public class WhatsAppInboundConversationService {
         session.setLanguageCode(language);
         if (consentService.hasActiveConsent(session.getPhoneNumber())) {
             session.setSessionStatus(WhatsAppSessionStatus.MAIN_MENU);
-            session.setCurrentMenuKey("MAIN");
+            session.setCurrentMenuKey(properties.getMainMenuKey());
             sessionService.save(session);
-            sendMainMenu(session, recipientType, client, staff);
+            menuNavigationService.navigateToMenu(session, properties.getMainMenuKey(), recipientType, client, staff, false);
         } else {
             session.setSessionStatus(WhatsAppSessionStatus.CONSENT_PENDING);
             sessionService.save(session);
@@ -130,11 +152,11 @@ public class WhatsAppInboundConversationService {
         if (keywordMatcher.matchesConsentAccept(body)) {
             consentService.recordConsent(session.getPhoneNumber(), client, true, "WHATSAPP_SESSION", null);
             session.setSessionStatus(WhatsAppSessionStatus.MAIN_MENU);
-            session.setCurrentMenuKey("MAIN");
+            session.setCurrentMenuKey(properties.getMainMenuKey());
             sessionService.save(session);
             replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
                     WhatsAppInteractiveMessages.consentAccepted(language));
-            sendMainMenu(session, recipientType, client, staff);
+            menuNavigationService.navigateToMenu(session, properties.getMainMenuKey(), recipientType, client, staff, false);
         } else {
             consentService.recordConsent(session.getPhoneNumber(), client, false, "WHATSAPP_SESSION", null);
             session.setSessionStatus(WhatsAppSessionStatus.CLOSED);
@@ -145,55 +167,8 @@ public class WhatsAppInboundConversationService {
         return session;
     }
 
-    private void handleMainMenuSelection(final WhatsAppConversationSession session, final String body, final RecipientType recipientType,
-            final Client client, final Staff staff) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
-        if (!NumberUtils.isDigits(body.trim())) {
-            replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
-                    WhatsAppInteractiveMessages.invalidSelection(language));
-            sendMainMenu(session, recipientType, client, staff);
-            return;
-        }
-        final int optionNumber = Integer.parseInt(body.trim());
-        final WhatsAppMenuOption option = menuOptionRepository
-                .findByMenuKeyAndLanguageCodeAndOptionNumberAndEnabledTrue(session.getCurrentMenuKey(), language, optionNumber)
-                .orElse(null);
-        if (option == null) {
-            replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
-                    WhatsAppInteractiveMessages.invalidSelection(language));
-            sendMainMenu(session, recipientType, client, staff);
-            return;
-        }
-        dispatchMenuAction(session, option, recipientType, client, staff, language);
-    }
-
-    private void dispatchMenuAction(final WhatsAppConversationSession session, final WhatsAppMenuOption option,
-            final RecipientType recipientType, final Client client, final Staff staff, final String language) {
-        switch (option.getActionType()) {
-            case LOAN_SERVICE -> replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
-                    WhatsAppInteractiveMessages.loanServicePending(language));
-            case CONTENT -> replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
-                    WhatsAppInteractiveMessages.contentPending(language, option.getActionTarget()));
-            case ADVISOR_HANDOFF -> {
-                session.setSessionStatus(WhatsAppSessionStatus.ESCALATED);
-                sessionService.save(session);
-                replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
-                        WhatsAppInteractiveMessages.advisorHandoff(language));
-            }
-            default -> replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
-                    WhatsAppInteractiveMessages.invalidSelection(language));
-        }
-    }
-
     private void sendLanguagePrompt(final String phoneNumber, final RecipientType recipientType, final Client client, final Staff staff) {
         replyService.sendTransactionalReply(phoneNumber, recipientType, client, staff, WhatsAppInteractiveMessages.welcomeLanguagePrompt());
-    }
-
-    private void sendMainMenu(final WhatsAppConversationSession session, final RecipientType recipientType, final Client client,
-            final Staff staff) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
-        final String menu = menuRenderer.renderMenu("MAIN", language, WhatsAppInteractiveMessages.mainMenuHeader(language));
-        replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff, menu);
     }
 
     private String resolveLanguageChoice(final String body) {

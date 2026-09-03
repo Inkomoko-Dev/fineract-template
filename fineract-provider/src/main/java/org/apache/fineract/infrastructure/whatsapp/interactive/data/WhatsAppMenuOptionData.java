@@ -16,9 +16,24 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.whatsapp.interactive.constants;
+package org.apache.fineract.infrastructure.whatsapp.interactive.data;
 
-public enum WhatsAppMenuActionType {
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppMenuActionType;
 
-    LOAN_SERVICE, CONTENT, ADVISOR_HANDOFF, LANGUAGE_SELECT, SUBMENU
+@Getter
+@Setter
+@NoArgsConstructor
+public class WhatsAppMenuOptionData {
+
+    private Long id;
+    private String menuKey;
+    private String languageCode;
+    private int optionNumber;
+    private String optionLabel;
+    private WhatsAppMenuActionType actionType;
+    private String actionTarget;
+    private boolean enabled;
 }

@@ -28,12 +28,15 @@ import org.junit.jupiter.api.Test;
 class WhatsAppKeywordMatcherTest {
 
     private WhatsAppKeywordMatcher matcher;
+    private WhatsAppInteractiveProperties properties;
 
     @BeforeEach
     void setUp() {
-        final WhatsAppInteractiveProperties properties = new WhatsAppInteractiveProperties();
+        properties = new WhatsAppInteractiveProperties();
         properties.setOptOutKeywords("STOP,UNSUBSCRIBE");
         properties.setConsentAcceptKeywords("YES,AGREE");
+        properties.setMainMenuKeywords("MENU,MAIN");
+        properties.setBackMenuKeywords("BACK,0");
         matcher = new WhatsAppKeywordMatcher(properties);
     }
 
@@ -47,5 +50,11 @@ class WhatsAppKeywordMatcherTest {
     void matchesConsentAccept() {
         assertTrue(matcher.matchesConsentAccept("YES"));
         assertFalse(matcher.matchesConsentAccept("NO"));
+    }
+
+    @Test
+    void matchesNavigationKeywords() {
+        assertTrue(matcher.matchesMainMenu("MENU"));
+        assertTrue(matcher.matchesBackMenu("BACK"));
     }
 }

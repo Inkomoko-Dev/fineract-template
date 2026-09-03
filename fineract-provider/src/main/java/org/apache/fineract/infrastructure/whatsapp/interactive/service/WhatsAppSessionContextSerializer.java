@@ -16,9 +16,29 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.whatsapp.interactive.constants;
+package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
-public enum WhatsAppMenuActionType {
+import com.google.gson.Gson;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext;
+import org.springframework.stereotype.Component;
 
-    LOAN_SERVICE, CONTENT, ADVISOR_HANDOFF, LANGUAGE_SELECT, SUBMENU
+@Component
+public class WhatsAppSessionContextSerializer {
+
+    private final Gson gson = new Gson();
+
+    public WhatsAppSessionContext fromJson(final String json) {
+        if (StringUtils.isBlank(json)) {
+            return WhatsAppSessionContext.empty();
+        }
+        return gson.fromJson(json, WhatsAppSessionContext.class);
+    }
+
+    public String toJson(final WhatsAppSessionContext context) {
+        if (context == null) {
+            return null;
+        }
+        return gson.toJson(context);
+    }
 }

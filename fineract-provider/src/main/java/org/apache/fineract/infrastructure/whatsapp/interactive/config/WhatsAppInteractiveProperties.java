@@ -33,4 +33,7 @@ public class WhatsAppInteractiveProperties {
     private String optOutKeywords = "STOP,UNSUBSCRIBE,END,ACHA";
     private String optInKeywords = "START,SUBSCRIBE,YES";
     private String consentAcceptKeywords = "YES,AGREE,OK";
+    private String mainMenuKeywords = "MENU,MAIN";
+    private String backMenuKeywords = "BACK,0";
+    private String mainMenuKey = "MAIN";
 }

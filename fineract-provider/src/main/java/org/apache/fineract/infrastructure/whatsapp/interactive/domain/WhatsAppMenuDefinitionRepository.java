@@ -16,9 +16,19 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.whatsapp.interactive.constants;
+package org.apache.fineract.infrastructure.whatsapp.interactive.domain;
 
-public enum WhatsAppMenuActionType {
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-    LOAN_SERVICE, CONTENT, ADVISOR_HANDOFF, LANGUAGE_SELECT, SUBMENU
+public interface WhatsAppMenuDefinitionRepository extends JpaRepository<WhatsAppMenuDefinition, Long> {
+
+    Optional<WhatsAppMenuDefinition> findByMenuKeyAndLanguageCodeAndEnabledTrue(String menuKey, String languageCode);
+
+    Optional<WhatsAppMenuDefinition> findByMenuKeyAndLanguageCode(String menuKey, String languageCode);
+
+    List<WhatsAppMenuDefinition> findByMenuKeyAndEnabledTrueOrderByLanguageCodeAsc(String menuKey);
+
+    List<WhatsAppMenuDefinition> findByEnabledTrueOrderByMenuKeyAscLanguageCodeAsc();
 }

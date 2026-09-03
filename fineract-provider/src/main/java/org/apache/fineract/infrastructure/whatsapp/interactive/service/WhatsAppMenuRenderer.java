@@ -20,6 +20,7 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuOption;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuOptionRepository;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsAppMenuRenderer {
 
     private final WhatsAppMenuOptionRepository menuOptionRepository;
+    private final WhatsAppMenuDefinitionService menuDefinitionService;
+
+    @Transactional(readOnly = true)
+    public String resolveHeader(final String menuKey, final String languageCode) {
+        final String configuredHeader = menuDefinitionService.resolveHeader(menuKey, languageCode);
+        if (StringUtils.isNotBlank(configuredHeader)) {
+            return configuredHeader;
+        }
+        return WhatsAppInteractiveMessages.mainMenuHeader(languageCode);
+    }
 
     @Transactional(readOnly = true)
     public String renderMenu(final String menuKey, final String languageCode, final String header) {

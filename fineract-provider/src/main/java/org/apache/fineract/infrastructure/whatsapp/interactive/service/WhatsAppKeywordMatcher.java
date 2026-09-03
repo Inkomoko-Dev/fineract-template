@@ -45,6 +45,14 @@ public class WhatsAppKeywordMatcher {
         return matchesAny(text, properties.getConsentAcceptKeywords());
     }
 
+    public boolean matchesMainMenu(final String text) {
+        return matchesAny(text, properties.getMainMenuKeywords());
+    }
+
+    public boolean matchesBackMenu(final String text) {
+        return matchesAny(text, properties.getBackMenuKeywords());
+    }
+
     private boolean matchesAny(final String text, final String commaSeparatedKeywords) {
         if (StringUtils.isBlank(text) || StringUtils.isBlank(commaSeparatedKeywords)) {
             return false;
