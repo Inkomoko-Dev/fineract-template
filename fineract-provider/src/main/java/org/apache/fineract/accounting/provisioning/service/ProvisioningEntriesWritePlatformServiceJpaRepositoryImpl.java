@@ -104,6 +104,7 @@ public class ProvisioningEntriesWritePlatformServiceJpaRepositoryImpl implements
     private final LoanRepository loanRepository;
     private final ProvisioningCriteriaVersionRepository provisioningCriteriaVersionRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final ProvisionBatchService provisionBatchService;
 
     @Override
     public CommandProcessingResult createProvisioningJournalEntries(Long provisioningEntryId, JsonCommand command) {
@@ -113,6 +114,7 @@ public class ProvisioningEntriesWritePlatformServiceJpaRepositoryImpl implements
         ProvisioningEntryData exisProvisioningEntryData = this.provisioningEntriesReadPlatformService
                 .retrieveExistingProvisioningIdDateWithJournals();
         revertAndAddJournalEntries(exisProvisioningEntryData, requestedEntry);
+        triggerProvisionBatchOdooIntegration();
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(requestedEntry.getId()).build();
     }
 
@@ -178,6 +180,7 @@ public class ProvisioningEntriesWritePlatformServiceJpaRepositoryImpl implements
             log.info("Provisioning job started");
             ProvisioningEntry requestedEntry = createProvsioningEntry(lastDayOfMonth, addJournalEntries);
             postWebHook(requestedEntry);
+            triggerProvisionBatchOdooIntegration();
             log.info("Provisioning job complete");
         } catch (ProvisioningEntryAlreadyCreatedException peace) {
             log.error("Provisioning Entry already created", peace);
@@ -389,6 +392,20 @@ public class ProvisioningEntriesWritePlatformServiceJpaRepositoryImpl implements
         HookEvent hookEvent = new HookEvent(new HookEventSource("PROVISIONENTRIES", "CREATE"), payload.toString(), currentUser, context);
         // Publish the event
         eventPublisher.publishEvent(hookEvent);
+    }
+
+    /**
+     * Outbound Odoo integration for provisions is handled by {@link ProvisionBatchService},
+     * not by per-line journal webhooks. CBS still reverses individual acc_gl_journal_entry
+     * rows internally; Odoo receives grouped office/currency payloads including mirrored
+     * reversals of the prior posted batch.
+     */
+    private void triggerProvisionBatchOdooIntegration() {
+        try {
+            this.provisionBatchService.generateAndPostProvisionEntriesToOdoo();
+        } catch (final Exception ex) {
+            log.error("Failed to generate/post provision batch journals to Odoo", ex);
+        }
     }
 
     private static void provisioningPayLoad(ProvisioningEntry requestedEntry, JsonObject payload, AppUser currentUser) {

@@ -310,8 +310,7 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
                     continue;
                 }
 
-                final boolean success = odooService.getBooleanField(response, "success")
-                        || odooService.getBooleanField(response, "ack");
+                final boolean success = isSuccessfulOdooResponse(response, odooService);
                 final String message = odooService.getStringField(response, "message");
                 final String odooJournalId = firstNonBlank(
                         odooService.getStringField(response, "journal_entry_no"),
@@ -461,6 +460,17 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
             }
         }
         return null;
+    }
+
+    private boolean isSuccessfulOdooResponse(final JsonObject response, final OdooService odooService) {
+        if (response == null) {
+            return false;
+        }
+        if (odooService.getBooleanField(response, "success") || odooService.getBooleanField(response, "ack")) {
+            return true;
+        }
+        final String responseCode = odooService.getStringField(response, "responseCode");
+        return "POSTED".equals(responseCode) || "EXISTING".equals(responseCode) || "REVERSED".equals(responseCode);
     }
 
 }

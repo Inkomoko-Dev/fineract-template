@@ -43,6 +43,7 @@ import java.util.Map;
 import java.util.Base64;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
@@ -63,6 +64,8 @@ import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.accounting.journalentry.data.JournalItemData;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalLine;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalRepository;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchStatus;
 import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
@@ -143,6 +146,7 @@ public class OdooServiceImpl implements OdooService {
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
     private FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository;
     private FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository;
+    private final ProvisionBatchJournalRepository provisionBatchJournalRepository;
 
     @Autowired
     public OdooServiceImpl(ClientRepositoryWrapper clientRepository, ConfigurationDomainService configurationDomainService,
@@ -151,7 +155,8 @@ public class OdooServiceImpl implements OdooService {
             KenyaCapitalDisbursementDefaultsService kenyaCapitalDisbursementDefaultsService,
             FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository,
             FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository,
-            FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository) {
+            FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository,
+            ProvisionBatchJournalRepository provisionBatchJournalRepository) {
         this.clientRepository = clientRepository;
         this.configurationDomainService = configurationDomainService;
         this.journalEntryRepository = journalEntryRepository;
@@ -162,6 +167,7 @@ public class OdooServiceImpl implements OdooService {
         this.failedClientCreationOnDataMigrationRepository = failedClientCreationOnDataMigrationRepository;
         this.failedLoanCreationOnDataMigrationRepository = failedLoanCreationOnDataMigrationRepository;
         this.failedLoanRepaymentOnDataMigrationRepository = failedLoanRepaymentOnDataMigrationRepository;
+        this.provisionBatchJournalRepository = provisionBatchJournalRepository;
     }
 
     @PostConstruct
@@ -564,15 +570,22 @@ public class OdooServiceImpl implements OdooService {
 
         String responseCode = getStringField(odooRequest, "responseCode");
         String responseMessage = getStringField(odooRequest, "responseMessage");
-        String transactionId = getStringField(odooRequest, "cbs_journal_entry_id");
+        String transactionId = firstNonBlank(
+                getStringField(odooRequest, "cbs_journal_entry_id"),
+                getStringField(odooRequest, "resourceId"),
+                getStringField(odooRequest, "journal_reference"));
 
         if (transactionId == null) {
-            LOG.warn("Odoo response missing 'cbs_journal_entry_id'");
+            LOG.warn("Odoo response missing journal reference / cbs_journal_entry_id");
             response.addProperty("success", false);
             response.addProperty("message", "cbs_journal_entry_id not found");
             response.addProperty("data", stringRequest);
             response.addProperty("ack", true);
             return response.toString();
+        }
+
+        if (isProvisionJournalReference(transactionId)) {
+            return updateProvisionBatchJournalOdooStatus(odooRequest, responseCode, responseMessage, transactionId);
         }
 
         List<JournalEntry> journalEntries = journalEntryRepository.findJournalEntriesByLoanTransactionId("L" + transactionId);
@@ -632,6 +645,62 @@ public class OdooServiceImpl implements OdooService {
         response.addProperty("message", "Successful");
         response.addProperty("ack", true);
         return response.toString();
+    }
+
+    private String updateProvisionBatchJournalOdooStatus(final JsonObject odooRequest, final String responseCode,
+            final String responseMessage, final String journalReference) {
+
+        final JsonObject response = new JsonObject();
+        final Optional<ProvisionBatchJournal> journalOptional =
+                provisionBatchJournalRepository.findByJournalReference(journalReference);
+
+        if (journalOptional.isEmpty()) {
+            LOG.warn("Provision batch journal not found for reference '{}'", journalReference);
+            response.addProperty("success", false);
+            response.addProperty("message", "Provision batch journal not found: " + journalReference);
+            response.addProperty("ack", true);
+            return response.toString();
+        }
+
+        final ProvisionBatchJournal journal = journalOptional.get();
+
+        if ("POSTED".equals(responseCode) || "REVERSED".equals(responseCode) || "EXISTING".equals(responseCode)) {
+            final String odooJournalId = firstNonBlank(
+                    getStringField(odooRequest, "journal_entry_no"),
+                    getStringField(odooRequest, "odoo_journal_id"));
+            journal.setStatus(ProvisionBatchStatus.POSTED);
+            journal.setPostedAt(java.time.LocalDateTime.now(java.time.ZoneId.systemDefault()));
+            journal.setFailureReason(null);
+            if (odooJournalId != null) {
+                journal.setOdooJournalId(odooJournalId);
+            }
+        } else {
+            journal.setStatus(ProvisionBatchStatus.FAILED);
+            journal.setFailureReason(responseCode + ": " + responseMessage);
+        }
+
+        provisionBatchJournalRepository.saveAndFlush(journal);
+
+        response.addProperty("success", true);
+        response.addProperty("message", "Successful");
+        response.addProperty("ack", true);
+        return response.toString();
+    }
+
+    private boolean isProvisionJournalReference(final String reference) {
+        return reference != null && reference.startsWith("PROV-");
+    }
+
+    private String firstNonBlank(final String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (final String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private JsonObject sendRequest(String payload) throws IOException, NoSuchAlgorithmException, KeyManagementException {
