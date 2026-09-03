@@ -119,6 +119,13 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
     @Column(name = "is_migrated", nullable = false)
     private boolean migrated;
 
+    @Column(name = "migrated_on_date", nullable = true)
+    private LocalDate migratedOnDate;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "migrated_from_office_id", nullable = true)
+    private Office migratedFromOffice;
+
     @Column(name = "external_id", length = 100, nullable = true, unique = true)
     private String externalId;
 
@@ -241,7 +248,7 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
 
     public static Client createNew(final AppUser currentUser, final Office clientOffice, final Group clientParentGroup, final Staff staff,
             final Long savingsProductId, final CodeValue gender, final CodeValue clientType, final CodeValue clientClassification,
-            final Integer legalForm, final JsonCommand command) {
+            final Integer legalForm, final Office migratedFromOffice, final JsonCommand command) {
 
         final String accountNo = command.stringValueOfParameterNamed(ClientApiConstants.accountNoParamName);
         final String externalId = command.stringValueOfParameterNamed(ClientApiConstants.externalIdParamName);
@@ -256,6 +263,7 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
 
         final boolean isStaff = command.booleanPrimitiveValueOfParameterNamed(ClientApiConstants.isStaffParamName);
         final boolean migrated = command.booleanPrimitiveValueOfParameterNamed(ClientApiConstants.migratedParamName);
+        final LocalDate migratedOnDate = command.localDateValueOfParameterNamed(ClientApiConstants.migratedOnDateParamName);
 
         final LocalDate dataOfBirth = command.localDateValueOfParameterNamed(ClientApiConstants.dateOfBirthParamName);
 
@@ -283,7 +291,8 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
         final Long savingsAccountId = null;
         Client client = new Client(currentUser, status, clientOffice, clientParentGroup, accountNo, firstname, middlename, lastname,
                 fullname, activationDate, officeJoiningDate, externalId, mobileNo, emailAddress, staff, submittedOnDate, savingsProductId,
-                savingsAccountId, dataOfBirth, gender, clientType, clientClassification, legalForm, isStaff, migrated);
+                savingsAccountId, dataOfBirth, gender, clientType, clientClassification, legalForm, isStaff, migrated,
+                migratedOnDate, migratedFromOffice);
         client.setKivaId(kivaId);
         return client;
     }
@@ -295,7 +304,8 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
             final LocalDate activationDate, final LocalDate officeJoiningDate, final String externalId, final String mobileNo,
             final String emailAddress, final Staff staff, final LocalDate submittedOnDate, final Long savingsProductId,
             final Long savingsAccountId, final LocalDate dateOfBirth, final CodeValue gender, final CodeValue clientType,
-            final CodeValue clientClassification, final Integer legalForm, final Boolean isStaff, final boolean migrated) {
+            final CodeValue clientClassification, final Integer legalForm, final Boolean isStaff, final boolean migrated,
+            final LocalDate migratedOnDate, final Office migratedFromOffice) {
 
         if (StringUtils.isBlank(accountNo)) {
             this.accountNumber = new RandomPasswordGenerator(19).generate();
@@ -309,6 +319,8 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
         this.status = status.getValue();
         this.office = office;
         this.migrated = migrated;
+        this.migratedOnDate = migratedOnDate;
+        this.migratedFromOffice = migratedFromOffice;
         if (StringUtils.isNotBlank(externalId)) {
             this.externalId = externalId.trim();
         }
@@ -791,6 +803,14 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
 
     public boolean isMigrated() {
         return this.migrated;
+    }
+
+    public LocalDate getMigratedOnDate() {
+        return this.migratedOnDate;
+    }
+
+    public Office getMigratedFromOffice() {
+        return this.migratedFromOffice;
     }
 
     public String getExternalId() {

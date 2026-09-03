@@ -41,19 +41,21 @@ public final class ClientEntityConstants {
     public static final int ACTIVATION_DATE_COL = 14;// O
     public static final int SUBMITTED_ON_COL = 15;// P
     public static final int MIGRATED_COL = 16;// Q
-    public static final int ADDRESS_ENABLED = 17;// R
-    public static final int ADDRESS_TYPE_COL = 18;// S
-    public static final int STREET_COL = 19;// T
-    public static final int ADDRESS_LINE_1_COL = 20;// U
-    public static final int ADDRESS_LINE_2_COL = 21;// V
-    public static final int ADDRESS_LINE_3_COL = 22;// W
-    public static final int CITY_COL = 23;// X
-    public static final int STATE_PROVINCE_COL = 24;// Y
-    public static final int COUNTRY_COL = 25;// Z
-    public static final int POSTAL_CODE_COL = 26;// AA
-    public static final int IS_ACTIVE_ADDRESS_COL = 27;// AB
-    public static final int WARNING_COL = 27;// AB
-    public static final int STATUS_COL = 28;// AC
+    public static final int MIGRATED_ON_DATE_COL = 17;// R
+    public static final int MIGRATED_FROM_OFFICE_COL = 18;// S
+    public static final int ADDRESS_ENABLED = 19;// T
+    public static final int ADDRESS_TYPE_COL = 20;// U
+    public static final int STREET_COL = 21;// V
+    public static final int ADDRESS_LINE_1_COL = 22;// W
+    public static final int ADDRESS_LINE_2_COL = 23;// X
+    public static final int ADDRESS_LINE_3_COL = 24;// Y
+    public static final int CITY_COL = 25;// Z
+    public static final int STATE_PROVINCE_COL = 26;// AA
+    public static final int COUNTRY_COL = 27;// AB
+    public static final int POSTAL_CODE_COL = 28;// AC
+    public static final int IS_ACTIVE_ADDRESS_COL = 29;// AD
+    public static final int WARNING_COL = 29;// AD
+    public static final int STATUS_COL = 30;// AE
     public static final int RELATIONAL_OFFICE_NAME_COL = 35;// AJ
     public static final int RELATIONAL_OFFICE_OPENING_DATE_COL = 36;// AK
     public static final int LOOKUP_CONSTITUTION_COL = 37;// AL
@@ -64,7 +66,7 @@ public final class ClientEntityConstants {
     public static final int LOOKUP_COUNTRY = 42;// AQ
     public static final int LOOKUP_MAIN_BUSINESS_LINE = 43;// AR
 
-    public static final int IN_BUSINESS_SINCE = 44;
+    public static final int IN_BUSINESS_SINCE = 44;// AS
 
-    public static final int IS_REGISTERED = 45;
+    public static final int IS_REGISTERED = 45;// AT
 }

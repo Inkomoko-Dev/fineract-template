@@ -708,6 +708,8 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             builder.append("c.mobile_no as mobileNo, ");
             builder.append("c.is_staff as isStaff, ");
             builder.append("c.is_migrated as migrated, ");
+            builder.append("c.migrated_on_date as migratedOnDate, ");
+            builder.append("c.migrated_from_office_id as migratedFromOfficeId, mfo.name as migratedFromOfficeName, ");
             builder.append("c.created_on_utc as createdDate, ");
             builder.append("c.email_address as emailAddress, ");
             builder.append("c.date_of_birth as dateOfBirth, ");
@@ -762,6 +764,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             builder.append("left join m_staff s on s.id = c.staff_id ");
             builder.append("left join m_savings_product sp on sp.id = c.default_savings_product ");
             builder.append("left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
+            builder.append("left join m_office mfo on mfo.id = c.migrated_from_office_id ");
             builder.append("left join m_appuser sbu on sbu.id = c.created_by ");
             builder.append("left join m_appuser acu on acu.id = c.activatedon_userid ");
             builder.append("left join m_appuser clu on clu.id = c.closedon_userid ");
@@ -904,6 +907,9 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
                     savingsAccountId, clienttype, classification, legalForm, clientNonPerson, isStaff, clientLevel, dailyWithDrawLimit,
                     singleWithDrawLimit, clientAdditionalInfo, createdDate, kivaId);
             clientData.setMigrated(rs.getBoolean("migrated"));
+            clientData.setMigratedOnDate(JdbcSupport.getLocalDate(rs, "migratedOnDate"));
+            clientData.setMigratedFromOfficeId(JdbcSupport.getLong(rs, "migratedFromOfficeId"));
+            clientData.setMigratedFromOfficeName(rs.getString("migratedFromOfficeName"));
             return clientData;
 
         }

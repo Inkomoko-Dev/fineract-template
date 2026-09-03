@@ -160,6 +160,8 @@ public class ClientEntityWorkbookPopulator extends AbstractWorkbookPopulator {
         worksheet.setColumnWidth(ClientEntityConstants.EXTERNAL_ID_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
         worksheet.setColumnWidth(ClientEntityConstants.SUBMITTED_ON_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
         worksheet.setColumnWidth(ClientEntityConstants.MIGRATED_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
+        worksheet.setColumnWidth(ClientEntityConstants.MIGRATED_ON_DATE_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
+        worksheet.setColumnWidth(ClientEntityConstants.MIGRATED_FROM_OFFICE_COL, TemplatePopulateImportConstants.MEDIUM_COL_SIZE);
         worksheet.setColumnWidth(ClientEntityConstants.ACTIVE_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
         worksheet.setColumnWidth(ClientEntityConstants.ACTIVATION_DATE_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
         worksheet.setColumnWidth(ClientEntityConstants.ADDRESS_ENABLED, TemplatePopulateImportConstants.SMALL_COL_SIZE);
@@ -199,6 +201,8 @@ public class ClientEntityWorkbookPopulator extends AbstractWorkbookPopulator {
         writeString(ClientEntityConstants.EXTERNAL_ID_COL, rowHeader, "External ID ");
         writeString(ClientEntityConstants.SUBMITTED_ON_COL, rowHeader, "Submitted On Date");
         writeString(ClientEntityConstants.MIGRATED_COL, rowHeader, "Migrated");
+        writeString(ClientEntityConstants.MIGRATED_ON_DATE_COL, rowHeader, "Migrated On Date");
+        writeString(ClientEntityConstants.MIGRATED_FROM_OFFICE_COL, rowHeader, "Migrated From Office");
         writeString(ClientEntityConstants.ACTIVE_COL, rowHeader, "Active*");
         writeString(ClientEntityConstants.ACTIVATION_DATE_COL, rowHeader, "Activation Date ");
         writeString(ClientEntityConstants.ADDRESS_ENABLED, rowHeader, "Address Enabled ");
@@ -235,6 +239,10 @@ public class ClientEntityWorkbookPopulator extends AbstractWorkbookPopulator {
                 ClientEntityConstants.SUBMITTED_ON_COL, ClientEntityConstants.SUBMITTED_ON_COL);
         CellRangeAddressList migratedRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
                 ClientEntityConstants.MIGRATED_COL, ClientEntityConstants.MIGRATED_COL);
+        CellRangeAddressList migratedOnDateRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
+                ClientEntityConstants.MIGRATED_ON_DATE_COL, ClientEntityConstants.MIGRATED_ON_DATE_COL);
+        CellRangeAddressList migratedFromOfficeRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
+                ClientEntityConstants.MIGRATED_FROM_OFFICE_COL, ClientEntityConstants.MIGRATED_FROM_OFFICE_COL);
         CellRangeAddressList dateRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
                 ClientEntityConstants.ACTIVATION_DATE_COL, ClientEntityConstants.ACTIVATION_DATE_COL);
         CellRangeAddressList activeRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
@@ -276,6 +284,9 @@ public class ClientEntityWorkbookPopulator extends AbstractWorkbookPopulator {
                 .createDateConstraint(DataValidationConstraint.OperatorType.BETWEEN, "01 January 1900", "=TODAY()", dateFormat);
         DataValidationConstraint activeConstraint = validationHelper.createExplicitListConstraint(new String[] { "True", "False" });
         DataValidationConstraint migratedConstraint = validationHelper.createExplicitListConstraint(new String[] { "True", "False" });
+        DataValidationConstraint migratedOnDateConstraint = validationHelper
+                .createDateConstraint(DataValidationConstraint.OperatorType.BETWEEN, "01 January 1900", "=TODAY()", dateFormat);
+        DataValidationConstraint migratedFromOfficeConstraint = validationHelper.createFormulaListConstraint("Office");
         DataValidationConstraint clientTypesConstraint = validationHelper.createFormulaListConstraint("ClientTypes");
         DataValidationConstraint constitutionConstraint = validationHelper.createFormulaListConstraint("Constitution");
         DataValidationConstraint mainBusinessLineConstraint = validationHelper.createFormulaListConstraint("MainBusinessLine");
@@ -296,6 +307,9 @@ public class ClientEntityWorkbookPopulator extends AbstractWorkbookPopulator {
         DataValidation activationDateValidation = validationHelper.createValidation(activationDateConstraint, dateRange);
         DataValidation activeValidation = validationHelper.createValidation(activeConstraint, activeRange);
         DataValidation migratedValidation = validationHelper.createValidation(migratedConstraint, migratedRange);
+        DataValidation migratedOnDateValidation = validationHelper.createValidation(migratedOnDateConstraint, migratedOnDateRange);
+        DataValidation migratedFromOfficeValidation = validationHelper.createValidation(migratedFromOfficeConstraint,
+                migratedFromOfficeRange);
         DataValidation clientTypeValidation = validationHelper.createValidation(clientTypesConstraint, clientTypeRange);
         DataValidation constitutionValidation = validationHelper.createValidation(constitutionConstraint, constitutionRange);
         DataValidation mainBusinessLineValidation = validationHelper.createValidation(mainBusinessLineConstraint, mainBusinessLineRange);
@@ -312,6 +326,8 @@ public class ClientEntityWorkbookPopulator extends AbstractWorkbookPopulator {
 
         worksheet.addValidationData(activeValidation);
         worksheet.addValidationData(migratedValidation);
+        worksheet.addValidationData(migratedOnDateValidation);
+        worksheet.addValidationData(migratedFromOfficeValidation);
         worksheet.addValidationData(officeValidation);
         worksheet.addValidationData(staffValidation);
         worksheet.addValidationData(activationDateValidation);
