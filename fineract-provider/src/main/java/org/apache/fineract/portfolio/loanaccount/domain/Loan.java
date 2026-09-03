@@ -464,6 +464,28 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     @JoinColumn(name = "office_id",nullable = true)
     private Office office;
 
+    @Column(name = "is_migrated", nullable = false)
+    private boolean migrated;
+
+    @Column(name = "migrated_on_date", nullable = true)
+    private LocalDate migratedOnDate;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "migrated_from_office_id", nullable = true)
+    private Office migratedFromOffice;
+
+    public boolean isMigrated() {
+        return this.migrated;
+    }
+
+    public LocalDate getMigratedOnDate() {
+        return this.migratedOnDate;
+    }
+
+    public Office getMigratedFromOffice() {
+        return this.migratedFromOffice;
+    }
+
     public static Loan newIndividualLoanApplication(final String accountNo, final Client client, final Integer loanType,
             final LoanProduct loanProduct, final Fund fund, final Staff officer, final CodeValue loanPurpose,
             final LoanTransactionProcessingStrategy transactionProcessingStrategy,

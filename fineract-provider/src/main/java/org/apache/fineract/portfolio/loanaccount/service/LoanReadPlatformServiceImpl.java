@@ -1173,9 +1173,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " l.third_party_disbursement_provider as thirdPartyDisbursementProvider, "
                     + " lp.enable_third_party_disbursement as enableThirdPartyDisbursement, "
                     + " lds.expected_disburse_date AS expectedDisburseDate, lds.net_disbursal_amount AS expectedNetDisbursalAmount, lds.payment_type_id AS paymentType, "
-                    + " pt_lds.value as paymentTypeName, pt_lds.description as paymentTypeDescription, "
-                    + " pt_lds.is_cash_payment as paymentTypeIsCashPayment, pt_lds.is_mobile_money as paymentTypeIsMobileMoney, "
-                    + " pt_lds.order_position as paymentTypePosition "
+                    + " l.is_migrated as loanMigrated, l.migrated_on_date as loanMigratedOnDate, "
+                    + " l.migrated_from_office_id as loanMigratedFromOfficeId, lmfo.name as loanMigratedFromOfficeName "
                     + " from m_loan l" //
                     + " join m_product_loan lp on lp.id = l.product_id" //
                     + " left join m_loan_recalculation_details lir on lir.loan_id = l.id " + " join m_currency rc on rc."
@@ -1190,6 +1189,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " left join m_appuser abu on abu.id = l.approvedon_userid"
                     + " left join m_appuser dbu on dbu.id = l.disbursedon_userid" + " left join m_appuser cbu on cbu.id = l.closedon_userid"
                     + " left join m_code_value cv on cv.id = l.loanpurpose_cv_id"
+                    + " left join m_office lmfo on lmfo.id = l.migrated_from_office_id"
                     + " left join m_code_value codev on codev.id = l.writeoff_reason_cv_id"
                     + " left join m_code_value departmentV on departmentV.id = l.department_cv_id"
                     + " left join ref_loan_transaction_processing_strategy lps on lps.id = l.loan_transaction_strategy_id"
@@ -1588,6 +1588,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanAccountData.setExpectedNetDisbursalAmount(expectedNetDisbursalAmount);
             loanAccountData.setThirdPartyDisbursementProvider(rs.getString("thirdPartyDisbursementProvider"));
             loanAccountData.setEnableThirdPartyDisbursement(rs.getBoolean("enableThirdPartyDisbursement"));
+            loanAccountData.setMigrated(rs.getBoolean("loanMigrated"));
+            loanAccountData.setMigratedOnDate(JdbcSupport.getLocalDate(rs, "loanMigratedOnDate"));
+            loanAccountData.setMigratedFromOfficeId(JdbcSupport.getLong(rs, "loanMigratedFromOfficeId"));
+            loanAccountData.setMigratedFromOfficeName(rs.getString("loanMigratedFromOfficeName"));
             return loanAccountData;
         }
     }
