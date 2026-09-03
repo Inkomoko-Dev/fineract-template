@@ -861,6 +861,10 @@ public final class LoanAccountData {
         loanAccountData.setKivaUUId(acc.kivaUUId);
         loanAccountData.setAllowableDscr(acc.allowableDscr);
         loanAccountData.setClientLegalForm(acc.clientLegalForm);
+        loanAccountData.setMigrated(acc.migrated);
+        loanAccountData.setMigratedOnDate(acc.migratedOnDate);
+        loanAccountData.setMigratedFromOfficeId(acc.migratedFromOfficeId);
+        loanAccountData.setMigratedFromOfficeName(acc.migratedFromOfficeName);
         return loanAccountData;
     }
 
@@ -1455,6 +1459,10 @@ public final class LoanAccountData {
         loanAccountData.setAllowableDscr(acc.allowableDscr);
         loanAccountData.setLoanWithAnotherInstitutionAmount(acc.loanWithAnotherInstitutionAmount);
         loanAccountData.setClientLegalForm(acc.clientLegalForm);
+        loanAccountData.setMigrated(acc.migrated);
+        loanAccountData.setMigratedOnDate(acc.migratedOnDate);
+        loanAccountData.setMigratedFromOfficeId(acc.migratedFromOfficeId);
+        loanAccountData.setMigratedFromOfficeName(acc.migratedFromOfficeName);
         return loanAccountData;
     }
 
@@ -1490,6 +1498,10 @@ public final class LoanAccountData {
         loanAccountData.setKivaUUId(acc.kivaUUId);
         loanAccountData.setAllowableDscr(acc.allowableDscr);
         loanAccountData.setClientLegalForm(acc.clientLegalForm);
+        loanAccountData.setMigrated(acc.migrated);
+        loanAccountData.setMigratedOnDate(acc.migratedOnDate);
+        loanAccountData.setMigratedFromOfficeId(acc.migratedFromOfficeId);
+        loanAccountData.setMigratedFromOfficeName(acc.migratedFromOfficeName);
         return loanAccountData;
     }
 
@@ -1541,6 +1553,10 @@ public final class LoanAccountData {
         loanAccountData.setKivaUUId(acc.kivaUUId);
         loanAccountData.setAllowableDscr(acc.allowableDscr);
         loanAccountData.setClientLegalForm(acc.clientLegalForm);
+        loanAccountData.setMigrated(acc.migrated);
+        loanAccountData.setMigratedOnDate(acc.migratedOnDate);
+        loanAccountData.setMigratedFromOfficeId(acc.migratedFromOfficeId);
+        loanAccountData.setMigratedFromOfficeName(acc.migratedFromOfficeName);
         return loanAccountData;
     }
 
@@ -1663,6 +1679,10 @@ public final class LoanAccountData {
         loanAccountData.setKivaUUId(acc.kivaUUId);
         loanAccountData.setAllowableDscr(acc.allowableDscr);
         loanAccountData.setClientLegalForm(acc.clientLegalForm);
+        loanAccountData.setMigrated(acc.migrated);
+        loanAccountData.setMigratedOnDate(acc.migratedOnDate);
+        loanAccountData.setMigratedFromOfficeId(acc.migratedFromOfficeId);
+        loanAccountData.setMigratedFromOfficeName(acc.migratedFromOfficeName);
         return loanAccountData;
     }
 
@@ -1711,6 +1731,10 @@ public final class LoanAccountData {
         loanAccountData.setKivaUUId(acc.kivaUUId);
         loanAccountData.setAllowableDscr(acc.allowableDscr);
         loanAccountData.setClientLegalForm(acc.clientLegalForm);
+        loanAccountData.setMigrated(acc.migrated);
+        loanAccountData.setMigratedOnDate(acc.migratedOnDate);
+        loanAccountData.setMigratedFromOfficeId(acc.migratedFromOfficeId);
+        loanAccountData.setMigratedFromOfficeName(acc.migratedFromOfficeName);
         return loanAccountData;
     }
 
