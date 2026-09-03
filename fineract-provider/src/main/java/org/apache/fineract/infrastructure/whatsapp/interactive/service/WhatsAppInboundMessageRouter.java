@@ -22,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
+import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppAuthStep;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppSessionStatus;
 import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
 import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext;
@@ -46,6 +47,7 @@ public class WhatsAppInboundMessageRouter {
     private final WhatsAppConversationSessionService sessionService;
     private final WhatsAppSessionContextSerializer contextSerializer;
     private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppLoanSelfServiceGate loanSelfServiceGate;
 
     @Transactional
     public void routeMenuSelection(final WhatsAppConversationSession session, final String body, final RecipientType recipientType,
@@ -84,6 +86,10 @@ public class WhatsAppInboundMessageRouter {
                     WhatsAppInteractiveMessages.advisorHandoff(language));
             return;
         }
+        if (WhatsAppAuthStep.SELECT_LOAN.name().equals(context.getAuthStep())) {
+            loanSelfServiceGate.handleLoanSelection(session, body, recipientType, client, staff);
+            return;
+        }
         session.setSessionStatus(WhatsAppSessionStatus.MAIN_MENU);
         sessionService.save(session);
         menuNavigationService.navigateToMainMenu(session, recipientType, client, staff);
@@ -93,8 +99,7 @@ public class WhatsAppInboundMessageRouter {
             final RecipientType recipientType, final Client client, final Staff staff, final String language) {
         switch (option.getActionType()) {
             case SUBMENU -> menuNavigationService.navigateToMenu(session, option.getActionTarget(), recipientType, client, staff, true);
-            case LOAN_SERVICE -> replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
-                    WhatsAppInteractiveMessages.loanServicePending(language) + "\n" + WhatsAppInteractiveMessages.navigationHint(language));
+            case LOAN_SERVICE -> loanSelfServiceGate.beginLoanService(session, option.getActionTarget(), recipientType, client, staff);
             case CONTENT -> sendContent(session, option, recipientType, client, staff, language);
             case ADVISOR_HANDOFF -> handleAdvisorHandoff(session, option, recipientType, client, staff, language);
             default -> replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,

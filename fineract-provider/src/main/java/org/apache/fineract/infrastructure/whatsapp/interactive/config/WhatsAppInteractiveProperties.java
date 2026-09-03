@@ -36,4 +36,9 @@ public class WhatsAppInteractiveProperties {
     private String mainMenuKeywords = "MENU,MAIN";
     private String backMenuKeywords = "BACK,0";
     private String mainMenuKey = "MAIN";
+    private int authValidityMinutes = 15;
+    private int otpLength = 6;
+    private int otpValidityMinutes = 5;
+    private int maxOtpAttempts = 3;
+    private boolean pinAuthEnabled = false;
 }

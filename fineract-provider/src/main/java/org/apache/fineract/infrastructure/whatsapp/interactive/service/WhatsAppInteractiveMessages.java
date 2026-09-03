@@ -18,6 +18,9 @@
  */
 package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
 public final class WhatsAppInteractiveMessages {
 
     private WhatsAppInteractiveMessages() {}
@@ -88,5 +91,82 @@ public final class WhatsAppInteractiveMessages {
     public static String otherEnquiryPrompt(final String languageCode) {
         return "rw".equalsIgnoreCase(languageCode) ? "Sobanura icyifuzo cyawe mu ncamake:"
                 : "Please describe your enquiry in a short message:";
+    }
+
+    public static String confirmIdentityPrompt(final String languageCode, final String displayName) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Twemeza ko uri " + displayName + ". Andika 1 kwemeza cyangwa andika nimero ya konti yawe."
+                : "We found your profile as " + displayName + ". Reply 1 to confirm or enter your client account number.";
+    }
+
+    public static String enterClientAccountPrompt(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Andika nimero ya konti yawe ya Inkomoko:"
+                : "Enter your Inkomoko client account number to continue:";
+    }
+
+    public static String identityNotFound(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Konti ntiyabonetse. Ongera ugerageze cyangwa uvugane n'umujyanama."
+                : "We could not verify your identity. Try again or speak to an advisor.";
+    }
+
+    public static String otpIssued(final String languageCode, final String otp) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Kode y'igenzura: " + otp + ". Irangira mu " + "5" + " iminota."
+                : "Your verification code is " + otp + ". It expires in 5 minutes.";
+    }
+
+    public static String otpInvalid(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Kode siyo. Ongera ugerageze."
+                : "Invalid or expired verification code. Please try again.";
+    }
+
+    public static String authSuccess(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Wemejwe neza." : "Authentication successful.";
+    }
+
+    public static String loanSelectionHeader(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Hitamo inguzanyo:" : "Select a loan:";
+    }
+
+    public static String noActiveLoans(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Nta nguzanyo ikora yabonetse." : "No active loans found for your account.";
+    }
+
+    public static String loanClientNotFound(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Konti y'umukiriya ntiyabonetse." : "Client account could not be resolved.";
+    }
+
+    public static String loanBalanceResponse(final String languageCode, final String loanAccountNo, final String currency,
+            final BigDecimal balance) {
+        final String amount = balance != null ? balance.toPlainString() : "0";
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " asigaye."
+                : "Loan " + loanAccountNo + " outstanding balance: " + amount + " " + currency;
+    }
+
+    public static String nextRepaymentResponse(final String languageCode, final String loanAccountNo, final LocalDate dueDate) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Inguzanyo " + loanAccountNo + ": itariki yo kwishyura ikurikira ni " + dueDate + "."
+                : "Loan " + loanAccountNo + ": next repayment date is " + dueDate + ".";
+    }
+
+    public static String noUpcomingRepayment(final String languageCode, final String loanAccountNo) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Inguzanyo " + loanAccountNo + ": nta kwishyura kuzaza."
+                : "Loan " + loanAccountNo + ": no upcoming repayment scheduled.";
+    }
+
+    public static String amountDueResponse(final String languageCode, final String loanAccountNo, final String currency,
+            final BigDecimal amountDue, final LocalDate dueDate) {
+        final String amount = amountDue != null ? amountDue.toPlainString() : "0";
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " kwishyura ku " + dueDate + "."
+                : "Loan " + loanAccountNo + ": amount due " + amount + " " + currency + " on " + dueDate + ".";
+    }
+
+    public static String noAmountDue(final String languageCode, final String loanAccountNo) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Inguzanyo " + loanAccountNo + ": nta amafaranga asigaye kwishyura."
+                : "Loan " + loanAccountNo + ": no amount currently due.";
+    }
+
+    public static String loanStatusResponse(final String languageCode, final String loanAccountNo, final String statusCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Inguzanyo " + loanAccountNo + ": imiterere ni " + statusCode + "."
+                : "Loan " + loanAccountNo + " status: " + statusCode + ".";
     }
 }

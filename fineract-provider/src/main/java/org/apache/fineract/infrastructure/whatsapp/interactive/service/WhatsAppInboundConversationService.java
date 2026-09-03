@@ -42,6 +42,8 @@ public class WhatsAppInboundConversationService {
     private final WhatsAppConversationSessionService sessionService;
     private final WhatsAppMenuNavigationService menuNavigationService;
     private final WhatsAppInboundMessageRouter messageRouter;
+    private final WhatsAppClientAuthService clientAuthService;
+    private final WhatsAppLoanSelfServiceGate loanSelfServiceGate;
     private final WhatsAppReplyService replyService;
     private final WhatsAppInteractiveProperties properties;
 
@@ -78,9 +80,8 @@ public class WhatsAppInboundConversationService {
             case CONSENT_PENDING -> session = handleConsent(session, normalizedBody, recipientType, client, staff);
             case MAIN_MENU -> messageRouter.routeMenuSelection(session, normalizedBody, recipientType, client, staff);
             case AWAITING_INPUT -> messageRouter.handleAwaitingInput(session, normalizedBody, recipientType, client, staff);
-            case AUTHENTICATING -> replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
-                    WhatsAppInteractiveMessages.loanServicePending(
-                            StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage())));
+            case AUTHENTICATING -> clientAuthService.handleAuthenticating(session, normalizedBody, recipientType, client, staff);
+            case AUTHENTICATED -> loanSelfServiceGate.handleAuthenticatedFollowUp(session, recipientType, client, staff);
             default -> {
                 session.setSessionStatus(WhatsAppSessionStatus.LANGUAGE_SELECTION);
                 session.setCurrentMenuKey("LANGUAGE");

@@ -53,13 +53,15 @@ class WhatsAppInboundMessageRouterTest {
     private WhatsAppSessionContextSerializer contextSerializer;
     @Mock
     private WhatsAppInteractiveProperties properties;
+    @Mock
+    private WhatsAppLoanSelfServiceGate loanSelfServiceGate;
 
     private WhatsAppInboundMessageRouter router;
 
     @BeforeEach
     void setUp() {
         router = new WhatsAppInboundMessageRouter(menuOptionRepository, replyService, contentMessageService, menuNavigationService,
-                sessionService, contextSerializer, properties);
+                sessionService, contextSerializer, properties, loanSelfServiceGate);
     }
 
     @Test
