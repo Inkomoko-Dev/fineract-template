@@ -519,6 +519,8 @@ public class OdooServiceImpl implements OdooService {
         journalData.setOfficeId(journal.getOfficeId());
         journalData.setCurrencyCode(journal.getCurrencyCode());
         journalData.setTransactionTypeName("PROVISIONING");
+        // Matches Odoo cbstransaction.type cbs_no for PROVISIONING.
+        journalData.setTransactionTypeUniqueId("3");
         journalData.setJournalItems(journalItems);
 
         final JournalEntryToOdooData journalEntryToOdooData = new JournalEntryToOdooData();
@@ -527,9 +529,30 @@ public class OdooServiceImpl implements OdooService {
         journalEntryToOdooData.setLocalIp(localIpAddress);
 
         final String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
-        LOG.info("Provisioning journal entry payload for Odoo (built, not sent) - journal '{}': {}",
-                journal.getJournalReference(), jsonPayload);
+        LOG.info("Provisioning journal entry payload for Odoo - journal '{}' (reversal={}): {}",
+                journal.getJournalReference(), isReversed, jsonPayload);
         return jsonPayload;
+    }
+
+    @Override
+    public JsonObject postProvisioningJournalEntry(ProvisionBatchJournal journal)
+            throws IOException, NoSuchAlgorithmException, KeyManagementException {
+
+        if (!this.configurationDomainService.isOdooIntegrationEnabled()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.odoo.integration.disabled",
+                    "Odoo integration is disabled");
+        }
+
+        String payload = journal.getPayloadJson();
+        if (payload == null || payload.isBlank()) {
+            payload = buildProvisioningJournalEntryPayload(journal, journal.isReversal());
+            journal.setPayloadJson(payload);
+        }
+
+        LOG.info("Posting provision journal '{}' to Odoo (officeId={}, currency={}, reversal={})",
+                journal.getJournalReference(), journal.getOfficeId(), journal.getCurrencyCode(),
+                journal.isReversal());
+        return sendRequest(payload);
     }
 
     @Override
@@ -844,6 +867,7 @@ public class OdooServiceImpl implements OdooService {
         return request;
     }
 
+    @Override
     public String getStringField(JsonObject jsonObject, String fieldName) {
         if (jsonObject != null && jsonObject.has(fieldName) && jsonObject.get(fieldName).isJsonPrimitive()
                 && jsonObject.get(fieldName).getAsJsonPrimitive().isString()) {
@@ -852,6 +876,7 @@ public class OdooServiceImpl implements OdooService {
         return null;
     }
 
+    @Override
     public boolean getBooleanField(JsonObject jsonObject, String fieldName) {
         if (jsonObject != null && jsonObject.has(fieldName) && jsonObject.get(fieldName).isJsonPrimitive()
                 && jsonObject.get(fieldName).getAsJsonPrimitive().isBoolean()) {

@@ -67,6 +67,12 @@ public class ProvisionBatch extends AbstractPersistableCustom {
     @Column(name = "accounting_period", nullable = false)
     private LocalDate accountingPeriod;
 
+    /**
+     * Source {@code m_provisioning_history.id} this batch was generated from.
+     */
+    @Column(name = "provisioning_history_id")
+    private Long provisioningHistoryId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
     private ProvisionBatchStatus status;
@@ -142,6 +148,16 @@ public class ProvisionBatch extends AbstractPersistableCustom {
         this.createdAt = LocalDateTime.now(ZoneId.systemDefault());
     }
 
+    public ProvisionBatch(
+            final String batchReference,
+            final LocalDate accountingPeriod,
+            final ProvisionBatchStatus status,
+            final Long provisioningHistoryId
+    ) {
+        this(batchReference, accountingPeriod, status);
+        this.provisioningHistoryId = provisioningHistoryId;
+    }
+
     public void addEntry(final ProvisionBatchEntry entry) {
         this.entries.add(entry);
         entry.setBatch(this);
@@ -158,6 +174,14 @@ public class ProvisionBatch extends AbstractPersistableCustom {
 
     public LocalDate getAccountingPeriod() {
         return accountingPeriod;
+    }
+
+    public Long getProvisioningHistoryId() {
+        return provisioningHistoryId;
+    }
+
+    public void setProvisioningHistoryId(final Long provisioningHistoryId) {
+        this.provisioningHistoryId = provisioningHistoryId;
     }
 
     public ProvisionBatchStatus getStatus() {

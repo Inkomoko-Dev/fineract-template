@@ -20,5 +20,6 @@ package org.apache.fineract.accounting.provisioning.service;
 
 public interface ProvisionBatchService {
    void generateProvisionBatch();
+   void postPendingProvisionJournals();
    void generateAndPostProvisionEntriesToOdoo();
 }

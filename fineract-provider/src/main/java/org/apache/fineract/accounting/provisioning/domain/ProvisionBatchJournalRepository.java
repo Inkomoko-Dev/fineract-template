@@ -20,6 +20,7 @@ package org.apache.fineract.accounting.provisioning.domain;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -30,5 +31,7 @@ public interface ProvisionBatchJournalRepository extends JpaRepository<Provision
     Optional<ProvisionBatchJournal> findByJournalReference(String journalReference);
 
     List<ProvisionBatchJournal> findByStatus(String status);
+
+    List<ProvisionBatchJournal> findByStatusIn(Collection<String> statuses);
 }
 

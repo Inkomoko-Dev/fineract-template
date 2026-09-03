@@ -86,6 +86,26 @@ public class ProvisionBatchJournal extends AbstractPersistableCustom {
     @Column(name = "office_name", length = 150)
     private String officeName;
 
+    /**
+     * True when this journal is a debit/credit mirror of a prior period's
+     * original (non-reversal) journal for the same office + currency.
+     */
+    @Column(name = "is_reversal", nullable = false)
+    private boolean reversal = false;
+
+    /**
+     * The prior-period journal this row reverses, when {@link #reversal} is true.
+     */
+    @Column(name = "reversed_journal_id")
+    private Long reversedJournalId;
+
+    /**
+     * Provisioning history id carried into the Odoo narration / CBS linkage.
+     * For reversals this is the history id of the batch being reversed.
+     */
+    @Column(name = "provisioning_history_id")
+    private Long provisioningHistoryId;
+
     @Column(name = "status", nullable = false, length = 30)
     private String status;
 
@@ -202,6 +222,30 @@ public class ProvisionBatchJournal extends AbstractPersistableCustom {
 
     public void setOfficeName(final String officeName) {
         this.officeName = officeName;
+    }
+
+    public boolean isReversal() {
+        return reversal;
+    }
+
+    public void setReversal(final boolean reversal) {
+        this.reversal = reversal;
+    }
+
+    public Long getReversedJournalId() {
+        return reversedJournalId;
+    }
+
+    public void setReversedJournalId(final Long reversedJournalId) {
+        this.reversedJournalId = reversedJournalId;
+    }
+
+    public Long getProvisioningHistoryId() {
+        return provisioningHistoryId;
+    }
+
+    public void setProvisioningHistoryId(final Long provisioningHistoryId) {
+        this.provisioningHistoryId = provisioningHistoryId;
     }
 
     public String getStatus() {

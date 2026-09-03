@@ -79,4 +79,15 @@ public interface OdooService {
      */
     String buildProvisioningJournalEntryPayload(ProvisionBatchJournal journal, boolean isReversed);
 
+    /**
+     * Posts a previously built provisioning journal payload to the Celery/Odoo
+     * endpoint. Account.move creation remains Odoo's responsibility.
+     */
+    JsonObject postProvisioningJournalEntry(ProvisionBatchJournal journal)
+            throws IOException, NoSuchAlgorithmException, KeyManagementException;
+
+    String getStringField(JsonObject jsonObject, String fieldName);
+
+    boolean getBooleanField(JsonObject jsonObject, String fieldName);
+
 }
