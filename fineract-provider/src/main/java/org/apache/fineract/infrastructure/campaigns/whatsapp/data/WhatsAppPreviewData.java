@@ -24,10 +24,19 @@ public class WhatsAppPreviewData {
 
     private final List<String> bodyValues;
     private final String previewMessage;
+    private final int enqueueableCount;
+    private final int skippedCount;
 
     public WhatsAppPreviewData(final List<String> bodyValues, final String previewMessage) {
+        this(bodyValues, previewMessage, 0, 0);
+    }
+
+    public WhatsAppPreviewData(final List<String> bodyValues, final String previewMessage, final int enqueueableCount,
+            final int skippedCount) {
         this.bodyValues = bodyValues;
         this.previewMessage = previewMessage;
+        this.enqueueableCount = enqueueableCount;
+        this.skippedCount = skippedCount;
     }
 
     public List<String> getBodyValues() {
@@ -36,5 +45,13 @@ public class WhatsAppPreviewData {
 
     public String getPreviewMessage() {
         return previewMessage;
+    }
+
+    public int getEnqueueableCount() {
+        return enqueueableCount;
+    }
+
+    public int getSkippedCount() {
+        return skippedCount;
     }
 }

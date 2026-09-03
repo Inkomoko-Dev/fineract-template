@@ -37,6 +37,7 @@ public class AfricasTalkingProperties {
     private final Voice voice = new Voice();
     private final Webhook webhook = new Webhook();
     private final Phone phone = new Phone();
+    private final Dispatch dispatch = new Dispatch();
 
     public boolean isConfigured() {
         return username != null && !username.isBlank() && apiKey != null && !apiKey.isBlank();
@@ -75,5 +76,12 @@ public class AfricasTalkingProperties {
     public static class Phone {
 
         private String defaultCountryCode = "254";
+    }
+
+    @Getter
+    @Setter
+    public static class Dispatch {
+
+        private int maxRetries = 3;
     }
 }

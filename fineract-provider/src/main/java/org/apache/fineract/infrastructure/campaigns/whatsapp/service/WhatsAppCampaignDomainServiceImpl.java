@@ -34,8 +34,10 @@ import javax.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
-import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
+import org.apache.fineract.infrastructure.notifications.constants.NotificationPurpose;
+import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
+import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
+import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
 import org.apache.fineract.infrastructure.campaigns.sms.exception.SmsRuntimeException;
@@ -73,11 +75,11 @@ import org.springframework.stereotype.Service;
 public class WhatsAppCampaignDomainServiceImpl implements WhatsAppCampaignDomainService {
 
     private final WhatsAppCampaignRepository whatsAppCampaignRepository;
-    private final CommunicationMessageRepository communicationMessageRepository;
     private final OfficeRepository officeRepository;
     private final BusinessEventNotifierService businessEventNotifierService;
     private final GroupRepository groupRepository;
     private final PhoneNumberNormalizer phoneNumberNormalizer;
+    private final NotificationCommandService notificationCommandService;
 
     @PostConstruct
     public void addListeners() {
@@ -271,10 +273,14 @@ public class WhatsAppCampaignDomainServiceImpl implements WhatsAppCampaignDomain
             final List<String> bodyValues = mapping.getBodyValues();
             final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
             final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
-            final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate(phoneNumber, RecipientType.CLIENT, client,
-                    null, campaign.getAtTemplateName(), campaign.getLanguageCode(), templateBodyValuesJson, auditMessageBody,
-                    campaign.getId());
-            this.communicationMessageRepository.save(message);
+            final NotificationCommand command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
+                    RecipientType.CLIENT, client, null, campaign.getAtTemplateName(), campaign.getLanguageCode(), templateBodyValuesJson,
+                    auditMessageBody, campaign.getId());
+            final NotificationResult result = notificationCommandService.send(command);
+            if (!result.isAccepted()) {
+                log.warn("Triggered WhatsApp campaign {} rejected for client {}: {}", campaign.getId(), client.getId(),
+                        result.getRejectionReason());
+            }
         } catch (final IOException | RuntimeException e) {
             log.error("Error enqueueing triggered WhatsApp campaign message for campaign {}.", campaign.getId(), e);
         }

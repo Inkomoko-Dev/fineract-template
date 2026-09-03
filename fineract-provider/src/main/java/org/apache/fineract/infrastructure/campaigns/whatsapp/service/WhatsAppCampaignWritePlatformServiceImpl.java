@@ -36,9 +36,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
-import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
+import org.apache.fineract.infrastructure.notifications.constants.NotificationPurpose;
+import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
+import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
+import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
@@ -92,7 +94,7 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     private final ReportRepository reportRepository;
     private final FromJsonHelper fromJsonHelper;
     private final ReadReportingService readReportingService;
-    private final CommunicationMessageRepository communicationMessageRepository;
+    private final NotificationCommandService notificationCommandService;
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final StaffRepositoryWrapper staffRepositoryWrapper;
     private final PhoneNumberNormalizer phoneNumberNormalizer;
@@ -101,7 +103,7 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     public WhatsAppCampaignWritePlatformServiceImpl(final PlatformSecurityContext context,
             final WhatsAppCampaignRepository whatsAppCampaignRepository, final WhatsAppCampaignValidator whatsAppCampaignValidator,
             final ReportRepository reportRepository, final FromJsonHelper fromJsonHelper, final ReadReportingService readReportingService,
-            final CommunicationMessageRepository communicationMessageRepository, final ClientRepositoryWrapper clientRepositoryWrapper,
+            final NotificationCommandService notificationCommandService, final ClientRepositoryWrapper clientRepositoryWrapper,
             final StaffRepositoryWrapper staffRepositoryWrapper, final PhoneNumberNormalizer phoneNumberNormalizer) {
         this.context = context;
         this.whatsAppCampaignRepository = whatsAppCampaignRepository;
@@ -109,7 +111,7 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         this.reportRepository = reportRepository;
         this.fromJsonHelper = fromJsonHelper;
         this.readReportingService = readReportingService;
-        this.communicationMessageRepository = communicationMessageRepository;
+        this.notificationCommandService = notificationCommandService;
         this.clientRepositoryWrapper = clientRepositoryWrapper;
         this.staffRepositoryWrapper = staffRepositoryWrapper;
         this.phoneNumberNormalizer = phoneNumberNormalizer;
@@ -275,22 +277,47 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
                     new TypeReference<HashMap<String, String>>() {});
             final HashMap<String, String> queryParamForRunReport = new ObjectMapper().readValue(paramValueJson,
                     new TypeReference<HashMap<String, String>>() {});
-            final List<HashMap<String, Object>> runReportObject = getRunReportByServiceImpl(campaignParams.get("reportName"),
-                    queryParamForRunReport);
+            final String reportName = campaignParams.get("reportName");
+            final List<HashMap<String, Object>> runReportObject = getRunReportByServiceImpl(reportName, queryParamForRunReport);
+
+            int enqueueable = 0;
+            int skipped = 0;
+            if (runReportObject != null) {
+                for (final HashMap<String, Object> row : runReportObject) {
+                    if (isEnqueueablePreviewRow(row, bodyVariableMappingJson)) {
+                        enqueueable++;
+                    } else {
+                        skipped++;
+                    }
+                }
+            }
+
             if (runReportObject != null && !runReportObject.isEmpty()) {
                 final HashMap<String, Object> entry = runReportObject.get(0);
                 final List<String> bodyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, entry);
                 final String previewMessage = buildPreviewMessage(atTemplateNameValue, languageCodeValue, bodyValues);
-                return new WhatsAppPreviewData(bodyValues, previewMessage);
+                return new WhatsAppPreviewData(bodyValues, previewMessage, enqueueable, skipped);
             }
             final List<String> emptyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, Map.of());
             return new WhatsAppPreviewData(emptyValues,
-                    "Report preview requires valid parameters. Template: " + atTemplateNameValue + " (" + languageCodeValue + ")");
+                    "Report preview requires valid parameters. Template: " + atTemplateNameValue + " (" + languageCodeValue + ")",
+                    enqueueable, skipped);
         } catch (final IOException e) {
             LOG.error("Error generating WhatsApp campaign preview.", e);
             final List<String> emptyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, Map.of());
-            return new WhatsAppPreviewData(emptyValues, "Report preview requires valid parameters.");
+            return new WhatsAppPreviewData(emptyValues, "Report preview requires valid parameters.", 0, 0);
         }
+    }
+
+    private boolean isEnqueueablePreviewRow(final HashMap<String, Object> entry, final String bodyVariableMappingJson) {
+        final Object mobileNo = entry.get("mobileNo");
+        final String phoneNumber = mobileNo == null ? null : this.phoneNumberNormalizer.normalize(mobileNo.toString());
+        if (StringUtils.isBlank(phoneNumber)) {
+            return false;
+        }
+        final WhatsAppTemplateVariableMapper.MappingResult mapping = WhatsAppTemplateVariableMapper.toBodyValuesStrict(bodyVariableMappingJson,
+                entry);
+        return mapping.isComplete();
     }
 
     private String buildPreviewMessage(final String atTemplateName, final String languageCode, final List<String> bodyValues) {
@@ -412,11 +439,11 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             }
         }
 
-        final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate(phoneNumber, campaign.getRecipientType(), client,
-                staff, campaign.getAtTemplateName(), campaign.getLanguageCode(), templateBodyValuesJson, auditMessageBody,
-                campaign.getId());
-        this.communicationMessageRepository.save(message);
-        return true;
+        final NotificationCommand command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
+                campaign.getRecipientType(), client, staff, campaign.getAtTemplateName(), campaign.getLanguageCode(),
+                templateBodyValuesJson, auditMessageBody, campaign.getId());
+        final NotificationResult result = notificationCommandService.send(command);
+        return result.isAccepted();
     }
 
     private static Long extractRecipientId(final Object rawId) {

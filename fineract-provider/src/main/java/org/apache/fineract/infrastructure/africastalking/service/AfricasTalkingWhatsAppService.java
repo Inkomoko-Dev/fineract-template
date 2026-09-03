@@ -22,18 +22,20 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.util.Map;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.fineract.infrastructure.africastalking.domain.CommunicationChannel;
+import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientData;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
-import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientData;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.notifications.constants.NotificationPurpose;
+import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
+import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
+import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -46,14 +48,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class AfricasTalkingWhatsAppService {
 
-    private final AfricasTalkingClient africasTalkingClient;
     private final CommunicationMessageRepository communicationMessageRepository;
     private final RecipientResolutionService recipientResolutionService;
     private final PhoneNumberNormalizer phoneNumberNormalizer;
-    private final CommunicationMessageDispatchService communicationMessageDispatchService;
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final StaffRepositoryWrapper staffRepositoryWrapper;
     private final FromJsonHelper fromJsonHelper;
+    private final NotificationCommandService notificationCommandService;
 
     @Transactional
     public CommandProcessingResult queueOutboundMessage(final String json) {
@@ -66,27 +67,38 @@ public class AfricasTalkingWhatsAppService {
                 : null;
         final Staff staff = recipient.getStaffId() != null ? staffRepositoryWrapper.findOneWithNotFoundDetection(recipient.getStaffId())
                 : null;
-        final CommunicationMessage message = CommunicationMessage.pendingOutbound(CommunicationChannel.WHATSAPP,
-                recipient.getNormalizedPhoneNumber(), recipient.getRecipientType(), client, staff, messageBody);
+        final boolean sendImmediately = element.has("sendImmediately") && !element.get("sendImmediately").isJsonNull()
+                && element.get("sendImmediately").getAsBoolean();
+
+        final NotificationCommand command;
         if (element.has("templateName") && !element.get("templateName").isJsonNull()) {
-            message.setTemplateName(element.get("templateName").getAsString());
+            final String templateName = element.get("templateName").getAsString();
+            final String language = element.has("language") && !element.get("language").isJsonNull() ? element.get("language").getAsString()
+                    : null;
+            final String bodyValuesJson = serializeBodyValues(element);
+            command = NotificationCommand.templateWhatsApp(NotificationPurpose.AD_HOC, recipient.getNormalizedPhoneNumber(),
+                    recipient.getRecipientType(), client, staff, templateName, language, bodyValuesJson, messageBody, null, sendImmediately);
+        } else {
+            command = NotificationCommand.freeformWhatsApp(NotificationPurpose.AD_HOC, recipient.getNormalizedPhoneNumber(),
+                    recipient.getRecipientType(), client, staff, messageBody, sendImmediately);
         }
-        if (element.has("sendImmediately") && element.get("sendImmediately").getAsBoolean()) {
-            message.setIdempotencyKey(UUID.randomUUID().toString());
-            final CommunicationMessage saved = communicationMessageRepository.saveAndFlush(message);
-            communicationMessageDispatchService.dispatchMessage(saved);
-            return CommandProcessingResult.resourceResult(requirePersistedId(saved), null);
+
+        final NotificationResult result = notificationCommandService.send(command);
+        if (!result.isAccepted()) {
+            throw new IllegalStateException(result.getRejectionReason());
         }
-        final CommunicationMessage saved = communicationMessageRepository.saveAndFlush(message);
-        return CommandProcessingResult.resourceResult(requirePersistedId(saved), null);
+        return CommandProcessingResult.resourceResult(result.getResourceId(), null);
     }
 
-    private static Long requirePersistedId(final CommunicationMessage message) {
-        final Long id = message.getId();
-        if (id == null) {
-            throw new IllegalStateException("Communication message was not assigned a database id after save");
+    private String serializeBodyValues(final JsonObject element) {
+        if (!element.has("bodyValues") || element.get("bodyValues").isJsonNull()) {
+            return "[]";
         }
-        return id;
+        final JsonElement bodyValues = element.get("bodyValues");
+        if (bodyValues.isJsonArray()) {
+            return bodyValues.toString();
+        }
+        return "[]";
     }
 
     @Transactional
@@ -139,7 +151,8 @@ public class AfricasTalkingWhatsAppService {
             }
             case "FAILED", "REJECTED" -> {
                 message.setStatus(CommunicationMessageStatus.FAILED);
-                message.setStatusDetail(AfricasTalkingPayloadParser.firstNonBlank(values, "failureReason", "reason"));
+                message.setStatusDetail(CommunicationLogSanitizer.truncateDetail(
+                        AfricasTalkingPayloadParser.firstNonBlank(values, "failureReason", "reason")));
             }
             default -> log.debug("Unhandled WhatsApp status {} for message {}", normalizedStatus, message.getId());
         }
