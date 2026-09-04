@@ -27,6 +27,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
@@ -886,6 +887,45 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
             isLatest = this.getCreatedDateTime().isBefore(loanTransaction.getCreatedDateTime());
         }
         return isLatest;
+    }
+
+    public void updateLoanChargesPaid(final Set<LoanChargePaidBy> recalculatedChargesPaid) {
+        if (hasSameChargeAllocationAs(recalculatedChargesPaid)) {
+            return;
+        }
+        this.loanChargesPaid.clear();
+        for (final LoanChargePaidBy recalculated : recalculatedChargesPaid) {
+            this.loanChargesPaid.add(new LoanChargePaidBy(this, recalculated.getLoanCharge(), recalculated.getAmount(),
+                    recalculated.getInstallmentNumber()));
+        }
+    }
+
+    private boolean hasSameChargeAllocationAs(final Set<LoanChargePaidBy> recalculatedChargesPaid) {
+        if (this.loanChargesPaid.size() != recalculatedChargesPaid.size()) {
+            return false;
+        }
+        for (final LoanChargePaidBy recalculated : recalculatedChargesPaid) {
+            boolean matched = false;
+            for (final LoanChargePaidBy existing : this.loanChargesPaid) {
+                if (isSameCharge(existing.getLoanCharge(), recalculated.getLoanCharge())
+                        && existing.getAmount().compareTo(recalculated.getAmount()) == 0
+                        && Objects.equals(existing.getInstallmentNumber(), recalculated.getInstallmentNumber())) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isSameCharge(final LoanCharge one, final LoanCharge other) {
+        if (one == other) {
+            return true;
+        }
+        return one != null && other != null && one.getId() != null && one.getId().equals(other.getId());
     }
 
     public void updateLoanTransactionToRepaymentScheduleMappings(final Collection<LoanTransactionToRepaymentScheduleMapping> mappings) {

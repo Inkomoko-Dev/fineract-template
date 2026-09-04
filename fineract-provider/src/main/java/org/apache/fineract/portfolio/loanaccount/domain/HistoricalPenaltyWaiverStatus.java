@@ -26,10 +26,17 @@ package org.apache.fineract.portfolio.loanaccount.domain;
  * inside one database transaction, so no reader can ever observe one without the next; they collapse into
  * {@link #PROCESSING}. Only the Odoo hand-off is genuinely asynchronous and therefore genuinely observable.
  * </p>
+ *
+ * <p>
+ * For the same reason the ticket's Failed - Loan Processing and Failed - Accounting states do not exist here: a
+ * failure in either rolls the whole transaction back, taking this row with it, so nothing survives to carry the
+ * status. The operator re-submits instead. {@link #FAILED_ODOO_SYNC} is kept because the Odoo hand-off commits
+ * separately and a persistent failure there does need to become visible.
+ * </p>
  */
 public enum HistoricalPenaltyWaiverStatus {
 
-    PENDING_APPROVAL, REJECTED, PROCESSING, PENDING_ODOO_SYNC, COMPLETED, FAILED_LOAN_PROCESSING, FAILED_ACCOUNTING, FAILED_ODOO_SYNC;
+    PENDING_APPROVAL, REJECTED, PROCESSING, PENDING_ODOO_SYNC, COMPLETED, FAILED_ODOO_SYNC;
 
     public boolean isPendingApproval() {
         return this == PENDING_APPROVAL;

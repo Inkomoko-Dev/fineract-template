@@ -465,6 +465,18 @@ public final class LoanEventApiJsonValidator {
                     "Total write-off amount cannot exceed outstanding loan balance of " + outstandingBalance);
         }
 
+        // Validate no duplicate partial write-off on same day for same loan
+        if (transactionDate != null) {
+            final boolean hasSameDayPartialWriteOff = loan.getLoanTransactions().stream()
+                    .filter(t -> t.isPartialWriteOff() && t.isNotReversed())
+                    .anyMatch(t -> t.getTransactionDate().equals(transactionDate));
+            
+            if (hasSameDayPartialWriteOff) {
+                baseDataValidator.reset().parameter("transactionDate").failWithCode("duplicate.partial.writeoff",
+                        "A partial write-off already exists for this loan on " + transactionDate + ". Multiple partial write-offs on the same day are not allowed.");
+            }
+        }
+
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
 

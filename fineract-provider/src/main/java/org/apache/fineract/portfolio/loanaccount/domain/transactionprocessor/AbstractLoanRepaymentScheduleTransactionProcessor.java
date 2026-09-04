@@ -178,6 +178,7 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     if (LoanTransaction.transactionAmountsMatch(currency, loanTransaction, newLoanTransaction)) {
                         loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(
                                 newLoanTransaction.getLoanTransactionToRepaymentScheduleMappings());
+                        loanTransaction.updateLoanChargesPaid(newLoanTransaction.getLoanChargesPaid());
                     } else {
                         loanTransaction.reverse();
                         loanTransaction.updateExternalId(null);

@@ -163,6 +163,91 @@ public class LoanHistoricalPenaltyWaiverTest {
         assertEquals(JANUARY_DUE, result.getWaiveTransaction().getTransactionDate());
     }
 
+    @Test
+    @DisplayName("releases the cash that paid the penalty so the client stops paying for a waived charge")
+    public void releasesTheCashThatPaidTheWaivedPenalty() {
+        final Fixture fixture = new Fixture();
+
+        final BigDecimal paidBefore = totalOfEveryLiveRepayment(fixture.loan);
+        final BigDecimal penaltyPaidBefore = penaltyPortionOfEveryLiveRepayment(fixture.loan);
+
+        final HistoricalPenaltyWaiverResult result = fixture.loan.waiveLoanChargeHistorically(fixture.penalty,
+                new LinkedHashMap<>(), new ArrayList<>(), new ArrayList<>(), null, null, JANUARY_DUE, Money.zero(KES));
+
+        adoptReplacements(fixture.loan, result);
+
+        assertAmount("5000.00", fixture.penalty.getAmountWaived(KES).getAmount());
+        assertAmount("0.00", fixture.penalty.getAmountPaid(KES).getAmount());
+
+        // The whole point of the correction: no live repayment may still be paying a waived penalty.
+        assertEquals(BigDecimal.ZERO.setScale(2), penaltyStillPaidByRepayments(fixture.loan, fixture.penalty).setScale(2),
+                "a repayment is still allocated to the waived penalty, so the client paid for it and got nothing back");
+
+        // The client paid what they paid; only the split may move.
+        assertAmount(paidBefore.toPlainString(), totalOfEveryLiveRepayment(fixture.loan));
+
+        // The repayments stop funding penalties by exactly the waived amount, so that money now buys something else.
+        assertAmount(penaltyPaidBefore.subtract(PENALTY_AMOUNT).toPlainString(),
+                penaltyPortionOfEveryLiveRepayment(fixture.loan));
+
+        // Nothing may leak: every repayment still splits exactly into its components.
+        for (final LoanTransaction transaction : fixture.loan.getLoanTransactions()) {
+            if (transaction.isReversed() || !transaction.isRepayment()) {
+                continue;
+            }
+            final BigDecimal split = transaction.getPrincipalPortion(KES).getAmount()
+                    .add(transaction.getInterestPortion(KES).getAmount()).add(transaction.getFeeChargesPortion(KES).getAmount())
+                    .add(transaction.getPenaltyChargesPortion(KES).getAmount())
+                    .add(transaction.getOverPaymentPortion(KES).getAmount());
+            assertAmount(transaction.getAmount(KES).getAmount().toPlainString(), split);
+        }
+    }
+
+    private BigDecimal penaltyPortionOfEveryLiveRepayment(final Loan loan) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (!transaction.isReversed() && transaction.isRepayment()) {
+                total = total.add(transaction.getPenaltyChargesPortion(KES).getAmount());
+            }
+        }
+        return total;
+    }
+
+    /** Sum of the amounts non-reversed repayments still allocate to the given charge. */
+    private BigDecimal penaltyStillPaidByRepayments(final Loan loan, final LoanCharge charge) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction.isReversed() || !transaction.isRepayment()) {
+                continue;
+            }
+            for (final LoanChargePaidBy paidBy : transaction.getLoanChargesPaid()) {
+                if (paidBy.getLoanCharge() == charge) {
+                    total = total.add(paidBy.getAmount());
+                }
+            }
+        }
+        return total;
+    }
+
+    private BigDecimal totalOfEveryLiveRepayment(final Loan loan) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (!transaction.isReversed() && transaction.isRepayment()) {
+                total = total.add(transaction.getAmount(KES).getAmount());
+            }
+        }
+        return total;
+    }
+
+    /** Mirrors what HistoricalPenaltyWaiverService persists once the replay returns. */
+    private void adoptReplacements(final Loan loan, final HistoricalPenaltyWaiverResult result) {
+        long nextId = 500L;
+        for (final LoanTransaction replacement : result.getChangedTransactionDetail().getNewTransactionMappings().values()) {
+            ReflectionTestUtils.setField(replacement, "id", nextId++);
+            loan.getLoanTransactions().add(replacement);
+        }
+    }
+
     /** A three-instalment loan whose January repayment settled a 5,000 penalty. */
     private final class Fixture {
 
