@@ -66,7 +66,8 @@ public enum JobName {
     POST_RWANDA_CONSUMER_CREDIT_TO_TRANSUNION_CRB("Post Rwanda Consumer Credit To TransUnion (CRB)"), //
     POST_UPDATED_DETAILS_OF_CUSTOMER_TO_ODDO("Post Updated Customer To Odoo"), //
     POST_RWANDA_CORPORATE_CREDIT_TO_TRANSUNION_CRB("Post Rwanda Corporate Credit To TransUnion (CRB)"), //
-    POST_JOURNAL_ENTRY_TO_ODDO("Post Journal Entry To Odoo"), //
+    POST_JOURNAL_ENTRY_TO_ODDO("Post Journal Entry To Odoo"),
+    PROCESS_AND_POST_PROVISION_JOURNAL_ENTRY("Process And Post Provision Journal Entries"), //
     DOWNLOAD_KIVA_DEPENDENCIES_META_DATA("Download Kiva Metadata"), REPROCESS_LOAN_TRANSACTIONS("Reprocess Loan Transactions"), //
     UPDATE_WHATSAPP_OUTBOUND_WITH_CAMPAIGN_MESSAGE("Update WhatsApp Outbound with Campaign Message"), //
     SEND_WHATSAPP_MESSAGES("Send WhatsApp Messages"), //

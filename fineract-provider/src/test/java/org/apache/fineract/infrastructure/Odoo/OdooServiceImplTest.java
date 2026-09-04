@@ -79,6 +79,9 @@ public class OdooServiceImplTest {
     @Mock
     private FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository;
 
+    @Mock
+    private org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalRepository provisionBatchJournalRepository;
+
     @Test
     public void scheduledJournalPostingFetchesAllUnpostedTransactions() throws JobExecutionException {
         given(configurationDomainService.isOdooIntegrationEnabled()).willReturn(true);

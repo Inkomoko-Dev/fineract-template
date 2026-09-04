@@ -46,6 +46,7 @@ import java.util.Base64;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -64,6 +65,10 @@ import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.accounting.journalentry.data.JournalItemData;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalLine;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalRepository;
+import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchStatus;
 import org.apache.fineract.infrastructure.Odoo.event.JournalEntryEventPublisher;
 import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -162,6 +167,7 @@ public class OdooServiceImpl implements OdooService {
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
     private FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository;
     private FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository;
+    private final ProvisionBatchJournalRepository provisionBatchJournalRepository;
 
     @Autowired
     public OdooServiceImpl(ClientRepositoryWrapper clientRepository, ConfigurationDomainService configurationDomainService,
@@ -171,7 +177,8 @@ public class OdooServiceImpl implements OdooService {
             LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository,
             FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository,
             FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository,
-            FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository) {
+            FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository,
+            ProvisionBatchJournalRepository provisionBatchJournalRepository) {
         this.clientRepository = clientRepository;
         this.configurationDomainService = configurationDomainService;
         this.journalEntryRepository = journalEntryRepository;
@@ -183,6 +190,7 @@ public class OdooServiceImpl implements OdooService {
         this.failedClientCreationOnDataMigrationRepository = failedClientCreationOnDataMigrationRepository;
         this.failedLoanCreationOnDataMigrationRepository = failedLoanCreationOnDataMigrationRepository;
         this.failedLoanRepaymentOnDataMigrationRepository = failedLoanRepaymentOnDataMigrationRepository;
+        this.provisionBatchJournalRepository = provisionBatchJournalRepository;
     }
 
     @PostConstruct
@@ -507,6 +515,65 @@ public class OdooServiceImpl implements OdooService {
     }
 
     @Override
+    public String buildProvisioningJournalEntryPayload(ProvisionBatchJournal journal, boolean isReversed) {
+
+        final List<JournalItemData> journalItems = new ArrayList<>();
+        for (ProvisionBatchJournalLine line : journal.getJournalLines()) {
+            final JournalItemData item = new JournalItemData();
+            item.setId(line.getId());
+            item.setAccountId(line.getGlAccountCode());
+            final boolean isDebit = "DEBIT".equals(line.getEntryType());
+            item.setType(isDebit ? "debit" : "credit");
+            item.setDebit(line.getDebitAmount() != null ? line.getDebitAmount().doubleValue() : 0.0);
+            item.setCredit(line.getCreditAmount() != null ? line.getCreditAmount().doubleValue() : 0.0);
+            journalItems.add(item);
+        }
+
+        final JournalData journalData = new JournalData();
+        journalData.setTransactionId(journal.getTransactionId());
+        journalData.setRef(journal.getReference());
+        journalData.setReversed(isReversed);
+        journalData.setEntryDate(journal.getEntryDate() != null ? journal.getEntryDate().toString() : null);
+        journalData.setOfficeId(journal.getOfficeId());
+        journalData.setCurrencyCode(journal.getCurrencyCode());
+        journalData.setTransactionTypeName("PROVISIONING");
+        // Matches Odoo cbstransaction.type cbs_no for PROVISIONING.
+        journalData.setTransactionTypeUniqueId("3");
+        journalData.setJournalItems(journalItems);
+
+        final JournalEntryToOdooData journalEntryToOdooData = new JournalEntryToOdooData();
+        journalEntryToOdooData.setResourceId(journal.getJournalReference());
+        journalEntryToOdooData.setResource(journalData);
+        journalEntryToOdooData.setLocalIp(localIpAddress);
+
+        final String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
+        LOG.info("Provisioning journal entry payload for Odoo - journal '{}' (reversal={}): {}",
+                journal.getJournalReference(), isReversed, jsonPayload);
+        return jsonPayload;
+    }
+
+    @Override
+    public JsonObject postProvisioningJournalEntry(ProvisionBatchJournal journal)
+            throws IOException, NoSuchAlgorithmException, KeyManagementException {
+
+        if (!this.configurationDomainService.isOdooIntegrationEnabled()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.odoo.integration.disabled",
+                    "Odoo integration is disabled");
+        }
+
+        String payload = journal.getPayloadJson();
+        if (payload == null || payload.isBlank()) {
+            payload = buildProvisioningJournalEntryPayload(journal, journal.isReversal());
+            journal.setPayloadJson(payload);
+        }
+
+        LOG.info("Posting provision journal '{}' to Odoo (officeId={}, currency={}, reversal={})",
+                journal.getJournalReference(), journal.getOfficeId(), journal.getCurrencyCode(),
+                journal.isReversal());
+        return sendRequest(payload);
+    }
+
+    @Override
     public String updateJournalEntryWithOdooStatus(String stringRequest) {
         LOG.info("Received Odoo Journal entry response: {}", stringRequest);
 
@@ -520,15 +587,22 @@ public class OdooServiceImpl implements OdooService {
 
         String responseCode = getStringField(odooRequest, "responseCode");
         String responseMessage = getStringField(odooRequest, "responseMessage");
-        String transactionId = getStringField(odooRequest, "cbs_journal_entry_id");
+        String transactionId = firstNonBlank(
+                getStringField(odooRequest, "cbs_journal_entry_id"),
+                getStringField(odooRequest, "resourceId"),
+                getStringField(odooRequest, "journal_reference"));
 
         if (transactionId == null) {
-            LOG.warn("Odoo response missing 'cbs_journal_entry_id'");
+            LOG.warn("Odoo response missing journal reference / cbs_journal_entry_id");
             response.addProperty("success", false);
             response.addProperty("message", "cbs_journal_entry_id not found");
             response.addProperty("data", odooRequest.toString());
             response.addProperty("ack", true);
             return response;
+        }
+
+        if (isProvisionJournalReference(transactionId)) {
+            return updateProvisionBatchJournalOdooStatus(odooRequest, responseCode, responseMessage, transactionId);
         }
 
         List<JournalEntry> journalEntries = journalEntryRepository.findJournalEntriesByLoanTransactionId("L" + transactionId);
@@ -588,6 +662,62 @@ public class OdooServiceImpl implements OdooService {
         response.addProperty("message", "Successful");
         response.addProperty("ack", true);
         return response;
+    }
+
+    private String updateProvisionBatchJournalOdooStatus(final JsonObject odooRequest, final String responseCode,
+            final String responseMessage, final String journalReference) {
+
+        final JsonObject response = new JsonObject();
+        final Optional<ProvisionBatchJournal> journalOptional =
+                provisionBatchJournalRepository.findByJournalReference(journalReference);
+
+        if (journalOptional.isEmpty()) {
+            LOG.warn("Provision batch journal not found for reference '{}'", journalReference);
+            response.addProperty("success", false);
+            response.addProperty("message", "Provision batch journal not found: " + journalReference);
+            response.addProperty("ack", true);
+            return response.toString();
+        }
+
+        final ProvisionBatchJournal journal = journalOptional.get();
+
+        if ("POSTED".equals(responseCode) || "REVERSED".equals(responseCode) || "EXISTING".equals(responseCode)) {
+            final String odooJournalId = firstNonBlank(
+                    getStringField(odooRequest, "journal_entry_no"),
+                    getStringField(odooRequest, "odoo_journal_id"));
+            journal.setStatus(ProvisionBatchStatus.POSTED);
+            journal.setPostedAt(java.time.LocalDateTime.now(java.time.ZoneId.systemDefault()));
+            journal.setFailureReason(null);
+            if (odooJournalId != null) {
+                journal.setOdooJournalId(odooJournalId);
+            }
+        } else {
+            journal.setStatus(ProvisionBatchStatus.FAILED);
+            journal.setFailureReason(responseCode + ": " + responseMessage);
+        }
+
+        provisionBatchJournalRepository.saveAndFlush(journal);
+
+        response.addProperty("success", true);
+        response.addProperty("message", "Successful");
+        response.addProperty("ack", true);
+        return response.toString();
+    }
+
+    private boolean isProvisionJournalReference(final String reference) {
+        return reference != null && reference.startsWith("PROV-");
+    }
+
+    private String firstNonBlank(final String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (final String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private JsonObject sendRequest(String payload) throws IOException, NoSuchAlgorithmException, KeyManagementException {
@@ -944,6 +1074,7 @@ public class OdooServiceImpl implements OdooService {
         return request;
     }
 
+    @Override
     public String getStringField(JsonObject jsonObject, String fieldName) {
         if (jsonObject != null && jsonObject.has(fieldName) && jsonObject.get(fieldName).isJsonPrimitive()
                 && jsonObject.get(fieldName).getAsJsonPrimitive().isString()) {
@@ -952,6 +1083,7 @@ public class OdooServiceImpl implements OdooService {
         return null;
     }
 
+    @Override
     public boolean getBooleanField(JsonObject jsonObject, String fieldName) {
         if (jsonObject != null && jsonObject.has(fieldName) && jsonObject.get(fieldName).isJsonPrimitive()
                 && jsonObject.get(fieldName).getAsJsonPrimitive().isBoolean()) {
