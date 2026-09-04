@@ -664,7 +664,7 @@ public class OdooServiceImpl implements OdooService {
         return response;
     }
 
-    private String updateProvisionBatchJournalOdooStatus(final JsonObject odooRequest, final String responseCode,
+    private JsonObject updateProvisionBatchJournalOdooStatus(final JsonObject odooRequest, final String responseCode,
             final String responseMessage, final String journalReference) {
 
         final JsonObject response = new JsonObject();
@@ -676,7 +676,7 @@ public class OdooServiceImpl implements OdooService {
             response.addProperty("success", false);
             response.addProperty("message", "Provision batch journal not found: " + journalReference);
             response.addProperty("ack", true);
-            return response.toString();
+            return response;
         }
 
         final ProvisionBatchJournal journal = journalOptional.get();
@@ -701,7 +701,7 @@ public class OdooServiceImpl implements OdooService {
         response.addProperty("success", true);
         response.addProperty("message", "Successful");
         response.addProperty("ack", true);
-        return response.toString();
+        return response;
     }
 
     private boolean isProvisionJournalReference(final String reference) {
