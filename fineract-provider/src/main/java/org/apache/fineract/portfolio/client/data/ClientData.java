@@ -125,6 +125,10 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
     private LocalDate submittedOnDate;
     private final Collection<ClientBusinessOwnerData> ownersData;
     private Boolean isBusinessOwnerEnabled;
+    private Boolean migrated;
+    private LocalDate migratedOnDate;
+    private Long migratedFromOfficeId;
+    private String migratedFromOfficeName;
 
     private final BigDecimal dailyWithdrawLimit;
 
@@ -147,10 +151,15 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
     public static ClientData importClientEntityInstance(Long legalFormId, Integer rowIndex, String fullname, Long officeId,
             Long clientTypeId, Long clientClassificationId, Long staffId, Boolean active, LocalDate activationDate,
             LocalDate submittedOnDate, String externalId, LocalDate dateOfBirth, String mobileNo,
-            ClientNonPersonData clientNonPersonDetails, Collection<AddressData> address, String locale, String dateFormat) {
-        return new ClientData(legalFormId, rowIndex, fullname, null, null, null, submittedOnDate, activationDate, active, externalId,
-                officeId, staffId, mobileNo, dateOfBirth, clientTypeId, null, clientClassificationId, null, address, clientNonPersonDetails,
-                locale, dateFormat, null, null);
+            ClientNonPersonData clientNonPersonDetails, Collection<AddressData> address, String locale, String dateFormat,
+            Boolean migrated, LocalDate migratedOnDate, Long migratedFromOfficeId) {
+        final ClientData clientData = new ClientData(legalFormId, rowIndex, fullname, null, null, null, submittedOnDate, activationDate,
+                active, externalId, officeId, staffId, mobileNo, dateOfBirth, clientTypeId, null, clientClassificationId, null, address,
+                clientNonPersonDetails, locale, dateFormat, null, null);
+        clientData.migrated = migrated;
+        clientData.migratedOnDate = migratedOnDate;
+        clientData.migratedFromOfficeId = migratedFromOfficeId;
+        return clientData;
     }
 
     public static ClientData createClientForInterestPosting(final Long id, final Long officeId) {
@@ -230,11 +239,14 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
     public static ClientData importClientPersonInstance(Long legalFormId, Integer rowIndex, String firstname, String lastname,
             String middlename, LocalDate submittedOn, LocalDate activationDate, Boolean active, String externalId, Long officeId,
             Long staffId, String mobileNo, LocalDate dob, Long clientTypeId, Long genderId, Long clientClassificationId, Boolean isStaff,
-            Collection<AddressData> address, String locale, String dateFormat, String kivaId) {
+            Collection<AddressData> address, String locale, String dateFormat, String kivaId, Boolean migrated,
+            LocalDate migratedOnDate, Long migratedFromOfficeId) {
 
-        return new ClientData(legalFormId, rowIndex, null, firstname, lastname, middlename, submittedOn, activationDate, active, externalId,
-                officeId, staffId, mobileNo, dob, clientTypeId, genderId, clientClassificationId, isStaff, address, null, locale,
-                dateFormat, null, kivaId);
+        final ClientData clientData = new ClientData(legalFormId, rowIndex, null, firstname, lastname, middlename, submittedOn,
+                activationDate, active, externalId, officeId, staffId, mobileNo, dob, clientTypeId, genderId, clientClassificationId,
+                isStaff, address, null, locale, dateFormat, null, kivaId);
+        clientData.migrated = migrated;
+        return clientData;
     }
 
     public static ClientData emptyInstance(Long clientId) {
@@ -385,8 +397,9 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
 
     public static ClientData templateOnTop(final ClientData clientData, final ClientData templateData) {
         final Set<ClientCollateralManagementData> clientCollateralManagements = null;
-        return new ClientData(clientData.accountNo, clientData.status, clientData.subStatus, clientData.officeId, clientData.officeName,
-                clientData.transferToOfficeId, clientData.transferToOfficeName, clientData.id, clientData.firstname, clientData.middlename,
+        final ClientData copy = new ClientData(clientData.accountNo, clientData.status, clientData.subStatus, clientData.officeId,
+                clientData.officeName, clientData.transferToOfficeId, clientData.transferToOfficeName, clientData.id,
+                clientData.firstname, clientData.middlename,
                 clientData.lastname, clientData.fullname, clientData.displayName, clientData.externalId, clientData.mobileNo,
                 clientData.emailAddress, clientData.dateOfBirth, clientData.gender, clientData.activationDate, clientData.imageId,
                 clientData.staffId, clientData.staffName, templateData.officeOptions, clientData.groups, templateData.staffOptions,
@@ -399,14 +412,20 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
                 clientData.isStaff, clientCollateralManagements, clientData.ownersData, clientData.isBusinessOwnerEnabled,
                 clientData.getClientLevel(), clientData.getDailyWithdrawLimit(), clientData.singleWithdrawLimit, templateData.titleOptions,
                 clientData.clientAdditionalInfoData, clientData.createdDate, clientData.kivaId);
+        copy.migrated = clientData.migrated;
+        copy.migratedOnDate = clientData.migratedOnDate;
+        copy.migratedFromOfficeId = clientData.migratedFromOfficeId;
+        copy.migratedFromOfficeName = clientData.migratedFromOfficeName;
+        return copy;
 
     }
 
     public static ClientData templateWithSavingAccountOptions(final ClientData clientData,
             final Collection<SavingsAccountData> savingAccountOptions) {
         final Set<ClientCollateralManagementData> clientCollateralManagements = null;
-        return new ClientData(clientData.accountNo, clientData.status, clientData.subStatus, clientData.officeId, clientData.officeName,
-                clientData.transferToOfficeId, clientData.transferToOfficeName, clientData.id, clientData.firstname, clientData.middlename,
+        final ClientData copy = new ClientData(clientData.accountNo, clientData.status, clientData.subStatus, clientData.officeId,
+                clientData.officeName, clientData.transferToOfficeId, clientData.transferToOfficeName, clientData.id,
+                clientData.firstname, clientData.middlename,
                 clientData.lastname, clientData.fullname, clientData.displayName, clientData.externalId, clientData.mobileNo,
                 clientData.emailAddress, clientData.dateOfBirth, clientData.gender, clientData.activationDate, clientData.imageId,
                 clientData.staffId, clientData.staffName, clientData.officeOptions, clientData.groups, clientData.staffOptions,
@@ -419,13 +438,19 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
                 clientData.isStaff, clientCollateralManagements, clientData.ownersData, clientData.isBusinessOwnerEnabled,
                 clientData.getClientLevel(), clientData.getDailyWithdrawLimit(), clientData.singleWithdrawLimit, clientData.titleOptions,
                 clientData.clientAdditionalInfoData, clientData.createdDate, clientData.kivaId);
+        copy.migrated = clientData.migrated;
+        copy.migratedOnDate = clientData.migratedOnDate;
+        copy.migratedFromOfficeId = clientData.migratedFromOfficeId;
+        copy.migratedFromOfficeName = clientData.migratedFromOfficeName;
+        return copy;
 
     }
 
     public static ClientData setParentGroups(final ClientData clientData, final Collection<GroupGeneralData> parentGroups,
             final Set<ClientCollateralManagementData> clientCollateralManagements) {
-        return new ClientData(clientData.accountNo, clientData.status, clientData.subStatus, clientData.officeId, clientData.officeName,
-                clientData.transferToOfficeId, clientData.transferToOfficeName, clientData.id, clientData.firstname, clientData.middlename,
+        final ClientData copy = new ClientData(clientData.accountNo, clientData.status, clientData.subStatus, clientData.officeId,
+                clientData.officeName, clientData.transferToOfficeId, clientData.transferToOfficeName, clientData.id,
+                clientData.firstname, clientData.middlename,
                 clientData.lastname, clientData.fullname, clientData.displayName, clientData.externalId, clientData.mobileNo,
                 clientData.emailAddress, clientData.dateOfBirth, clientData.gender, clientData.activationDate, clientData.imageId,
                 clientData.staffId, clientData.staffName, clientData.officeOptions, parentGroups, clientData.staffOptions, null, null,
@@ -437,6 +462,11 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
                 clientData.isStaff, clientCollateralManagements, clientData.ownersData, clientData.isBusinessOwnerEnabled,
                 clientData.getClientLevel(), clientData.getDailyWithdrawLimit(), clientData.singleWithdrawLimit, clientData.titleOptions,
                 clientData.clientAdditionalInfoData, clientData.createdDate, clientData.kivaId);
+        copy.migrated = clientData.migrated;
+        copy.migratedOnDate = clientData.migratedOnDate;
+        copy.migratedFromOfficeId = clientData.migratedFromOfficeId;
+        copy.migratedFromOfficeName = clientData.migratedFromOfficeName;
+        return copy;
 
     }
 
@@ -780,6 +810,38 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
 
     public CodeValueData getClientLevel() {
         return clientLevel;
+    }
+
+    public Boolean getMigrated() {
+        return this.migrated;
+    }
+
+    public void setMigrated(final Boolean migrated) {
+        this.migrated = migrated;
+    }
+
+    public LocalDate getMigratedOnDate() {
+        return this.migratedOnDate;
+    }
+
+    public void setMigratedOnDate(final LocalDate migratedOnDate) {
+        this.migratedOnDate = migratedOnDate;
+    }
+
+    public Long getMigratedFromOfficeId() {
+        return this.migratedFromOfficeId;
+    }
+
+    public void setMigratedFromOfficeId(final Long migratedFromOfficeId) {
+        this.migratedFromOfficeId = migratedFromOfficeId;
+    }
+
+    public String getMigratedFromOfficeName() {
+        return this.migratedFromOfficeName;
+    }
+
+    public void setMigratedFromOfficeName(final String migratedFromOfficeName) {
+        this.migratedFromOfficeName = migratedFromOfficeName;
     }
 
     public void setClientBusinessDetailDataSet(Set<ClientBusinessDetailData> clientBusinessDetailDataSet) {

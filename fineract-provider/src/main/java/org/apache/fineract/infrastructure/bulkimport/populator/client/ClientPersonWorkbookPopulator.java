@@ -151,6 +151,9 @@ public class ClientPersonWorkbookPopulator extends AbstractWorkbookPopulator {
         worksheet.setColumnWidth(ClientPersonConstants.GENDER_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
         worksheet.setColumnWidth(ClientPersonConstants.CLIENT_CLASSIFICATION_COL, TemplatePopulateImportConstants.MEDIUM_COL_SIZE);
         worksheet.setColumnWidth(ClientPersonConstants.IS_STAFF_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
+        worksheet.setColumnWidth(ClientPersonConstants.MIGRATED_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
+        worksheet.setColumnWidth(ClientPersonConstants.MIGRATED_ON_DATE_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
+        worksheet.setColumnWidth(ClientPersonConstants.MIGRATED_FROM_OFFICE_COL, TemplatePopulateImportConstants.MEDIUM_COL_SIZE);
         worksheet.setColumnWidth(ClientPersonConstants.ADDRESS_ENABLED_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
         worksheet.setColumnWidth(ClientPersonConstants.ADDRESS_TYPE_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
         worksheet.setColumnWidth(ClientPersonConstants.STREET_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
@@ -182,6 +185,9 @@ public class ClientPersonWorkbookPopulator extends AbstractWorkbookPopulator {
         writeString(ClientPersonConstants.DOB_COL, rowHeader, "Date of Birth ");
         writeString(ClientPersonConstants.CLIENT_TYPE_COL, rowHeader, "Client Type ");
         writeString(ClientPersonConstants.IS_STAFF_COL, rowHeader, "Is a staff memeber ");
+        writeString(ClientPersonConstants.MIGRATED_COL, rowHeader, "Migrated");
+        writeString(ClientPersonConstants.MIGRATED_ON_DATE_COL, rowHeader, "Migrated On Date");
+        writeString(ClientPersonConstants.MIGRATED_FROM_OFFICE_COL, rowHeader, "Migrated From Office");
         writeString(ClientPersonConstants.GENDER_COL, rowHeader, "Gender ");
         writeString(ClientPersonConstants.ADDRESS_ENABLED_COL, rowHeader, "Address Enabled *");
         writeString(ClientPersonConstants.CLIENT_CLASSIFICATION_COL, rowHeader, "Client Classification ");
@@ -225,6 +231,12 @@ public class ClientPersonWorkbookPopulator extends AbstractWorkbookPopulator {
                 ClientPersonConstants.DOB_COL, ClientPersonConstants.DOB_COL);
         CellRangeAddressList isStaffRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
                 ClientPersonConstants.IS_STAFF_COL, ClientPersonConstants.IS_STAFF_COL);
+        CellRangeAddressList migratedRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
+                ClientPersonConstants.MIGRATED_COL, ClientPersonConstants.MIGRATED_COL);
+        CellRangeAddressList migratedOnDateRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
+                ClientPersonConstants.MIGRATED_ON_DATE_COL, ClientPersonConstants.MIGRATED_ON_DATE_COL);
+        CellRangeAddressList migratedFromOfficeRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
+                ClientPersonConstants.MIGRATED_FROM_OFFICE_COL, ClientPersonConstants.MIGRATED_FROM_OFFICE_COL);
         CellRangeAddressList genderRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
                 ClientPersonConstants.GENDER_COL, ClientPersonConstants.GENDER_COL);
         CellRangeAddressList clientClassificationRange = new CellRangeAddressList(1, SpreadsheetVersion.EXCEL97.getLastRowIndex(),
@@ -257,6 +269,10 @@ public class ClientPersonWorkbookPopulator extends AbstractWorkbookPopulator {
         DataValidationConstraint activeConstraint = validationHelper.createExplicitListConstraint(new String[] { "True", "False" });
         DataValidationConstraint clientTypesConstraint = validationHelper.createFormulaListConstraint("ClientTypes");
         DataValidationConstraint isStaffConstraint = validationHelper.createExplicitListConstraint(new String[] { "True", "False" });
+        DataValidationConstraint migratedConstraint = validationHelper.createExplicitListConstraint(new String[] { "True", "False" });
+        DataValidationConstraint migratedOnDateConstraint = validationHelper
+                .createDateConstraint(DataValidationConstraint.OperatorType.BETWEEN, "01 January 1900", "=TODAY()", dateformat);
+        DataValidationConstraint migratedFromOfficeConstraint = validationHelper.createFormulaListConstraint("Office");
         DataValidationConstraint genderConstraint = validationHelper.createFormulaListConstraint("Gender");
         DataValidationConstraint clientClassificationConstraint = validationHelper.createFormulaListConstraint("ClientClassification");
         DataValidationConstraint enabledAddressConstraint = validationHelper.createExplicitListConstraint(new String[] { "True", "False" });
@@ -273,6 +289,10 @@ public class ClientPersonWorkbookPopulator extends AbstractWorkbookPopulator {
         DataValidation activeValidation = validationHelper.createValidation(activeConstraint, activeRange);
         DataValidation clientTypeValidation = validationHelper.createValidation(clientTypesConstraint, clientTypeRange);
         DataValidation isStaffValidation = validationHelper.createValidation(isStaffConstraint, isStaffRange);
+        DataValidation migratedValidation = validationHelper.createValidation(migratedConstraint, migratedRange);
+        DataValidation migratedOnDateValidation = validationHelper.createValidation(migratedOnDateConstraint, migratedOnDateRange);
+        DataValidation migratedFromOfficeValidation = validationHelper.createValidation(migratedFromOfficeConstraint,
+                migratedFromOfficeRange);
         DataValidation genderValidation = validationHelper.createValidation(genderConstraint, genderRange);
         DataValidation clientClassificationValidation = validationHelper.createValidation(clientClassificationConstraint,
                 clientClassificationRange);
@@ -290,6 +310,9 @@ public class ClientPersonWorkbookPopulator extends AbstractWorkbookPopulator {
         worksheet.addValidationData(dobDateValidation);
         worksheet.addValidationData(clientTypeValidation);
         worksheet.addValidationData(isStaffValidation);
+        worksheet.addValidationData(migratedValidation);
+        worksheet.addValidationData(migratedOnDateValidation);
+        worksheet.addValidationData(migratedFromOfficeValidation);
         worksheet.addValidationData(genderValidation);
         worksheet.addValidationData(clientClassificationValidation);
         worksheet.addValidationData(enabledAddressValidation);
