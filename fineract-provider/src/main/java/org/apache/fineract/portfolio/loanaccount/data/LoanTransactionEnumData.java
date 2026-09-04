@@ -53,6 +53,7 @@ public class LoanTransactionEnumData {
     private final boolean payOff;
     private final boolean futureInterestCancellation;
     private final boolean partialWriteOff;
+    private final boolean residualBalanceAdjustment;
 
     public LoanTransactionEnumData(final Long id, final String code, final String value) {
         this.id = id;
@@ -81,6 +82,7 @@ public class LoanTransactionEnumData {
         this.payOff = Long.valueOf(28).equals(this.id);
         this.futureInterestCancellation = Long.valueOf(30).equals(this.id);
         this.partialWriteOff = Long.valueOf(31).equals(this.id);
+        this.residualBalanceAdjustment = Long.valueOf(32).equals(this.id);
     }
 
     public Long id() {
@@ -203,11 +205,16 @@ public class LoanTransactionEnumData {
     public boolean isDisbursementChargeAdjustment() {
         return Long.valueOf(LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue()).equals(this.id);
     }
+
     public boolean isDepositRedraw() {
         return LoanTransactionType.DEPOSIT_REDRAW.getValue().equals(this.id);
     }
 
     public boolean isPartialWriteOff() {
         return this.partialWriteOff;
+    }
+
+    public boolean isResidualBalanceAdjustment() {
+        return this.residualBalanceAdjustment;
     }
 }

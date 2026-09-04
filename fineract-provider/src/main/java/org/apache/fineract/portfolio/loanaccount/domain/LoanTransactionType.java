@@ -59,12 +59,11 @@ public enum LoanTransactionType {
     GOODWILL_CREDIT(23, "loanTransactionType.goodwillCredit"), //
     BNPL_VENDOR_TRANSFER(24, "loanTransactionType.bnplVendorTransfer"), WITHDRAWAL_REDRAW(26, "loanTransactionType.withdrawalRedraw"),
 
-    DEPOSIT_REDRAW(27, "loanTransactionType.depositRedraw"), PAY_OFF(28, "loanTransactionType.payOff"),
-    DISBURSEMENT_CHARGE_ADJUSTMENT(29, "loanTransactionType.disbursementChargeAdjustment"),
-    FUTURE_INTEREST_CANCELLATION(30, "loanTransactionType.futureInterestCancellation"),
-    PARTIAL_WRITEOFF(31, "loanTransactionType.partialWriteOff");
-
-
+    DEPOSIT_REDRAW(27, "loanTransactionType.depositRedraw"), PAY_OFF(28, "loanTransactionType.payOff"), DISBURSEMENT_CHARGE_ADJUSTMENT(29,
+            "loanTransactionType.disbursementChargeAdjustment"), FUTURE_INTEREST_CANCELLATION(30,
+                    "loanTransactionType.futureInterestCancellation"), PARTIAL_WRITEOFF(31,
+                            "loanTransactionType.partialWriteOff"), RESIDUAL_BALANCE_ADJUSTMENT(32,
+                                    "loanTransactionType.residualBalanceAdjustment");
 
     private final Integer value;
     private final String code;
@@ -173,13 +172,16 @@ public enum LoanTransactionType {
             break;
             case 29:
                 loanTransactionType = LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT;
-                break;
+            break;
             case 30:
                 loanTransactionType = LoanTransactionType.FUTURE_INTEREST_CANCELLATION;
-                break;
+            break;
             case 31:
                 loanTransactionType = LoanTransactionType.PARTIAL_WRITEOFF;
-                break;
+            break;
+            case 32:
+                loanTransactionType = LoanTransactionType.RESIDUAL_BALANCE_ADJUSTMENT;
+            break;
             default:
                 loanTransactionType = LoanTransactionType.INVALID;
             break;
@@ -241,6 +243,10 @@ public enum LoanTransactionType {
 
     public boolean isWriteOffOrPartialWriteOff() {
         return isWriteOff() || isPartialWriteOff();
+    }
+
+    public boolean isResidualBalanceAdjustment() {
+        return this.value.equals(LoanTransactionType.RESIDUAL_BALANCE_ADJUSTMENT.getValue());
     }
 
     public boolean isChargePayment() {

@@ -434,8 +434,17 @@ public class OdooServiceImpl implements OdooService {
 
         journalEntryToOdooData.setResourceId(loanTransactionId.toString());
 
-        String ref = isReversed ? "Reversal of Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId :
-                "Journal Entry made by CBS for Loan ID : " + loanAccountNo +"; Transaction ID : L" + loanTransactionId ;
+        final boolean residualBalanceAdjustment = Long
+                .valueOf(LoanTransactionType.RESIDUAL_BALANCE_ADJUSTMENT.getValue().longValue()).equals(transactionType);
+        String ref;
+        if (residualBalanceAdjustment) {
+            ref = (isReversed ? "Reversal of " : "") + "Residual Balance Adjustment - Loan Account: " + loanAccountNo
+                    + "; CBS Transaction ID: L" + loanTransactionId;
+        } else {
+            ref = isReversed ? "Reversal of Journal Entry made by CBS for Loan ID : " + loanAccountNo + "; Transaction ID : L"
+                    + loanTransactionId
+                    : "Journal Entry made by CBS for Loan ID : " + loanAccountNo + "; Transaction ID : L" + loanTransactionId;
+        }
 
         if (journalData.getIsCorrection() != null && journalData.getIsCorrection())
             ref = ref + "; Original Transaction Date: " + journalData.getCorrectionDate();
