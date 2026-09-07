@@ -279,6 +279,12 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
 
             final Office clientOffice = this.officeRepositoryWrapper.findOneWithNotFoundDetection(officeId);
 
+            Office migratedFromOffice = null;
+            final Long migratedFromOfficeId = command.longValueOfParameterNamed(ClientApiConstants.migratedFromOfficeIdParamName);
+            if (migratedFromOfficeId != null) {
+                migratedFromOffice = this.officeRepositoryWrapper.findOneWithNotFoundDetection(migratedFromOfficeId);
+            }
+
             final Long groupId = command.longValueOfParameterNamed(ClientApiConstants.groupIdParamName);
 
             Group clientParentGroup = null;
@@ -330,7 +336,7 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
             }
 
             newClient = Client.createNew(currentUser, clientOffice, clientParentGroup, staff, savingsProductId, gender, clientType,
-                    clientClassification, legalFormValue, command);
+                    clientClassification, legalFormValue, migratedFromOffice, command);
             this.clientRepository.saveAndFlush(newClient);
 
             createClientAdditionalInfo(newClient, command);

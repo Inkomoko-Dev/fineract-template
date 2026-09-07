@@ -152,6 +152,14 @@ public class ClientEntityImportHandler implements ImportHandler {
         LocalDate submittedOn = ImportHandlerUtils.readAsDate(ClientEntityConstants.SUBMITTED_ON_COL, row);
 
         LocalDate activationDate = ImportHandlerUtils.readAsDate(ClientEntityConstants.ACTIVATION_DATE_COL, row);
+        Boolean migrated = ImportHandlerUtils.readAsBoolean(ClientEntityConstants.MIGRATED_COL, row);
+        LocalDate migratedOnDate = ImportHandlerUtils.readAsDate(ClientEntityConstants.MIGRATED_ON_DATE_COL, row);
+        String migratedFromOfficeName = ImportHandlerUtils.readAsString(ClientEntityConstants.MIGRATED_FROM_OFFICE_COL, row);
+        Long migratedFromOfficeId = ImportHandlerUtils.getIdByName(workbook.getSheet(TemplatePopulateImportConstants.OFFICE_SHEET_NAME),
+                migratedFromOfficeName);
+        if (migratedFromOfficeId != null && migratedFromOfficeId == 0L) {
+            migratedFromOfficeId = null;
+        }
         if (!active) {
             activationDate = submittedOn;
         }
@@ -197,7 +205,7 @@ public class ClientEntityImportHandler implements ImportHandler {
         }
         return ClientData.importClientEntityInstance(legalFormId, row.getRowNum(), name, officeId, clientTypeId, clientClassicationId,
                 staffId, active, activationDate, submittedOn, externalId, incorportionDate, mobileNo, clientNonPersonData, addressList,
-                locale, dateFormat);
+                locale, dateFormat, migrated, migratedOnDate, migratedFromOfficeId);
     }
 
     public Count importEntity(String dateFormat) {

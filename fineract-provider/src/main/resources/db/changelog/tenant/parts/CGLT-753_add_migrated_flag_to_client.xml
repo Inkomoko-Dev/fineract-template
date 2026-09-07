@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-753-add-is-migrated-to-m_client" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_client" columnName="is_migrated"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_client">
+            <column name="is_migrated" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="CGLT-753-add-migration-provenance-to-m_client" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_client" columnName="migrated_on_date"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_client">
+            <column name="migrated_on_date" type="DATE"/>
+            <column name="migrated_from_office_id" type="BIGINT"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="CGLT-753-add-migrated-from-office-fk" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <foreignKeyConstraintExists foreignKeyName="FK_m_client_migrated_from_office"/>
+            </not>
+        </preConditions>
+        <addForeignKeyConstraint baseTableName="m_client" baseColumnNames="migrated_from_office_id"
+                                 constraintName="FK_m_client_migrated_from_office"
+                                 referencedTableName="m_office" referencedColumnNames="id"/>
+    </changeSet>
+
+    <changeSet id="CGLT-753-add-migration-provenance-to-m_loan" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan" columnName="is_migrated"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan">
+            <column name="is_migrated" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="migrated_on_date" type="DATE"/>
+            <column name="migrated_from_office_id" type="BIGINT"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="CGLT-753-add-loan-migrated-from-office-fk" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <foreignKeyConstraintExists foreignKeyName="FK_m_loan_migrated_from_office"/>
+            </not>
+        </preConditions>
+        <addForeignKeyConstraint baseTableName="m_loan" baseColumnNames="migrated_from_office_id"
+                                 constraintName="FK_m_loan_migrated_from_office"
+                                 referencedTableName="m_office" referencedColumnNames="id"/>
+    </changeSet>
+
+</databaseChangeLog>
