@@ -400,6 +400,8 @@ public class LoanProductsApiResource {
                 productTypes, productData.getProductCategoryId(), productData.getProductTypeId());
 
         loanProductDataResponse.setBnplLoanProduct(productData.getBnplLoanProduct());
+        loanProductDataResponse.setResidualClosureConfiguration(productData.getResidualAutoCloseEnabled(),
+                productData.getResidualClosureThreshold());
         loanProductDataResponse.setRequiresEquityContribution(productData.getRequiresEquityContribution());
         loanProductDataResponse.setEquityContributionLoanPercentage(productData.getEquityContributionLoanPercentage());
         loanProductDataResponse.setEnableThirdPartyDisbursement(productData.getEnableThirdPartyDisbursement());

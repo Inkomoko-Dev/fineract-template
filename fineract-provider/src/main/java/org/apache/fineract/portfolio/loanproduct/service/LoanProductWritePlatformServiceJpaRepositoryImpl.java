@@ -146,6 +146,10 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
             this.context.authenticatedUser();
 
             this.fromApiJsonDeserializer.validateForCreate(command.json());
+            if (command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.residualAutoCloseEnabledParamName)
+                    || command.bigDecimalValueOfParameterNamed(LoanProductConstants.residualClosureThresholdParamName) != null) {
+                this.context.authenticatedUser().validateHasPermissionTo(LoanProductConstants.CONFIGURE_RESIDUAL_CLOSURE_PERMISSION);
+            }
             validateInputDates(command);
             final String currencyCode = command.stringValueOfParameterNamed("currencyCode");
             final Fund fund = findFundByIdIfProvided(command.longValueOfParameterNamed("fundId"));
@@ -252,6 +256,10 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
             }
 
             final Map<String, Object> changes = product.update(command, this.aprCalculator, floatingRate);
+            if (changes.containsKey(LoanProductConstants.residualAutoCloseEnabledParamName)
+                    || changes.containsKey(LoanProductConstants.residualClosureThresholdParamName)) {
+                this.context.authenticatedUser().validateHasPermissionTo(LoanProductConstants.CONFIGURE_RESIDUAL_CLOSURE_PERMISSION);
+            }
             this.updateCharts(command, changes, product);
             if (changes.containsKey("fundId")) {
                 final Long fundId = (Long) changes.get("fundId");

@@ -210,6 +210,8 @@ public class LoanProductData implements Serializable {
     private InterestRateChartData activeChart;
 
     private Boolean isBnplLoanProduct;
+    private Boolean residualAutoCloseEnabled;
+    private BigDecimal residualClosureThreshold;
     private Boolean requiresEquityContribution;
     private BigDecimal equityContributionLoanPercentage;
 
@@ -1469,6 +1471,19 @@ public class LoanProductData implements Serializable {
 
     public void setBnplLoanProduct(Boolean bnplLoanProduct) {
         isBnplLoanProduct = bnplLoanProduct;
+    }
+
+    public void setResidualClosureConfiguration(final Boolean enabled, final BigDecimal threshold) {
+        this.residualAutoCloseEnabled = enabled;
+        this.residualClosureThreshold = threshold;
+    }
+
+    public Boolean getResidualAutoCloseEnabled() {
+        return this.residualAutoCloseEnabled;
+    }
+
+    public BigDecimal getResidualClosureThreshold() {
+        return this.residualClosureThreshold;
     }
 
     public Boolean getRequiresEquityContribution() {

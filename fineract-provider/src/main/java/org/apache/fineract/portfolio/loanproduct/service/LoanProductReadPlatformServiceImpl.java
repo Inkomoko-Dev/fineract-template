@@ -240,13 +240,14 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lvi.maximum_gap as maximumGap, "
                     + "lp.can_use_for_topup as canUseForTopup, lp.is_equal_amortization as isEqualAmortization, lp.is_loan_term_includes_topped_up_loan_term as loanTermIncludesToppedUpLoanTerm ,"
                     + "lp.max_number_of_loan_extensions_allowed as maxNumberOfLoanExtensionsAllowed, "
-                    + "lp.is_bnpl_loan_product as isBnplLoanProduct, " + "lp.requires_equity_contribution as requiresEquityContribution, "
+                    + "lp.is_bnpl_loan_product as isBnplLoanProduct, lp.residual_auto_close_enabled as residualAutoCloseEnabled, "
+                    + "lp.residual_closure_threshold as residualClosureThreshold, "
+                    + "lp.requires_equity_contribution as requiresEquityContribution, "
                     + "lp.equity_contribution_loan_percentage as equityContributionLoanPercentage, "
                     + "lp.is_account_level_arrears_tolerance_enable as isAccountLevelArrearsToleranceEnable, "
                     + " lp.is_islamic as isIslamic, "
                     + " lp.enable_third_party_disbursement as enableThirdPartyDisbursement, lp.allowable_dscr as allowableDSCR "
-                    + " from m_product_loan lp "
-                    + " left join m_fund f on f.id = lp.fund_id "
+                    + " from m_product_loan lp " + " left join m_fund f on f.id = lp.fund_id "
                     + " left join m_product_loan_recalculation_details lpr on lpr.product_id=lp.id "
                     + " left join m_product_loan_guarantee_details lpg on lpg.loan_product_id=lp.id "
                     + " left join ref_loan_transaction_processing_strategy ltps on ltps.id = lp.loan_transaction_strategy_id"
@@ -485,6 +486,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             final Boolean isAccountLevelArrearsToleranceEnable = rs.getBoolean("isAccountLevelArrearsToleranceEnable");
 
             final Boolean isBnplLoanProduct = rs.getBoolean("isBnplLoanProduct");
+            final Boolean residualAutoCloseEnabled = rs.getBoolean("residualAutoCloseEnabled");
+            final BigDecimal residualClosureThreshold = rs.getBigDecimal("residualClosureThreshold");
             final Boolean requiresEquityContribution = rs.getBoolean("requiresEquityContribution");
             final BigDecimal equityContributionLoanPercentage = rs.getBigDecimal("equityContributionLoanPercentage");
             final BigDecimal allowableDSCR = rs.getBigDecimal("allowableDSCR");
@@ -510,6 +513,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     loanTermIncludesToppedUpLoanTerm, isAccountLevelArrearsToleranceEnable, productCategoryId, productTypeId,
                     maintainInterestRate, isIslamic, allowableDSCR);
             loanProductData.setBnplLoanProduct(isBnplLoanProduct);
+            loanProductData.setResidualClosureConfiguration(residualAutoCloseEnabled, residualClosureThreshold);
             loanProductData.setRequiresEquityContribution(requiresEquityContribution);
             loanProductData.setEquityContributionLoanPercentage(equityContributionLoanPercentage);
             loanProductData.setEnableThirdPartyDisbursement(enableThirdPartyDisbursement);

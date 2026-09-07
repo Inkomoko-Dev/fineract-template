@@ -157,7 +157,6 @@ public final class LoanAccountData {
     private final Collection<EnumOptionData> repaymentFrequencyNthDayTypeOptions;
     private final Collection<EnumOptionData> repaymentFrequencyDaysOfWeekTypeOptions;
 
-
     private final Collection<EnumOptionData> interestRateFrequencyTypeOptions;
     private final Collection<EnumOptionData> amortizationTypeOptions;
     private final Collection<EnumOptionData> interestTypeOptions;
@@ -257,6 +256,8 @@ public final class LoanAccountData {
     private Collection<ClientData> vendorClientOptions;
     private Collection<PortfolioAccountData> vendorSavingsAccountOptions;
     private Boolean isBnplLoan;
+    private Boolean residualAutoCloseEnabled;
+    private BigDecimal residualClosureThreshold;
     private Boolean requiresEquityContribution;
     private Boolean enableThirdPartyDisbursement;
     private String thirdPartyDisbursementProvider;
@@ -839,8 +840,9 @@ public final class LoanAccountData {
                 acc.isInterestRecalculationEnabled, acc.interestRecalculationData, acc.originalSchedule,
                 acc.createStandingInstructionAtDisbursement, acc.paidInAdvance, acc.interestRatesPeriods, acc.isVariableInstallmentsAllowed,
                 acc.minimumGap, acc.maximumGap, acc.subStatus, acc.canUseForTopup, acc.clientActiveLoanOptions, acc.isTopup,
-                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.enableThirdPartyDisbursement,
-                acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled, acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
+                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates,
+                acc.enableThirdPartyDisbursement, acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled,
+                acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
         loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
@@ -1044,8 +1046,9 @@ public final class LoanAccountData {
                 acc.isInterestRecalculationEnabled, acc.interestRecalculationData, acc.originalSchedule,
                 acc.createStandingInstructionAtDisbursement, acc.paidInAdvance, acc.interestRatesPeriods, acc.isVariableInstallmentsAllowed,
                 acc.minimumGap, acc.maximumGap, acc.subStatus, acc.canUseForTopup, acc.clientActiveLoanOptions, acc.isTopup,
-                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.enableThirdPartyDisbursement,
-                acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled, acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
+                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates,
+                acc.enableThirdPartyDisbursement, acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled,
+                acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
 
         loanAccountData.setDepartment(acc.department);
         loanAccountData.setDepartmentOptions(acc.departmentOptions);
@@ -1194,12 +1197,12 @@ public final class LoanAccountData {
         final Boolean isRatesEnabled = false;
         final CollectionData delinquent = CollectionData.template();
 
-        return new LoanAccountData(id, accountNo, status, externalId, clientId, clientAccountNo, clientName, clientOfficeId, group,
-                loanType, product.getId(), product.getName(), product.getDescription(), product.isLinkedToFloatingInterestRates(),
-                product.getFundId(), product.getFundName(), loanPurposeId, loanPurposeName, loanOfficerId, loanOfficerName,
-                product.getCurrency(), proposedPrincipal, principal, principal, netDisbursalAmount, totalOverpaid,
-                product.getInArrearsTolerance(), termFrequency, termPeriodFrequencyType, numberOfRepayments, product.getRepaymentEvery(),
-                product.getRepaymentFrequencyType(), null, null, product.getTransactionProcessingStrategyId(),
+        final LoanAccountData result = new LoanAccountData(id, accountNo, status, externalId, clientId, clientAccountNo, clientName,
+                clientOfficeId, group, loanType, product.getId(), product.getName(), product.getDescription(),
+                product.isLinkedToFloatingInterestRates(), product.getFundId(), product.getFundName(), loanPurposeId, loanPurposeName,
+                loanOfficerId, loanOfficerName, product.getCurrency(), proposedPrincipal, principal, principal, netDisbursalAmount,
+                totalOverpaid, product.getInArrearsTolerance(), termFrequency, termPeriodFrequencyType, numberOfRepayments,
+                product.getRepaymentEvery(), product.getRepaymentFrequencyType(), null, null, product.getTransactionProcessingStrategyId(),
                 transactionProcessingStrategyName, product.getAmortizationType(), interestRatePerPeriod,
                 product.getInterestRateFrequencyType(), product.getAnnualInterestRate(), product.getInterestType(),
                 product.isFloatingInterestRateCalculationAllowed(), product.getDefaultDifferentialLendingRate(),
@@ -1220,6 +1223,8 @@ public final class LoanAccountData {
                 product.getMaximumGapBetweenInstallments(), subStatus, canUseForTopup, clientActiveLoanOptions, isTopup, closureLoanId,
                 closureLoanAccountNo, topupAmount, product.isEqualAmortization(), rates, enableThirdPartyDisbursement,
                 thirdPartyDisbursementProviderOptions, isRatesEnabled, product.getFixedPrincipalPercentagePerInstallment(), delinquent);
+        result.setResidualClosureConfiguration(product.getResidualAutoCloseEnabled(), product.getResidualClosureThreshold());
+        return result;
     }
 
     public static LoanAccountData populateLoanProductDefaults(final LoanAccountData acc, final LoanProductData product) {
@@ -1263,13 +1268,13 @@ public final class LoanAccountData {
         }
         final CollectionData delinquent = CollectionData.template();
 
-        return new LoanAccountData(acc.id, acc.accountNo, acc.status, acc.externalId, acc.clientId, acc.clientAccountNo, acc.clientName,
-                acc.clientOfficeId, acc.group, acc.loanType, product.getId(), product.getName(), product.getDescription(),
-                product.isLinkedToFloatingInterestRates(), product.getFundId(), product.getFundName(), acc.loanPurposeId,
-                acc.loanPurposeName, acc.loanOfficerId, acc.loanOfficerName, product.getCurrency(), product.getPrincipal(),
-                product.getPrincipal(), product.getPrincipal(), netDisbursalAmount, acc.totalOverpaid, product.getInArrearsTolerance(),
-                termFrequency, termPeriodFrequencyType, product.getNumberOfRepayments(), product.getRepaymentEvery(),
-                product.getRepaymentFrequencyType(), null, null, product.getTransactionProcessingStrategyId(),
+        final LoanAccountData result = new LoanAccountData(acc.id, acc.accountNo, acc.status, acc.externalId, acc.clientId,
+                acc.clientAccountNo, acc.clientName, acc.clientOfficeId, acc.group, acc.loanType, product.getId(), product.getName(),
+                product.getDescription(), product.isLinkedToFloatingInterestRates(), product.getFundId(), product.getFundName(),
+                acc.loanPurposeId, acc.loanPurposeName, acc.loanOfficerId, acc.loanOfficerName, product.getCurrency(),
+                product.getPrincipal(), product.getPrincipal(), product.getPrincipal(), netDisbursalAmount, acc.totalOverpaid,
+                product.getInArrearsTolerance(), termFrequency, termPeriodFrequencyType, product.getNumberOfRepayments(),
+                product.getRepaymentEvery(), product.getRepaymentFrequencyType(), null, null, product.getTransactionProcessingStrategyId(),
                 product.getTransactionProcessingStrategyName(), product.getAmortizationType(), product.getInterestRatePerPeriod(),
                 product.getInterestRateFrequencyType(), product.getAnnualInterestRate(), product.getInterestType(),
                 product.isFloatingInterestRateCalculationAllowed(), product.getDefaultDifferentialLendingRate(),
@@ -1291,6 +1296,8 @@ public final class LoanAccountData {
                 acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, product.isEqualAmortization(), acc.rates,
                 product.getEnableThirdPartyDisbursement(), product.getThirdPartyDisbursementProviderOptions(), acc.isRatesEnabled,
                 product.getFixedPrincipalPercentagePerInstallment(), delinquent);
+        result.setResidualClosureConfiguration(product.getResidualAutoCloseEnabled(), product.getResidualClosureThreshold());
+        return result;
     }
 
     /*
@@ -1530,8 +1537,9 @@ public final class LoanAccountData {
                 acc.isInterestRecalculationEnabled, acc.interestRecalculationData, acc.originalSchedule,
                 acc.createStandingInstructionAtDisbursement, acc.paidInAdvance, acc.interestRatesPeriods, acc.isVariableInstallmentsAllowed,
                 acc.minimumGap, acc.maximumGap, acc.subStatus, acc.canUseForTopup, acc.clientActiveLoanOptions, acc.isTopup,
-                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.enableThirdPartyDisbursement,
-                acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled, acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
+                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates,
+                acc.enableThirdPartyDisbursement, acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled,
+                acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
         loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
@@ -1621,8 +1629,9 @@ public final class LoanAccountData {
                 acc.isInterestRecalculationEnabled, acc.interestRecalculationData, acc.originalSchedule,
                 acc.createStandingInstructionAtDisbursement, acc.paidInAdvance, acc.interestRatesPeriods, acc.isVariableInstallmentsAllowed,
                 acc.minimumGap, acc.maximumGap, acc.subStatus, acc.canUseForTopup, acc.clientActiveLoanOptions, acc.isTopup,
-                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.enableThirdPartyDisbursement,
-                acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled, acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
+                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates,
+                acc.enableThirdPartyDisbursement, acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled,
+                acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
         loanAccountData.setDepartment(acc.department);
         loanAccountData.setDepartmentOptions(acc.departmentOptions);
         return loanAccountData;
@@ -1658,8 +1667,9 @@ public final class LoanAccountData {
                 acc.isInterestRecalculationEnabled, interestRecalculationData, acc.originalSchedule,
                 acc.createStandingInstructionAtDisbursement, acc.paidInAdvance, acc.interestRatesPeriods, acc.isVariableInstallmentsAllowed,
                 acc.minimumGap, acc.maximumGap, acc.subStatus, acc.canUseForTopup, acc.clientActiveLoanOptions, acc.isTopup,
-                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.enableThirdPartyDisbursement,
-                acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled, acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
+                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates,
+                acc.enableThirdPartyDisbursement, acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled,
+                acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
         loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
@@ -1710,8 +1720,9 @@ public final class LoanAccountData {
                 acc.isInterestRecalculationEnabled, acc.interestRecalculationData, acc.originalSchedule,
                 acc.createStandingInstructionAtDisbursement, acc.paidInAdvance, acc.interestRatesPeriods, acc.isVariableInstallmentsAllowed,
                 acc.minimumGap, acc.maximumGap, acc.subStatus, acc.canUseForTopup, acc.clientActiveLoanOptions, acc.isTopup,
-                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.enableThirdPartyDisbursement,
-                acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled, acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
+                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates,
+                acc.enableThirdPartyDisbursement, acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled,
+                acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
         loanAccountData.setBnplLoan(acc.isBnplLoan);
         loanAccountData.setEnableThirdPartyDisbursement(acc.enableThirdPartyDisbursement);
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
@@ -1763,8 +1774,9 @@ public final class LoanAccountData {
                 acc.isInterestRecalculationEnabled, acc.interestRecalculationData, originalSchedule,
                 acc.createStandingInstructionAtDisbursement, acc.paidInAdvance, acc.interestRatesPeriods, acc.isVariableInstallmentsAllowed,
                 acc.minimumGap, acc.maximumGap, acc.subStatus, acc.canUseForTopup, acc.clientActiveLoanOptions, acc.isTopup,
-                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates, acc.enableThirdPartyDisbursement,
-                acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled, acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
+                acc.closureLoanId, acc.closureLoanAccountNo, acc.topupAmount, acc.isEqualAmortization, acc.rates,
+                acc.enableThirdPartyDisbursement, acc.thirdPartyDisbursementProviderOptions, acc.isRatesEnabled,
+                acc.fixedPrincipalPercentagePerInstallment, acc.delinquent);
     }
 
     private LoanAccountData(final Long id, //
@@ -2245,6 +2257,11 @@ public final class LoanAccountData {
         this.isBnplLoan = isBnplLoan;
     }
 
+    public void setResidualClosureConfiguration(final Boolean enabled, final BigDecimal threshold) {
+        this.residualAutoCloseEnabled = enabled;
+        this.residualClosureThreshold = threshold;
+    }
+
     public Boolean getEnableThirdPartyDisbursement() {
         return enableThirdPartyDisbursement;
     }
@@ -2397,8 +2414,8 @@ public final class LoanAccountData {
         this.departmentId = departmentId;
     }
 
-    public EnumOptionData getloanDecisionState(){
-       return this.loanDecisionState;
+    public EnumOptionData getloanDecisionState() {
+        return this.loanDecisionState;
     }
 
     public void setClientUid(String clientUid) {

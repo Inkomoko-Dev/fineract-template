@@ -154,7 +154,6 @@ public class LoanProductToGLAccountMappingHelper extends ProductToGLAccountMappi
                 element);
         final Long receivablePenaltyAccountId = this.fromApiJsonHelper
                 .extractLongNamed(LoanProductAccountingParams.PENALTIES_RECEIVABLE.getValue(), element);
-
         switch (accountingRuleType) {
             case NONE:
             break;

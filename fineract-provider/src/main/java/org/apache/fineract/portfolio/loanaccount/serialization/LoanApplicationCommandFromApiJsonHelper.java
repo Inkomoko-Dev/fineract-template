@@ -81,9 +81,10 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             LoanApiConstants.interestRateFrequencyTypeParameterName, LoanApiConstants.disbursementDateParameterName,
             LoanApiConstants.repaymentsStartingFromDateParameterName, LoanApiConstants.graceOnPrincipalPaymentParameterName,
             LoanApiConstants.graceOnInterestPaymentParameterName, LoanApiConstants.graceOnInterestChargedParameterName,
-            LoanApiConstants.interestChargedFromDateParameterName, LoanApiConstants.submittedOnDateParameterName,LoanApiConstants.applicationDateParameterName,
-            LoanApiConstants.submittedOnNoteParameterName, LoanApiConstants.accountNoParameterName,
-            LoanApiConstants.externalIdParameterName, LoanApiConstants.fundIdParameterName, LoanApiConstants.loanOfficerIdParameterName, // optional
+            LoanApiConstants.interestChargedFromDateParameterName, LoanApiConstants.submittedOnDateParameterName,
+            LoanApiConstants.applicationDateParameterName, LoanApiConstants.submittedOnNoteParameterName,
+            LoanApiConstants.accountNoParameterName, LoanApiConstants.externalIdParameterName, LoanApiConstants.fundIdParameterName,
+            LoanApiConstants.loanOfficerIdParameterName, // optional
             LoanApiConstants.loanPurposeIdParameterName, LoanApiConstants.inArrearsToleranceParameterName,
             LoanApiConstants.chargesParameterName, LoanApiConstants.collateralParameterName, // optional
             LoanApiConstants.transactionProcessingStrategyIdParameterName, // settings
@@ -597,7 +598,6 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             baseDataValidator.reset().parameter(LoanApiConstants.isBnplLoanParamName).value(isBnplLoan).ignoreIfNull()
                     .validateForBooleanValue();
         }
-
         Boolean requiresEquityContribution = false;
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.requiresEquityContributionParamName, element)) {
             requiresEquityContribution = this.fromApiJsonHelper.extractBooleanNamed(LoanApiConstants.requiresEquityContributionParamName,
@@ -638,8 +638,8 @@ public final class LoanApplicationCommandFromApiJsonHelper {
                         "not.found.or.inactive",
                         "thirdPartyDisbursementProvider must match an active disbursement provider code in m_disbursement_provider");
             }
-        } else if (provider != null && this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER,
-                element)) {
+        } else if (provider != null
+                && this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element)) {
             baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
                     "must.be.blank.when.enableThirdPartyDisbursement.is.false",
                     "thirdPartyDisbursementProvider must be blank when the loan product does not enable third-party disbursement.");
@@ -1187,7 +1187,6 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             baseDataValidator.reset().parameter(LoanApiConstants.isBnplLoanParamName).value(isBnplLoan).ignoreIfNull()
                     .validateForBooleanValue();
         }
-
         Boolean requiresEquityContribution = null;
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.requiresEquityContributionParamName, element)) {
             requiresEquityContribution = this.fromApiJsonHelper.extractBooleanNamed(LoanApiConstants.requiresEquityContributionParamName,
