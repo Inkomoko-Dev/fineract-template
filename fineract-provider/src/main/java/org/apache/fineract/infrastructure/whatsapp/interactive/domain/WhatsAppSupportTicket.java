@@ -55,6 +55,9 @@ public class WhatsAppSupportTicket extends AbstractPersistableCustom {
     @Column(name = "conversation_session_id")
     private Long conversationSessionId;
 
+    @Column(name = "voice_ivr_session_id")
+    private Long voiceIvrSessionId;
+
     @Column(name = "category", length = 50, nullable = false)
     private String category;
 

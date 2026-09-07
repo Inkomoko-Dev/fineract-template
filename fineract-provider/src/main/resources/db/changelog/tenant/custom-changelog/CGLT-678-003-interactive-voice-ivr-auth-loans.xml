@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260907-678-07-voice-ivr-session-auth" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="voice_ivr_session" columnName="session_context"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="voice_ivr_session">
+            <column name="session_context" type="TEXT"/>
+            <column name="authenticated" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="auth_expires_at" type="DATETIME"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="20260907-678-08-main-loans-submenu" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM voice_ivr_menu_option WHERE menu_key = 'MAIN' AND language_code = 'en' AND option_digit = 1 AND action_type = 'DIAL'</sqlCheck>
+        </preConditions>
+        <update tableName="voice_ivr_menu_option">
+            <column name="option_label" value="Loan self-service"/>
+            <column name="action_type" value="SUBMENU"/>
+            <column name="action_target" value="LOAN"/>
+            <where>menu_key = 'MAIN' AND language_code = 'en' AND option_digit = 1</where>
+        </update>
+        <update tableName="voice_ivr_menu_option">
+            <column name="option_label" value="Serivisi y'inguzanyo"/>
+            <column name="action_type" value="SUBMENU"/>
+            <column name="action_target" value="LOAN"/>
+            <where>menu_key = 'MAIN' AND language_code = 'rw' AND option_digit = 1</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="20260907-678-09-seed-loan-submenu" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM voice_ivr_menu_definition WHERE menu_key = 'LOAN'</sqlCheck>
+        </preConditions>
+        <insert tableName="voice_ivr_menu_definition">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="en"/>
+            <column name="prompt_text" value="Loan self-service."/>
+            <column name="parent_menu_key" value="MAIN"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_definition">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="rw"/>
+            <column name="prompt_text" value="Serivisi y'inguzanyo."/>
+            <column name="parent_menu_key" value="MAIN"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="1"/>
+            <column name="option_label" value="Loan Balance"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_BALANCE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="2"/>
+            <column name="option_label" value="Next Repayment Date"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="NEXT_REPAYMENT"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="3"/>
+            <column name="option_label" value="Amount Due"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="AMOUNT_DUE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="4"/>
+            <column name="option_label" value="Loan Status"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_STATUS"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="1"/>
+            <column name="option_label" value="Amafaranga asigaye"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_BALANCE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="2"/>
+            <column name="option_label" value="Itariki yo kwishyura"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="NEXT_REPAYMENT"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="3"/>
+            <column name="option_label" value="Amafaranga asigaye kwishyura"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="AMOUNT_DUE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="4"/>
+            <column name="option_label" value="Imiterere y'inguzanyo"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_STATUS"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

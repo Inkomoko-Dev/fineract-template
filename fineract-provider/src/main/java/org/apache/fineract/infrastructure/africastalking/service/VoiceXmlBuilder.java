@@ -20,31 +20,68 @@ package org.apache.fineract.infrastructure.africastalking.service;
 
 import org.apache.commons.lang3.StringUtils;
 
-final class VoiceXmlBuilder {
+public final class VoiceXmlBuilder {
 
     private VoiceXmlBuilder() {}
 
-    static String buildMainMenu() {
-        return wrap("<GetDigits timeout=\"10\" finishOnKey=\"#\">"
-                + "<Say voice=\"woman\">Welcome to Inkomoko. Press 1 for Loans, 2 for Client Support, 3 for Internal Staff.</Say>"
+    public static String buildCollectInput(final String promptText) {
+        return wrap("<GetDigits timeout=\"30\" finishOnKey=\"#\">" + "<Say voice=\"woman\">" + escapeXmlText(promptText) + "</Say>"
                 + "</GetDigits>");
     }
 
-    static String buildDial(final String phoneNumber) {
+    public static String buildSayWithMenu(final String sayText, final String menuPrompt) {
+        return wrap("<Say voice=\"woman\">" + escapeXmlText(sayText) + "</Say>" + "<GetDigits timeout=\"15\" finishOnKey=\"#\">"
+                + "<Say voice=\"woman\">" + escapeXmlText(menuPrompt) + "</Say>" + "</GetDigits>");
+    }
+
+    public static String buildMenuPrompt(final String promptText) {
+        return wrap("<GetDigits timeout=\"10\" finishOnKey=\"#\">" + "<Say voice=\"woman\">" + escapeXmlText(promptText) + "</Say>"
+                + "</GetDigits>");
+    }
+
+    public static String buildSay(final String message) {
+        return wrap("<Say voice=\"woman\">" + escapeXmlText(message) + "</Say>");
+    }
+
+    public static String buildMainMenu() {
+        return buildMenuPrompt("Welcome to Inkomoko. Press 1 for Loans, 2 for Client Support, 3 for Internal Staff.");
+    }
+
+    public static String buildDial(final String phoneNumber) {
         return wrap("<Dial phoneNumbers=\"" + escapeXmlAttribute(phoneNumber) + "\" record=\"true\" sequential=\"true\"/>");
     }
 
-    static String buildAfterHoursVoicemail() {
+    public static String buildConnectingDial(final String sayText, final String phoneNumber) {
+        return wrap("<Say voice=\"woman\">" + escapeXmlText(sayText) + "</Say>" + "<Dial phoneNumbers=\"" + escapeXmlAttribute(phoneNumber)
+                + "\" record=\"true\" sequential=\"true\"/>");
+    }
+
+    public static String buildAfterHoursVoicemail() {
         return wrap("<Say voice=\"woman\">Thank you for calling Inkomoko. Our office is currently closed. Please leave a message after the tone.</Say>"
                 + "<Record finishOnKey=\"#\" maxLength=\"120\" playBeep=\"true\"/>");
     }
 
-    static String buildUnavailableDepartment(final String departmentName) {
+    public static String buildAfterHoursMenu(final String promptText) {
+        return wrap("<GetDigits timeout=\"15\" finishOnKey=\"#\">" + "<Say voice=\"woman\">" + escapeXmlText(promptText) + "</Say>"
+                + "</GetDigits>");
+    }
+
+    public static String buildQueueHold(final String promptText) {
+        return wrap("<GetDigits timeout=\"20\" finishOnKey=\"#\">" + "<Say voice=\"woman\">" + escapeXmlText(promptText) + "</Say>"
+                + "</GetDigits>");
+    }
+
+    public static String buildRecordVoicemail(final String promptText) {
+        return wrap("<Say voice=\"woman\">" + escapeXmlText(promptText) + "</Say>"
+                + "<Record finishOnKey=\"#\" maxLength=\"120\" playBeep=\"true\"/>");
+    }
+
+    public static String buildUnavailableDepartment(final String departmentName) {
         return wrap("<Say voice=\"woman\">We're sorry, the " + escapeXmlText(departmentName)
                 + " department is unavailable right now. Please try again later.</Say><Reject/>");
     }
 
-    static String buildInvalidSelection() {
+    public static String buildInvalidSelection() {
         return wrap("<Say voice=\"woman\">Invalid selection. Goodbye.</Say><Reject/>");
     }
 
