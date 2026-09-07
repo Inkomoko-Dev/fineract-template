@@ -16,27 +16,32 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.whatsapp.interactive.data;
+package org.apache.fineract.infrastructure.whatsapp.interactive.domain;
 
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 
+@Entity
+@Table(name = "whatsapp_business_hours")
 @Getter
 @Setter
 @NoArgsConstructor
-public class WhatsAppSessionContext {
+public class WhatsAppBusinessHours extends AbstractPersistableCustom {
 
-    private String parentMenuKey;
-    private String pendingAction;
-    private String capturedInput;
-    private String authStep;
-    private Long candidateClientId;
-    private Long selectedLoanId;
-    private String pendingLoanAction;
-    private Long ticketId;
+    @Column(name = "day_of_week", nullable = false)
+    private int dayOfWeek;
 
-    public static WhatsAppSessionContext empty() {
-        return new WhatsAppSessionContext();
-    }
+    @Column(name = "open_time", length = 8, nullable = false)
+    private String openTime;
+
+    @Column(name = "close_time", length = 8, nullable = false)
+    private String closeTime;
+
+    @Column(name = "enabled", nullable = false)
+    private boolean enabled = true;
 }

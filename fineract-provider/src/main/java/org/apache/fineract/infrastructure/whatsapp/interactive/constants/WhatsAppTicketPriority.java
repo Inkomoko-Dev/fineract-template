@@ -16,27 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.whatsapp.interactive.data;
+package org.apache.fineract.infrastructure.whatsapp.interactive.constants;
 
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+public enum WhatsAppTicketPriority {
 
-@Getter
-@Setter
-@NoArgsConstructor
-public class WhatsAppSessionContext {
-
-    private String parentMenuKey;
-    private String pendingAction;
-    private String capturedInput;
-    private String authStep;
-    private Long candidateClientId;
-    private Long selectedLoanId;
-    private String pendingLoanAction;
-    private Long ticketId;
-
-    public static WhatsAppSessionContext empty() {
-        return new WhatsAppSessionContext();
-    }
+    NORMAL, HIGH
 }

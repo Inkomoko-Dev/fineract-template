@@ -30,6 +30,7 @@ import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppAuthChallenge;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppAuthChallengeRepository;
+import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppInteractiveSettingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,7 +53,9 @@ class WhatsAppOtpServiceTest {
         properties.setOtpLength(6);
         properties.setOtpValidityMinutes(5);
         properties.setMaxOtpAttempts(3);
-        otpService = new WhatsAppOtpService(authChallengeRepository, properties);
+        final WhatsAppInteractiveSettingsProvider settings = new WhatsAppInteractiveSettingsProvider(properties,
+                org.mockito.Mockito.mock(WhatsAppInteractiveSettingRepository.class));
+        otpService = new WhatsAppOtpService(authChallengeRepository, settings);
     }
 
     @Test

@@ -21,7 +21,7 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppSessionStatus;
 import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConversationSession;
@@ -39,12 +39,12 @@ public class WhatsAppMenuNavigationService {
     private final WhatsAppMenuDefinitionService menuDefinitionService;
     private final WhatsAppReplyService replyService;
     private final WhatsAppSessionContextSerializer contextSerializer;
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
 
     @Transactional
     public void navigateToMenu(final WhatsAppConversationSession session, final String menuKey, final RecipientType recipientType,
             final Client client, final Staff staff, final boolean recordParent) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
         if (recordParent) {
             context.setParentMenuKey(session.getCurrentMenuKey());
@@ -59,14 +59,14 @@ public class WhatsAppMenuNavigationService {
     @Transactional
     public void navigateBack(final WhatsAppConversationSession session, final RecipientType recipientType, final Client client,
             final Staff staff) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
         String targetMenu = context.getParentMenuKey();
         if (StringUtils.isBlank(targetMenu)) {
             targetMenu = menuDefinitionService.resolveParentMenuKey(session.getCurrentMenuKey(), language);
         }
         if (StringUtils.isBlank(targetMenu)) {
-            targetMenu = properties.getMainMenuKey();
+            targetMenu = settings.resolveMainMenuKey(session.getConversationType());
         }
         context.setParentMenuKey(null);
         session.setSessionContext(contextSerializer.toJson(context));
@@ -80,10 +80,10 @@ public class WhatsAppMenuNavigationService {
     public void navigateToMainMenu(final WhatsAppConversationSession session, final RecipientType recipientType, final Client client,
             final Staff staff) {
         session.setSessionContext(null);
-        session.setCurrentMenuKey(properties.getMainMenuKey());
+        session.setCurrentMenuKey(settings.resolveMainMenuKey(session.getConversationType()));
         session.setSessionStatus(WhatsAppSessionStatus.MAIN_MENU);
         sessionService.save(session);
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         sendMenu(session, recipientType, client, staff, language);
     }
 

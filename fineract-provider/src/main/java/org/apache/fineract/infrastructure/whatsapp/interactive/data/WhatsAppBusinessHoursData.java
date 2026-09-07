@@ -25,18 +25,11 @@ import lombok.Setter;
 @Getter
 @Setter
 @NoArgsConstructor
-public class WhatsAppSessionContext {
+public class WhatsAppBusinessHoursData {
 
-    private String parentMenuKey;
-    private String pendingAction;
-    private String capturedInput;
-    private String authStep;
-    private Long candidateClientId;
-    private Long selectedLoanId;
-    private String pendingLoanAction;
-    private Long ticketId;
-
-    public static WhatsAppSessionContext empty() {
-        return new WhatsAppSessionContext();
-    }
+    private Long id;
+    private int dayOfWeek;
+    private String openTime;
+    private String closeTime;
+    private boolean enabled;
 }

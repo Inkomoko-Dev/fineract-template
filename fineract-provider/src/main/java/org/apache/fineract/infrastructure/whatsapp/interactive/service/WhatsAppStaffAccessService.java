@@ -16,27 +16,23 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.whatsapp.interactive.data;
+package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.RequiredArgsConstructor;
+import org.apache.fineract.organisation.staff.domain.Staff;
+import org.springframework.stereotype.Service;
 
-@Getter
-@Setter
-@NoArgsConstructor
-public class WhatsAppSessionContext {
+@Service
+@RequiredArgsConstructor
+public class WhatsAppStaffAccessService {
 
-    private String parentMenuKey;
-    private String pendingAction;
-    private String capturedInput;
-    private String authStep;
-    private Long candidateClientId;
-    private Long selectedLoanId;
-    private String pendingLoanAction;
-    private Long ticketId;
+    private final WhatsAppInteractiveSettingsProvider settings;
 
-    public static WhatsAppSessionContext empty() {
-        return new WhatsAppSessionContext();
+    public boolean isStaffSelfServiceEnabled() {
+        return settings.isStaffSelfServiceEnabled();
+    }
+
+    public boolean canAccessStaffSelfService(final Staff staff) {
+        return isStaffSelfServiceEnabled() && staff != null && staff.isActive();
     }
 }

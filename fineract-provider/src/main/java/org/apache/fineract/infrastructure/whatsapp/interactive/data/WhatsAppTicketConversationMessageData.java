@@ -18,25 +18,19 @@
  */
 package org.apache.fineract.infrastructure.whatsapp.interactive.data;
 
+import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.apache.fineract.infrastructure.africastalking.domain.CommunicationDirection;
 
 @Getter
 @Setter
 @NoArgsConstructor
-public class WhatsAppSessionContext {
+public class WhatsAppTicketConversationMessageData {
 
-    private String parentMenuKey;
-    private String pendingAction;
-    private String capturedInput;
-    private String authStep;
-    private Long candidateClientId;
-    private Long selectedLoanId;
-    private String pendingLoanAction;
-    private Long ticketId;
-
-    public static WhatsAppSessionContext empty() {
-        return new WhatsAppSessionContext();
-    }
+    private Long id;
+    private CommunicationDirection direction;
+    private String messageBody;
+    private LocalDateTime createdDate;
 }

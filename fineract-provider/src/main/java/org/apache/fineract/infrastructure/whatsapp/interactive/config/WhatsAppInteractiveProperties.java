@@ -41,4 +41,10 @@ public class WhatsAppInteractiveProperties {
     private int otpValidityMinutes = 5;
     private int maxOtpAttempts = 3;
     private boolean pinAuthEnabled = false;
+    private int slaFirstResponseHours = 4;
+    private boolean notifyOnTicketCreated = true;
+    private boolean notifyOnSlaBreach = true;
+    private String operationalNotifyUserIds = "";
+    private boolean staffSelfServiceEnabled = true;
+    private String staffMainMenuKey = "STAFF_MAIN";
 }

@@ -27,7 +27,7 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.RandomOTPGenerator;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppAuthChallenge;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppAuthChallengeRepository;
 import org.springframework.stereotype.Service;
@@ -38,17 +38,17 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsAppOtpService {
 
     private final WhatsAppAuthChallengeRepository authChallengeRepository;
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
 
     @Transactional
     public String issueOtp(final String phoneNumber, final Long clientId) {
-        final String otp = new RandomOTPGenerator(properties.getOtpLength()).generate();
+        final String otp = new RandomOTPGenerator(settings.getOtpLength()).generate();
         final WhatsAppAuthChallenge challenge = new WhatsAppAuthChallenge();
         challenge.setPhoneNumber(phoneNumber);
         challenge.setClientId(clientId);
         challenge.setOtpHash(hashOtp(phoneNumber, otp));
         challenge.setAttemptCount(0);
-        challenge.setExpiresAt(DateUtils.getLocalDateTimeOfTenant().plusMinutes(properties.getOtpValidityMinutes()));
+        challenge.setExpiresAt(DateUtils.getLocalDateTimeOfTenant().plusMinutes(settings.getOtpValidityMinutes()));
         challenge.setCreatedDate(DateUtils.getLocalDateTimeOfTenant());
         authChallengeRepository.save(challenge);
         return otp;
@@ -68,7 +68,7 @@ public class WhatsAppOtpService {
         if (challenge.getExpiresAt().isBefore(now)) {
             return false;
         }
-        if (challenge.getAttemptCount() >= properties.getMaxOtpAttempts()) {
+        if (challenge.getAttemptCount() >= settings.getMaxOtpAttempts()) {
             return false;
         }
         challenge.setAttemptCount(challenge.getAttemptCount() + 1);

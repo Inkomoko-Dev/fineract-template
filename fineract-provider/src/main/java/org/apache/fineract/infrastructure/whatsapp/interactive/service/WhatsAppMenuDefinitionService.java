@@ -20,7 +20,7 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuDefinition;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuDefinitionRepository;
 import org.springframework.stereotype.Service;
@@ -31,20 +31,20 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsAppMenuDefinitionService {
 
     private final WhatsAppMenuDefinitionRepository menuDefinitionRepository;
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
 
     @Transactional(readOnly = true)
     public String resolveHeader(final String menuKey, final String languageCode) {
-        final String language = StringUtils.defaultIfBlank(languageCode, properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(languageCode, settings.getDefaultLanguage());
         return menuDefinitionRepository.findByMenuKeyAndLanguageCodeAndEnabledTrue(menuKey, language)
                 .map(WhatsAppMenuDefinition::getHeaderText)
-                .orElseGet(() -> menuDefinitionRepository.findByMenuKeyAndLanguageCodeAndEnabledTrue(menuKey, properties.getDefaultLanguage())
+                .orElseGet(() -> menuDefinitionRepository.findByMenuKeyAndLanguageCodeAndEnabledTrue(menuKey, settings.getDefaultLanguage())
                         .map(WhatsAppMenuDefinition::getHeaderText).orElse(null));
     }
 
     @Transactional(readOnly = true)
     public String resolveParentMenuKey(final String menuKey, final String languageCode) {
-        final String language = StringUtils.defaultIfBlank(languageCode, properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(languageCode, settings.getDefaultLanguage());
         return menuDefinitionRepository.findByMenuKeyAndLanguageCodeAndEnabledTrue(menuKey, language)
                 .map(WhatsAppMenuDefinition::getParentMenuKey).orElse(null);
     }

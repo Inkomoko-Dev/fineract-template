@@ -21,36 +21,36 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 import java.util.Arrays;
 import java.util.Locale;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.springframework.stereotype.Component;
 
 @Component
 public class WhatsAppKeywordMatcher {
 
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
 
-    public WhatsAppKeywordMatcher(final WhatsAppInteractiveProperties properties) {
-        this.properties = properties;
+    public WhatsAppKeywordMatcher(final WhatsAppInteractiveSettingsProvider settings) {
+        this.settings = settings;
     }
 
     public boolean matchesOptOut(final String text) {
-        return matchesAny(text, properties.getOptOutKeywords());
+        return matchesAny(text, settings.getOptOutKeywords());
     }
 
     public boolean matchesOptIn(final String text) {
-        return matchesAny(text, properties.getOptInKeywords());
+        return matchesAny(text, settings.getOptInKeywords());
     }
 
     public boolean matchesConsentAccept(final String text) {
-        return matchesAny(text, properties.getConsentAcceptKeywords());
+        return matchesAny(text, settings.getConsentAcceptKeywords());
     }
 
     public boolean matchesMainMenu(final String text) {
-        return matchesAny(text, properties.getMainMenuKeywords());
+        return matchesAny(text, settings.getMainMenuKeywords());
     }
 
     public boolean matchesBackMenu(final String text) {
-        return matchesAny(text, properties.getBackMenuKeywords());
+        return matchesAny(text, settings.getBackMenuKeywords());
     }
 
     private boolean matchesAny(final String text, final String commaSeparatedKeywords) {

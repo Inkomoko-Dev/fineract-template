@@ -18,25 +18,21 @@
  */
 package org.apache.fineract.infrastructure.whatsapp.interactive.data;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConfigArea;
 
 @Getter
 @Setter
 @NoArgsConstructor
-public class WhatsAppSessionContext {
+public class WhatsAppInteractiveConfigAreaData {
 
-    private String parentMenuKey;
-    private String pendingAction;
-    private String capturedInput;
-    private String authStep;
-    private Long candidateClientId;
-    private Long selectedLoanId;
-    private String pendingLoanAction;
-    private Long ticketId;
-
-    public static WhatsAppSessionContext empty() {
-        return new WhatsAppSessionContext();
-    }
+    private WhatsAppConfigArea area;
+    private String label;
+    private boolean managedExternally;
+    private String externalEndpoint;
+    private Map<String, Object> settings = new LinkedHashMap<>();
 }

@@ -24,7 +24,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConversationType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppSessionStatus;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConversationSession;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -45,7 +44,8 @@ public class WhatsAppInboundConversationService {
     private final WhatsAppClientAuthService clientAuthService;
     private final WhatsAppLoanSelfServiceGate loanSelfServiceGate;
     private final WhatsAppReplyService replyService;
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
+    private final WhatsAppStaffInboundConversationService staffInboundConversationService;
 
     @Transactional
     public void handleInbound(final String phoneNumber, final String messageBody, final RecipientType recipientType, final Client client,
@@ -56,17 +56,17 @@ public class WhatsAppInboundConversationService {
         final String normalizedBody = messageBody.trim();
         final WhatsAppConversationType conversationType = WhatsAppConversationType.fromRecipient(recipientType == RecipientType.STAFF);
 
+        if (conversationType == WhatsAppConversationType.STAFF) {
+            staffInboundConversationService.handleInbound(phoneNumber, normalizedBody, recipientType, staff);
+            return;
+        }
+
         if (keywordMatcher.matchesOptOut(normalizedBody)) {
             handleOptOut(phoneNumber, normalizedBody, recipientType, client, staff);
             return;
         }
         if (keywordMatcher.matchesOptIn(normalizedBody)) {
             handleOptIn(phoneNumber, normalizedBody, recipientType, client, staff, conversationType);
-            return;
-        }
-
-        if (conversationType == WhatsAppConversationType.STAFF) {
-            replyService.sendTransactionalReply(phoneNumber, recipientType, client, staff, WhatsAppInteractiveMessages.staffChannelStub());
             return;
         }
 
@@ -135,9 +135,9 @@ public class WhatsAppInboundConversationService {
         session.setLanguageCode(language);
         if (consentService.hasActiveConsent(session.getPhoneNumber())) {
             session.setSessionStatus(WhatsAppSessionStatus.MAIN_MENU);
-            session.setCurrentMenuKey(properties.getMainMenuKey());
+            session.setCurrentMenuKey(settings.getMainMenuKey());
             sessionService.save(session);
-            menuNavigationService.navigateToMenu(session, properties.getMainMenuKey(), recipientType, client, staff, false);
+            menuNavigationService.navigateToMenu(session, settings.getMainMenuKey(), recipientType, client, staff, false);
         } else {
             session.setSessionStatus(WhatsAppSessionStatus.CONSENT_PENDING);
             sessionService.save(session);
@@ -149,15 +149,15 @@ public class WhatsAppInboundConversationService {
 
     private WhatsAppConversationSession handleConsent(final WhatsAppConversationSession session, final String body,
             final RecipientType recipientType, final Client client, final Staff staff) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         if (keywordMatcher.matchesConsentAccept(body)) {
             consentService.recordConsent(session.getPhoneNumber(), client, true, "WHATSAPP_SESSION", null);
             session.setSessionStatus(WhatsAppSessionStatus.MAIN_MENU);
-            session.setCurrentMenuKey(properties.getMainMenuKey());
+            session.setCurrentMenuKey(settings.getMainMenuKey());
             sessionService.save(session);
             replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
                     WhatsAppInteractiveMessages.consentAccepted(language));
-            menuNavigationService.navigateToMenu(session, properties.getMainMenuKey(), recipientType, client, staff, false);
+            menuNavigationService.navigateToMenu(session, settings.getMainMenuKey(), recipientType, client, staff, false);
         } else {
             consentService.recordConsent(session.getPhoneNumber(), client, false, "WHATSAPP_SESSION", null);
             session.setSessionStatus(WhatsAppSessionStatus.CLOSED);

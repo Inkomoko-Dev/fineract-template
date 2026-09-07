@@ -24,9 +24,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
+import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConversationType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppMenuActionType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppSessionStatus;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConversationSession;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuOption;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuOptionRepository;
@@ -52,16 +53,32 @@ class WhatsAppInboundMessageRouterTest {
     @Mock
     private WhatsAppSessionContextSerializer contextSerializer;
     @Mock
-    private WhatsAppInteractiveProperties properties;
+    private WhatsAppInteractiveSettingsProvider settings;
     @Mock
     private WhatsAppLoanSelfServiceGate loanSelfServiceGate;
+    @Mock
+    private WhatsAppAdvisorEscalationService advisorEscalationService;
 
     private WhatsAppInboundMessageRouter router;
 
     @BeforeEach
     void setUp() {
         router = new WhatsAppInboundMessageRouter(menuOptionRepository, replyService, contentMessageService, menuNavigationService,
-                sessionService, contextSerializer, properties, loanSelfServiceGate);
+                sessionService, contextSerializer, settings, loanSelfServiceGate, advisorEscalationService);
+    }
+
+    @Test
+    void ignoresStaffSessions() {
+        final WhatsAppConversationSession session = new WhatsAppConversationSession();
+        session.setConversationType(WhatsAppConversationType.STAFF);
+        session.setCurrentMenuKey("MAIN");
+        session.setLanguageCode("en");
+
+        router.routeMenuSelection(session, "1", RecipientType.CLIENT, null, null);
+
+        verify(menuNavigationService, org.mockito.Mockito.never()).navigateToMenu(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     @Test
@@ -109,12 +126,12 @@ class WhatsAppInboundMessageRouterTest {
                 org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext.empty();
         ctx.setPendingAction("ADVISOR_OTHER");
         when(contextSerializer.fromJson(null)).thenReturn(ctx);
-        when(contextSerializer.toJson(any())).thenReturn("{}");
-        when(sessionService.save(session)).thenReturn(session);
+        when(advisorEscalationService.escalate(eq(session), eq(null), eq("OTHER"), eq("Need help with my loan"), eq("en")))
+                .thenReturn("Ticket logged");
 
         router.handleAwaitingInput(session, "Need help with my loan", RecipientType.CLIENT, null, null);
 
-        verify(sessionService).save(session);
-        verify(replyService).sendTransactionalReply(eq("+254712345678"), eq(RecipientType.CLIENT), eq(null), eq(null), any(String.class));
+        verify(advisorEscalationService).escalate(eq(session), eq(null), eq("OTHER"), eq("Need help with my loan"), eq("en"));
+        verify(replyService).sendTransactionalReply(eq("+254712345678"), eq(RecipientType.CLIENT), eq(null), eq(null), eq("Ticket logged"));
     }
 }

@@ -22,10 +22,7 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
-import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppAuthStep;
-import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConversationType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppSessionStatus;
-import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConversationSession;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuOption;
@@ -37,7 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
-public class WhatsAppInboundMessageRouter {
+public class WhatsAppStaffInboundMessageRouter {
 
     private static final String PENDING_ADVISOR_OTHER = "ADVISOR_OTHER";
 
@@ -48,15 +45,11 @@ public class WhatsAppInboundMessageRouter {
     private final WhatsAppConversationSessionService sessionService;
     private final WhatsAppSessionContextSerializer contextSerializer;
     private final WhatsAppInteractiveSettingsProvider settings;
-    private final WhatsAppLoanSelfServiceGate loanSelfServiceGate;
     private final WhatsAppAdvisorEscalationService advisorEscalationService;
 
     @Transactional
     public void routeMenuSelection(final WhatsAppConversationSession session, final String body, final RecipientType recipientType,
             final Client client, final Staff staff) {
-        if (session.getConversationType() == WhatsAppConversationType.STAFF) {
-            return;
-        }
         final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         if (!NumberUtils.isDigits(body.trim())) {
             replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
@@ -80,18 +73,11 @@ public class WhatsAppInboundMessageRouter {
     @Transactional
     public void handleAwaitingInput(final WhatsAppConversationSession session, final String body, final RecipientType recipientType,
             final Client client, final Staff staff) {
-        if (session.getConversationType() == WhatsAppConversationType.STAFF) {
-            return;
-        }
         final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
         if (PENDING_ADVISOR_OTHER.equals(context.getPendingAction())) {
-            final String reply = advisorEscalationService.escalate(session, client, "OTHER", body.trim(), language);
+            final String reply = advisorEscalationService.escalate(session, null, "STAFF_OTHER", body.trim(), language);
             replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff, reply);
-            return;
-        }
-        if (WhatsAppAuthStep.SELECT_LOAN.name().equals(context.getAuthStep())) {
-            loanSelfServiceGate.handleLoanSelection(session, body, recipientType, client, staff);
             return;
         }
         session.setSessionStatus(WhatsAppSessionStatus.MAIN_MENU);
@@ -103,11 +89,10 @@ public class WhatsAppInboundMessageRouter {
             final RecipientType recipientType, final Client client, final Staff staff, final String language) {
         switch (option.getActionType()) {
             case SUBMENU -> menuNavigationService.navigateToMenu(session, option.getActionTarget(), recipientType, client, staff, true);
-            case LOAN_SERVICE -> loanSelfServiceGate.beginLoanService(session, option.getActionTarget(), recipientType, client, staff);
             case CONTENT -> sendContent(session, option, recipientType, client, staff, language);
             case ADVISOR_HANDOFF -> handleAdvisorHandoff(session, option, recipientType, client, staff, language);
             default -> replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff,
-                    WhatsAppInteractiveMessages.invalidSelection(language));
+                    WhatsAppInteractiveMessages.staffLoanNotAvailable(language));
         }
     }
 
@@ -135,8 +120,8 @@ public class WhatsAppInboundMessageRouter {
                     WhatsAppInteractiveMessages.otherEnquiryPrompt(language));
             return;
         }
-        final String category = StringUtils.defaultIfBlank(option.getActionTarget(), "ADVISOR");
-        final String reply = advisorEscalationService.escalate(session, client, category, null, language);
+        final String category = StringUtils.defaultIfBlank(option.getActionTarget(), "STAFF_SUPPORT");
+        final String reply = advisorEscalationService.escalate(session, null, category, null, language);
         replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, client, staff, reply);
     }
 }

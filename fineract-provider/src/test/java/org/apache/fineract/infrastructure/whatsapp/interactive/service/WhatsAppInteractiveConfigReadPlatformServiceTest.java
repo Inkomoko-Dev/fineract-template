@@ -18,46 +18,33 @@
  */
 package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
+import java.util.List;
 import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConfigArea;
+import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppInteractiveConfigAreaData;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppInteractiveSettingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
-class WhatsAppKeywordMatcherTest {
+class WhatsAppInteractiveConfigReadPlatformServiceTest {
 
-    private WhatsAppKeywordMatcher matcher;
+    private WhatsAppInteractiveConfigReadPlatformService service;
 
     @BeforeEach
     void setUp() {
         final WhatsAppInteractiveProperties properties = new WhatsAppInteractiveProperties();
-        properties.setOptOutKeywords("STOP,UNSUBSCRIBE");
-        properties.setConsentAcceptKeywords("YES,AGREE");
-        properties.setMainMenuKeywords("MENU,MAIN");
-        properties.setBackMenuKeywords("BACK,0");
-        final WhatsAppInteractiveSettingsProvider settings = new WhatsAppInteractiveSettingsProvider(properties,
-                Mockito.mock(WhatsAppInteractiveSettingRepository.class));
-        matcher = new WhatsAppKeywordMatcher(settings);
+        final WhatsAppInteractiveSettingsProvider settingsProvider = new WhatsAppInteractiveSettingsProvider(properties,
+                mock(WhatsAppInteractiveSettingRepository.class));
+        service = new WhatsAppInteractiveConfigReadPlatformService(settingsProvider);
     }
 
     @Test
-    void matchesOptOutKeyword() {
-        assertTrue(matcher.matchesOptOut("STOP"));
-        assertTrue(matcher.matchesOptOut("unsubscribe"));
-    }
-
-    @Test
-    void matchesConsentAccept() {
-        assertTrue(matcher.matchesConsentAccept("YES"));
-        assertFalse(matcher.matchesConsentAccept("NO"));
-    }
-
-    @Test
-    void matchesNavigationKeywords() {
-        assertTrue(matcher.matchesMainMenu("MENU"));
-        assertTrue(matcher.matchesBackMenu("BACK"));
+    void exposesThirteenConfigAreas() {
+        final List<WhatsAppInteractiveConfigAreaData> areas = service.retrieveConfigAreas();
+        assertThat(areas).hasSize(13);
+        assertThat(areas.stream().map(WhatsAppInteractiveConfigAreaData::getArea)).contains(WhatsAppConfigArea.OPERATIONAL_NOTIFICATIONS);
     }
 }

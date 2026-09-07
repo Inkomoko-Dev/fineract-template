@@ -20,6 +20,7 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import org.apache.commons.lang3.StringUtils;
 
 public final class WhatsAppInteractiveMessages {
 
@@ -70,13 +71,42 @@ public final class WhatsAppInteractiveMessages {
                 : "Information for " + topic + " will be available soon. Choose 7 to speak to an advisor.";
     }
 
+    public static String advisorHandoff(final String languageCode, final String ticketNumber, final boolean withinBusinessHours,
+            final String businessHoursSummary) {
+        if ("rw".equalsIgnoreCase(languageCode)) {
+            final String hours = StringUtils.isNotBlank(businessHoursSummary) ? businessHoursSummary : "amasaha y'akazi";
+            if (withinBusinessHours) {
+                return "Twohereje icyifuzo cyawe. Nimero y'itike: " + ticketNumber + ". Umujyanama azasubiza vuba.";
+            }
+            return "Twohereje icyifuzo cyawe. Nimero y'itike: " + ticketNumber + ". Tuzasubiza mu masaha y'akazi (" + hours + ").";
+        }
+        final String hours = StringUtils.isNotBlank(businessHoursSummary) ? businessHoursSummary : "business hours";
+        if (withinBusinessHours) {
+            return "Your request has been logged. Ticket " + ticketNumber + ". An advisor will respond shortly.";
+        }
+        return "Your request has been logged. Ticket " + ticketNumber + ". We will respond during business hours (" + hours + ").";
+    }
+
     public static String advisorHandoff(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Twohereje icyifuzo cyawe ku mujyanama. Muzasubizwa vuba."
-                : "Your request has been logged for advisor follow-up. We will respond during business hours.";
+        return advisorHandoff(languageCode, "pending", true, null);
     }
 
     public static String staffChannelStub() {
-        return "Employee WhatsApp self-service is managed separately. Please contact your supervisor or IT support.";
+        return "Employee WhatsApp self-service is currently disabled. Please contact your supervisor or IT support.";
+    }
+
+    public static String staffAccessDenied(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Ntabwo wemerewe gukoresha iyi serivisi. Vugana n'umuyobozi wawe."
+                : "You are not authorized to use employee WhatsApp self-service. Contact your supervisor.";
+    }
+
+    public static String staffOptInWelcome() {
+        return "Welcome to Inkomoko employee WhatsApp. Reply with your language choice:\n1. English\n2. Kinyarwanda";
+    }
+
+    public static String staffLoanNotAvailable(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Iyi serivisi ntiboneka kuri abakozi b'Inkomoko."
+                : "That client loan self-service option is not available on the employee WhatsApp channel.";
     }
 
     public static String invalidSelection(final String languageCode) {

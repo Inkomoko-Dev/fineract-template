@@ -20,7 +20,7 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppContentMessage;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppContentMessageRepository;
 import org.springframework.stereotype.Service;
@@ -31,14 +31,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsAppContentMessageService {
 
     private final WhatsAppContentMessageRepository contentMessageRepository;
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
 
     @Transactional(readOnly = true)
     public String resolveBody(final String contentKey, final String languageCode) {
-        final String language = StringUtils.defaultIfBlank(languageCode, properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(languageCode, settings.getDefaultLanguage());
         return contentMessageRepository.findByContentKeyAndLanguageCodeAndEnabledTrue(contentKey, language)
                 .map(WhatsAppContentMessage::getBodyText)
                 .orElseGet(() -> contentMessageRepository.findByContentKeyAndLanguageCodeAndEnabledTrue(contentKey,
-                        properties.getDefaultLanguage()).map(WhatsAppContentMessage::getBodyText).orElse(null));
+                        settings.getDefaultLanguage()).map(WhatsAppContentMessage::getBodyText).orElse(null));
     }
 }

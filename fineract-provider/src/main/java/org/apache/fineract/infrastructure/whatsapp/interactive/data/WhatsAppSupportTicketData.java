@@ -18,25 +18,36 @@
  */
 package org.apache.fineract.infrastructure.whatsapp.interactive.data;
 
+import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppTicketPriority;
+import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppTicketStatus;
 
 @Getter
 @Setter
 @NoArgsConstructor
-public class WhatsAppSessionContext {
+public class WhatsAppSupportTicketData {
 
-    private String parentMenuKey;
-    private String pendingAction;
-    private String capturedInput;
-    private String authStep;
-    private Long candidateClientId;
-    private Long selectedLoanId;
-    private String pendingLoanAction;
-    private Long ticketId;
-
-    public static WhatsAppSessionContext empty() {
-        return new WhatsAppSessionContext();
-    }
+    private Long id;
+    private String ticketNumber;
+    private String phoneNumber;
+    private Long clientId;
+    private String clientDisplayName;
+    private Long conversationSessionId;
+    private String category;
+    private WhatsAppTicketStatus status;
+    private WhatsAppTicketPriority priority;
+    private String summary;
+    private String customerMessage;
+    private String languageCode;
+    private Long assignedStaffId;
+    private String assignedStaffName;
+    private LocalDateTime slaDueAt;
+    private boolean slaBreached;
+    private LocalDateTime firstResponseAt;
+    private LocalDateTime resolvedAt;
+    private LocalDateTime createdDate;
+    private LocalDateTime lastModifiedDate;
 }

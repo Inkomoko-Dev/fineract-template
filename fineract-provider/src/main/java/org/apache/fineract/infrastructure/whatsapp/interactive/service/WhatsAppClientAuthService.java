@@ -24,7 +24,7 @@ import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppAuthStep;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppSessionStatus;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConversationSession;
 import org.apache.fineract.organisation.staff.domain.Staff;
@@ -43,26 +43,26 @@ public class WhatsAppClientAuthService {
     private final WhatsAppOtpService otpService;
     private final WhatsAppReplyService replyService;
     private final ClientRepositoryWrapper clientRepositoryWrapper;
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
     private final WhatsAppLoanSelfServiceGate loanSelfServiceGate;
 
     public WhatsAppClientAuthService(final WhatsAppConversationSessionService sessionService,
             final WhatsAppSessionContextSerializer contextSerializer, final WhatsAppOtpService otpService,
             final WhatsAppReplyService replyService, final ClientRepositoryWrapper clientRepositoryWrapper,
-            final WhatsAppInteractiveProperties properties, @Lazy final WhatsAppLoanSelfServiceGate loanSelfServiceGate) {
+            final WhatsAppInteractiveSettingsProvider settings, @Lazy final WhatsAppLoanSelfServiceGate loanSelfServiceGate) {
         this.sessionService = sessionService;
         this.contextSerializer = contextSerializer;
         this.otpService = otpService;
         this.replyService = replyService;
         this.clientRepositoryWrapper = clientRepositoryWrapper;
-        this.properties = properties;
+        this.settings = settings;
         this.loanSelfServiceGate = loanSelfServiceGate;
     }
 
     @Transactional
     public void startIdentifyClient(final WhatsAppConversationSession session, final Client matchedClient, final RecipientType recipientType,
             final Client client, final Staff staff, final String pendingLoanAction) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         final WhatsAppSessionContext context = WhatsAppSessionContext.empty();
         context.setPendingLoanAction(pendingLoanAction);
         context.setAuthStep(WhatsAppAuthStep.IDENTIFY_CLIENT.name());
@@ -98,7 +98,7 @@ public class WhatsAppClientAuthService {
 
     @Transactional
     public void markAuthenticated(final WhatsAppConversationSession session) {
-        final LocalDateTime authExpiresAt = DateUtils.getLocalDateTimeOfTenant().plusMinutes(properties.getAuthValidityMinutes());
+        final LocalDateTime authExpiresAt = DateUtils.getLocalDateTimeOfTenant().plusMinutes(settings.getAuthValidityMinutes());
         session.setAuthenticated(true);
         session.setAuthExpiresAt(authExpiresAt);
         sessionService.save(session);
@@ -117,7 +117,7 @@ public class WhatsAppClientAuthService {
 
     private void handleIdentifyClient(final WhatsAppConversationSession session, final String body, final RecipientType recipientType,
             final Client webhookClient, final Staff staff, final WhatsAppSessionContext context) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         Client resolvedClient = null;
         if ("1".equals(body.trim()) && context.getCandidateClientId() != null) {
             resolvedClient = clientRepositoryWrapper.findOneWithNotFoundDetection(context.getCandidateClientId());
@@ -139,7 +139,7 @@ public class WhatsAppClientAuthService {
 
     private void handleOtpVerification(final WhatsAppConversationSession session, final String body, final RecipientType recipientType,
             final Client webhookClient, final Staff staff, final WhatsAppSessionContext context) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         if (!otpService.verifyOtp(session.getPhoneNumber(), body)) {
             replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, webhookClient, staff,
                     WhatsAppInteractiveMessages.otpInvalid(language));

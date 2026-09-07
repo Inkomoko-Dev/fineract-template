@@ -24,7 +24,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppAuthStep;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppSessionStatus;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConversationSession;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -42,12 +42,12 @@ public class WhatsAppLoanSelfServiceGate {
     private final WhatsAppReplyService replyService;
     private final WhatsAppConversationSessionService sessionService;
     private final WhatsAppSessionContextSerializer contextSerializer;
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
 
     @Transactional
     public void beginLoanService(final WhatsAppConversationSession session, final String loanActionTarget, final RecipientType recipientType,
             final Client webhookClient, final Staff staff) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         if (!clientAuthService.isSessionAuthenticated(session)) {
             clientAuthService.startIdentifyClient(session, webhookClient, recipientType, webhookClient, staff, loanActionTarget);
             return;
@@ -88,7 +88,7 @@ public class WhatsAppLoanSelfServiceGate {
     @Transactional
     public void handleLoanSelection(final WhatsAppConversationSession session, final String body, final RecipientType recipientType,
             final Client webhookClient, final Staff staff) {
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
         final Long clientId = resolveAuthenticatedClientId(session, context, webhookClient);
         if (clientId == null) {
@@ -112,7 +112,7 @@ public class WhatsAppLoanSelfServiceGate {
     public void handleAuthenticatedFollowUp(final WhatsAppConversationSession session, final RecipientType recipientType,
             final Client webhookClient, final Staff staff) {
         final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
-        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), properties.getDefaultLanguage());
+        final String language = StringUtils.defaultIfBlank(session.getLanguageCode(), settings.getDefaultLanguage());
         if (StringUtils.isNotBlank(context.getPendingLoanAction())) {
             continueAfterAuthentication(session, context.getPendingLoanAction(), recipientType, webhookClient, staff, language);
         } else {

@@ -16,27 +16,33 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.whatsapp.interactive.data;
+package org.apache.fineract.infrastructure.whatsapp.interactive.domain;
 
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
+import javax.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
+import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConfigArea;
 
+@Entity
+@Table(name = "whatsapp_interactive_setting")
 @Getter
 @Setter
 @NoArgsConstructor
-public class WhatsAppSessionContext {
+public class WhatsAppInteractiveSetting extends AbstractPersistableCustom {
 
-    private String parentMenuKey;
-    private String pendingAction;
-    private String capturedInput;
-    private String authStep;
-    private Long candidateClientId;
-    private Long selectedLoanId;
-    private String pendingLoanAction;
-    private Long ticketId;
+    @Column(name = "setting_key", length = 100, nullable = false, unique = true)
+    private String settingKey;
 
-    public static WhatsAppSessionContext empty() {
-        return new WhatsAppSessionContext();
-    }
+    @Column(name = "setting_value")
+    private String settingValue;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "config_area", length = 50, nullable = false)
+    private WhatsAppConfigArea configArea;
 }

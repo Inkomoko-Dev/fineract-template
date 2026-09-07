@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConversationType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppSessionStatus;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConversationSession;
@@ -38,7 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsAppConversationSessionService {
 
     private final WhatsAppConversationSessionRepository sessionRepository;
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
 
     @Transactional(readOnly = true)
     public Optional<WhatsAppConversationSession> findResumableSession(final String phoneNumber,
@@ -92,7 +92,7 @@ public class WhatsAppConversationSessionService {
     }
 
     private LocalDateTime calculateExpiresAt() {
-        return DateUtils.getLocalDateTimeOfTenant().plusMinutes(properties.getSessionTimeoutMinutes());
+        return DateUtils.getLocalDateTimeOfTenant().plusMinutes(settings.getSessionTimeoutMinutes());
     }
 
     private boolean isTerminal(final WhatsAppSessionStatus status) {

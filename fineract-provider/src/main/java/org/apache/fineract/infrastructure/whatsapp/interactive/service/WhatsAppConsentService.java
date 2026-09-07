@@ -19,7 +19,7 @@
 package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
 import lombok.RequiredArgsConstructor;
-import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConsentRecord;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConsentRecordRepository;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -31,7 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsAppConsentService {
 
     private final WhatsAppConsentRecordRepository consentRecordRepository;
-    private final WhatsAppInteractiveProperties properties;
+    private final WhatsAppInteractiveSettingsProvider settings;
 
     @Transactional(readOnly = true)
     public boolean hasActiveConsent(final String phoneNumber) {
@@ -42,6 +42,6 @@ public class WhatsAppConsentService {
     public void recordConsent(final String phoneNumber, final Client client, final boolean granted, final String source,
             final Long recordedByUserId) {
         consentRecordRepository.save(
-                WhatsAppConsentRecord.record(phoneNumber, client, granted, source, properties.getConsentTermsVersion(), recordedByUserId));
+                WhatsAppConsentRecord.record(phoneNumber, client, granted, source, settings.getConsentTermsVersion(), recordedByUserId));
     }
 }
