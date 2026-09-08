@@ -121,4 +121,47 @@
         </createIndex>
     </changeSet>
 
+    <changeSet id="CGLT-761-idx-m-crb-posting-logger-date" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="m_crb_posting_logger"/>
+                <not>
+                    <indexExists tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_date"/>
+                </not>
+            </and>
+        </preConditions>
+        <comment>CRB posting log list ordered by date desc</comment>
+        <createIndex tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_date">
+            <column name="date"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-crb-posting-logger-loan-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="m_crb_posting_logger"/>
+                <not>
+                    <indexExists tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_loan_id"/>
+                </not>
+            </and>
+        </preConditions>
+        <createIndex tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_loan_id">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-crb-posting-logger-batch-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="m_crb_posting_logger"/>
+                <not>
+                    <indexExists tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_batch_id"/>
+                </not>
+            </and>
+        </preConditions>
+        <createIndex tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_batch_id">
+            <column name="batch_id"/>
+        </createIndex>
+    </changeSet>
+
 </databaseChangeLog>

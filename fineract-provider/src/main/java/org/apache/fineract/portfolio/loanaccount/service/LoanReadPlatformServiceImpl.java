@@ -676,6 +676,38 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     }
 
     @Override
+    public Map<Long, BigDecimal> retrieveLoanNextRepaymentAmounts(final Collection<Long> loanIds) {
+        if (loanIds == null || loanIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        this.context.authenticatedUser();
+
+        final String sql = "SELECT ranked.loanId AS loanId,"
+                + " (ranked.principalDue + ranked.interestDue + ranked.feeDue + ranked.penaltyDue) AS amount" + " FROM ("
+                + " SELECT l.id AS loanId," + " coalesce(ls.principal_amount, 0) - coalesce(ls.principal_writtenoff_derived, 0)"
+                + " - coalesce(ls.principal_completed_derived, 0) AS principalDue,"
+                + " coalesce(ls.interest_amount, 0) - coalesce(ls.interest_completed_derived, 0)"
+                + " - coalesce(ls.interest_waived_derived, 0) - coalesce(ls.interest_writtenoff_derived, 0) AS interestDue,"
+                + " coalesce(ls.fee_charges_amount, 0) - coalesce(ls.fee_charges_completed_derived, 0)"
+                + " - coalesce(ls.fee_charges_writtenoff_derived, 0) - coalesce(ls.fee_charges_waived_derived, 0) AS feeDue,"
+                + " coalesce(ls.penalty_charges_amount, 0) - coalesce(ls.penalty_charges_completed_derived, 0)"
+                + " - coalesce(ls.penalty_charges_writtenoff_derived, 0)"
+                + " - coalesce(ls.penalty_charges_waived_derived, 0) AS penaltyDue,"
+                + " ROW_NUMBER() OVER (PARTITION BY l.id ORDER BY ls.completed_derived ASC, ls.duedate ASC, ls.installment ASC) AS rn"
+                + " FROM m_loan l" + " JOIN m_loan_repayment_schedule ls ON ls.loan_id = l.id"
+                + " WHERE l.id IN (:loanIds)" + " ) ranked WHERE ranked.rn = 1";
+
+        final Map<String, Object> params = new HashMap<>();
+        params.put("loanIds", loanIds);
+
+        final Map<Long, BigDecimal> amounts = new HashMap<>();
+        this.namedParameterJdbcTemplate.query(sql, params, rs -> {
+            amounts.put(rs.getLong("loanId"), rs.getBigDecimal("amount"));
+        });
+        return amounts;
+    }
+
+    @Override
     public LoanTransactionData retrieveLoanPrePaymentTemplate(final LoanTransactionType repaymentTransactionType, final Long loanId,
             LocalDate onDate) {
 
@@ -2403,6 +2435,25 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     public Integer retriveLoanCounter(final Long clientId, Long productId) {
         final String sql = "Select MAX(l.loan_product_counter) from m_loan l where l.client_id = ? and l.product_id=?";
         return this.jdbcTemplate.queryForObject(sql, new Object[] { clientId, productId }, Integer.class);
+    }
+
+    @Override
+    public Map<Long, Integer> retriveLoanCounters(final Collection<Long> clientIds, final Long productId) {
+        if (clientIds == null || clientIds.isEmpty() || productId == null) {
+            return Collections.emptyMap();
+        }
+        final String sql = "SELECT l.client_id AS clientId, MAX(l.loan_product_counter) AS loanCounter"
+                + " FROM m_loan l WHERE l.client_id IN (:clientIds) AND l.product_id = :productId GROUP BY l.client_id";
+        final Map<String, Object> params = new HashMap<>();
+        params.put("clientIds", clientIds);
+        params.put("productId", productId);
+
+        final Map<Long, Integer> counters = new HashMap<>();
+        this.namedParameterJdbcTemplate.query(sql, params, rs -> {
+            final Integer counter = JdbcSupport.getInteger(rs, "loanCounter");
+            counters.put(rs.getLong("clientId"), counter);
+        });
+        return counters;
     }
 
     @Override

@@ -166,6 +166,52 @@ public class PortfolioAccountReadPlatformServiceImpl implements PortfolioAccount
         return accounts;
     }
 
+    @Override
+    public Collection<PortfolioAccountData> retrieveAllForLookup(final PortfolioAccountDTO portfolioAccountDTO,
+            final Collection<Long> clientIds) {
+        if (clientIds == null || clientIds.isEmpty()) {
+            return retrieveAllForLookup(portfolioAccountDTO);
+        }
+
+        final List<Object> sqlParams = new ArrayList<>();
+        long defaultAccountStatus = 300;
+        if (portfolioAccountDTO.getAccountStatus() != null) {
+            defaultAccountStatus = portfolioAccountDTO.getFirstAccountStatus();
+        }
+
+        final PortfolioAccountType accountType = PortfolioAccountType.fromInt(portfolioAccountDTO.getAccountTypeId());
+        if (accountType != PortfolioAccountType.SAVINGS) {
+            // JLG bulk only needs savings linking; fall back to per-DTO lookup for other types.
+            return retrieveAllForLookup(portfolioAccountDTO);
+        }
+
+        final StringBuilder inClause = new StringBuilder();
+        for (int i = 0; i < clientIds.size(); i++) {
+            if (i > 0) {
+                inClause.append(',');
+            }
+            inClause.append('?');
+        }
+
+        String sql = "select " + this.savingsAccountMapper.schema() + " where sa.client_id in (" + inClause + ") and sa.status_enum in (?) ";
+        sqlParams.addAll(clientIds);
+        sqlParams.add(defaultAccountStatus);
+
+        if (portfolioAccountDTO.getCurrencyCode() != null) {
+            sql += " and sa.currency_code = ?";
+            sqlParams.add(portfolioAccountDTO.getCurrencyCode());
+        }
+        if (portfolioAccountDTO.getDepositType() != null) {
+            sql += " and sa.deposit_type_enum = ?";
+            sqlParams.add(portfolioAccountDTO.getDepositType().shortValue());
+        }
+        if (portfolioAccountDTO.isExcludeOverDraftAccounts()) {
+            sql += " and sa.allow_overdraft = false";
+        }
+
+        return this.jdbcTemplate.query(sql, this.savingsAccountMapper, sqlParams.toArray()); // NOSONAR
+    }
+
     private static final class PortfolioSavingsAccountMapper implements RowMapper<PortfolioAccountData> {
 
         private final String schemaSql;

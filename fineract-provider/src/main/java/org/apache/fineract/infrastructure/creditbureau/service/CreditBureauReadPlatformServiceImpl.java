@@ -90,10 +90,13 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
     }
 
     @Override
-    public List<CRBPostingLoggerData> retrieveCrbPostingLogs() {
+    public List<CRBPostingLoggerData> retrieveCrbPostingLogs(Integer offset, Integer limit) {
         final CRBPostingLoggerRowMapper rm = new CRBPostingLoggerRowMapper();
+        final int safeOffset = offset == null || offset < 0 ? 0 : offset;
+        final int safeLimit = limit == null || limit <= 0 ? 200 : Math.min(limit, 200);
 
-        final String sql = "select "+ rm.schema() +"order by cpl.date desc";
+        // Omit pay_load from list reads — payloads are large and rarely needed in the grid.
+        final String sql = "select " + rm.listSchema() + " order by cpl.date desc limit " + safeLimit + " offset " + safeOffset;
 
         return this.jdbcTemplate.query(sql, rm);
     }
@@ -130,6 +133,24 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
                     """;
         }
 
+        public String listSchema() {
+            return """
+                    cpl.id as id,
+                    cpl.batch_id as batchId,
+                    cpl.has_passed as hasPassed,
+                    cpl.loan_id as loanId,
+                    l.account_no as loanAccountNumber,
+                    cpl.crb_response_id as crbResponseId,
+                    cpl.error_logs as errorLogs,
+                    null as payload,
+                    cpl.date as date,
+                    cpl.created_on_utc as createdDate,
+                    cpl.last_modified_on_utc as lastModifiedDate
+                    from m_crb_posting_logger cpl
+                    join m_loan l on cpl.loan_id = l.id
+                    """;
+        }
+
         @Override
         public CRBPostingLoggerData mapRow(final ResultSet rs, final int rowNum)
                 throws SQLException {
@@ -143,7 +164,9 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
             logger.setCrbResponseId(rs.getString("crbResponseId"));
             logger.setErrorLogs(rs.getString("errorLogs"));
             logger.setPayload(rs.getString("payload"));
-            logger.setDate(rs.getDate("date").toLocalDate());
+            if (rs.getDate("date") != null) {
+                logger.setDate(rs.getDate("date").toLocalDate());
+            }
 
             return logger;
         }

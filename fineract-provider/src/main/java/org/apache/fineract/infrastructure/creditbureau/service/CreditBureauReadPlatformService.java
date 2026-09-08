@@ -30,7 +30,7 @@ public interface CreditBureauReadPlatformService {
 
     Collection<CreditBureauData> retrieveCreditBureau();
 
-    List<CRBPostingLoggerData> retrieveCrbPostingLogs();
+    List<CRBPostingLoggerData> retrieveCrbPostingLogs(Integer offset, Integer limit);
 
     void markCRBLogAsFixed(String loanIds);
 
