@@ -61,8 +61,8 @@ public class CacheConfig {
         cacheManager.createCache("codes", defaultTemplate);
         cacheManager.createCache("hooks", defaultTemplate);
         cacheManager.createCache("tfConfig", defaultTemplate);
-        // Used by @Cacheable methods; missing entries cause Single-Node cache to be ineffective (CGLT-761)
-        cacheManager.createCache("configByName", defaultTemplate);
+        // Public @Cacheable regions used when Single-Node cache is enabled via Admin/API (CGLT-761).
+        // Do not auto-switch c_cache; configByName is intentionally omitted (private self-invocation).
         cacheManager.createCache("paymentTypes", defaultTemplate);
 
         // Short TTL: getBusinessDates() may include LocalDate.now when business-date feature is off
