@@ -366,20 +366,6 @@ public class GuarantorReadPlatformServiceImpl implements GuarantorReadPlatformSe
 
     }
 
-    /**
-     * @param guarantorData
-     */
-    private GuarantorData mergeDetailsForClientOrStaffGuarantor(final GuarantorData guarantorData) {
-        if (guarantorData.isExistingClient()) {
-            final ClientData clientData = this.clientReadPlatformService.retrieveOne(guarantorData.getEntityId());
-            return GuarantorData.mergeClientData(clientData, guarantorData);
-        } else if (guarantorData.isStaffMember()) {
-            final StaffData staffData = this.staffReadPlatformService.retrieveStaff(guarantorData.getEntityId());
-            return GuarantorData.mergeStaffData(staffData, guarantorData);
-        }
-        return guarantorData;
-    }
-
     @Override
     public List<ObligeeData> retrieveObligeeDetails(final Long clientId) {
         final ObligeeMapper rm = new ObligeeMapper();
