@@ -678,7 +678,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public Map<Long, BigDecimal> retrieveLoanNextRepaymentAmounts(final Collection<Long> loanIds) {
         if (loanIds == null || loanIds.isEmpty()) {
-            return Collections.emptyMap();
+            return new HashMap<>();
         }
         this.context.authenticatedUser();
 
@@ -2440,7 +2440,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public Map<Long, Integer> retriveLoanCounters(final Collection<Long> clientIds, final Long productId) {
         if (clientIds == null || clientIds.isEmpty() || productId == null) {
-            return Collections.emptyMap();
+            return new HashMap<>();
         }
         final String sql = "SELECT l.client_id AS clientId, MAX(l.loan_product_counter) AS loanCounter"
                 + " FROM m_loan l WHERE l.client_id IN (:clientIds) AND l.product_id = :productId GROUP BY l.client_id";
