@@ -874,6 +874,7 @@ public class LoansApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "List Loans", description = "The list capability of loans can support pagination and sorting.\n"
+            + "Default limit is 200; maximum limit is 200. Use offset and limit for pages.\n"
             + "Example Requests:\n" + "\n" + "loans\n" + "\n" + "loans?fields=accountNo\n" + "\n" + "loans?offset=10&limit=50\n" + "\n"
             + "loans?orderBy=accountNo&sortOrder=DESC")
     @ApiResponses({

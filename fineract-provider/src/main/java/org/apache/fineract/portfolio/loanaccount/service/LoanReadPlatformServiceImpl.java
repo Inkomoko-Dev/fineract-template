@@ -438,7 +438,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loanMapper.loanSchema());
+        sqlBuilder.append(this.loanMapper.loanListSchema());
 
         // TODO - for time being this will data scope list of loans returned to
         // only loans that have a client associated.
@@ -494,6 +494,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     sqlBuilder.append(' ').append(searchParameters.getSortOrder());
                     this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getSortOrder());
                 }
+            } else {
+                sqlBuilder.append(" order by l.id");
             }
 
             if (searchParameters.isLimited()) {
@@ -520,7 +522,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loanMapper.loanSchema());
+        sqlBuilder.append(this.loanMapper.loanListSchema());
 
         // TODO - for time being this will data scope list of loans returned to
         // only loans that have a client associated.
@@ -571,6 +573,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     sqlBuilder.append(' ').append(searchParameters.getSortOrder());
                     this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getSortOrder());
                 }
+            } else {
+                sqlBuilder.append(" order by l.id");
             }
 
             if (searchParameters.isLimited()) {
@@ -1062,6 +1066,36 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         public String loanSchema() {
+            return buildLoanSchema(false);
+        }
+
+        /**
+         * List projection: same response columns as {@link #loanSchema()} but avoids per-row correlated
+         * late-fee subqueries and the center-name subquery (uses joins instead).
+         */
+        public String loanListSchema() {
+            return buildLoanSchema(true);
+        }
+
+        private String buildLoanSchema(final boolean forList) {
+            final String centerNameSelect = forList ? " center.display_name as centerName, "
+                    : " (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, ";
+            final String lateFeeSelect = forList
+                    ? " coalesce(dlf_sum.dailyLateFeeChargedToDate, 0) as dailyLateFeeChargedToDate,"
+                            + " coalesce(dlf_out.dailyLateFeeOutstanding, 0) as dailyLateFeeOutstanding,"
+                            + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
+                            + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce(pen_sum.penaltyChargesTotal, 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,"
+                    : " coalesce((select sum(dlf.penalty_amount) from m_loan_daily_late_fee dlf where dlf.loan_id = l.id and dlf.is_active = true), 0) as dailyLateFeeChargedToDate,"
+                            + " coalesce((select sum(lc2.amount_outstanding_derived) from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.loan_id = l.id and dlf2.is_active = true and lc2.is_active = true), 0) as dailyLateFeeOutstanding,"
+                            + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
+                            + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(lc3.amount) from m_loan_charge lc3 where lc3.loan_id = l.id and lc3.is_penalty = true and lc3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,";
+            final String listJoins = forList
+                    ? " left join m_group center on center.id = g.parent_id"
+                            + " left join (select loan_id, sum(penalty_amount) as dailyLateFeeChargedToDate from m_loan_daily_late_fee where is_active = true group by loan_id) dlf_sum on dlf_sum.loan_id = l.id"
+                            + " left join (select dlf2.loan_id, sum(lc2.amount_outstanding_derived) as dailyLateFeeOutstanding from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.is_active = true and lc2.is_active = true group by dlf2.loan_id) dlf_out on dlf_out.loan_id = l.id"
+                            + " left join (select loan_id, sum(amount) as penaltyChargesTotal from m_loan_charge where is_penalty = true and is_active = true group by loan_id) pen_sum on pen_sum.loan_id = l.id"
+                    : "";
+
             return "l.id as id, l.account_no as accountNo, l.external_id as externalId, l.fund_id as fundId, f.name as fundName,"
                     + " l.loan_type_enum as loanType, l.loanpurpose_cv_id as loanPurposeId, cv.code_value as loanPurposeName,"
                     + " lp.id as loanProductId, lp.name as loanProductName, lp.description as loanProductDescription,"
@@ -1071,7 +1105,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " lp.can_define_fixed_emi_amount as canDefineInstallmentAmount,"
                     + " c.id as clientId, c.account_no as clientAccountNo, c.display_name as clientName, c.office_id as clientOfficeId,"
                     + " g.id as groupId, g.account_no as groupAccountNo, g.display_name as groupName,"
-                    + " g.office_id as groupOfficeId, g.staff_id As groupStaffId , g.parent_id as groupParentId, (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, "
+                    + " g.office_id as groupOfficeId, g.staff_id As groupStaffId , g.parent_id as groupParentId, "
+                    + centerNameSelect
                     + " g.hierarchy As groupHierarchy , g.level_id as groupLevel, g.external_id As groupExternalId, "
                     + " g.status_enum as statusEnum, g.activation_date as activationDate,l.application_date as applicationDate, "
                     + " l.submittedon_date as submittedOnDate, sbu.username as submittedByUsername, sbu.firstname as submittedByFirstname, sbu.lastname as submittedByLastname,"
@@ -1119,10 +1154,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " l.loan_sub_status_id as loanSubStatusId," + " la.principal_overdue_derived as principalOverdue,"
                     + " la.interest_overdue_derived as interestOverdue," + " la.fee_charges_overdue_derived as feeChargesOverdue,"
                     + " la.penalty_charges_overdue_derived as penaltyChargesOverdue,"
-                    + " coalesce((select sum(dlf.penalty_amount) from m_loan_daily_late_fee dlf where dlf.loan_id = l.id and dlf.is_active = true), 0) as dailyLateFeeChargedToDate,"
-                    + " coalesce((select sum(lc2.amount_outstanding_derived) from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.loan_id = l.id and dlf2.is_active = true and lc2.is_active = true), 0) as dailyLateFeeOutstanding,"
-                    + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
-                    + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(lc3.amount) from m_loan_charge lc3 where lc3.loan_id = l.id and lc3.is_penalty = true and lc3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,"
+                    + lateFeeSelect
                     + " la.total_overdue_derived as totalOverdue," + " la.overdue_since_date_derived as overdueSinceDate,"
                     + " l.sync_disbursement_with_meeting as syncDisbursementWithMeeting,"
                     + " l.loan_counter as loanCounter, l.loan_product_counter as loanProductCounter,"
@@ -1195,7 +1227,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " order by case when lds2.disbursedon_date is null then 0 else 1 end,"
                     + " case when lds2.disbursedon_date is null then lds2.expected_disburse_date end asc,"
                     + " case when lds2.disbursedon_date is not null then lds2.disbursedon_date end desc, lds2.id desc limit 1)"
-                    + " left join m_payment_type pt_lds on pt_lds.id = lds.payment_type_id";
+                    + " left join m_payment_type pt_lds on pt_lds.id = lds.payment_type_id"
+                    + listJoins;
 
         }
 

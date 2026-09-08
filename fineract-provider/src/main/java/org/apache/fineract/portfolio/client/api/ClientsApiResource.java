@@ -140,6 +140,7 @@ public class ClientsApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "List Clients", description = "The list capability of clients can support pagination and sorting.\n\n"
+            + "Default limit is 200; maximum limit is 200. Use offset and limit for pages.\n\n"
             + "Example Requests:\n" + "\n" + "clients\n" + "\n" + "clients?fields=displayName,officeName,timeline\n" + "\n"
             + "clients?offset=10&limit=50\n" + "\n" + "clients?orderBy=displayName&sortOrder=DESC")
     @ApiResponses({
