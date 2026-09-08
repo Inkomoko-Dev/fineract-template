@@ -997,8 +997,6 @@ public class OdooServiceImpl implements OdooService {
     public void postJournalEntryToOddoTask(Long loanTransactionId) {
         FineractContext context = ThreadLocalContextUtil.getContext();
         try {
-            // no afterCommit wrapper: the only caller already runs post-commit, and nesting one here
-            // silently drops the task — isSynchronizationActive() is still true mid-iteration of that commit
             this.genericExecutorService.execute(new PostLoanJournalEntryToOddo(loanTransactionId, context));
         } catch (Exception ex) {
             // don't throw exception here — the is_oddo_posted=false cron sweep is the safety net
