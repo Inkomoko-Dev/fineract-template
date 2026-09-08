@@ -164,4 +164,30 @@
         </createIndex>
     </changeSet>
 
+    <changeSet id="CGLT-761-idx-m-code-code-name" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_code" indexName="idx_m_code_code_name"/>
+            </not>
+        </preConditions>
+        <comment>Equality lookups for retrieveCodeValuesByCode</comment>
+        <createIndex tableName="m_code" indexName="idx_m_code_code_name">
+            <column name="code_name"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-code-value-code-active-order" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_code_value" indexName="idx_m_code_value_code_active_order"/>
+            </not>
+        </preConditions>
+        <comment>Active code-value lists filtered by code_id and ordered by position</comment>
+        <createIndex tableName="m_code_value" indexName="idx_m_code_value_code_active_order">
+            <column name="code_id"/>
+            <column name="is_active"/>
+            <column name="order_position"/>
+        </createIndex>
+    </changeSet>
+
 </databaseChangeLog>
