@@ -36,7 +36,7 @@ public interface ReportingProcessService {
             if (k.startsWith("R_")) {
                 String pKey = "${" + k.substring(2) + "}";
                 String pValue = queryParams.get(k).get(0);
-                SQLInjectionValidator.validateSQLInput(pValue);
+                SQLInjectionValidator.validateReportParameter(pValue);
                 reportParams.put(pKey, pValue);
             }
         }
