@@ -81,7 +81,7 @@ public class JournalEntryOutcomeListener {
             LOG.debug("Odoo response payload for event {}: {}", eventId, payload);
 
             String result = odooService.updateJournalEntryWithOdooStatus(payload);
-            LOG.info("Applied journal entry outcome event {}: {}", eventId, result);
+            LOG.debug("Applied journal entry outcome event {}: {}", eventId, result);
         } finally {
             ThreadLocalContextUtil.clearTenant();
         }
