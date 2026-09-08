@@ -59,7 +59,14 @@ public final class ClientCollateralManagementData implements Serializable {
             final BigDecimal total, final BigDecimal totalCollateral, ClientCollateralManagementAdditionalDetails additionalDetails) {
         return new ClientCollateralManagementData(clientCollateralManagements.getQuantity(), clientCollateralManagements.getId(),
                 clientCollateralManagements.getCollaterals().getPctToBase(), clientCollateralManagements.getCollaterals().getBasePrice(),
-                total, totalCollateral, clientCollateralManagements.getCollaterals().getName(), additionalDetails.getWorthOfCollateral());
+                total, totalCollateral, clientCollateralManagements.getCollaterals().getName(),
+                additionalDetails != null ? additionalDetails.getWorthOfCollateral() : null);
+    }
+
+    public static ClientCollateralManagementData fromProjection(final Long id, final BigDecimal quantity, final BigDecimal pctToBase,
+            final BigDecimal unitPrice, final BigDecimal total, final BigDecimal totalCollateral, final String name,
+            final BigDecimal worthOfCollateral) {
+        return new ClientCollateralManagementData(quantity, id, pctToBase, unitPrice, total, totalCollateral, name, worthOfCollateral);
     }
 
     public BigDecimal getQuantity() {
