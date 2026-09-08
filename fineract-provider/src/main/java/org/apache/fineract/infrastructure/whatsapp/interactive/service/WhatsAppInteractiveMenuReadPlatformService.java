@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppMenuDefinitionData;
 import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppMenuOptionData;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppMenuDefinition;
@@ -46,7 +47,16 @@ public class WhatsAppInteractiveMenuReadPlatformService {
 
     @Transactional(readOnly = true)
     public List<WhatsAppMenuOptionData> retrieveMenuOptions(final String menuKey, final String languageCode) {
-        final List<WhatsAppMenuOption> options = menuOptionRepository.findByMenuKeyAndLanguageCodeOrderByOptionNumberAsc(menuKey, languageCode);
+        final List<WhatsAppMenuOption> options;
+        if (StringUtils.isNotBlank(menuKey) && StringUtils.isNotBlank(languageCode)) {
+            options = menuOptionRepository.findByMenuKeyAndLanguageCodeOrderByOptionNumberAsc(menuKey, languageCode);
+        } else if (StringUtils.isNotBlank(menuKey)) {
+            options = menuOptionRepository.findByMenuKeyOrderByLanguageCodeAscOptionNumberAsc(menuKey);
+        } else if (StringUtils.isNotBlank(languageCode)) {
+            options = menuOptionRepository.findByLanguageCodeOrderByMenuKeyAscOptionNumberAsc(languageCode);
+        } else {
+            options = menuOptionRepository.findAllByOrderByMenuKeyAscLanguageCodeAscOptionNumberAsc();
+        }
         return options.stream().map(this::mapOption).collect(Collectors.toList());
     }
 

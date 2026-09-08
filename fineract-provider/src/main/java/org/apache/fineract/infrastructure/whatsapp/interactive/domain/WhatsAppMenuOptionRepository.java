@@ -30,4 +30,10 @@ public interface WhatsAppMenuOptionRepository extends JpaRepository<WhatsAppMenu
             int optionNumber);
 
     List<WhatsAppMenuOption> findByMenuKeyAndLanguageCodeOrderByOptionNumberAsc(String menuKey, String languageCode);
+
+    List<WhatsAppMenuOption> findByMenuKeyOrderByLanguageCodeAscOptionNumberAsc(String menuKey);
+
+    List<WhatsAppMenuOption> findByLanguageCodeOrderByMenuKeyAscOptionNumberAsc(String languageCode);
+
+    List<WhatsAppMenuOption> findAllByOrderByMenuKeyAscLanguageCodeAscOptionNumberAsc();
 }

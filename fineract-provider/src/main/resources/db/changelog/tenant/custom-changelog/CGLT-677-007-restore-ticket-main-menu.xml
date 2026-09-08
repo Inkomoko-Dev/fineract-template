@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- Restore CGLT-677 ticket flat MAIN menu (8 options) for tenants that ran the removed submenu restructure. -->
+    <changeSet id="20260908-677-24-restore-ticket-main-menu-en" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT CASE WHEN COUNT(*) &gt;= 1 THEN 1 ELSE 0 END FROM whatsapp_menu_option WHERE menu_key = 'MAIN' AND language_code = 'en' AND action_type = 'SUBMENU'</sqlCheck>
+        </preConditions>
+        <delete tableName="whatsapp_menu_option">
+            <where>menu_key = 'MAIN' AND language_code = 'en'</where>
+        </delete>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="1"/>
+            <column name="option_label" value="Loan Balance"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_BALANCE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="2"/>
+            <column name="option_label" value="Next Repayment Date"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="NEXT_REPAYMENT"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="3"/>
+            <column name="option_label" value="Amount Due"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="AMOUNT_DUE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="4"/>
+            <column name="option_label" value="Loan Status"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_STATUS"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="5"/>
+            <column name="option_label" value="Business Training"/>
+            <column name="action_type" value="CONTENT"/>
+            <column name="action_target" value="TRAINING"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="6"/>
+            <column name="option_label" value="Market Linkage Opportunities"/>
+            <column name="action_type" value="CONTENT"/>
+            <column name="action_target" value="MARKET_LINKAGE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="7"/>
+            <column name="option_label" value="Speak to an Advisor"/>
+            <column name="action_type" value="ADVISOR_HANDOFF"/>
+            <column name="action_target" value="ADVISOR"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="8"/>
+            <column name="option_label" value="Other Enquiries"/>
+            <column name="action_type" value="ADVISOR_HANDOFF"/>
+            <column name="action_target" value="OTHER"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <update tableName="whatsapp_menu_definition">
+            <column name="header_text" value="Welcome to Inkomoko.&#10;Please choose an option:"/>
+            <where>menu_key = 'MAIN' AND language_code = 'en'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="20260908-677-25-align-ticket-main-menu-header" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM whatsapp_menu_definition WHERE menu_key = 'MAIN' AND language_code = 'en' AND header_text = 'Welcome to Inkomoko. Please choose an option:'</sqlCheck>
+        </preConditions>
+        <update tableName="whatsapp_menu_definition">
+            <column name="header_text" value="Welcome to Inkomoko.&#10;Please choose an option:"/>
+            <where>menu_key = 'MAIN' AND language_code = 'en'</where>
+        </update>
+    </changeSet>
+
+    <!-- 677-24 was marked RAN on some tenants when the submenu precondition expected exactly one row. -->
+    <changeSet id="20260908-677-26-restore-ticket-main-menu-en-v2" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT CASE WHEN COUNT(*) &gt;= 1 THEN 1 ELSE 0 END FROM whatsapp_menu_option WHERE menu_key = 'MAIN' AND language_code = 'en' AND action_type = 'SUBMENU'</sqlCheck>
+        </preConditions>
+        <delete tableName="whatsapp_menu_option">
+            <where>menu_key = 'MAIN' AND language_code = 'en'</where>
+        </delete>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="1"/>
+            <column name="option_label" value="Loan Balance"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_BALANCE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="2"/>
+            <column name="option_label" value="Next Repayment Date"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="NEXT_REPAYMENT"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="3"/>
+            <column name="option_label" value="Amount Due"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="AMOUNT_DUE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="4"/>
+            <column name="option_label" value="Loan Status"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_STATUS"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="5"/>
+            <column name="option_label" value="Business Training"/>
+            <column name="action_type" value="CONTENT"/>
+            <column name="action_target" value="TRAINING"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="6"/>
+            <column name="option_label" value="Market Linkage Opportunities"/>
+            <column name="action_type" value="CONTENT"/>
+            <column name="action_target" value="MARKET_LINKAGE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="7"/>
+            <column name="option_label" value="Speak to an Advisor"/>
+            <column name="action_type" value="ADVISOR_HANDOFF"/>
+            <column name="action_target" value="ADVISOR"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="8"/>
+            <column name="option_label" value="Other Enquiries"/>
+            <column name="action_type" value="ADVISOR_HANDOFF"/>
+            <column name="action_target" value="OTHER"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <update tableName="whatsapp_menu_definition">
+            <column name="header_text" value="Welcome to Inkomoko.&#10;Please choose an option:"/>
+            <where>menu_key = 'MAIN' AND language_code = 'en'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="20260908-677-27-ensure-main-menu-options-en" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM whatsapp_menu_option WHERE menu_key = 'MAIN' AND language_code = 'en'</sqlCheck>
+        </preConditions>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="1"/>
+            <column name="option_label" value="Loan Balance"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_BALANCE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="2"/>
+            <column name="option_label" value="Next Repayment Date"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="NEXT_REPAYMENT"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="3"/>
+            <column name="option_label" value="Amount Due"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="AMOUNT_DUE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="4"/>
+            <column name="option_label" value="Loan Status"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_STATUS"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="5"/>
+            <column name="option_label" value="Business Training"/>
+            <column name="action_type" value="CONTENT"/>
+            <column name="action_target" value="TRAINING"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="6"/>
+            <column name="option_label" value="Market Linkage Opportunities"/>
+            <column name="action_type" value="CONTENT"/>
+            <column name="action_target" value="MARKET_LINKAGE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="7"/>
+            <column name="option_label" value="Speak to an Advisor"/>
+            <column name="action_type" value="ADVISOR_HANDOFF"/>
+            <column name="action_target" value="ADVISOR"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_number" valueNumeric="8"/>
+            <column name="option_label" value="Other Enquiries"/>
+            <column name="action_type" value="ADVISOR_HANDOFF"/>
+            <column name="action_target" value="OTHER"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

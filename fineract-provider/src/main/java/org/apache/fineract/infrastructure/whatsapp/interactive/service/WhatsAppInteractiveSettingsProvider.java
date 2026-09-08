@@ -21,10 +21,10 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.whatsapp.interactive.config.WhatsAppInteractiveProperties;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConversationType;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppInteractiveSetting;
@@ -40,11 +40,7 @@ public class WhatsAppInteractiveSettingsProvider {
     private final WhatsAppInteractiveSettingRepository settingRepository;
 
     private volatile Map<String, String> overrides = Map.of();
-
-    @PostConstruct
-    public void initialize() {
-        reload();
-    }
+    private volatile boolean overridesLoaded;
 
     @Transactional(readOnly = true)
     public void reload() {
@@ -54,6 +50,19 @@ public class WhatsAppInteractiveSettingsProvider {
             loaded.put(setting.getSettingKey(), setting.getSettingValue());
         }
         overrides = loaded;
+        overridesLoaded = true;
+    }
+
+    private void ensureOverridesLoaded() {
+        if (overridesLoaded || ThreadLocalContextUtil.getTenant() == null) {
+            return;
+        }
+        try {
+            reload();
+        } catch (RuntimeException ex) {
+            overrides = Map.of();
+            overridesLoaded = true;
+        }
     }
 
     public int getSessionTimeoutMinutes() {
@@ -141,16 +150,19 @@ public class WhatsAppInteractiveSettingsProvider {
     }
 
     private String getString(final String key, final String defaultValue) {
+        ensureOverridesLoaded();
         final String override = overrides.get(key);
         return StringUtils.isNotBlank(override) ? override : defaultValue;
     }
 
     private int getInt(final String key, final int defaultValue) {
+        ensureOverridesLoaded();
         final String override = overrides.get(key);
         return NumberUtils.isParsable(override) ? Integer.parseInt(override) : defaultValue;
     }
 
     private boolean getBoolean(final String key, final boolean defaultValue) {
+        ensureOverridesLoaded();
         final String override = overrides.get(key);
         if (StringUtils.isBlank(override)) {
             return defaultValue;

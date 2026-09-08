@@ -46,10 +46,15 @@ public class WhatsAppStaffInboundConversationService {
         if (StringUtils.isBlank(phoneNumber) || StringUtils.isBlank(messageBody)) {
             return;
         }
+        if (!staffAccessService.isStaffSelfServiceEnabled()) {
+            replyService.sendTransactionalReply(phoneNumber, recipientType, null, staff, WhatsAppInteractiveMessages.staffChannelStub());
+            return;
+        }
         if (!staffAccessService.canAccessStaffSelfService(staff)) {
+            final String language = settings.getDefaultLanguage();
             replyService.sendTransactionalReply(phoneNumber, recipientType, null, staff,
-                    staff == null ? WhatsAppInteractiveMessages.staffAccessDenied("en")
-                            : WhatsAppInteractiveMessages.staffChannelStub());
+                    staff == null ? WhatsAppInteractiveMessages.staffProfileNotFound(language)
+                            : WhatsAppInteractiveMessages.staffAccessDenied(language));
             return;
         }
         final String normalizedBody = messageBody.trim();

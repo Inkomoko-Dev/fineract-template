@@ -58,12 +58,12 @@ public final class WhatsAppInteractiveMessages {
         if ("rw".equalsIgnoreCase(languageCode)) {
             return "Murakaza neza kuri Inkomoko. Hitamo:";
         }
-        return "Welcome to Inkomoko. Please choose an option:";
+        return "Welcome to Inkomoko.\nPlease choose an option:";
     }
 
     public static String loanServicePending(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Iyi serivisi izaza vuba. Hitamo 7 kuvugana n'umujyanama."
-                : "Loan self-service requires authentication and will be available in the next release. Choose 7 to speak to an advisor.";
+        return "rw".equalsIgnoreCase(languageCode) ? "Iyi serivisi ntiboneka. Andika MENU cyangwa hitamo 7 kuvugana n'umujyanama."
+                : "This loan service is not available. Reply MENU to choose another option or 7 to speak to an advisor.";
     }
 
     public static String contentPending(final String languageCode, final String topic) {
@@ -92,7 +92,13 @@ public final class WhatsAppInteractiveMessages {
     }
 
     public static String staffChannelStub() {
-        return "Employee WhatsApp self-service is currently disabled. Please contact your supervisor or IT support.";
+        return "Employee WhatsApp self-service is currently disabled. Contact your supervisor or IT support.";
+    }
+
+    public static String staffProfileNotFound(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Ntitwabashije kumenya umukozi. Vugana n'umuyobozi wawe cyangwa IT support."
+                : "We could not match your phone number to an active staff profile. Contact your supervisor or IT support.";
     }
 
     public static String staffAccessDenied(final String languageCode) {
