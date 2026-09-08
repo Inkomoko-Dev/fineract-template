@@ -42,6 +42,7 @@ import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.RescheduleLoansApiConstants;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -171,6 +172,10 @@ public class LoanRescheduleRequestDataValidator {
             dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.repaymentEveryParamName).value(repaymentEvery).notNull();
             dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.repaymentFrequencyTypeParamName)
                     .value(repaymentFrequencyType).notNull();
+            if (repaymentEvery != null && repaymentFrequencyType != null) {
+                LoanRepaymentFrequency.validateLoan(dataValidationErrors, loan.getTermFrequency(), loan.getTermPeriodFrequencyType(),
+                        loan.getNumberOfRepayments(), repaymentEvery, repaymentFrequencyType);
+            }
         }
 
         final Boolean preserveLoanTermDuration = this.fromJsonHelper

@@ -376,6 +376,10 @@ public final class LoanEnumerations {
                 optionData = new LoanTransactionEnumData(LoanTransactionType.PARTIAL_WRITEOFF.getValue().longValue(),
                         LoanTransactionType.PARTIAL_WRITEOFF.getCode(), "Partial Write-off");
             break;
+            case RESIDUAL_BALANCE_ADJUSTMENT:
+                optionData = new LoanTransactionEnumData(LoanTransactionType.RESIDUAL_BALANCE_ADJUSTMENT.getValue().longValue(),
+                        LoanTransactionType.RESIDUAL_BALANCE_ADJUSTMENT.getCode(), "Residual Balance Adjustment");
+            break;
             case RECOVERY_REPAYMENT:
                 optionData = new LoanTransactionEnumData(LoanTransactionType.RECOVERY_REPAYMENT.getValue().longValue(),
                         LoanTransactionType.RECOVERY_REPAYMENT.getCode(), "Repayment (after write-off)");
@@ -459,10 +463,8 @@ public final class LoanEnumerations {
                         LoanTransactionType.PAY_OFF.getCode(), "Payoff");
             break;
             case DISBURSEMENT_CHARGE_ADJUSTMENT:
-                optionData = new LoanTransactionEnumData(
-                        LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue().longValue(),
-                        LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getCode(),
-                        "Disbursement Charge Adjustment");
+                optionData = new LoanTransactionEnumData(LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue().longValue(),
+                        LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getCode(), "Disbursement Charge Adjustment");
             break;
             case FUTURE_INTEREST_CANCELLATION:
                 optionData = new LoanTransactionEnumData(LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getValue().longValue(),
@@ -842,13 +844,12 @@ public final class LoanEnumerations {
     }
 
     /**
-     * Convert a number to its word representation for dynamic IC levels.
-     * Supports levels 6-99.
+     * Convert a number to its word representation for dynamic IC levels. Supports levels 6-99.
      */
     private static String convertNumberToWord(int number) {
-        String[] units = {"", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN",
-                "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"};
-        String[] tens = {"", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"};
+        String[] units = { "", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN", "ELEVEN", "TWELVE",
+                "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN" };
+        String[] tens = { "", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY" };
 
         if (number < 20) {
             return units[number];

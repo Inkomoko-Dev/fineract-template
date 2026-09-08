@@ -19,6 +19,8 @@
 package org.apache.fineract.accounting.journalentry.service;
 
 import java.time.LocalDate;
+import java.util.List;
+
 import org.apache.fineract.accounting.journalentry.data.JournalEntryAssociationParametersData;
 import org.apache.fineract.accounting.journalentry.data.JournalEntryData;
 import org.apache.fineract.accounting.journalentry.data.OfficeOpeningBalancesData;
@@ -35,4 +37,6 @@ public interface JournalEntryReadPlatformService {
     OfficeOpeningBalancesData retrieveOfficeOpeningBalances(Long officeId, String currencyCode);
 
     Page<JournalEntryData> retrieveJournalEntriesByEntityId(String transactionId, Long entityId, Integer entityType);
+
+    List<JournalEntryData> retrieveAllByTransactionId(String transactionId);
 }

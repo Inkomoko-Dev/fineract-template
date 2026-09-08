@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.10.xsd">
+
+    <changeSet author="codex" id="CGLT-303-residual-loan-closure-schema">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_product_loan" columnName="residual_auto_close_enabled"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_product_loan">
+            <column name="residual_auto_close_enabled" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="residual_closure_threshold" type="decimal(19,6)"/>
+        </addColumn>
+        <addColumn tableName="m_loan">
+            <column name="residual_auto_close_enabled" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="residual_closure_threshold" type="decimal(19,6)"/>
+            <column name="residual_config_overridden" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <createIndex tableName="m_loan" indexName="idx_m_loan_residual_closure_candidates">
+            <column name="residual_auto_close_enabled"/>
+            <column name="loan_status_id"/>
+            <column name="currency_code"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-residual-adjustment-audit">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_residual_adjustment"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_residual_adjustment">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false" foreignKeyName="fk_residual_adjustment_loan" references="m_loan(id)"/>
+            </column>
+            <column name="loan_transaction_id" type="BIGINT">
+                <constraints nullable="false" unique="true" foreignKeyName="fk_residual_adjustment_transaction" references="m_loan_transaction(id)"/>
+            </column>
+            <column name="signed_residual_before" type="decimal(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="threshold_used" type="decimal(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="automatic" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="BIGINT"/>
+            <column name="created_on" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="m_loan_residual_adjustment" indexName="idx_residual_adjustment_loan">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-residual-adjustment-enum">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM r_enum_value
+                WHERE enum_name = 'loan_transaction_type_enum' AND enum_id = 32
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="r_enum_value">
+            <column name="enum_name" value="loan_transaction_type_enum"/>
+            <column name="enum_id" valueNumeric="32"/>
+            <column name="enum_message_property" value="loanTransactionType.residualBalanceAdjustment"/>
+            <column name="enum_value" value="RESIDUAL_BALANCE_ADJUSTMENT"/>
+            <column name="enum_type" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-residual-adjustment-job">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM job WHERE name = 'Process Residual Loan Closures'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="job">
+            <column name="name" value="Process Residual Loan Closures"/>
+            <column name="display_name" value="Process Residual Loan Closures"/>
+            <column name="cron_expression" value="0 0 21 1/1 * ? *"/>
+            <column name="create_time" value="now()"/>
+            <column name="task_priority" valueNumeric="5"/>
+            <column name="job_key" value="Process Residual Loan Closures _ DEFAULT"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="currently_running" valueBoolean="false"/>
+            <column name="updates_allowed" valueBoolean="true"/>
+            <column name="scheduler_group" valueNumeric="1"/>
+            <column name="is_misfired" valueBoolean="false"/>
+            <column name="node_id" valueNumeric="0"/>
+            <column name="is_mismatched_job" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-product-level-residual-configuration">
+        <dropIndex tableName="m_loan" indexName="idx_m_loan_residual_closure_candidates"/>
+        <dropColumn tableName="m_loan" columnName="residual_auto_close_enabled"/>
+        <dropColumn tableName="m_loan" columnName="residual_closure_threshold"/>
+        <dropColumn tableName="m_loan" columnName="residual_config_overridden"/>
+        <delete tableName="acc_product_mapping">
+            <where>financial_account_type IN (14, 15)</where>
+        </delete>
+        <createIndex tableName="m_product_loan" indexName="idx_m_product_loan_residual_closure">
+            <column name="residual_auto_close_enabled"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-residual-configuration-permission">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM m_permission WHERE code = 'CONFIGURE_RESIDUAL_CLOSURE_LOANPRODUCT'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="CONFIGURE_RESIDUAL_CLOSURE_LOANPRODUCT"/>
+            <column name="entity_name" value="RESIDUAL_CLOSURE_LOANPRODUCT"/>
+            <column name="action_name" value="CONFIGURE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-grant-residual-configuration-to-investment">
+        <sql>
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT r.id, residual_permission.id
+            FROM m_role r
+            JOIN m_role_permission update_product_role ON update_product_role.role_id = r.id
+            JOIN m_permission update_product_permission
+              ON update_product_permission.id = update_product_role.permission_id
+             AND update_product_permission.code = 'UPDATE_LOANPRODUCT'
+            CROSS JOIN m_permission residual_permission
+            WHERE residual_permission.code = 'CONFIGURE_RESIDUAL_CLOSURE_LOANPRODUCT'
+              AND LOWER(r.name) LIKE '%investment%'
+              AND NOT EXISTS (
+                  SELECT 1 FROM m_role_permission existing_permission
+                  WHERE existing_permission.role_id = r.id
+                    AND existing_permission.permission_id = residual_permission.id
+              )
+        </sql>
+    </changeSet>
+</databaseChangeLog>

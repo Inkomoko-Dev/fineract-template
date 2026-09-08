@@ -30,11 +30,14 @@ import javax.persistence.JoinColumn;
 import javax.persistence.OneToMany;
 import javax.persistence.OneToOne;
 import javax.persistence.Table;
+
+import lombok.Data;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.useradministration.domain.AppUser;
 
 @Entity
 @Table(name = "m_provisioning_history")
+@Data
 public class ProvisioningEntry extends AbstractPersistableCustom {
 
     @Column(name = "journal_entry_created")
@@ -60,7 +63,7 @@ public class ProvisioningEntry extends AbstractPersistableCustom {
     @Column(name = "executed_at")
     private java.time.LocalDateTime executedAt;
 
-    protected ProvisioningEntry() {
+    public ProvisioningEntry() {
 
     }
 

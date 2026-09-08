@@ -176,22 +176,30 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
     @Query("select loan from Loan loan where loan.group.id = :groupId and loan.loanStatus in (300,600,601,602,700) and loan.loanType = 2 ")
     List<Loan> findLoanCounterByGroupId(@Param("groupId") Long groupId);
 
+    @Query(value = "select loan.id from m_loan loan join m_product_loan product on product.id = loan.product_id"
+            + " where product.residual_auto_close_enabled = true and product.residual_closure_threshold is not null"
+            + " and loan.loan_status_id = 300 and loan.total_outstanding_derived > 0"
+            + " and loan.total_outstanding_derived <= product.residual_closure_threshold", nativeQuery = true)
+    List<Long> findResidualClosureCandidateIds();
+
     @Query(FIND_LOAN_ACCOUNTS_TO_BE_POSTED_TO_KIVA)
     List<Loan> findLoanAccountsToBePostedToKiva();
 
     /**
-     * Finds loans matching the bulk reschedule filter criteria. Uses JPA Specification to
-     * dynamically build queries based on the provided filter DTO and user's accessible offices.
+     * Finds loans matching the bulk reschedule filter criteria. Uses JPA Specification to dynamically build queries
+     * based on the provided filter DTO and user's accessible offices.
      *
-     * @param filters the filter criteria
-     * @param userAccessibleOffices list of office IDs accessible to the user
-     * @param pageable pagination information (recommended batch size: 500)
+     * @param filters
+     *            the filter criteria
+     * @param userAccessibleOffices
+     *            list of office IDs accessible to the user
+     * @param pageable
+     *            pagination information (recommended batch size: 500)
      * @return list of loans matching the criteria
      */
-    default List<Loan> findByBulkRescheduleFilters(final BulkRescheduleFilterDto filters,
-            final List<Long> userAccessibleOffices, final Pageable pageable) {
-        return findAll(LoanBulkRescheduleSpecification.createSpecification(filters, userAccessibleOffices), pageable)
-                .getContent();
+    default List<Loan> findByBulkRescheduleFilters(final BulkRescheduleFilterDto filters, final List<Long> userAccessibleOffices,
+            final Pageable pageable) {
+        return findAll(LoanBulkRescheduleSpecification.createSpecification(filters, userAccessibleOffices), pageable).getContent();
     }
 
 }

@@ -20,10 +20,13 @@ package org.apache.fineract.portfolio.loanproduct.service;
 
 import java.util.Collection;
 import java.util.Optional;
+import org.apache.fineract.portfolio.loanproduct.domain.DisbursementProvider;
 
 public interface DisbursementProviderReadPlatformService {
 
     Collection<String> retrieveActiveProviderCodes();
+
+    Collection<DisbursementProvider> retrieveActiveProviders();
 
     boolean isActiveProvider(String providerCode);
 

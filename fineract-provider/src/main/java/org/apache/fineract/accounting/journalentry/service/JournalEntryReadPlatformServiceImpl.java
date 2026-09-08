@@ -526,4 +526,21 @@ public class JournalEntryReadPlatformServiceImpl implements JournalEntryReadPlat
             throw new JournalEntriesNotFoundException(entityId, e);
         }
     }
+
+    @Override
+    public List<JournalEntryData> retrieveAllByTransactionId(final String transactionId) {
+
+        JournalEntryAssociationParametersData associationParametersData =
+                new JournalEntryAssociationParametersData(false, false);
+
+        final GLJournalEntryMapper rm = new GLJournalEntryMapper(associationParametersData);
+
+        final String sql = "select " + rm.schema()
+                + " where journalEntry.transaction_id = ? "
+                + " order by journalEntry.entry_date, journalEntry.id";
+
+        final Object[] data = { transactionId };
+
+        return this.jdbcTemplate.query(sql, rm, data);
+    }
 }

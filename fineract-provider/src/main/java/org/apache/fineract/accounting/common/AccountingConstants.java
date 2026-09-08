@@ -154,7 +154,7 @@ public final class AccountingConstants {
                                                         "transfersInSuspenseAccount"), INCOME_ACCOUNT_ID(
                                                                 "incomeAccount"), INCOME_FROM_RECOVERY(
                                                                         "incomeFromRecoveryAccount"), LIABILITY_TRANSFER_SUSPENSE(
-                                                                                "liabilityTransferInSuspenseAccount");
+                                                                                                "liabilityTransferInSuspenseAccount");
 
         private final String value;
 

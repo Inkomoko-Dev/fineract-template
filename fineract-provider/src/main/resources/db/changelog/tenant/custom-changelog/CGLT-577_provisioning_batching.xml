@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="create-provisioning-batch-tables" author="omoi">
+
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_provisioning_batch"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="m_provisioning_batch">
+
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints
+                        primaryKey="true"
+                        primaryKeyName="pk_provisioning_batch"
+                        nullable="false"/>
+            </column>
+
+            <column name="batch_reference" type="VARCHAR(100)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+
+            <!-- Last day of the accounting month -->
+            <column name="accounting_period" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="total_debit" type="NUMERIC(19,6)"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="total_credit" type="NUMERIC(19,6)"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Number of original Mifos provisioning entries -->
+            <column name="entry_count" type="INT"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Number of aggregated journals generated -->
+            <column name="journal_count" type="INT"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="created_by" type="BIGINT"/>
+
+            <column name="posted_at" type="TIMESTAMP"/>
+
+            <column name="reversed_at" type="TIMESTAMP"/>
+
+            <!-- Previous month's batch that this batch reverses -->
+            <column name="reversal_of_batch_id" type="BIGINT"/>
+
+            <column name="failure_reason" type="TEXT"/>
+
+            <column name="version" type="BIGINT"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+        </createTable>
+
+        <!-- One batch per accounting period -->
+        <addUniqueConstraint
+                tableName="m_provisioning_batch"
+                columnNames="accounting_period"
+                constraintName="uk_provisioning_batch_period"/>
+
+        <addForeignKeyConstraint
+                baseTableName="m_provisioning_batch"
+                baseColumnNames="reversal_of_batch_id"
+                referencedTableName="m_provisioning_batch"
+                referencedColumnNames="id"
+                constraintName="fk_provisioning_batch_reversal"/>
+
+        <createIndex
+                tableName="m_provisioning_batch"
+                indexName="idx_provisioning_batch_status">
+            <column name="status"/>
+        </createIndex>
+
+
+        <!-- ========================================================= -->
+        <!-- Provisioning Batch Entry                                 -->
+        <!-- ========================================================= -->
+
+        <createTable tableName="m_provisioning_batch_entry">
+
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints
+                        primaryKey="true"
+                        primaryKeyName="pk_provisioning_batch_entry"
+                        nullable="false"/>
+            </column>
+
+            <column name="batch_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- ID of the original Mifos/Fineract provisioning entry -->
+            <column name="provisioning_entry_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Currency of the original provisioning entry -->
+            <column name="currency_code" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="m_provisioning_batch_entry"
+                baseColumnNames="batch_id"
+                referencedTableName="m_provisioning_batch"
+                referencedColumnNames="id"
+                constraintName="fk_provisioning_batch_entry_batch"
+                onDelete="CASCADE"/>
+
+        <!-- Prevent the same provisioning entry being added twice -->
+        <addUniqueConstraint
+                tableName="m_provisioning_batch_entry"
+                columnNames="batch_id, provisioning_entry_id"
+                constraintName="uk_provisioning_batch_entry"/>
+
+        <createIndex
+                tableName="m_provisioning_batch_entry"
+                indexName="idx_provisioning_batch_entry_batch">
+            <column name="batch_id"/>
+        </createIndex>
+
+        <createIndex
+                tableName="m_provisioning_batch_entry"
+                indexName="idx_provisioning_batch_entry_provisioning">
+            <column name="provisioning_entry_id"/>
+        </createIndex>
+
+        <createIndex
+                tableName="m_provisioning_batch_entry"
+                indexName="idx_provisioning_batch_entry_currency">
+            <column name="currency_code"/>
+        </createIndex>
+
+
+        <!-- ========================================================= -->
+        <!-- Aggregated Provisioning Journal                          -->
+        <!-- ========================================================= -->
+
+        <createTable tableName="m_provisioning_batch_journal">
+
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints
+                        primaryKey="true"
+                        primaryKeyName="pk_provisioning_batch_journal"
+                        nullable="false"/>
+            </column>
+
+            <column name="batch_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Unique reference sent to Odoo -->
+            <column name="journal_reference" type="VARCHAR(150)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+
+            <!-- transactionId in the Odoo payload -->
+            <column name="transaction_id" type="VARCHAR(150)">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- ref in the Odoo payload -->
+            <column name="reference" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- entryDate in the Odoo payload -->
+            <column name="entry_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Currency used for this aggregated journal -->
+            <column name="currency_code" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Odoo account.move / journal ID returned after posting -->
+            <column name="odoo_journal_id" type="VARCHAR(100)"/>
+
+            <column name="total_debit" type="NUMERIC(19,6)"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="total_credit" type="NUMERIC(19,6)"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Number of source provisioning entries contributing -->
+            <column name="entry_count" type="INT"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="posted_at" type="TIMESTAMP"/>
+
+            <column name="failure_reason" type="TEXT"/>
+
+            <column name="version" type="BIGINT"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="m_provisioning_batch_journal"
+                baseColumnNames="batch_id"
+                referencedTableName="m_provisioning_batch"
+                referencedColumnNames="id"
+                constraintName="fk_provisioning_batch_journal_batch"
+                onDelete="CASCADE"/>
+
+        <createIndex
+                tableName="m_provisioning_batch_journal"
+                indexName="idx_provisioning_batch_journal_batch">
+            <column name="batch_id"/>
+        </createIndex>
+
+        <createIndex
+                tableName="m_provisioning_batch_journal"
+                indexName="idx_provisioning_batch_journal_status">
+            <column name="status"/>
+        </createIndex>
+
+        <createIndex
+                tableName="m_provisioning_batch_journal"
+                indexName="idx_provisioning_batch_journal_currency">
+            <column name="currency_code"/>
+        </createIndex>
+
+
+        <createTable tableName="m_provisioning_batch_journal_line">
+
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints
+                        primaryKey="true"
+                        primaryKeyName="pk_provisioning_batch_journal_line"
+                        nullable="false"/>
+            </column>
+
+            <column name="journal_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Mifos/Fineract GL account -->
+            <column name="gl_account_id" type="BIGINT"/>
+
+            <!-- Account code sent to Odoo -->
+            <column name="gl_account_code" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- debit / credit -->
+            <column name="entry_type" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="debit_amount" type="NUMERIC(19,6)"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="credit_amount" type="NUMERIC(19,6)"
+                    defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="transaction_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="m_provisioning_batch_journal_line"
+                baseColumnNames="journal_id"
+                referencedTableName="m_provisioning_batch_journal"
+                referencedColumnNames="id"
+                constraintName="fk_provisioning_batch_journal_line_journal"
+                onDelete="CASCADE"/>
+
+        <createIndex
+                tableName="m_provisioning_batch_journal_line"
+                indexName="idx_provisioning_batch_journal_line_journal">
+            <column name="journal_id"/>
+        </createIndex>
+
+        <createIndex
+                tableName="m_provisioning_batch_journal_line"
+                indexName="idx_provisioning_batch_journal_line_account">
+            <column name="gl_account_id"/>
+            <column name="gl_account_code"/>
+        </createIndex>
+
+    </changeSet>
+
+</databaseChangeLog>

@@ -206,6 +206,10 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 handleWriteOff(loanTransaction, currency, installments);
             } else if (loanTransaction.isPartialWriteOff()) {
                 handlePartialWriteOff(loanTransaction, currency, installments);
+            } else if (loanTransaction.isResidualBalanceAdjustment()) {
+                loanTransaction.resetDerivedComponents();
+                handleResidualBalanceAdjustment(loanTransaction, currency, installments,
+                        loanTransaction.getLoan().getLoanProduct().isCashBasedAccountingEnabled());
             } else if (loanTransaction.isRefundForActiveLoan()) {
                 loanTransaction.resetDerivedComponents();
 
@@ -255,8 +259,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             if (installmentPrincipalPortion.plus(installmentInterestPortion).plus(installmentPenaltyChargesPortion).isGreaterThanZero()) {
                 transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, installment,
                         installmentPrincipalPortion, installmentInterestPortion, Money.zero(currency), installmentPenaltyChargesPortion));
-                chargeBalanceReplayLedger.recordInstallmentCredit(installment, installmentPrincipalPortion,
-                        installmentInterestPortion, installmentPenaltyChargesPortion);
+                chargeBalanceReplayLedger.recordInstallmentCredit(installment, installmentPrincipalPortion, installmentInterestPortion,
+                        installmentPenaltyChargesPortion);
             }
         }
 
@@ -504,11 +508,38 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     }
 
     @Override
+    public void handleResidualBalanceAdjustment(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
+            final List<LoanRepaymentScheduleInstallment> installments, final boolean cashBasedAccounting) {
+        if (!cashBasedAccounting) {
+            handleWriteOff(loanTransaction, currency, installments);
+            return;
+        }
+
+        final LocalDate transactionDate = loanTransaction.getTransactionDate();
+        Money principalPortion = Money.zero(currency);
+        Money interestPortion = Money.zero(currency);
+        Money feeChargesPortion = Money.zero(currency);
+        Money penaltyChargesPortion = Money.zero(currency);
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            if (installment.isNotFullyPaidOff()) {
+                principalPortion = principalPortion.plus(installment.writeOffOutstandingPrincipal(transactionDate, currency));
+                interestPortion = interestPortion
+                        .plus(installment.waiveInterestComponent(transactionDate, installment.getInterestOutstanding(currency)));
+                feeChargesPortion = feeChargesPortion
+                        .plus(installment.waiveFeeChargesComponent(transactionDate, installment.getFeeChargesOutstanding(currency)));
+                penaltyChargesPortion = penaltyChargesPortion.plus(
+                        installment.waivePenaltyChargesComponent(transactionDate, installment.getPenaltyChargesOutstanding(currency)));
+            }
+        }
+        loanTransaction.updateComponentsAndTotal(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+    }
+
+    @Override
     public void handlePartialWriteOff(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
             final List<LoanRepaymentScheduleInstallment> installments) {
 
         final LocalDate transactionDate = loanTransaction.getTransactionDate();
-        
+
         // For partial write-off, the components are already set in the transaction
         // We just need to apply them to the installments
         Money principalPortion = loanTransaction.getPrincipalPortion(currency);
@@ -522,28 +553,33 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 if (principalPortion.isGreaterThanZero()) {
                     Money principalWriteOff = currentInstallment.writeOffPartialPrincipal(transactionDate, currency, principalPortion);
                     principalPortion = principalPortion.minus(principalWriteOff);
-                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero() && penaltyChargesPortion.isZero()) {
+                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero()
+                            && penaltyChargesPortion.isZero()) {
                         break;
                     }
                 }
                 if (interestPortion.isGreaterThanZero()) {
                     Money interestWriteOff = currentInstallment.writeOffPartialInterest(transactionDate, currency, interestPortion);
                     interestPortion = interestPortion.minus(interestWriteOff);
-                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero() && penaltyChargesPortion.isZero()) {
+                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero()
+                            && penaltyChargesPortion.isZero()) {
                         break;
                     }
                 }
                 if (feeChargesPortion.isGreaterThanZero()) {
                     Money feeChargesWriteOff = currentInstallment.writeOffPartialFeeCharges(transactionDate, currency, feeChargesPortion);
                     feeChargesPortion = feeChargesPortion.minus(feeChargesWriteOff);
-                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero() && penaltyChargesPortion.isZero()) {
+                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero()
+                            && penaltyChargesPortion.isZero()) {
                         break;
                     }
                 }
                 if (penaltyChargesPortion.isGreaterThanZero()) {
-                    Money penaltyChargesWriteOff = currentInstallment.writeOffPartialPenaltyCharges(transactionDate, currency, penaltyChargesPortion);
+                    Money penaltyChargesWriteOff = currentInstallment.writeOffPartialPenaltyCharges(transactionDate, currency,
+                            penaltyChargesPortion);
                     penaltyChargesPortion = penaltyChargesPortion.minus(penaltyChargesWriteOff);
-                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero() && penaltyChargesPortion.isZero()) {
+                    if (principalPortion.isZero() && interestPortion.isZero() && feeChargesPortion.isZero()
+                            && penaltyChargesPortion.isZero()) {
                         break;
                     }
                 }

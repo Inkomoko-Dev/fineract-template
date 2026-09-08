@@ -44,6 +44,7 @@ import org.apache.fineract.portfolio.floatingrates.data.FloatingRateData;
 import org.apache.fineract.portfolio.fund.data.FundData;
 import org.apache.fineract.portfolio.interestratechart.data.InterestRateChartData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanInterestRecalculationData;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
@@ -80,6 +81,7 @@ public class LoanProductData implements Serializable {
     private final Integer maxNumberOfRepayments;
     private final Integer repaymentEvery;
     private final EnumOptionData repaymentFrequencyType;
+    private final String repaymentFrequencyName;
     private final BigDecimal interestRatePerPeriod;
     private final BigDecimal minInterestRatePerPeriod;
     private final BigDecimal maxInterestRatePerPeriod;
@@ -210,6 +212,8 @@ public class LoanProductData implements Serializable {
     private InterestRateChartData activeChart;
 
     private Boolean isBnplLoanProduct;
+    private Boolean residualAutoCloseEnabled;
+    private BigDecimal residualClosureThreshold;
     private Boolean requiresEquityContribution;
     private BigDecimal equityContributionLoanPercentage;
 
@@ -753,6 +757,7 @@ public class LoanProductData implements Serializable {
         this.graceOnInterestPayment = graceOnInterestPayment;
         this.graceOnInterestCharged = graceOnInterestCharged;
         this.repaymentEvery = repaymentEvery;
+        this.repaymentFrequencyName = LoanRepaymentFrequency.displayName(repaymentEvery, repaymentFrequencyType);
         this.interestRatePerPeriod = interestRatePerPeriod;
         this.minInterestRatePerPeriod = minInterestRatePerPeriod;
         this.maxInterestRatePerPeriod = maxInterestRatePerPeriod;
@@ -892,6 +897,7 @@ public class LoanProductData implements Serializable {
         this.minNumberOfRepayments = productData.minNumberOfRepayments;
         this.maxNumberOfRepayments = productData.maxNumberOfRepayments;
         this.repaymentEvery = productData.repaymentEvery;
+        this.repaymentFrequencyName = productData.repaymentFrequencyName;
         this.interestRatePerPeriod = productData.interestRatePerPeriod;
         this.minInterestRatePerPeriod = productData.minInterestRatePerPeriod;
         this.maxInterestRatePerPeriod = productData.maxInterestRatePerPeriod;
@@ -1095,6 +1101,10 @@ public class LoanProductData implements Serializable {
 
     public Integer getRepaymentEvery() {
         return this.repaymentEvery;
+    }
+
+    public String getRepaymentFrequencyName() {
+        return this.repaymentFrequencyName;
     }
 
     public BigDecimal getInterestRatePerPeriod() {
@@ -1469,6 +1479,19 @@ public class LoanProductData implements Serializable {
 
     public void setBnplLoanProduct(Boolean bnplLoanProduct) {
         isBnplLoanProduct = bnplLoanProduct;
+    }
+
+    public void setResidualClosureConfiguration(final Boolean enabled, final BigDecimal threshold) {
+        this.residualAutoCloseEnabled = enabled;
+        this.residualClosureThreshold = threshold;
+    }
+
+    public Boolean getResidualAutoCloseEnabled() {
+        return this.residualAutoCloseEnabled;
+    }
+
+    public BigDecimal getResidualClosureThreshold() {
+        return this.residualClosureThreshold;
     }
 
     public Boolean getRequiresEquityContribution() {

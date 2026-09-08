@@ -1662,6 +1662,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         final Map<String, Object> changes = loan.loanApplicationApproval(currentUser, command, disbursementDataArray,
                 defaultLoanLifecycleStateMachine(), isBnplEquityContributionLoan, amountToDisburseForBnplEquityContributionLoan,
                 isExtendLoanLifeCycleConfig);
+        loan.validateTrancheDisbursementDatesAreNotAfterMaturity();
 
         if (disbursementDataArray != null
                 && this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {

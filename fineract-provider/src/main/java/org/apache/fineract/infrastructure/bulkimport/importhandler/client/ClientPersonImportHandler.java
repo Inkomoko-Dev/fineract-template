@@ -134,6 +134,14 @@ public class ClientPersonImportHandler implements ImportHandler {
             }
         }
         Boolean isStaff = ImportHandlerUtils.readAsBoolean(ClientPersonConstants.IS_STAFF_COL, row);
+        Boolean migrated = ImportHandlerUtils.readAsBoolean(ClientPersonConstants.MIGRATED_COL, row);
+        LocalDate migratedOnDate = ImportHandlerUtils.readAsDate(ClientPersonConstants.MIGRATED_ON_DATE_COL, row);
+        String migratedFromOfficeName = ImportHandlerUtils.readAsString(ClientPersonConstants.MIGRATED_FROM_OFFICE_COL, row);
+        Long migratedFromOfficeId = ImportHandlerUtils.getIdByName(workbook.getSheet(TemplatePopulateImportConstants.OFFICE_SHEET_NAME),
+                migratedFromOfficeName);
+        if (migratedFromOfficeId != null && migratedFromOfficeId == 0L) {
+            migratedFromOfficeId = null;
+        }
 
         AddressData addressDataObj = null;
         Collection<AddressData> addressList = null;
@@ -181,7 +189,7 @@ public class ClientPersonImportHandler implements ImportHandler {
         }
         return ClientData.importClientPersonInstance(legalFormId, row.getRowNum(), firstName, lastName, middleName, submittedOn,
                 activationDate, active, externalId, officeId, staffId, mobileNo, dob, clientTypeId, genderId, clientClassificationId,
-                isStaff, addressList, locale, dateFormat, null);
+                isStaff, addressList, locale, dateFormat, null, migrated, migratedOnDate, migratedFromOfficeId);
 
     }
 

@@ -212,6 +212,12 @@ public class LoanProduct extends AbstractPersistableCustom {
     @Column(name = "is_bnpl_loan_product")
     private Boolean isBnplLoanProduct;
 
+    @Column(name = "residual_auto_close_enabled", nullable = false)
+    private boolean residualAutoCloseEnabled;
+
+    @Column(name = "residual_closure_threshold", scale = 6, precision = 19)
+    private BigDecimal residualClosureThreshold;
+
     @Column(name = "requires_equity_contribution")
     private Boolean requiresEquityContribution;
 
@@ -423,6 +429,10 @@ public class LoanProduct extends AbstractPersistableCustom {
                 .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.IS_ACCOUNT_LEVEL_ARREARS_TOLERANCE_ENABLE);
 
         final Boolean isBnplLoanProduct = command.booleanObjectValueOfParameterNamed(LoanProductConstants.isBnplLoanProductParamName);
+        final boolean residualAutoCloseEnabled = command
+                .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.residualAutoCloseEnabledParamName);
+        final BigDecimal residualClosureThreshold = command
+                .bigDecimalValueOfParameterNamed(LoanProductConstants.residualClosureThresholdParamName);
         final Boolean requiresEquityContribution = command
                 .booleanObjectValueOfParameterNamed(LoanProductConstants.requiresEquityContributionParamName);
         final BigDecimal equityContributionLoanPercentage = command
@@ -450,6 +460,7 @@ public class LoanProduct extends AbstractPersistableCustom {
                 requiresEquityContribution, equityContributionLoanPercentage, maintainInterest, isIslamic, allowableDSCR, productCategory,
                 productType);
         product.applyThirdPartyDisbursementSettings(command);
+        product.setResidualClosureConfiguration(residualAutoCloseEnabled, residualClosureThreshold);
         return product;
 
     }
@@ -1311,6 +1322,19 @@ public class LoanProduct extends AbstractPersistableCustom {
             this.isBnplLoanProduct = newValue;
         }
 
+        if (command.isChangeInBooleanParameterNamed(LoanProductConstants.residualAutoCloseEnabledParamName,
+                this.residualAutoCloseEnabled)) {
+            final boolean newValue = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.residualAutoCloseEnabledParamName);
+            actualChanges.put(LoanProductConstants.residualAutoCloseEnabledParamName, newValue);
+            this.residualAutoCloseEnabled = newValue;
+        }
+        if (command.isChangeInBigDecimalParameterNamed(LoanProductConstants.residualClosureThresholdParamName,
+                this.residualClosureThreshold)) {
+            final BigDecimal newValue = command.bigDecimalValueOfParameterNamed(LoanProductConstants.residualClosureThresholdParamName);
+            actualChanges.put(LoanProductConstants.residualClosureThresholdParamName, newValue);
+            this.residualClosureThreshold = newValue;
+        }
+
         if (command.isChangeInBooleanParameterNamed(LoanProductConstants.requiresEquityContributionParamName,
                 this.requiresEquityContribution)) {
             final Boolean newValue = command.booleanObjectValueOfParameterNamed(LoanProductConstants.requiresEquityContributionParamName);
@@ -1787,6 +1811,19 @@ public class LoanProduct extends AbstractPersistableCustom {
         return isBnplLoanProduct;
     }
 
+    public boolean isResidualAutoCloseEnabled() {
+        return residualAutoCloseEnabled;
+    }
+
+    public BigDecimal getResidualClosureThreshold() {
+        return residualClosureThreshold;
+    }
+
+    public void setResidualClosureConfiguration(final boolean enabled, final BigDecimal threshold) {
+        this.residualAutoCloseEnabled = enabled;
+        this.residualClosureThreshold = threshold;
+    }
+
     public Boolean isRequiresEquityContribution() {
         return requiresEquityContribution;
     }
@@ -1824,7 +1861,8 @@ public class LoanProduct extends AbstractPersistableCustom {
      */
     public void applyThirdPartyDisbursementSettings(final JsonCommand command) {
         if (command.parameterExists(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT)) {
-            this.enableThirdPartyDisbursement = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT);
+            this.enableThirdPartyDisbursement = command
+                    .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_THIRD_PARTY_DISBURSEMENT);
         }
     }
 

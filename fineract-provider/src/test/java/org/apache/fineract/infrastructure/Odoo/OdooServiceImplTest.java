@@ -122,6 +122,9 @@ public class OdooServiceImplTest {
     private FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository;
 
     @Mock
+    private org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalRepository provisionBatchJournalRepository;
+
+    @Mock
     private AfterCommitExecutor afterCommitExecutor;
 
     @Mock

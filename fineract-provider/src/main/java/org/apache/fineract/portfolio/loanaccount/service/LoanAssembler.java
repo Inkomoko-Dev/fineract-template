@@ -81,10 +81,10 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanSchedul
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleAssembler;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
-import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanTransactionProcessingStrategy;
+import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.exception.InvalidCurrencyException;
 import org.apache.fineract.portfolio.loanproduct.exception.LinkedAccountRequiredException;
 import org.apache.fineract.portfolio.loanproduct.exception.LoanProductNotFoundException;
@@ -366,7 +366,8 @@ public class LoanAssembler {
         final LoanScheduleModel loanScheduleModel = this.loanScheduleAssembler.assembleLoanScheduleFrom(loanApplicationTerms,
                 isHolidayEnabled, holidays, workingDays, element, disbursementDetails);
         loanApplication.loanApplicationSubmittal(loanScheduleModel, loanApplicationTerms, defaultLoanLifecycleStateMachine(),
-                submittedOnDate, applicationDate, externalId, allowTransactionsOnHoliday, holidays, workingDays, allowTransactionsOnNonWorkingDay);
+                submittedOnDate, applicationDate, externalId, allowTransactionsOnHoliday, holidays, workingDays,
+                allowTransactionsOnNonWorkingDay);
 
         //
         final Boolean isBnplLoan = this.fromApiJsonHelper.extractBooleanNamed(LoanApiConstants.isBnplLoanParamName, element);
@@ -387,8 +388,8 @@ public class LoanAssembler {
             loanApplication.setLoanWithAnotherInstitutionAmount(loanWithAnotherInstitutionAmount);
         }
         if (loanProduct.isEnableThirdPartyDisbursement()) {
-            final String providerCode = ThirdPartyDisbursementProvider.normalize(this.fromApiJsonHelper
-                    .extractStringNamed(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element));
+            final String providerCode = ThirdPartyDisbursementProvider
+                    .normalize(this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element));
             loanApplication.setThirdPartyDisbursementProvider(providerCode);
         }
         return loanApplication;
