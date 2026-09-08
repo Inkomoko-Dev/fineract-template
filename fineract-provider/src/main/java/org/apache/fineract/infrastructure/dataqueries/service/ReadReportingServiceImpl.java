@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import javax.annotation.PostConstruct;
 import javax.ws.rs.core.StreamingOutput;
 import lombok.RequiredArgsConstructor;
@@ -63,7 +64,6 @@ import org.apache.fineract.infrastructure.dataqueries.data.ResultsetRowData;
 import org.apache.fineract.infrastructure.dataqueries.exception.ReportNotFoundException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.service.SqlInjectionPreventerService;
-import org.apache.fineract.infrastructure.security.utils.LogParameterEscapeUtil;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
@@ -92,6 +92,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
     private static final int DEFAULT_EXPORT_FETCH_SIZE = 1000;
     private static final int CSV_BUFFER_SIZE = 32 * 1024;
     private static final String TMP_DISK_TABLES_STATUS = "SHOW SESSION STATUS LIKE 'Created_tmp_disk_tables'";
+    private static final Pattern LOG_SAFE_CHARACTERS = Pattern.compile("[^A-Za-z0-9 _.:\\-]");
     private static final String REPORT_METRICS_LOG = "REPORT name={} type={} rows={} totalRows={} limit={} offset={} "
             + "dataQueryMs={} countQueryMs={} totalMs={} tmpDiskTables={}";
 
@@ -124,14 +125,13 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             try {
                 final long rows = streamCsv(sql, writer);
                 writer.flush();
-                log.info("REPORT export=csv name={} rows={} bytes={} elapsedMs={}", LogParameterEscapeUtil.escapeLogParameter(name), rows,
-                        sink.getCount(), System.currentTimeMillis() - startTime);
+                log.info("REPORT export=csv name={} rows={} bytes={} elapsedMs={}", sanitiseForLog(name), rows, sink.getCount(),
+                        System.currentTimeMillis() - startTime);
             } catch (final Exception e) {
                 if (sink.getCount() == 0) {
                     throw new PlatformDataIntegrityException("error.msg.exception.error", e.getMessage(), e);
                 }
-                log.error("Report CSV export aborted after {} bytes: {}", sink.getCount(),
-                        LogParameterEscapeUtil.escapeLogParameter(name), e);
+                log.error("Report CSV export aborted after {} bytes: {}", sink.getCount(), sanitiseForLog(name), e);
                 throw new IOException("Report CSV export aborted", e);
             }
         };
@@ -186,6 +186,10 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         return rows;
     }
 
+    private static String sanitiseForLog(final String value) {
+        return value == null ? null : LOG_SAFE_CHARACTERS.matcher(value).replaceAll("_");
+    }
+
     private String columnValue(final ResultSet rs, final int columnIndex) throws SQLException {
         final Object value = rs.getObject(columnIndex);
         return value == null ? null : value.toString();
@@ -223,10 +227,8 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             result.setCount(result.getData().size());
         }
 
-        log.info(REPORT_METRICS_LOG,
-                LogParameterEscapeUtil.escapeLogParameter(name), type.replaceAll("[\n\r\t]", "_"), result.getData().size(),
-                result.getCount(), limit, offset, dataQueryElapsed, countQueryElapsed, System.currentTimeMillis() - startTime,
-                tmpDiskTables[0]);
+        log.info(REPORT_METRICS_LOG, sanitiseForLog(name), sanitiseForLog(type), result.getData().size(), result.getCount(), limit,
+                offset, dataQueryElapsed, countQueryElapsed, System.currentTimeMillis() - startTime, tmpDiskTables[0]);
         return result;
     }
 
