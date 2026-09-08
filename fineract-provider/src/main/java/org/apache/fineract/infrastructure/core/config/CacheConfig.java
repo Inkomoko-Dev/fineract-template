@@ -61,6 +61,16 @@ public class CacheConfig {
         cacheManager.createCache("codes", defaultTemplate);
         cacheManager.createCache("hooks", defaultTemplate);
         cacheManager.createCache("tfConfig", defaultTemplate);
+        // Used by @Cacheable methods; missing entries cause Single-Node cache to be ineffective (CGLT-761)
+        cacheManager.createCache("configByName", defaultTemplate);
+        cacheManager.createCache("paymentTypes", defaultTemplate);
+
+        // Short TTL: getBusinessDates() may include LocalDate.now when business-date feature is off
+        javax.cache.configuration.Configuration<Object, Object> businessDatesTemplate = Eh107Configuration
+                .fromEhcacheCacheConfiguration(CacheConfigurationBuilder
+                        .newCacheConfigurationBuilder(Object.class, Object.class, ResourcePoolsBuilder.heap(1000))
+                        .withExpiry(ExpiryPolicyBuilder.timeToLiveExpiration(Duration.ofMinutes(1))).build());
+        cacheManager.createCache("businessDates", businessDatesTemplate);
 
         javax.cache.configuration.Configuration<Object, Object> accessTokenTemplate = Eh107Configuration.fromEhcacheCacheConfiguration(
                 CacheConfigurationBuilder.newCacheConfigurationBuilder(Object.class, Object.class, ResourcePoolsBuilder.heap(10000))

@@ -29,6 +29,7 @@ import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
 import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepository;
 import org.apache.fineract.portfolio.paymenttype.domain.PaymentTypeRepositoryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
@@ -50,6 +51,7 @@ public class PaymentTypeWriteServiceImpl implements PaymentTypeWriteService {
     }
 
     @Override
+    @CacheEvict(value = "paymentTypes", allEntries = true)
     public CommandProcessingResult createPaymentType(JsonCommand command) {
         this.fromApiJsonDeserializer.validateForCreate(command.json());
         String name = command.stringValueOfParameterNamed(PaymentTypeApiResourceConstants.NAME);
@@ -64,6 +66,7 @@ public class PaymentTypeWriteServiceImpl implements PaymentTypeWriteService {
     }
 
     @Override
+    @CacheEvict(value = "paymentTypes", allEntries = true)
     public CommandProcessingResult updatePaymentType(Long paymentTypeId, JsonCommand command) {
 
         this.fromApiJsonDeserializer.validateForUpdate(command.json());
@@ -78,6 +81,7 @@ public class PaymentTypeWriteServiceImpl implements PaymentTypeWriteService {
     }
 
     @Override
+    @CacheEvict(value = "paymentTypes", allEntries = true)
     public CommandProcessingResult deletePaymentType(Long paymentTypeId) {
         final PaymentType paymentType = this.repositoryWrapper.findOneWithNotFoundDetection(paymentTypeId);
         try {
