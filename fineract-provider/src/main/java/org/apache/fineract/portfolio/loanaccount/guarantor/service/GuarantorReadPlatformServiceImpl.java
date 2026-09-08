@@ -25,16 +25,18 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.organisation.staff.data.StaffData;
-import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
 import org.apache.fineract.portfolio.account.data.PortfolioAccountData;
 import org.apache.fineract.portfolio.account.domain.AccountAssociationType;
 import org.apache.fineract.portfolio.client.data.ClientData;
-import org.apache.fineract.portfolio.client.service.ClientReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.guarantor.data.GuarantorData;
 import org.apache.fineract.portfolio.loanaccount.guarantor.data.GuarantorFundingData;
@@ -54,16 +56,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class GuarantorReadPlatformServiceImpl implements GuarantorReadPlatformService {
 
     private final JdbcTemplate jdbcTemplate;
-    private final ClientReadPlatformService clientReadPlatformService;
-    private final StaffReadPlatformService staffReadPlatformService;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
 
     @Autowired
-    public GuarantorReadPlatformServiceImpl(final JdbcTemplate jdbcTemplate, final ClientReadPlatformService clientReadPlatformService,
-            final StaffReadPlatformService staffReadPlatformService, final LoanRepositoryWrapper loanRepositoryWrapper) {
+    public GuarantorReadPlatformServiceImpl(final JdbcTemplate jdbcTemplate, final LoanRepositoryWrapper loanRepositoryWrapper) {
         this.jdbcTemplate = jdbcTemplate;
-        this.clientReadPlatformService = clientReadPlatformService;
-        this.staffReadPlatformService = staffReadPlatformService;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
     }
 
@@ -87,12 +84,7 @@ public class GuarantorReadPlatformServiceImpl implements GuarantorReadPlatformSe
             return preparedStatement;
         }, rm);
 
-        final List<GuarantorData> mergedGuarantorDatas = new ArrayList<>();
-
-        for (final GuarantorData guarantorData : guarantorDatas) {
-            mergedGuarantorDatas.add(mergeDetailsForClientOrStaffGuarantor(guarantorData));
-        }
-        return mergedGuarantorDatas;
+        return enrichGuarantorsWithClientOrStaff(guarantorDatas);
     }
 
     @Override
@@ -110,7 +102,77 @@ public class GuarantorReadPlatformServiceImpl implements GuarantorReadPlatformSe
             return preparedStatement;
         }, rm).get(0);
 
-        return mergeDetailsForClientOrStaffGuarantor(guarantorData);
+        return enrichGuarantorsWithClientOrStaff(List.of(guarantorData)).get(0);
+    }
+
+    /**
+     * Batch-load client/staff projections once instead of retrieveOne/retrieveStaff per guarantor (N+1).
+     */
+    private List<GuarantorData> enrichGuarantorsWithClientOrStaff(final List<GuarantorData> guarantorDatas) {
+        final Set<Long> clientIds = new HashSet<>();
+        final Set<Long> staffIds = new HashSet<>();
+        for (final GuarantorData guarantorData : guarantorDatas) {
+            if (guarantorData.isExistingClient() && guarantorData.getEntityId() != null) {
+                clientIds.add(guarantorData.getEntityId());
+            } else if (guarantorData.isStaffMember() && guarantorData.getEntityId() != null) {
+                staffIds.add(guarantorData.getEntityId());
+            }
+        }
+
+        final Map<Long, ClientData> clientsById = loadClientsForGuarantors(clientIds);
+        final Map<Long, StaffData> staffById = loadStaffForGuarantors(staffIds);
+
+        final List<GuarantorData> mergedGuarantorDatas = new ArrayList<>(guarantorDatas.size());
+        for (final GuarantorData guarantorData : guarantorDatas) {
+            if (guarantorData.isExistingClient()) {
+                final ClientData clientData = clientsById.get(guarantorData.getEntityId());
+                mergedGuarantorDatas.add(clientData != null ? GuarantorData.mergeClientData(clientData, guarantorData) : guarantorData);
+            } else if (guarantorData.isStaffMember()) {
+                final StaffData staffData = staffById.get(guarantorData.getEntityId());
+                mergedGuarantorDatas.add(staffData != null ? GuarantorData.mergeStaffData(staffData, guarantorData) : guarantorData);
+            } else {
+                mergedGuarantorDatas.add(guarantorData);
+            }
+        }
+        return mergedGuarantorDatas;
+    }
+
+    private Map<Long, ClientData> loadClientsForGuarantors(final Set<Long> clientIds) {
+        final Map<Long, ClientData> clientsById = new HashMap<>();
+        if (clientIds.isEmpty()) {
+            return clientsById;
+        }
+        final String placeholders = String.join(",", clientIds.stream().map(id -> "?").toList());
+        final String sql = "select c.id as id, c.firstname as firstname, c.lastname as lastname, c.external_id as externalId, "
+                + "c.activation_date as activationDate, o.name as officeName from m_client c "
+                + "left join m_office o on o.id = c.office_id where c.id in (" + placeholders + ")";
+        this.jdbcTemplate.query(sql, rs -> {
+            final Long id = rs.getLong("id");
+            clientsById.put(id, ClientData.forGuarantor(rs.getString("firstname"), rs.getString("lastname"), rs.getString("officeName"),
+                    JdbcSupport.getLocalDate(rs, "activationDate"), rs.getString("externalId")));
+        }, clientIds.toArray());
+        return clientsById;
+    }
+
+    private Map<Long, StaffData> loadStaffForGuarantors(final Set<Long> staffIds) {
+        final Map<Long, StaffData> staffById = new HashMap<>();
+        if (staffIds.isEmpty()) {
+            return staffById;
+        }
+        final String placeholders = String.join(",", staffIds.stream().map(id -> "?").toList());
+        final String sql = "select s.id as id, s.firstname as firstname, s.lastname as lastname, s.display_name as displayName, "
+                + "s.office_id as officeId, o.name as officeName, s.is_loan_officer as isLoanOfficer, s.external_id as externalId, "
+                + "s.mobile_no as mobileNo, s.is_active as isActive, s.joining_date as joiningDate "
+                + "from m_staff s left join m_office o on o.id = s.office_id where s.id in (" + placeholders + ")";
+        this.jdbcTemplate.query(sql, rs -> {
+            final Long id = rs.getLong("id");
+            staffById.put(id,
+                    StaffData.instance(id, rs.getString("firstname"), rs.getString("lastname"), rs.getString("displayName"),
+                            JdbcSupport.getLong(rs, "officeId"), rs.getString("officeName"), rs.getBoolean("isLoanOfficer"),
+                            rs.getString("externalId"), rs.getString("mobileNo"), rs.getBoolean("isActive"),
+                            JdbcSupport.getLocalDate(rs, "joiningDate")));
+        }, staffIds.toArray());
+        return staffById;
     }
 
     private static final class GuarantorMapper implements RowMapper<GuarantorData> {

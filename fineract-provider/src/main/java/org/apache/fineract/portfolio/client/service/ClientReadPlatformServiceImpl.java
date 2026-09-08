@@ -402,21 +402,8 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
                     + " where ( o.hierarchy like ? or transferToOffice.hierarchy like ?) and c.id = ?";
             final ClientData clientData = this.jdbcTemplate.queryForObject(sql, this.clientMapper, // NOSONAR
                     hierarchySearchString, hierarchySearchString, clientId);
-            // Get client collaterals
-            final Collection<ClientCollateralManagement> clientCollateralManagements = this.clientCollateralManagementRepositoryWrapper
-                    .getCollateralsPerClient(clientId);
 
-            final Set<ClientCollateralManagementData> clientCollateralManagementDataSet = new HashSet<>();
-
-            // Map to client collateral data class
-            for (ClientCollateralManagement clientCollateralManagement : clientCollateralManagements) {
-                final ClientCollateralManagementAdditionalDetails additionalDetails = this.clientCollateralManagementAdditionalDetailsRepository
-                        .findByCollateralId(clientCollateralManagement);
-                BigDecimal total = clientCollateralManagement.getTotal();
-                BigDecimal totalCollateral = clientCollateralManagement.getTotalCollateral(total);
-                clientCollateralManagementDataSet.add(ClientCollateralManagementData.setCollateralValues(clientCollateralManagement, total,
-                        totalCollateral, additionalDetails));
-            }
+            final Set<ClientCollateralManagementData> clientCollateralManagementDataSet = retrieveClientCollateralData(clientId);
             final Collection<ClientBusinessDetail> clientBusinessDetails = this.clientBusinessDetailRepositoryWrapper
                     .findByClientId(clientId);
             final Set<ClientBusinessDetailData> clientBusinessDetailDataSet = new HashSet<>();
@@ -446,6 +433,30 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
         } catch (final EmptyResultDataAccessException e) {
             throw new ClientNotFoundException(clientId, e);
         }
+    }
+
+    /**
+     * Single SQL for client collateral + product pricing + optional additional details (avoids N+1 on retrieveOne).
+     */
+    private Set<ClientCollateralManagementData> retrieveClientCollateralData(final Long clientId) {
+        final String sql = "select ccm.id as id, ccm.quantity as quantity, cm.name as name, cm.base_price as unitPrice, "
+                + "cm.pct_to_base as pctToBase, cad.worth_of_collateral as worthOfCollateral "
+                + "from m_client_collateral_management ccm "
+                + "join m_collateral_management cm on cm.id = ccm.collateral_id "
+                + "left join m_client_collateral_management_additional_details cad on cad.client_collateral_id = ccm.id "
+                + "where ccm.client_id = ?";
+        final List<ClientCollateralManagementData> rows = this.jdbcTemplate.query(sql, (rs, rowNum) -> {
+            final Long id = rs.getLong("id");
+            final BigDecimal quantity = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "quantity");
+            final BigDecimal unitPrice = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "unitPrice");
+            final BigDecimal pctToBase = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "pctToBase");
+            final BigDecimal total = quantity.multiply(unitPrice);
+            final BigDecimal totalCollateral = BigDecimal.ZERO.compareTo(total) == 0 ? BigDecimal.ZERO
+                    : total.multiply(pctToBase.divide(BigDecimal.valueOf(100)));
+            return ClientCollateralManagementData.fromProjection(id, quantity, pctToBase, unitPrice, total, totalCollateral,
+                    rs.getString("name"), rs.getBigDecimal("worthOfCollateral"));
+        }, clientId);
+        return new HashSet<>(rows);
     }
 
     @Override

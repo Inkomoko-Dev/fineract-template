@@ -1066,12 +1066,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         public String loanSchema() {
-            return buildLoanSchema(false);
+            // Detail path uses the same join-based late-fee/center projection as list (same columns, fewer correlated subqueries).
+            return buildLoanSchema(true);
         }
 
         /**
-         * List projection: same response columns as {@link #loanSchema()} but avoids per-row correlated
-         * late-fee subqueries and the center-name subquery (uses joins instead).
+         * List/detail projection with join-based late-fee aggregates and center name (no per-row correlated subqueries).
          */
         public String loanListSchema() {
             return buildLoanSchema(true);
@@ -3096,12 +3096,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final Collection<InterestRatePeriodData> intRatePeriodData = new ArrayList<>();
             final Collection<InterestRatePeriodData> intRates = this.floatingRatesReadPlatformService
                     .retrieveInterestRatePeriods(loanData.loanProductId());
+            final LoanProductData loanProductData = this.loanProductReadPlatformService
+                    .retrieveLoanProductFloatingDetails(loanData.loanProductId());
             for (final InterestRatePeriodData rate : intRates) {
                 if (rate.getFromDate().compareTo(loanData.getDisbursementDate()) > 0 && loanData.isFloatingInterestRate()) {
-                    updateInterestRatePeriodData(rate, loanData);
+                    updateInterestRatePeriodData(rate, loanData, loanProductData);
                     intRatePeriodData.add(rate);
                 } else if (rate.getFromDate().compareTo(loanData.getDisbursementDate()) <= 0) {
-                    updateInterestRatePeriodData(rate, loanData);
+                    updateInterestRatePeriodData(rate, loanData, loanProductData);
                     intRatePeriodData.add(rate);
                     break;
                 }
@@ -3112,8 +3114,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         return null;
     }
 
-    private void updateInterestRatePeriodData(InterestRatePeriodData rate, LoanAccountData loan) {
-        LoanProductData loanProductData = loanProductReadPlatformService.retrieveLoanProductFloatingDetails(loan.loanProductId());
+    private void updateInterestRatePeriodData(InterestRatePeriodData rate, LoanAccountData loan, LoanProductData loanProductData) {
         rate.setLoanProductDifferentialInterestRate(loanProductData.getInterestRateDifferential());
         rate.setLoanDifferentialInterestRate(loan.getInterestRateDifferential());
 

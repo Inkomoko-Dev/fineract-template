@@ -52,7 +52,7 @@ public class ClientCollateralManagement extends AbstractPersistableCustom {
     @JoinColumn(name = "collateral_id", nullable = false)
     private CollateralManagementDomain collateral;
 
-    @OneToMany(cascade = CascadeType.ALL, mappedBy = "clientCollateralManagement", fetch = FetchType.EAGER)
+    @OneToMany(cascade = CascadeType.ALL, mappedBy = "clientCollateralManagement", fetch = FetchType.LAZY)
     private Set<LoanCollateralManagement> loanCollateralManagementSet = new HashSet<>();
 
     public ClientCollateralManagement() {
