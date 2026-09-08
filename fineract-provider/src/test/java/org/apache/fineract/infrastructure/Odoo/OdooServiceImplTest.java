@@ -42,16 +42,14 @@ import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
-import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDisbursalBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanJournalEntryCreatedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
-import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
@@ -71,7 +69,7 @@ public class OdooServiceImplTest {
     @InjectMocks
     private OdooServiceImpl odooService;
 
-    // postJournalEntryToOddo() and postJournalEntryToOddoOnDisburseTask(...) both touch tenant
+    // postJournalEntryToOddo() and postJournalEntryToOddoTask(...) both touch tenant
     // timezone / business-date thread-locals unconditionally; without this, tests here only pass
     // when another test class happens to leak that state in first
     @BeforeEach
@@ -147,17 +145,17 @@ public class OdooServiceImplTest {
     }
 
     // AfterCommitExecutor.execute is static, so it runs its real "no active transaction ->
-    // run immediately" fallback here — the disburse task synchronously reaches the background
+    // run immediately" fallback here — the task synchronously reaches the background
     // executor within this call, then we drive the submitted task ourselves to prove it lands
     // on the same transaction-scoped query the cron uses, not the bulk unposted-backlog scan
     @Test
-    public void disburseTaskDefersToBackgroundExecutorAndQueriesOnlyThatTransaction() {
+    public void journalEntryTaskDefersToBackgroundExecutorAndQueriesOnlyThatTransaction() {
         final Long loanTransactionId = 42L;
         given(configurationDomainService.isOdooIntegrationEnabled()).willReturn(true);
         given(loanReadPlatformService.retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(null, null, null, null,
                 loanTransactionId)).willReturn(Collections.emptyList());
 
-        odooService.postJournalEntryToOddoOnDisburseTask(loanTransactionId);
+        odooService.postJournalEntryToOddoTask(loanTransactionId);
 
         final ArgumentCaptor<Runnable> submittedTask = ArgumentCaptor.forClass(Runnable.class);
         verify(genericExecutorService).execute(submittedTask.capture());
@@ -199,25 +197,21 @@ public class OdooServiceImplTest {
         verify(journalEntryRepository, never()).saveAndFlush(any(JournalEntry.class));
     }
 
+    // the event already carries the exact transaction id createJournalEntriesForLoan just journaled,
+    // so the listener no longer has to guess which loan transaction triggered it
     @Test
-    public void disbursalListenerSkipsNonDisbursementTransactionsToFindTheRealOne() {
+    public void journalEntryCreatedListenerForwardsTheEventsTransactionId() {
         odooService.registerBusinessEventListeners();
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<BusinessEventListener<LoanDisbursalBusinessEvent>> listenerCaptor = ArgumentCaptor.forClass(BusinessEventListener.class);
-        verify(businessEventNotifierService).addPostBusinessEventListener(eq(LoanDisbursalBusinessEvent.class), listenerCaptor.capture());
+        ArgumentCaptor<BusinessEventListener<LoanJournalEntryCreatedBusinessEvent>> listenerCaptor = ArgumentCaptor
+                .forClass(BusinessEventListener.class);
+        verify(businessEventNotifierService).addPostBusinessEventListener(eq(LoanJournalEntryCreatedBusinessEvent.class),
+                listenerCaptor.capture());
 
-        // a disbursement charge is appended after the disbursement transaction itself
-        LoanTransaction disbursementTransaction = mock(LoanTransaction.class);
-        given(disbursementTransaction.isDisbursement()).willReturn(true);
-        given(disbursementTransaction.getId()).willReturn(99L);
-        LoanTransaction disbursementCharge = mock(LoanTransaction.class);
-        given(disbursementCharge.isDisbursement()).willReturn(false);
-
-        Loan loan = mock(Loan.class);
-        given(loan.getLoanTransactions()).willReturn(List.of(disbursementTransaction, disbursementCharge));
-
-        listenerCaptor.getValue().onBusinessEvent(new LoanDisbursalBusinessEvent(loan));
+        // the executor-task mechanics themselves are covered by journalEntryTaskDefersToBackgroundExecutorAndQueriesOnlyThatTransaction;
+        // this test only proves the listener forwards the event's id into that mechanism
+        listenerCaptor.getValue().onBusinessEvent(new LoanJournalEntryCreatedBusinessEvent(99L));
 
         verify(genericExecutorService).execute(any(Runnable.class));
     }

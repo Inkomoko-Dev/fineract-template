@@ -88,7 +88,7 @@ import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMig
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
-import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDisbursalBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanJournalEntryCreatedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionNotPostedToOdooInstanceData;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigration;
@@ -207,10 +207,12 @@ public class OdooServiceImpl implements OdooService {
         genericExecutorService = Executors.newSingleThreadExecutor();
     }
 
-    // decouples other reactions to a disbursement from this class and from LoanWritePlatformServiceJpaRepositoryImpl
+    // listens on the central createJournalEntriesForLoan choke point instead of a per-transaction-type event,
+    // so every transaction type it journals gets real-time posting, not just disbursement
     @PostConstruct
     public void registerBusinessEventListeners() {
-        businessEventNotifierService.addPostBusinessEventListener(LoanDisbursalBusinessEvent.class, new OnLoanDisbursalListener());
+        businessEventNotifierService.addPostBusinessEventListener(LoanJournalEntryCreatedBusinessEvent.class,
+                new OnLoanJournalEntryCreatedListener());
     }
 
     @Override
@@ -992,13 +994,12 @@ public class OdooServiceImpl implements OdooService {
     }
 
     @Override
-    public void postJournalEntryToOddoOnDisburseTask(Long loanTransactionId) {
+    public void postJournalEntryToOddoTask(Long loanTransactionId) {
         FineractContext context = ThreadLocalContextUtil.getContext();
         try {
-            // deferred to afterCommit: createJournalEntryToOddo re-queries the loan transaction by id,
-            // which isn't visible to a fresh query until the disbursement's own transaction commits
-            this.afterCommitExecutor.execute(() -> this.genericExecutorService
-                    .execute(new PostLoanJournalEntryToOddo(loanTransactionId, context)));
+            // no afterCommit wrapper: the only caller already runs post-commit, and nesting one here
+            // silently drops the task — isSynchronizationActive() is still true mid-iteration of that commit
+            this.genericExecutorService.execute(new PostLoanJournalEntryToOddo(loanTransactionId, context));
         } catch (Exception ex) {
             // don't throw exception here — the is_oddo_posted=false cron sweep is the safety net
         }
@@ -1169,21 +1170,12 @@ public class OdooServiceImpl implements OdooService {
         }
     }
 
-    // fires pre-commit — postJournalEntryToOddoOnDisburseTask still owns the after-commit deferral
-    private class OnLoanDisbursalListener implements BusinessEventListener<LoanDisbursalBusinessEvent> {
+    // fires pre-commit — postJournalEntryToOddoTask still owns the after-commit deferral
+    private class OnLoanJournalEntryCreatedListener implements BusinessEventListener<LoanJournalEntryCreatedBusinessEvent> {
 
         @Override
-        public void onBusinessEvent(LoanDisbursalBusinessEvent event) {
-            Loan loan = event.get();
-            // last-added disbursement transaction — skips a disbursement charge appended after it
-            List<LoanTransaction> transactions = loan.getLoanTransactions();
-            for (int i = transactions.size() - 1; i >= 0; i--) {
-                LoanTransaction transaction = transactions.get(i);
-                if (transaction.isDisbursement()) {
-                    postJournalEntryToOddoOnDisburseTask(transaction.getId());
-                    return;
-                }
-            }
+        public void onBusinessEvent(LoanJournalEntryCreatedBusinessEvent event) {
+            postJournalEntryToOddoTask(event.get());
         }
     }
 
