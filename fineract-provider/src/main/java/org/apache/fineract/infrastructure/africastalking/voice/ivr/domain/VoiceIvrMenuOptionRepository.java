@@ -26,6 +26,14 @@ public interface VoiceIvrMenuOptionRepository extends JpaRepository<VoiceIvrMenu
 
     List<VoiceIvrMenuOption> findByMenuKeyAndLanguageCodeAndEnabledTrueOrderByOptionDigitAsc(String menuKey, String languageCode);
 
+    List<VoiceIvrMenuOption> findByMenuKeyAndLanguageCodeOrderByOptionDigitAsc(String menuKey, String languageCode);
+
+    List<VoiceIvrMenuOption> findByMenuKeyOrderByLanguageCodeAscOptionDigitAsc(String menuKey);
+
+    List<VoiceIvrMenuOption> findByLanguageCodeOrderByMenuKeyAscOptionDigitAsc(String languageCode);
+
+    List<VoiceIvrMenuOption> findAllByOrderByMenuKeyAscLanguageCodeAscOptionDigitAsc();
+
     Optional<VoiceIvrMenuOption> findByMenuKeyAndLanguageCodeAndOptionDigitAndEnabledTrue(String menuKey, String languageCode,
             int optionDigit);
 }

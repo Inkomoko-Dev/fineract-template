@@ -16,21 +16,21 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.africastalking.voice.ivr.domain;
+package org.apache.fineract.infrastructure.africastalking.voice.data;
 
-import java.util.List;
-import java.util.Optional;
-import org.springframework.data.jpa.repository.JpaRepository;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-public interface VoiceIvrMenuDefinitionRepository extends JpaRepository<VoiceIvrMenuDefinition, Long> {
+@Getter
+@Setter
+@NoArgsConstructor
+public class VoiceIvrMenuDefinitionData {
 
-    Optional<VoiceIvrMenuDefinition> findByMenuKeyAndLanguageCodeAndEnabledTrue(String menuKey, String languageCode);
-
-    Optional<VoiceIvrMenuDefinition> findByMenuKeyAndLanguageCode(String menuKey, String languageCode);
-
-    List<VoiceIvrMenuDefinition> findByEnabledTrueOrderByMenuKeyAscLanguageCodeAsc();
-
-    List<VoiceIvrMenuDefinition> findAllByOrderByMenuKeyAscLanguageCodeAsc();
-
-    List<VoiceIvrMenuDefinition> findByMenuKeyOrderByLanguageCodeAsc(String menuKey);
+    private Long id;
+    private String menuKey;
+    private String languageCode;
+    private String promptText;
+    private String parentMenuKey;
+    private boolean enabled;
 }
