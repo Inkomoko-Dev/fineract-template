@@ -482,25 +482,7 @@ public class OdooServiceImpl implements OdooService {
             journalData.setExternalId(loanTransaction.getExternalId());
 
             if (loanTransaction.isDisbursement()) {
-                for (LoanDisbursementDetails disbursementDetail : loan.getDisbursementDetails()) {
-                    if (disbursementDetail.getActualDisbursementDate() != null
-                            && disbursementDetail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())
-                            && disbursementDetail.getPrincipal().compareTo(loanTransaction.getAmount(loan.getCurrency()).getAmount()) == 0) {
-
-                        journalData.setDisbursementType(disbursementDetail.getDisbursementType());
-                        journalData.setFxRate(disbursementDetail.getFxRate());
-                        journalData.setUsdAmount(disbursementDetail.getUsdAmount());
-                        journalData.setFxSource(disbursementDetail.getFxSource());
-                        journalData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
-                        if (disbursementDetail.getFxTimestamp() != null) {
-                            journalData.setFxTimestamp(disbursementDetail.getFxTimestamp().toString());
-                        }
-                        break;
-                    }
-                    // Override location with investments budget and send department for configured entities.
-                    // Celery/Odoo uses location as the budget analytic; without this override posts look unchanged.
-                    this.entityDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
-                }
+                applyDisbursementFieldsToOdooJournal(journalData, loan, loanTransaction, office);
             }
         }
 
@@ -521,6 +503,41 @@ public class OdooServiceImpl implements OdooService {
             return sendRequestViaIntegrationLayer(jsonPayload);
         }
         return sendRequest(jsonPayload);
+    }
+
+    /**
+     * Copy FX/beneficiary fields from the matching disbursement detail, then always apply
+     * entity disbursement defaults. Enrichment must not sit inside the matching loop — a
+     * successful match previously {@code break}s before Kenya Capital department/budget
+     * were sent to Odoo.
+     */
+    void applyDisbursementFieldsToOdooJournal(final JournalData journalData, final Loan loan,
+            final LoanTransaction loanTransaction, final Office office) {
+        if (journalData == null || loan == null || loanTransaction == null || !loanTransaction.isDisbursement()) {
+            return;
+        }
+        if (loan.getDisbursementDetails() != null) {
+            for (LoanDisbursementDetails disbursementDetail : loan.getDisbursementDetails()) {
+                if (disbursementDetail.getActualDisbursementDate() != null
+                        && disbursementDetail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())
+                        && disbursementDetail.getPrincipal() != null
+                        && loanTransaction.getAmount(loan.getCurrency()) != null
+                        && disbursementDetail.getPrincipal()
+                                .compareTo(loanTransaction.getAmount(loan.getCurrency()).getAmount()) == 0) {
+
+                    journalData.setDisbursementType(disbursementDetail.getDisbursementType());
+                    journalData.setFxRate(disbursementDetail.getFxRate());
+                    journalData.setUsdAmount(disbursementDetail.getUsdAmount());
+                    journalData.setFxSource(disbursementDetail.getFxSource());
+                    journalData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
+                    if (disbursementDetail.getFxTimestamp() != null) {
+                        journalData.setFxTimestamp(disbursementDetail.getFxTimestamp().toString());
+                    }
+                    break;
+                }
+            }
+        }
+        this.entityDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
     }
 
     @Override
