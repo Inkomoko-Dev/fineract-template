@@ -123,12 +123,14 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
             } else {
                 LOG.error("Login to inkomoko Integration has failed:" + resObject);
                 throw new LoanDisbursementRequestException("Login to inkomoko Integration has failed",
-                        "integration.disbursementRequest.loginFailed", resObject);
+                        "integration.disbursementRequest.loginFailed");
             }
+        } catch (LoanDisbursementRequestException e) {
+            throw e;
         } catch (Exception e) {
-            LOG.error("Login to inkomoko Integration has failed:" + e);
+            LOG.error("Login to Inkomoko Integration failed", e);
             throw new LoanDisbursementRequestException("Login to inkomoko Integration has failed",
-                    "integration.disbursementRequest.loginFailed", e);
+                    "integration.disbursementRequest.loginFailed");
         }
     }
 
@@ -257,17 +259,51 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
                 responseBody = response.body().string();
             }
             if (response.isSuccessful()) {
-                LOG.info("Received Response from Inkomoko for request   " + loan.getId() + " and  loanid  " + requestId);
+                LOG.info("Inkomoko disbursement accepted loanId={}, requestId={}, httpStatus={}, responseBody={}", loan.getId(), requestId,
+                        response.code(), responseBody);
                 final Note responseNote = Note.loanNote(loan, response.toString() + " " + responseBody);
                 this.noteRepository.saveAndFlush(responseNote);
             } else {
-                Integer responseCode = response.code();
-                throw new LoanDisbursementRequestException("Unprocessable Entity", "integration.disbursementRequest.unprocessableEntity",
-                        requestId, responseCode, responseBody);
+                final int responseCode = response.code();
+                final String errorCategory = disbursementFailureCategory(responseCode);
+                LOG.error("Inkomoko disbursement rejected loanId={}, requestId={}, httpStatus={}, category={}, responseBody={}", loan.getId(),
+                        requestId, responseCode, errorCategory, responseBody);
+                throw new LoanDisbursementRequestException(defaultFailureMessage(errorCategory),
+                        "integration.disbursementRequest." + errorCategory, requestId);
             }
 
         } catch (IOException e) {
-            throw new LoanDisbursementRequestException("Unexpected response received  from  inkomoko ", "loan", e);
+            LOG.error("Connection failure while sending Inkomoko disbursement loanId={}, requestId={}", loan.getId(), requestId, e);
+            throw new LoanDisbursementRequestException(
+                    "There was a connection issue while sending the disbursement. Please try again.",
+                    "integration.disbursementRequest.connectionFailed", requestId);
+        }
+    }
+
+    static String disbursementFailureCategory(final int responseCode) {
+        if (responseCode == 408 || responseCode == 504) {
+            return "timeout";
+        }
+        if (responseCode == 400 || responseCode == 422) {
+            return "validationFailed";
+        }
+        if (responseCode >= 400 && responseCode < 500) {
+            return "bankRejected";
+        }
+        return "serviceUnavailable";
+    }
+
+    private static String defaultFailureMessage(final String errorCategory) {
+        switch (errorCategory) {
+            case "timeout":
+            case "connectionFailed":
+                return "There was a connection issue while sending the disbursement. Please try again.";
+            case "validationFailed":
+                return "The bank account details are not valid. Please review and correct them.";
+            case "bankRejected":
+                return "The bank rejected this disbursement. Please contact support.";
+            default:
+                return "The disbursement could not be sent to the bank. Please try again later or contact support.";
         }
     }
 
