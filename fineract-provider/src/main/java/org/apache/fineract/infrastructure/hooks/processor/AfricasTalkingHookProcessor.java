@@ -26,10 +26,15 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.hooks.domain.Hook;
-import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppService;
+import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
+import org.apache.fineract.infrastructure.notifications.constants.NotificationPurpose;
+import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
+import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
+import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -48,7 +53,8 @@ public class AfricasTalkingHookProcessor implements HookProcessor {
     private final StaffRepositoryWrapper staffRepository;
     private final TemplateRepository templateRepository;
     private final TemplateMergeService templateMergeService;
-    private final AfricasTalkingWhatsAppService africasTalkingWhatsAppService;
+    private final NotificationCommandService notificationCommandService;
+    private final PhoneNumberNormalizer phoneNumberNormalizer;
 
     @Override
     public void process(final Hook hook, final String payload, final String entityName, final String actionName,
@@ -73,9 +79,7 @@ public class AfricasTalkingHookProcessor implements HookProcessor {
             final Client client = clientRepository.findOneWithNotFoundDetection(clientId);
             reqMap.put("clientName", client.getDisplayName());
             final String messageText = this.templateMergeService.compile(template, reqMap);
-            final String requestJson = String.format("{\"clientId\":%d,\"message\":%s,\"sendImmediately\":true}", clientId,
-                    new Gson().toJson(messageText));
-            africasTalkingWhatsAppService.queueOutboundMessage(requestJson);
+            dispatchHookMessage(client, null, messageText);
             return;
         }
         if (reqMap.get("staffId") != null) {
@@ -83,9 +87,22 @@ public class AfricasTalkingHookProcessor implements HookProcessor {
             final Staff staff = staffRepository.findOneWithNotFoundDetection(staffId);
             reqMap.put("staffName", staff.displayName());
             final String messageText = this.templateMergeService.compile(template, reqMap);
-            final String requestJson = String.format("{\"staffId\":%d,\"message\":%s,\"sendImmediately\":true}", staffId,
-                    new Gson().toJson(messageText));
-            africasTalkingWhatsAppService.queueOutboundMessage(requestJson);
+            dispatchHookMessage(null, staff, messageText);
+        }
+    }
+
+    private void dispatchHookMessage(final Client client, final Staff staff, final String messageText) {
+        final NotificationCommand command;
+        if (client != null) {
+            command = NotificationCommand.freeformWhatsApp(NotificationPurpose.HOOK,
+                    phoneNumberNormalizer.normalize(client.mobileNo()), RecipientType.CLIENT, client, null, messageText, true);
+        } else {
+            command = NotificationCommand.freeformWhatsApp(NotificationPurpose.HOOK, phoneNumberNormalizer.normalize(staff.mobileNo()),
+                    RecipientType.STAFF, null, staff, messageText, true);
+        }
+        final NotificationResult result = notificationCommandService.send(command);
+        if (!result.isAccepted()) {
+            log.warn("Hook WhatsApp message rejected: {}", result.getRejectionReason());
         }
     }
 }

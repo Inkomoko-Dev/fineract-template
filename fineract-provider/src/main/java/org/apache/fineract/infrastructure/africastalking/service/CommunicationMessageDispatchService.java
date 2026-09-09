@@ -26,6 +26,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
@@ -40,6 +41,7 @@ public class CommunicationMessageDispatchService {
     private final AfricasTalkingClient africasTalkingClient;
     private final CommunicationMessageRepository communicationMessageRepository;
     private final WhatsAppPhoneWhitelistService whatsAppPhoneWhitelistService;
+    private final AfricasTalkingProperties properties;
 
     @Transactional
     public void dispatchPendingMessages() {
@@ -56,7 +58,8 @@ public class CommunicationMessageDispatchService {
             return;
         }
         if (!whatsAppPhoneWhitelistService.isAllowed(message.getPhoneNumber())) {
-            log.info("Blocked outbound WhatsApp message {} to non-whitelisted number", message.getId());
+            log.info("Blocked outbound WhatsApp message {} to {}", message.getId(),
+                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()));
             message.setStatus(CommunicationMessageStatus.FAILED);
             message.setStatusDetail(WhatsAppPhoneWhitelistService.BLOCKED_ERROR_MESSAGE);
             communicationMessageRepository.save(message);
@@ -74,18 +77,43 @@ public class CommunicationMessageDispatchService {
             if (response.isSuccessful()) {
                 message.setStatus(CommunicationMessageStatus.SENT);
                 message.setExternalId(extractExternalId(response.body()));
+                message.setStatusDetail(null);
+                log.info("WhatsApp dispatch succeeded messageId={} phone={}", message.getId(),
+                        CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()));
             } else {
-                message.setStatus(CommunicationMessageStatus.FAILED);
-                final String detail = StringUtils.isNotBlank(response.body()) ? "HTTP " + response.statusCode() + ": " + response.body()
-                        : "HTTP " + response.statusCode();
-                message.setStatusDetail(StringUtils.left(detail, 255));
+                applyDispatchFailure(message, response.statusCode(), response.body());
             }
         } catch (Exception e) {
-            log.error("Failed to dispatch WhatsApp message {}", message.getId(), e);
-            message.setStatus(CommunicationMessageStatus.FAILED);
-            message.setStatusDetail(StringUtils.left(e.getMessage(), 255));
+            log.error("WhatsApp dispatch failed messageId={} phone={}", message.getId(),
+                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), e);
+            final CommunicationDispatchErrorClassifier.Classification classification = CommunicationDispatchErrorClassifier
+                    .classifyException(e);
+            applyClassification(message, classification, CommunicationLogSanitizer.truncateDetail(e.getMessage()));
         }
         communicationMessageRepository.save(message);
+    }
+
+    private void applyDispatchFailure(final CommunicationMessage message, final int statusCode, final String responseBody) {
+        final CommunicationDispatchErrorClassifier.Classification classification = CommunicationDispatchErrorClassifier.classify(statusCode,
+                responseBody);
+        final String detail = classification.code() + ": "
+                + CommunicationLogSanitizer.truncateDetail(
+                        StringUtils.isNotBlank(responseBody) ? "HTTP " + statusCode + ": " + responseBody : "HTTP " + statusCode);
+        log.warn("WhatsApp dispatch failed messageId={} phone={} httpStatus={} category={}", message.getId(),
+                CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), statusCode, classification.category());
+        applyClassification(message, classification, detail);
+    }
+
+    private void applyClassification(final CommunicationMessage message,
+            final CommunicationDispatchErrorClassifier.Classification classification, final String detail) {
+        if (classification.retryable() && message.getDispatchRetryCount() < properties.getDispatch().getMaxRetries()) {
+            message.setDispatchRetryCount(message.getDispatchRetryCount() + 1);
+            message.setStatus(CommunicationMessageStatus.PENDING);
+            message.setStatusDetail(StringUtils.left(classification.code() + " retry " + message.getDispatchRetryCount(), 255));
+            return;
+        }
+        message.setStatus(CommunicationMessageStatus.FAILED);
+        message.setStatusDetail(StringUtils.left(detail, 255));
     }
 
     private List<String> parseBodyValues(final String templateBodyValuesJson) {

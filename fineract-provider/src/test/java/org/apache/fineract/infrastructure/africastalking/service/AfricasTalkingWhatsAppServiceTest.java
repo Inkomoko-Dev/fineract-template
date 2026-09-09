@@ -25,14 +25,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Optional;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
 import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientData;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
+import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,29 +47,32 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class AfricasTalkingWhatsAppServiceTest {
 
     @Mock
-    private AfricasTalkingClient africasTalkingClient;
-    @Mock
     private CommunicationMessageRepository communicationMessageRepository;
     @Mock
     private RecipientResolutionService recipientResolutionService;
     @Mock
     private PhoneNumberNormalizer phoneNumberNormalizer;
     @Mock
-    private CommunicationMessageDispatchService communicationMessageDispatchService;
-    @Mock
     private ClientRepositoryWrapper clientRepositoryWrapper;
     @Mock
     private StaffRepositoryWrapper staffRepositoryWrapper;
     @Mock
     private FromJsonHelper fromJsonHelper;
+    @Mock
+    private NotificationCommandService notificationCommandService;
 
     private AfricasTalkingWhatsAppService whatsAppService;
 
     @BeforeEach
     void setUp() {
-        whatsAppService = new AfricasTalkingWhatsAppService(africasTalkingClient, communicationMessageRepository,
-                recipientResolutionService, phoneNumberNormalizer, communicationMessageDispatchService, clientRepositoryWrapper,
-                staffRepositoryWrapper, fromJsonHelper);
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
+        whatsAppService = new AfricasTalkingWhatsAppService(communicationMessageRepository, recipientResolutionService,
+                phoneNumberNormalizer, clientRepositoryWrapper, staffRepositoryWrapper, fromJsonHelper, notificationCommandService);
+    }
+
+    @AfterEach
+    void tearDown() {
+        ThreadLocalContextUtil.clearTenant();
     }
 
     @Test
