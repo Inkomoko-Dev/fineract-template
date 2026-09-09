@@ -448,21 +448,31 @@ public class OdooServiceImpl implements OdooService {
                                 && disbursementDetail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())
                                 && disbursementDetail.getPrincipal().compareTo(loanTransaction.getAmount(loan.getCurrency()).getAmount()) == 0) {
 
-                            journalData.setDisbursementType(disbursementDetail.getDisbursementType());
-                            journalData.setFxRate(disbursementDetail.getFxRate());
-                            journalData.setUsdAmount(disbursementDetail.getUsdAmount());
-                            journalData.setFxSource(disbursementDetail.getFxSource());
-                            journalData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
-                            if (disbursementDetail.getFxTimestamp() != null) {
-                                journalData.setFxTimestamp(disbursementDetail.getFxTimestamp().toString());
-                            }
-                            break;
-                        }
-                    }
-                    // Override location with investments budget and send department for configured entities.
-                    // Celery/Odoo uses location as the budget analytic; without this override posts look unchanged.
-                    this.entityDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
-                }
+        journalData.setRef(ref);
+        journalData.setTransactionId(loanTransactionId.toString());
+        journalData.setTransactionTypeName(LoanTransactionType.fromInt(transactionType.intValue()).name());
+        journalData.setTransactionTypeUniqueId(transactionType.toString());
+        journalData.setReversed(isReversed);
+        journalData.setClientId(client.getOdooCustomerId().longValue());
+        journalData.setClientDisplayName(client.getDisplayName());
+        journalData.setEntryDate(list.get(0).getTransactionDate().toString());
+        journalData.setOfficeId(office.getId());
+        journalData.setJournalItems(journalItems);
+        journalData.setLocation(location);
+
+        if (fundSource != null) {
+            journalData.setFundSource(fundSource);
+        }
+
+        LoanTransaction loanTransaction = this.loanTransactionRepository.findById(loanTransactionId).orElse(null);
+        if (loanTransaction != null) {
+            Loan loan = loanTransaction.getLoan();
+            journalData.setLoanId(loan.getAccountNumber());
+            journalData.setCurrencyCode(loan.getCurrencyCode());
+            journalData.setExternalId(loanTransaction.getExternalId());
+
+            if (loanTransaction.isDisbursement()) {
+                applyDisbursementFieldsToOdooJournal(journalData, loan, loanTransaction, office);
             }
 
             journalEntryToOdooData.setResource(journalData);
@@ -473,7 +483,112 @@ public class OdooServiceImpl implements OdooService {
             LOG.info("Journal Entry to Odoo JSON Payload " + jsonPayload);
             return sendRequest(jsonPayload);
         }
-        return null;
+
+        LOG.info("Journal Entry to Odoo " + journalEntryToOdooData);
+        String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
+        LOG.info("Journal Entry to Odoo JSON Payload " + jsonPayload);
+        if (integrationLayerEnabled) {
+            // ASYNC: entries stay unposted until the outcome listener applies Odoo's response
+            if ("ASYNC".equalsIgnoreCase(integrationLayerDeliveryMode)) {
+                return publishJournalEntryEvent(loanTransactionId, jsonPayload);
+            }
+            return sendRequestViaIntegrationLayer(jsonPayload);
+        }
+        return sendRequest(jsonPayload);
+    }
+
+    /**
+     * Copy FX/beneficiary fields from the matching disbursement detail, then always apply
+     * entity disbursement defaults. Enrichment must not sit inside the matching loop — a
+     * successful match previously {@code break}s before Kenya Capital department/budget
+     * were sent to Odoo.
+     */
+    void applyDisbursementFieldsToOdooJournal(final JournalData journalData, final Loan loan,
+            final LoanTransaction loanTransaction, final Office office) {
+        if (journalData == null || loan == null || loanTransaction == null || !loanTransaction.isDisbursement()) {
+            return;
+        }
+        if (loan.getDisbursementDetails() != null) {
+            for (LoanDisbursementDetails disbursementDetail : loan.getDisbursementDetails()) {
+                if (disbursementDetail.getActualDisbursementDate() != null
+                        && disbursementDetail.getActualDisbursementDate().equals(loanTransaction.getTransactionDate())
+                        && disbursementDetail.getPrincipal() != null
+                        && loanTransaction.getAmount(loan.getCurrency()) != null
+                        && disbursementDetail.getPrincipal()
+                                .compareTo(loanTransaction.getAmount(loan.getCurrency()).getAmount()) == 0) {
+
+                    journalData.setDisbursementType(disbursementDetail.getDisbursementType());
+                    journalData.setFxRate(disbursementDetail.getFxRate());
+                    journalData.setUsdAmount(disbursementDetail.getUsdAmount());
+                    journalData.setFxSource(disbursementDetail.getFxSource());
+                    journalData.setBeneficiaryName(disbursementDetail.getBeneficiaryName());
+                    if (disbursementDetail.getFxTimestamp() != null) {
+                        journalData.setFxTimestamp(disbursementDetail.getFxTimestamp().toString());
+                    }
+                    break;
+                }
+            }
+        }
+        this.entityDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
+    }
+
+    @Override
+    public String buildProvisioningJournalEntryPayload(ProvisionBatchJournal journal, boolean isReversed) {
+
+        final List<JournalItemData> journalItems = new ArrayList<>();
+        for (ProvisionBatchJournalLine line : journal.getJournalLines()) {
+            final JournalItemData item = new JournalItemData();
+            item.setId(line.getId());
+            item.setAccountId(line.getGlAccountCode());
+            final boolean isDebit = "DEBIT".equals(line.getEntryType());
+            item.setType(isDebit ? "debit" : "credit");
+            item.setDebit(line.getDebitAmount() != null ? line.getDebitAmount().doubleValue() : 0.0);
+            item.setCredit(line.getCreditAmount() != null ? line.getCreditAmount().doubleValue() : 0.0);
+            journalItems.add(item);
+        }
+
+        final JournalData journalData = new JournalData();
+        journalData.setTransactionId(journal.getTransactionId());
+        journalData.setRef(journal.getReference());
+        journalData.setReversed(isReversed);
+        journalData.setEntryDate(journal.getEntryDate() != null ? journal.getEntryDate().toString() : null);
+        journalData.setOfficeId(journal.getOfficeId());
+        journalData.setCurrencyCode(journal.getCurrencyCode());
+        journalData.setTransactionTypeName("PROVISIONING");
+        // Matches Odoo cbstransaction.type cbs_no for PROVISIONING.
+        journalData.setTransactionTypeUniqueId("3");
+        journalData.setJournalItems(journalItems);
+
+        final JournalEntryToOdooData journalEntryToOdooData = new JournalEntryToOdooData();
+        journalEntryToOdooData.setResourceId(journal.getJournalReference());
+        journalEntryToOdooData.setResource(journalData);
+        journalEntryToOdooData.setLocalIp(localIpAddress);
+
+        final String jsonPayload = convertRequestPayloadToJson(journalEntryToOdooData);
+        LOG.info("Provisioning journal entry payload for Odoo - journal '{}' (reversal={}): {}",
+                journal.getJournalReference(), isReversed, jsonPayload);
+        return jsonPayload;
+    }
+
+    @Override
+    public JsonObject postProvisioningJournalEntry(ProvisionBatchJournal journal)
+            throws IOException, NoSuchAlgorithmException, KeyManagementException {
+
+        if (!this.configurationDomainService.isOdooIntegrationEnabled()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.odoo.integration.disabled",
+                    "Odoo integration is disabled");
+        }
+
+        String payload = journal.getPayloadJson();
+        if (payload == null || payload.isBlank()) {
+            payload = buildProvisioningJournalEntryPayload(journal, journal.isReversal());
+            journal.setPayloadJson(payload);
+        }
+
+        LOG.info("Posting provision journal '{}' to Odoo (officeId={}, currency={}, reversal={})",
+                journal.getJournalReference(), journal.getOfficeId(), journal.getCurrencyCode(),
+                journal.isReversal());
+        return sendRequest(payload);
     }
 
     @Override

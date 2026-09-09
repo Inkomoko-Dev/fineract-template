@@ -53,7 +53,7 @@ import org.springframework.stereotype.Service;
  * [
  *   {
  *     "entityName": "Kenya Capital",
- *     "officeNames": ["Inkomoko Kenya Capital"],
+ *     "officeNames": ["Inkomoko - Capital Kenya Limited", "Inkomoko Kenya Capital"],
  *     "defaultDepartmentName": "Investment",
  *     "budgetCodeName": "InvestmentsBudget",
  *     "budgetLocationPrefix": "Investments - "
@@ -87,8 +87,16 @@ public class EntityDisbursementDefaultsService {
         try {
             final GlobalConfigurationPropertyData config = configurationReadPlatformService
                     .retrieveGlobalConfiguration(CONFIG_ENTITIES);
-            if (config != null && StringUtils.isNotBlank(config.getDescription())) {
-                return objectMapper.readValue(config.getDescription(),
+            if (config == null) {
+                return new ArrayList<>();
+            }
+            // JSON lives in description because string_value is VARCHAR(100).
+            String json = config.getDescription();
+            if (StringUtils.isBlank(json) || !json.trim().startsWith("[")) {
+                json = config.getStringValue();
+            }
+            if (StringUtils.isNotBlank(json) && json.trim().startsWith("[")) {
+                return objectMapper.readValue(json,
                         new TypeReference<List<EntityDisbursementDefaultsConfiguration>>() {});
             }
         } catch (Exception ex) {
