@@ -1098,12 +1098,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         public String loanSchema() {
-            // Detail path uses the same join-based late-fee/center projection as list (same columns, fewer correlated subqueries).
-            return buildLoanSchema(true);
+            // Detail path: correlated late-fee subqueries scoped to l.id (never full-table aggregates).
+            return buildLoanSchema(false);
         }
 
         /**
-         * List/detail projection with join-based late-fee aggregates and center name (no per-row correlated subqueries).
+         * List projection: join center for name; late fees stay as correlated subqueries so list pages do not
+         * pre-aggregate all of m_loan_daily_late_fee / m_loan_charge.
          */
         public String loanListSchema() {
             return buildLoanSchema(true);
@@ -1112,21 +1113,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         private String buildLoanSchema(final boolean forList) {
             final String centerNameSelect = forList ? " center.display_name as centerName, "
                     : " (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, ";
-            final String lateFeeSelect = forList
-                    ? " coalesce(dlf_sum.dailyLateFeeChargedToDate, 0) as dailyLateFeeChargedToDate,"
-                            + " coalesce(dlf_out.dailyLateFeeOutstanding, 0) as dailyLateFeeOutstanding,"
-                            + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
-                            + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce(pen_sum.penaltyChargesTotal, 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,"
-                    : " coalesce((select sum(dlf.penalty_amount) from m_loan_daily_late_fee dlf where dlf.loan_id = l.id and dlf.is_active = true), 0) as dailyLateFeeChargedToDate,"
-                            + " coalesce((select sum(lc2.amount_outstanding_derived) from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.loan_id = l.id and dlf2.is_active = true and lc2.is_active = true), 0) as dailyLateFeeOutstanding,"
-                            + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
-                            + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(lc3.amount) from m_loan_charge lc3 where lc3.loan_id = l.id and lc3.is_penalty = true and lc3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,";
-            final String listJoins = forList
-                    ? " left join m_group center on center.id = g.parent_id"
-                            + " left join (select loan_id, sum(penalty_amount) as dailyLateFeeChargedToDate from m_loan_daily_late_fee where is_active = true group by loan_id) dlf_sum on dlf_sum.loan_id = l.id"
-                            + " left join (select dlf2.loan_id, sum(lc2.amount_outstanding_derived) as dailyLateFeeOutstanding from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.is_active = true and lc2.is_active = true group by dlf2.loan_id) dlf_out on dlf_out.loan_id = l.id"
-                            + " left join (select loan_id, sum(amount) as penaltyChargesTotal from m_loan_charge where is_penalty = true and is_active = true group by loan_id) pen_sum on pen_sum.loan_id = l.id"
-                    : "";
+            // Always scope late-fee/penalty totals to the current loan row. Full-table GROUP BY joins were scanning
+            // every active late fee / penalty charge on each list/detail load.
+            final String lateFeeSelect = " coalesce((select sum(dlf.penalty_amount) from m_loan_daily_late_fee dlf where dlf.loan_id = l.id and dlf.is_active = true), 0) as dailyLateFeeChargedToDate,"
+                    + " coalesce((select sum(lc2.amount_outstanding_derived) from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.loan_id = l.id and dlf2.is_active = true and lc2.is_active = true), 0) as dailyLateFeeOutstanding,"
+                    + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
+                    + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(lc3.amount) from m_loan_charge lc3 where lc3.loan_id = l.id and lc3.is_penalty = true and lc3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,";
+            final String listJoins = forList ? " left join m_group center on center.id = g.parent_id" : "";
 
             return "l.id as id, l.account_no as accountNo, l.external_id as externalId, l.fund_id as fundId, f.name as fundName,"
                     + " l.loan_type_enum as loanType, l.loanpurpose_cv_id as loanPurposeId, cv.code_value as loanPurposeName,"
@@ -3503,12 +3496,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     sqlGenerator.dateDiff(sqlGenerator.currentBusinessDate(), "laa.overdue_since_date_derived") + " as delinquentDays, ");
             sqlBuilder.append(sqlGenerator.currentBusinessDate()
                     + " as delinquentDate, coalesce(laa.total_overdue_derived, 0) as delinquentAmount, ");
-            sqlBuilder.append("lre.transactionDate as lastPaymentDate, coalesce(lre.amount, 0) as lastPaymentAmount ");
+            sqlBuilder.append(
+                    "(select lt.transaction_date from m_loan_transaction lt where lt.loan_id = l.id and lt.is_reversed = false and lt.transaction_type_enum = 2 order by lt.transaction_date desc, lt.id desc limit 1) as lastPaymentDate, ");
+            sqlBuilder.append(
+                    "coalesce((select lt.amount from m_loan_transaction lt where lt.loan_id = l.id and lt.is_reversed = false and lt.transaction_type_enum = 2 order by lt.transaction_date desc, lt.id desc limit 1), 0) as lastPaymentAmount ");
             sqlBuilder.append("from m_loan l left join m_loan_arrears_aging laa on laa.loan_id = l.id ");
-            sqlBuilder.append(
-                    "left join (select lt.loan_id, lt.transaction_date as transactionDate, lt.amount as amount from m_loan_transaction lt ");
-            sqlBuilder.append(
-                    "where lt.is_reversed = false and lt.transaction_type_enum=2 order by lt.transaction_date desc limit 1) lre on lre.loan_id = l.id ");
             sqlBuilder.append("where l.id=? ");
             return sqlBuilder.toString();
         }

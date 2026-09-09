@@ -353,4 +353,19 @@
         </createIndex>
     </changeSet>
 
+    <changeSet id="CGLT-761-idx-m-loan-transaction-last-repayment" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan_transaction" indexName="idx_m_loan_transaction_last_repayment"/>
+            </not>
+        </preConditions>
+        <comment>Collection / last-repayment lookups ordered by date for a loan</comment>
+        <createIndex tableName="m_loan_transaction" indexName="idx_m_loan_transaction_last_repayment">
+            <column name="loan_id"/>
+            <column name="transaction_type_enum"/>
+            <column name="is_reversed"/>
+            <column name="transaction_date"/>
+        </createIndex>
+    </changeSet>
+
 </databaseChangeLog>
