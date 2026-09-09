@@ -25,13 +25,20 @@ import java.util.List;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.template.domain.Template;
 import org.apache.fineract.template.domain.TemplateEntity;
 import org.apache.fineract.template.domain.TemplateMapper;
 import org.apache.fineract.template.domain.TemplateRepository;
 import org.apache.fineract.template.domain.TemplateType;
 import org.apache.fineract.template.exception.TemplateNotFoundException;
+import org.apache.fineract.template.serialization.TemplateCommandFromApiJsonDeserializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.NestedRuntimeException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,8 +51,13 @@ public class JpaTemplateDomainService implements TemplateDomainService {
     private static final String PROPERTY_ENTITY = "entity";
     private static final String PROPERTY_TYPE = "type";
 
+    private static final Logger LOG = LoggerFactory.getLogger(JpaTemplateDomainService.class);
+
     @Autowired
     private TemplateRepository templateRepository;
+
+    @Autowired
+    private TemplateCommandFromApiJsonDeserializer fromApiJsonDeserializer;
 
     @Override
     public List<Template> getAll() {
@@ -60,52 +72,61 @@ public class JpaTemplateDomainService implements TemplateDomainService {
     @Transactional
     @Override
     public CommandProcessingResult createTemplate(final JsonCommand command) {
-        // FIXME - no validation here of the data in the command object, is
-        // name, text populated etc
-        // FIXME - handle cases where data integrity constraints are fired from
-        // database when saving.
-        final Template template = Template.fromJson(command);
+        try {
+            this.fromApiJsonDeserializer.validateForCreate(command.json());
 
-        this.templateRepository.saveAndFlush(template);
-        return new CommandProcessingResultBuilder().withEntityId(template.getId()).build();
+            final Template template = Template.fromJson(command);
+            LOG.debug("Creating template with name {}", template.getName());
+
+            this.templateRepository.saveAndFlush(template);
+            return new CommandProcessingResultBuilder().withEntityId(template.getId()).build();
+        } catch (final JpaSystemException | DataIntegrityViolationException dve) {
+            handleDataIntegrityIssues(command, dve);
+            return CommandProcessingResult.empty();
+        }
     }
 
     @Transactional
     @Override
     public CommandProcessingResult updateTemplate(final Long templateId, final JsonCommand command) {
-        // FIXME - no validation here of the data in the command object, is
-        // name, text populated etc
-        // FIXME - handle cases where data integrity constraints are fired from
-        // database when saving.
+        try {
+            this.fromApiJsonDeserializer.validateForUpdate(command.json());
 
-        final Template template = findOneById(templateId);
-        template.setName(command.stringValueOfParameterNamed(PROPERTY_NAME));
-        template.setText(command.stringValueOfParameterNamed(PROPERTY_TEXT));
-        template.setEntity(TemplateEntity.values()[command.integerValueSansLocaleOfParameterNamed(PROPERTY_ENTITY)]);
-        final int templateTypeId = command.integerValueSansLocaleOfParameterNamed(PROPERTY_TYPE);
-        TemplateType type = null;
-        switch (templateTypeId) {
-            case 0:
-                type = TemplateType.DOCUMENT;
-            break;
-            case 2:
-                type = TemplateType.SMS;
-            break;
+            final Template template = findOneById(templateId);
+            template.setName(command.stringValueOfParameterNamed(PROPERTY_NAME));
+            template.setText(command.stringValueOfParameterNamed(PROPERTY_TEXT));
+            template.setEntity(TemplateEntity.fromInt(command.integerValueSansLocaleOfParameterNamed(PROPERTY_ENTITY)));
+            template.setType(TemplateType.fromInt(command.integerValueSansLocaleOfParameterNamed(PROPERTY_TYPE)));
+
+            final JsonArray array = command.arrayOfParameterNamed("mappers");
+            final List<TemplateMapper> mappersList = new ArrayList<>();
+            for (final JsonElement element : array) {
+                mappersList.add(new TemplateMapper(element.getAsJsonObject().get("mappersorder").getAsInt(),
+                        element.getAsJsonObject().get("mapperskey").getAsString(),
+                        element.getAsJsonObject().get("mappersvalue").getAsString()));
+            }
+            template.setMappers(mappersList);
+
+            this.templateRepository.saveAndFlush(template);
+
+            return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(template.getId()).build();
+        } catch (final JpaSystemException | DataIntegrityViolationException dve) {
+            handleDataIntegrityIssues(command, dve);
+            return CommandProcessingResult.empty();
         }
-        template.setType(type);
+    }
 
-        final JsonArray array = command.arrayOfParameterNamed("mappers");
-        final List<TemplateMapper> mappersList = new ArrayList<>();
-        for (final JsonElement element : array) {
-            mappersList.add(new TemplateMapper(element.getAsJsonObject().get("mappersorder").getAsInt(),
-                    element.getAsJsonObject().get("mapperskey").getAsString(),
-                    element.getAsJsonObject().get("mappersvalue").getAsString()));
+    private void handleDataIntegrityIssues(final JsonCommand command, final NestedRuntimeException dve) {
+        final Throwable realCause = dve.getMostSpecificCause();
+        final String message = realCause.getMessage() == null ? "" : realCause.getMessage().toLowerCase();
+        if (message.contains("unq_name") || message.contains("m_template.name") || message.contains("duplicate")) {
+            final String name = command.stringValueOfParameterNamed(PROPERTY_NAME);
+            throw new PlatformDataIntegrityException("error.msg.template.duplicate.name",
+                    "A template with name `" + name + "` already exists", PROPERTY_NAME, name);
         }
-        template.setMappers(mappersList);
-
-        this.templateRepository.saveAndFlush(template);
-
-        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(template.getId()).build();
+        LOG.error("Template data integrity issue", dve);
+        throw new PlatformDataIntegrityException("error.msg.template.unknown.data.integrity.issue",
+                "Unknown data integrity issue with resource.");
     }
 
     @Transactional
