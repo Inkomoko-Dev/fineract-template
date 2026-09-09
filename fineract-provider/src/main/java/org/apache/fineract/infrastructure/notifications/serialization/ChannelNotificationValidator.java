@@ -53,6 +53,8 @@ public class ChannelNotificationValidator {
     public static final String BODY_VALUES = "bodyValues";
     public static final String CAMPAIGN_ID = "campaignId";
     public static final String SEND_IMMEDIATELY = "sendImmediately";
+    public static final String CALL_PURPOSE = "callPurpose";
+    public static final String RECORDING_CONSENT_REQUIRED = "recordingConsentRequired";
 
     private final PhoneNumberNormalizer phoneNumberNormalizer;
     private final RecipientResolutionService recipientResolutionService;
@@ -106,6 +108,21 @@ public class ChannelNotificationValidator {
                 && element.get(SEND_IMMEDIATELY).getAsBoolean();
         final Long campaignId = element.has(CAMPAIGN_ID) && !element.get(CAMPAIGN_ID).isJsonNull() ? element.get(CAMPAIGN_ID).getAsLong()
                 : null;
+
+        if (channel == NotificationChannel.VOICE) {
+            if (intent == NotificationIntent.TEMPLATE) {
+                throw validationError("validation.msg.channel.notification.voice.template.unsupported",
+                        "Voice channel does not support template intent", INTENT);
+            }
+            final String callPurpose = element.has(CALL_PURPOSE) && !element.get(CALL_PURPOSE).isJsonNull()
+                    ? element.get(CALL_PURPOSE).getAsString()
+                    : "NOTIFICATION";
+            final boolean recordingConsentRequired = element.has(RECORDING_CONSENT_REQUIRED)
+                    && !element.get(RECORDING_CONSENT_REQUIRED).isJsonNull()
+                    && element.get(RECORDING_CONSENT_REQUIRED).getAsBoolean();
+            return NotificationCommand.outboundVoice(purpose, phoneNumber, recipientType, client, staff, callPurpose,
+                    recordingConsentRequired);
+        }
 
         if (intent == NotificationIntent.TEMPLATE) {
             final String templateName = extractRequiredString(element, TEMPLATE_NAME);

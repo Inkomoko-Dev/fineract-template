@@ -18,12 +18,20 @@
  */
 package org.apache.fineract.infrastructure.africastalking.voice.ivr.domain;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceCallbackRequestStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
-
-import java.util.List;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface VoiceCallbackRequestRepository extends JpaRepository<VoiceCallbackRequest, Long> {
 
     List<VoiceCallbackRequest> findByStatusOrderByCreatedDateDesc(VoiceCallbackRequestStatus status);
+
+    @Query("select r from VoiceCallbackRequest r where r.status in :statuses and r.outboundCallLogId is null "
+            + "and (r.scheduledAt is null or r.scheduledAt <= :now) order by coalesce(r.scheduledAt, r.createdDate) asc")
+    List<VoiceCallbackRequest> findDueForDispatch(@Param("statuses") Collection<VoiceCallbackRequestStatus> statuses,
+            @Param("now") LocalDateTime now);
 }

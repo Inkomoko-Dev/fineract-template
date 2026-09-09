@@ -19,7 +19,9 @@
 package org.apache.fineract.infrastructure.africastalking.voice.service;
 
 import com.google.gson.JsonObject;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingVoiceService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceCallbackRequestStatus;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequest;
@@ -31,7 +33,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class VoiceCallbackDispatchService {
+
+    private static final List<VoiceCallbackRequestStatus> DISPATCHABLE_STATUSES = List.of(VoiceCallbackRequestStatus.PENDING,
+            VoiceCallbackRequestStatus.SCHEDULED);
 
     private final VoiceCallbackRequestRepository callbackRequestRepository;
     private final AfricasTalkingVoiceService voiceService;
@@ -54,5 +60,20 @@ public class VoiceCallbackDispatchService {
         request.setLastModifiedDate(DateUtils.getLocalDateTimeOfTenant());
         callbackRequestRepository.save(request);
         return result;
+    }
+
+    public int dispatchDueCallbacks() {
+        final List<VoiceCallbackRequest> dueCallbacks = callbackRequestRepository.findDueForDispatch(DISPATCHABLE_STATUSES,
+                DateUtils.getLocalDateTimeOfTenant());
+        int dispatched = 0;
+        for (final VoiceCallbackRequest request : dueCallbacks) {
+            try {
+                dispatchCallback(request.getId());
+                dispatched++;
+            } catch (final RuntimeException ex) {
+                log.warn("Failed to dispatch voice callback request {}", request.getId(), ex);
+            }
+        }
+        return dispatched;
     }
 }
