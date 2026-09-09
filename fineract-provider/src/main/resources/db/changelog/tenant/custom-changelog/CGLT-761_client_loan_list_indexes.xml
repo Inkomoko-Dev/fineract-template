@@ -1,0 +1,371 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-761-idx-m-client-status-office" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client" indexName="idx_m_client_status_office"/>
+            </not>
+        </preConditions>
+        <comment>Speed client list filters by status and office</comment>
+        <createIndex tableName="m_client" indexName="idx_m_client_status_office">
+            <column name="status_enum"/>
+            <column name="office_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-client-display-name" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client" indexName="idx_m_client_display_name"/>
+            </not>
+        </preConditions>
+        <comment>Help prefix / equality lookups on display_name (leading-wildcard LIKE still scans)</comment>
+        <createIndex tableName="m_client" indexName="idx_m_client_display_name">
+            <column name="display_name"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-status" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan" indexName="idx_m_loan_status"/>
+            </not>
+        </preConditions>
+        <comment>Speed loan list / active-loan filters by status</comment>
+        <createIndex tableName="m_loan" indexName="idx_m_loan_status">
+            <column name="loan_status_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-status-client" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan" indexName="idx_m_loan_status_client"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_loan" indexName="idx_m_loan_status_client">
+            <column name="loan_status_id"/>
+            <column name="client_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-office-hierarchy" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_office" indexName="idx_m_office_hierarchy"/>
+            </not>
+        </preConditions>
+        <comment>Office hierarchy LIKE prefix used on every client/loan list</comment>
+        <createIndex tableName="m_office" indexName="idx_m_office_hierarchy">
+            <column name="hierarchy"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-decision-loan-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan_decision" indexName="idx_m_loan_decision_loan_id"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_loan_decision" indexName="idx_m_loan_decision_loan_id">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-daily-late-fee-loan-active" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan_daily_late_fee" indexName="idx_m_loan_daily_late_fee_loan_active"/>
+            </not>
+        </preConditions>
+        <comment>Support late-fee aggregates used on loan list/detail reads</comment>
+        <createIndex tableName="m_loan_daily_late_fee" indexName="idx_m_loan_daily_late_fee_loan_active">
+            <column name="loan_id"/>
+            <column name="is_active"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-charge-penalty-active" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan_charge" indexName="idx_m_loan_charge_loan_penalty_active"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_loan_charge" indexName="idx_m_loan_charge_loan_penalty_active">
+            <column name="loan_id"/>
+            <column name="is_penalty"/>
+            <column name="is_active"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-crb-posting-logger-date" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="m_crb_posting_logger"/>
+                <not>
+                    <indexExists tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_date"/>
+                </not>
+            </and>
+        </preConditions>
+        <comment>CRB posting log list ordered by date desc</comment>
+        <createIndex tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_date">
+            <column name="date"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-crb-posting-logger-loan-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="m_crb_posting_logger"/>
+                <not>
+                    <indexExists tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_loan_id"/>
+                </not>
+            </and>
+        </preConditions>
+        <createIndex tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_loan_id">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-crb-posting-logger-batch-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="m_crb_posting_logger"/>
+                <not>
+                    <indexExists tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_batch_id"/>
+                </not>
+            </and>
+        </preConditions>
+        <createIndex tableName="m_crb_posting_logger" indexName="idx_m_crb_posting_logger_batch_id">
+            <column name="batch_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-code-code-name" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_code" indexName="idx_m_code_code_name"/>
+            </not>
+        </preConditions>
+        <comment>Equality lookups for retrieveCodeValuesByCode</comment>
+        <createIndex tableName="m_code" indexName="idx_m_code_code_name">
+            <column name="code_name"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-code-value-code-active-order" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_code_value" indexName="idx_m_code_value_code_active_order"/>
+            </not>
+        </preConditions>
+        <comment>Active code-value lists filtered by code_id and ordered by position</comment>
+        <createIndex tableName="m_code_value" indexName="idx_m_code_value_code_active_order">
+            <column name="code_id"/>
+            <column name="is_active"/>
+            <column name="order_position"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Kept for Liquibase checksum stability if already applied; dropped below (duplicates UNIQUE indexes). -->
+    <changeSet id="CGLT-761-idx-m-client-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client" indexName="idx_m_client_account_no"/>
+            </not>
+        </preConditions>
+        <comment>Global search / client lookup by account number prefix</comment>
+        <createIndex tableName="m_client" indexName="idx_m_client_account_no">
+            <column name="account_no"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-client-external-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client" indexName="idx_m_client_external_id"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_client" indexName="idx_m_client_external_id">
+            <column name="external_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-client-mobile-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client" indexName="idx_m_client_mobile_no"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_client" indexName="idx_m_client_mobile_no">
+            <column name="mobile_no"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan" indexName="idx_m_loan_account_no"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_loan" indexName="idx_m_loan_account_no">
+            <column name="account_no"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-external-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan" indexName="idx_m_loan_external_id"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_loan" indexName="idx_m_loan_external_id">
+            <column name="external_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-client-identifier-document-key" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client_identifier" indexName="idx_m_client_identifier_document_key"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_client_identifier" indexName="idx_m_client_identifier_document_key">
+            <column name="document_key"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-group-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_group" indexName="idx_m_group_account_no"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_group" indexName="idx_m_group_account_no">
+            <column name="account_no"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-group-display-name" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_group" indexName="idx_m_group_display_name"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_group" indexName="idx_m_group_display_name">
+            <column name="display_name"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-savings-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_savings_account" indexName="idx_m_savings_account_no"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_savings_account" indexName="idx_m_savings_account_no">
+            <column name="account_no"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Remove indexes that duplicate UNIQUE constraints from the initial schema -->
+    <changeSet id="CGLT-761-drop-dup-idx-m-client-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_client" indexName="idx_m_client_account_no"/>
+        </preConditions>
+        <comment>Duplicates account_no UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_client" indexName="idx_m_client_account_no"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-client-external-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_client" indexName="idx_m_client_external_id"/>
+        </preConditions>
+        <comment>Duplicates external_id UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_client" indexName="idx_m_client_external_id"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-client-mobile-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_client" indexName="idx_m_client_mobile_no"/>
+        </preConditions>
+        <comment>Duplicates mobile_no UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_client" indexName="idx_m_client_mobile_no"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-loan-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_loan" indexName="idx_m_loan_account_no"/>
+        </preConditions>
+        <comment>Duplicates loan account_no UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_loan" indexName="idx_m_loan_account_no"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-loan-external-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_loan" indexName="idx_m_loan_external_id"/>
+        </preConditions>
+        <comment>Duplicates loan external_id UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_loan" indexName="idx_m_loan_external_id"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-savings-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_savings_account" indexName="idx_m_savings_account_no"/>
+        </preConditions>
+        <comment>Duplicates savings account_no UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_savings_account" indexName="idx_m_savings_account_no"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-notification-mapper-user-unread" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="notification_mapper" indexName="idx_notification_mapper_user_unread"/>
+            </not>
+        </preConditions>
+        <comment>Auth-filter unread check: user_id + is_read (existing index is user_id only)</comment>
+        <createIndex tableName="notification_mapper" indexName="idx_notification_mapper_user_unread">
+            <column name="user_id"/>
+            <column name="is_read"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-transaction-last-repayment" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan_transaction" indexName="idx_m_loan_transaction_last_repayment"/>
+            </not>
+        </preConditions>
+        <comment>Collection / last-repayment lookups ordered by date for a loan</comment>
+        <createIndex tableName="m_loan_transaction" indexName="idx_m_loan_transaction_last_repayment">
+            <column name="loan_id"/>
+            <column name="transaction_type_enum"/>
+            <column name="is_reversed"/>
+            <column name="transaction_date"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

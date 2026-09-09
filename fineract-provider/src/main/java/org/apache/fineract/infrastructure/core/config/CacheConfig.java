@@ -61,6 +61,16 @@ public class CacheConfig {
         cacheManager.createCache("codes", defaultTemplate);
         cacheManager.createCache("hooks", defaultTemplate);
         cacheManager.createCache("tfConfig", defaultTemplate);
+        // Public @Cacheable regions used when Single-Node cache is enabled via Admin/API (CGLT-761).
+        // Do not auto-switch c_cache; configByName is intentionally omitted (private self-invocation).
+        cacheManager.createCache("paymentTypes", defaultTemplate);
+
+        // Short TTL: getBusinessDates() may include LocalDate.now when business-date feature is off
+        javax.cache.configuration.Configuration<Object, Object> businessDatesTemplate = Eh107Configuration
+                .fromEhcacheCacheConfiguration(CacheConfigurationBuilder
+                        .newCacheConfigurationBuilder(Object.class, Object.class, ResourcePoolsBuilder.heap(1000))
+                        .withExpiry(ExpiryPolicyBuilder.timeToLiveExpiration(Duration.ofMinutes(1))).build());
+        cacheManager.createCache("businessDates", businessDatesTemplate);
 
         javax.cache.configuration.Configuration<Object, Object> accessTokenTemplate = Eh107Configuration.fromEhcacheCacheConfiguration(
                 CacheConfigurationBuilder.newCacheConfigurationBuilder(Object.class, Object.class, ResourcePoolsBuilder.heap(10000))

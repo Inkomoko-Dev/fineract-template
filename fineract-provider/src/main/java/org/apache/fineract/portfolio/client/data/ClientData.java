@@ -576,6 +576,13 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
         return lookup(id, displayName, officeId, officeName);
     }
 
+    public static ClientData forGuarantor(final String firstname, final String lastname, final String officeName,
+            final LocalDate activationDate, final String externalId) {
+        return instance(null, null, null, null, officeName, null, null, null, firstname, null, lastname, null, null, externalId, null,
+                null, null, null, activationDate, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null);
+    }
+
     public static ClientData instance(final String accountNo, final EnumOptionData status, final CodeValueData subStatus,
             final Long officeId, final String officeName, final Long transferToOfficeId, final String transferToOfficeName, final Long id,
             final String firstname, final String middlename, final String lastname, final String fullname, final String displayName,

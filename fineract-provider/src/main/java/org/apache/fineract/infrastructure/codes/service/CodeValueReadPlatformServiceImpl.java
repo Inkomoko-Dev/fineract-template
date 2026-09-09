@@ -21,8 +21,6 @@ package org.apache.fineract.infrastructure.codes.service;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Collection;
-
-import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.codes.exception.CodeValueNotFoundException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -33,12 +31,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 
-@Slf4j
 @Service
 public class CodeValueReadPlatformServiceImpl implements CodeValueReadPlatformService {
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformSecurityContext context;
+    private final CodeValueDataMapper mapper = new CodeValueDataMapper();
 
     @Autowired
     public CodeValueReadPlatformServiceImpl(final PlatformSecurityContext context, final JdbcTemplate jdbcTemplate) {
@@ -48,14 +46,20 @@ public class CodeValueReadPlatformServiceImpl implements CodeValueReadPlatformSe
 
     private static final class CodeValueDataMapper implements RowMapper<CodeValueData> {
 
+        /** Columns only — no join. Used for lookups by code_value id or code_id. */
         public String schema() {
-            return " cv.id as id, cv.code_value as value,cv.external_code as external_code, cv.code_id as codeId, cv.code_description as description, cv.order_position as position,"
-                    + " cv.is_active isActive, cv.is_mandatory as mandatory from m_code_value as cv join m_code c on cv.code_id = c.id ";
+            return " cv.id as id, cv.code_value as value, cv.external_code as external_code,"
+                    + " cv.code_description as description, cv.order_position as position,"
+                    + " cv.is_active as isActive, cv.is_mandatory as mandatory" + " from m_code_value cv ";
+        }
+
+        /** Join m_code when filtering by code_name. */
+        public String schemaWithCode() {
+            return schema() + " join m_code c on cv.code_id = c.id ";
         }
 
         @Override
         public CodeValueData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
-
             final Long id = rs.getLong("id");
             final String value = rs.getString("value");
             final String externalCode = rs.getString("external_code");
@@ -63,22 +67,21 @@ public class CodeValueReadPlatformServiceImpl implements CodeValueReadPlatformSe
             final String description = rs.getString("description");
             final boolean isActive = rs.getBoolean("isActive");
             final boolean mandatory = rs.getBoolean("mandatory");
-            log.info("id: {}, value: {}, externalCode: {}, position: {}, description: {}, isActive: {}, mandatory: {}", id, value, externalCode, position, description, isActive, mandatory);
 
-            return CodeValueData.instance(id, value,externalCode, position, description, isActive, mandatory);
+            return CodeValueData.instance(id, value, externalCode, position, description, isActive, mandatory);
         }
     }
 
     @Override
+    @Cacheable(value = "code_values", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat(#code+'cvn')")
     public Collection<CodeValueData> retrieveCodeValuesByCode(final String code) {
-        log.info("retrieveCodeValuesByCode {}", code);
 
         this.context.authenticatedUser();
 
-        final CodeValueDataMapper rm = new CodeValueDataMapper();
-        final String sql = "select " + rm.schema() + "where c.code_name like ? and cv.is_active = true order by position";
+        final String sql = "select " + this.mapper.schemaWithCode()
+                + " where c.code_name = ? and cv.is_active = true order by cv.order_position";
 
-        return this.jdbcTemplate.query(sql, rm, new Object[] { code }); // NOSONAR
+        return this.jdbcTemplate.query(sql, this.mapper, code); // NOSONAR
     }
 
     @Override
@@ -87,22 +90,21 @@ public class CodeValueReadPlatformServiceImpl implements CodeValueReadPlatformSe
 
         this.context.authenticatedUser();
 
-        final CodeValueDataMapper rm = new CodeValueDataMapper();
-        final String sql = "select " + rm.schema() + "where cv.code_id = ? order by position";
+        final String sql = "select " + this.mapper.schema() + " where cv.code_id = ? order by cv.order_position";
 
-        return this.jdbcTemplate.query(sql, rm, new Object[] { codeId }); // NOSONAR
+        return this.jdbcTemplate.query(sql, this.mapper, codeId); // NOSONAR
     }
 
     @Override
+    @Cacheable(value = "code_values", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat(#codeValueId+'cvid')")
     public CodeValueData retrieveCodeValue(final Long codeValueId) {
 
         try {
             this.context.authenticatedUser();
 
-            final CodeValueDataMapper rm = new CodeValueDataMapper();
-            final String sql = "select " + rm.schema() + " where cv.id = ? order by position";
+            final String sql = "select " + this.mapper.schema() + " where cv.id = ?";
 
-            return this.jdbcTemplate.queryForObject(sql, rm, new Object[] { codeValueId }); // NOSONAR
+            return this.jdbcTemplate.queryForObject(sql, this.mapper, codeValueId); // NOSONAR
         } catch (final EmptyResultDataAccessException e) {
             throw new CodeValueNotFoundException(codeValueId, e);
         }

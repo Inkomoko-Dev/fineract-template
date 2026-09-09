@@ -20,8 +20,7 @@ package org.apache.fineract.notification.service;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.HashMap;
-import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.core.service.PaginationHelper;
@@ -32,7 +31,6 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.notification.cache.CacheNotificationResponseHeader;
 import org.apache.fineract.notification.data.NotificationData;
-import org.apache.fineract.notification.data.NotificationMapperData;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -41,10 +39,12 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class NotificationReadPlatformServiceImpl implements NotificationReadPlatformService {
 
-    private HashMap<Long, HashMap<Long, CacheNotificationResponseHeader>> tenantNotificationResponseHeaderCache = new HashMap<>();
+    /** Avoid hitting notification_mapper on every authenticated request; UI badge can lag by this window. */
+    private static final long UNREAD_CACHE_TTL_SECONDS = 30L;
+
+    private final ConcurrentHashMap<Long, ConcurrentHashMap<Long, CacheNotificationResponseHeader>> tenantNotificationResponseHeaderCache = new ConcurrentHashMap<>();
 
     private final NotificationDataRow notificationDataRow = new NotificationDataRow();
-    private final NotificationMapperRow notificationMapperRow = new NotificationMapperRow();
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformSecurityContext context;
@@ -54,57 +54,46 @@ public class NotificationReadPlatformServiceImpl implements NotificationReadPlat
 
     @Override
     public boolean hasUnreadNotifications(Long appUserId) {
-        Long tenantId = ThreadLocalContextUtil.getTenant().getId();
-        Long now = System.currentTimeMillis() / 1000L;
-        if (this.tenantNotificationResponseHeaderCache.containsKey(tenantId)) {
-            HashMap<Long, CacheNotificationResponseHeader> notificationResponseHeaderCache = this.tenantNotificationResponseHeaderCache
-                    .get(tenantId);
-            if (notificationResponseHeaderCache.containsKey(appUserId)) {
-                Long lastFetch = notificationResponseHeaderCache.get(appUserId).getLastFetch();
-                if ((now - lastFetch) > 1) {
-                    return this.createUpdateCacheValue(appUserId, now, notificationResponseHeaderCache);
-                } else {
-                    return notificationResponseHeaderCache.get(appUserId).hasNotifications();
-                }
-            } else {
-                return this.createUpdateCacheValue(appUserId, now, notificationResponseHeaderCache);
-            }
-        } else {
-            return this.initializeTenantNotificationResponseHeaderCache(tenantId, now, appUserId);
+        final Long tenantId = ThreadLocalContextUtil.getTenant().getId();
+        final long now = System.currentTimeMillis() / 1000L;
+        final ConcurrentHashMap<Long, CacheNotificationResponseHeader> notificationResponseHeaderCache = this.tenantNotificationResponseHeaderCache
+                .computeIfAbsent(tenantId, id -> new ConcurrentHashMap<>());
 
+        final CacheNotificationResponseHeader cached = notificationResponseHeaderCache.get(appUserId);
+        if (cached != null && cached.getLastFetch() != null && (now - cached.getLastFetch()) <= UNREAD_CACHE_TTL_SECONDS) {
+            return cached.hasNotifications();
         }
-    }
-
-    private boolean initializeTenantNotificationResponseHeaderCache(Long tenantId, Long now, Long appUserId) {
-        HashMap<Long, CacheNotificationResponseHeader> notificationResponseHeaderCache = new HashMap<>();
-        this.tenantNotificationResponseHeaderCache.put(tenantId, notificationResponseHeaderCache);
-        return this.createUpdateCacheValue(appUserId, now, notificationResponseHeaderCache);
+        return createUpdateCacheValue(appUserId, now, notificationResponseHeaderCache);
     }
 
     private boolean createUpdateCacheValue(Long appUserId, Long now,
-            HashMap<Long, CacheNotificationResponseHeader> notificationResponseHeaderCache) {
-        boolean hasNotifications;
-        Long tenantId = ThreadLocalContextUtil.getTenant().getId();
-        CacheNotificationResponseHeader cacheNotificationResponseHeader;
-        hasNotifications = checkForUnreadNotifications(appUserId);
-        cacheNotificationResponseHeader = new CacheNotificationResponseHeader(hasNotifications, now);
-        notificationResponseHeaderCache.put(appUserId, cacheNotificationResponseHeader);
-        this.tenantNotificationResponseHeaderCache.put(tenantId, notificationResponseHeaderCache);
+            ConcurrentHashMap<Long, CacheNotificationResponseHeader> notificationResponseHeaderCache) {
+        final boolean hasNotifications = checkForUnreadNotifications(appUserId);
+        notificationResponseHeaderCache.put(appUserId, new CacheNotificationResponseHeader(hasNotifications, now));
         return hasNotifications;
     }
 
     private boolean checkForUnreadNotifications(Long appUserId) {
-        String sql = "SELECT id, notification_id as notificationId, user_id as userId, is_read as isRead, created_at "
-                + "as createdAt FROM notification_mapper WHERE user_id = ? AND is_read = false";
-        List<NotificationMapperData> notificationMappers = this.jdbcTemplate.query(sql, notificationMapperRow, appUserId);
-        return notificationMappers.size() > 0;
+        // Existence check only — never materialize every unread row for the auth-filter header.
+        final String sql = "SELECT 1 FROM notification_mapper WHERE user_id = ? AND is_read = false " + sqlGenerator.limit(1);
+        final Boolean found = this.jdbcTemplate.query(sql, rs -> rs.next() ? Boolean.TRUE : Boolean.FALSE, appUserId);
+        return Boolean.TRUE.equals(found);
     }
 
     @Override
     public void updateNotificationReadStatus() {
         final Long appUserId = context.authenticatedUser().getId();
-        String sql = "UPDATE notification_mapper SET is_read = true WHERE is_read = false and user_id = ?";
+        final String sql = "UPDATE notification_mapper SET is_read = true WHERE is_read = false and user_id = ?";
         this.jdbcTemplate.update(sql, appUserId);
+        invalidateUnreadCache(appUserId);
+    }
+
+    private void invalidateUnreadCache(Long appUserId) {
+        final Long tenantId = ThreadLocalContextUtil.getTenant().getId();
+        final ConcurrentHashMap<Long, CacheNotificationResponseHeader> cache = this.tenantNotificationResponseHeaderCache.get(tenantId);
+        if (cache != null) {
+            cache.remove(appUserId);
+        }
     }
 
     @Override
@@ -157,31 +146,6 @@ public class NotificationReadPlatformServiceImpl implements NotificationReadPlat
 
         Object[] params = new Object[] { appUserId };
         return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), params, this.notificationDataRow);
-    }
-
-    private static final class NotificationMapperRow implements RowMapper<NotificationMapperData> {
-
-        @Override
-        public NotificationMapperData mapRow(ResultSet rs, int rowNum) throws SQLException {
-            NotificationMapperData notificationMapperData = new NotificationMapperData();
-
-            final Long id = rs.getLong("id");
-            notificationMapperData.setId(id);
-
-            final Long notificationId = rs.getLong("notificationId");
-            notificationMapperData.setNotificationId(notificationId);
-
-            final Long userId = rs.getLong("userId");
-            notificationMapperData.setUserId(userId);
-
-            final boolean isRead = rs.getBoolean("isRead");
-            notificationMapperData.setRead(isRead);
-
-            final String createdAt = rs.getString("createdAt");
-            notificationMapperData.setCreatedAt(createdAt);
-
-            return notificationMapperData;
-        }
     }
 
     private static final class NotificationDataRow implements RowMapper<NotificationData> {

@@ -24,6 +24,7 @@ import java.util.Collection;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,7 @@ public class PaymentTypeReadPlatformServiceImpl implements PaymentTypeReadPlatfo
     }
 
     @Override
+    @Cacheable(value = "paymentTypes", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('_all')")
     public Collection<PaymentTypeData> retrieveAllPaymentTypes() {
         // TODO Auto-generated method stub
         this.context.authenticatedUser();
@@ -52,6 +54,7 @@ public class PaymentTypeReadPlatformServiceImpl implements PaymentTypeReadPlatfo
     }
 
     @Override
+    @Cacheable(value = "paymentTypes", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('_').concat(#paymentTypeId)")
     public PaymentTypeData retrieveOne(Long paymentTypeId) {
         // TODO Auto-generated method stub
         this.context.authenticatedUser();
@@ -65,8 +68,8 @@ public class PaymentTypeReadPlatformServiceImpl implements PaymentTypeReadPlatfo
     private static final class PaymentTypeMapper implements RowMapper<PaymentTypeData> {
 
         public String schema() {
-            return " pt.id as id, pt.value as name, pt.description as description,pt.is_cash_payment as isCashPayment, " +
-                    "pt.is_mobile_money as isMobileMoney, pt.order_position as position from m_payment_type pt ";
+            return " pt.id as id, pt.value as name, pt.description as description,pt.is_cash_payment as isCashPayment, "
+                    + "pt.is_mobile_money as isMobileMoney, pt.order_position as position from m_payment_type pt ";
         }
 
         @Override
