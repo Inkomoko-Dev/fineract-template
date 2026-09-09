@@ -16,22 +16,20 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.africastalking.domain;
+package org.apache.fineract.infrastructure.whatsapp.interactive.domain;
 
-import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-public interface CommunicationMessageRepository extends JpaRepository<CommunicationMessage, Long> {
+public interface WhatsAppOptOutRecordRepository extends JpaRepository<WhatsAppOptOutRecord, Long> {
 
-    Optional<CommunicationMessage> findByExternalId(String externalId);
+    @Query("select o from WhatsAppOptOutRecord o where o.phoneNumber = :phoneNumber order by o.createdDate desc")
+    java.util.List<WhatsAppOptOutRecord> findByPhoneNumberOrderByCreatedDateDesc(@Param("phoneNumber") String phoneNumber);
 
-    Optional<CommunicationMessage> findByIdempotencyKey(String idempotencyKey);
-
-    List<CommunicationMessage> findTop200ByStatusAndChannelOrderByCreatedDateAsc(CommunicationMessageStatus status,
-            CommunicationChannel channel);
-
-    List<CommunicationMessage> findByChannelOrderByCreatedDateDesc(CommunicationChannel channel);
-
-    List<CommunicationMessage> findTop100ByPhoneNumberAndChannelOrderByCreatedDateDesc(String phoneNumber, CommunicationChannel channel);
+    default Optional<WhatsAppOptOutRecord> findLatest(final String phoneNumber) {
+        final java.util.List<WhatsAppOptOutRecord> records = findByPhoneNumberOrderByCreatedDateDesc(phoneNumber);
+        return records.isEmpty() ? Optional.empty() : Optional.of(records.get(0));
+    }
 }

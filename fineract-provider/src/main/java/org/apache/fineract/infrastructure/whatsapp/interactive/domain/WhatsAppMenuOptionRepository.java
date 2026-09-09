@@ -16,22 +16,24 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.africastalking.domain;
+package org.apache.fineract.infrastructure.whatsapp.interactive.domain;
 
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface CommunicationMessageRepository extends JpaRepository<CommunicationMessage, Long> {
+public interface WhatsAppMenuOptionRepository extends JpaRepository<WhatsAppMenuOption, Long> {
 
-    Optional<CommunicationMessage> findByExternalId(String externalId);
+    List<WhatsAppMenuOption> findByMenuKeyAndLanguageCodeAndEnabledTrueOrderByOptionNumberAsc(String menuKey, String languageCode);
 
-    Optional<CommunicationMessage> findByIdempotencyKey(String idempotencyKey);
+    Optional<WhatsAppMenuOption> findByMenuKeyAndLanguageCodeAndOptionNumberAndEnabledTrue(String menuKey, String languageCode,
+            int optionNumber);
 
-    List<CommunicationMessage> findTop200ByStatusAndChannelOrderByCreatedDateAsc(CommunicationMessageStatus status,
-            CommunicationChannel channel);
+    List<WhatsAppMenuOption> findByMenuKeyAndLanguageCodeOrderByOptionNumberAsc(String menuKey, String languageCode);
 
-    List<CommunicationMessage> findByChannelOrderByCreatedDateDesc(CommunicationChannel channel);
+    List<WhatsAppMenuOption> findByMenuKeyOrderByLanguageCodeAscOptionNumberAsc(String menuKey);
 
-    List<CommunicationMessage> findTop100ByPhoneNumberAndChannelOrderByCreatedDateDesc(String phoneNumber, CommunicationChannel channel);
+    List<WhatsAppMenuOption> findByLanguageCodeOrderByMenuKeyAscOptionNumberAsc(String languageCode);
+
+    List<WhatsAppMenuOption> findAllByOrderByMenuKeyAscLanguageCodeAscOptionNumberAsc();
 }

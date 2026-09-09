@@ -71,6 +71,7 @@ public enum JobName {
     DOWNLOAD_KIVA_DEPENDENCIES_META_DATA("Download Kiva Metadata"), REPROCESS_LOAN_TRANSACTIONS("Reprocess Loan Transactions"), //
     UPDATE_WHATSAPP_OUTBOUND_WITH_CAMPAIGN_MESSAGE("Update WhatsApp Outbound with Campaign Message"), //
     SEND_WHATSAPP_MESSAGES("Send WhatsApp Messages"), //
+    MONITOR_WHATSAPP_SUPPORT_TICKET_SLA("Monitor WhatsApp Support Ticket SLA"), //
     ESCALATE_PENDING_HISTORICAL_CORRECTIONS("Escalate Pending Historical Corrections"), //
     PROCESS_RESIDUAL_LOAN_CLOSURES("Process Residual Loan Closures"); //
 

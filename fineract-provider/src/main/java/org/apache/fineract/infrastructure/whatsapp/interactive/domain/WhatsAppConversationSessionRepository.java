@@ -16,22 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.africastalking.domain;
+package org.apache.fineract.infrastructure.whatsapp.interactive.domain;
 
 import java.util.List;
-import java.util.Optional;
+import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConversationType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface CommunicationMessageRepository extends JpaRepository<CommunicationMessage, Long> {
+public interface WhatsAppConversationSessionRepository extends JpaRepository<WhatsAppConversationSession, Long> {
 
-    Optional<CommunicationMessage> findByExternalId(String externalId);
-
-    Optional<CommunicationMessage> findByIdempotencyKey(String idempotencyKey);
-
-    List<CommunicationMessage> findTop200ByStatusAndChannelOrderByCreatedDateAsc(CommunicationMessageStatus status,
-            CommunicationChannel channel);
-
-    List<CommunicationMessage> findByChannelOrderByCreatedDateDesc(CommunicationChannel channel);
-
-    List<CommunicationMessage> findTop100ByPhoneNumberAndChannelOrderByCreatedDateDesc(String phoneNumber, CommunicationChannel channel);
+    List<WhatsAppConversationSession> findByPhoneNumberAndConversationTypeOrderByLastActivityAtDesc(String phoneNumber,
+            WhatsAppConversationType conversationType);
 }
