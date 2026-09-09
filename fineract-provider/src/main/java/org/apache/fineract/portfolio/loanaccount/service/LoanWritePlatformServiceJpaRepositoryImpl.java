@@ -4343,12 +4343,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // Non-cash payments are sent to the integration for both single and
         // multi-disbursement loans. The integration service selects the next
         // undisbursed tranche and sends its net payment instruction.
-        this.disbursementRequestService.disburseRequestLoan(loan, command);
+        final String transactionReference = this.disbursementRequestService.disburseRequestLoan(loan, command);
         loan.handleDisbursementRequest();
         this.saveLoanWithDataIntegrityViolationChecks(loan);
+        final Map<String, Object> responseChanges = new HashMap<>();
+        responseChanges.put("userMessageGlobalisationCode", "label.message.paymenthub.disbursement.request.success");
+        responseChanges.put("defaultUserMessage", "Disbursement request sent to the Payment Hub successfully.");
+        responseChanges.put("transactionReference", transactionReference);
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
-                .build();
+                .with(responseChanges).build();
     }
 
     private boolean isSouthSudanLoan(final Loan loan) {

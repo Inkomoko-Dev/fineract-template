@@ -83,17 +83,14 @@ public class LoanDisbursementIntegrationApiResource {
         LoanAccountData loanAccountData = this.loanReadPlatformService.retrieveLoanByLoanAccount(accountNo);
         Long loanId = loanAccountData.getId();
         BigDecimal loanPrinciple = loanAccountData.getPrincipal();
-        CommandWrapperBuilder resourceDetails = new CommandWrapperBuilder();
-        resourceDetails.withLoanId(loanId).withEntityName("LOANNOTE");
-        JsonObject newJsonObject = new JsonObject();
-        newJsonObject.addProperty("note", apiRequestBodyAsJson);
-        final CommandWrapper commandRequest = new CommandWrapperBuilder().createNote(resourceDetails.build(), "loans", loanId)
-                .withJson(newJsonObject.toString()).build();
-        this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
-
         final JsonElement allElement = this.fromApiJsonHelper.parse(apiRequestBodyAsJson);
-        final String resultCode = allElement.getAsJsonObject().get("resultCode").getAsString();
+        final JsonObject callback = allElement.getAsJsonObject();
+        final String resultCode = callback.get("resultCode").getAsString();
+        final String transactionReference = callback.has("transactionRef") && !callback.get("transactionRef").isJsonNull()
+                ? callback.get("transactionRef").getAsString()
+                : null;
 
+        LOG.debug("Payment Hub disbursement update loanId={}, payload={}", loanId, apiRequestBodyAsJson);
         LOG.info("Update Disbursement In API: " + loanId + " with Result Code: " + resultCode);
 
         CommandProcessingResult result = null;
@@ -108,7 +105,21 @@ public class LoanDisbursementIntegrationApiResource {
             result = this.commandsSourceWritePlatformService.logCommandSource(disburseWrapper);
         }
 
+        final CommandWrapperBuilder resourceDetails = new CommandWrapperBuilder();
+        resourceDetails.withLoanId(loanId).withEntityName("LOANNOTE");
+        final JsonObject newJsonObject = new JsonObject();
+        newJsonObject.addProperty("note", bankDisbursementResultNote(resultCode, transactionReference));
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().createNote(resourceDetails.build(), "loans", loanId)
+                .withJson(newJsonObject.toString()).build();
+        this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
         return this.toApiJsonSerializer.serialize(result);
+    }
+
+    static String bankDisbursementResultNote(final String resultCode, final String transactionReference) {
+        final String message = "200".equals(resultCode) ? "Bank disbursement completed successfully."
+                : "The bank could not complete this disbursement. Please review the payment details or contact support.";
+        return transactionReference == null || transactionReference.isBlank() ? message : message + " Reference: " + transactionReference;
     }
 
     private String extractJson(JsonElement element, BigDecimal loanPrinciple ) {
