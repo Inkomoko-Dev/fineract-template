@@ -125,14 +125,32 @@
         </insert>
     </changeSet>
 
+    <!-- Loan-level residual columns/index may be absent if the earlier createIndex was skipped or interrupted. -->
     <changeSet author="codex" id="CGLT-303-product-level-residual-configuration">
-        <dropIndex tableName="m_loan" indexName="idx_m_loan_residual_closure_candidates"/>
-        <dropColumn tableName="m_loan" columnName="residual_auto_close_enabled"/>
-        <dropColumn tableName="m_loan" columnName="residual_closure_threshold"/>
-        <dropColumn tableName="m_loan" columnName="residual_config_overridden"/>
+        <validCheckSum>ANY</validCheckSum>
+        <sql>
+            DROP INDEX IF EXISTS idx_m_loan_residual_closure_candidates ON m_loan;
+        </sql>
+        <sql>
+            ALTER TABLE m_loan
+                DROP COLUMN IF EXISTS residual_auto_close_enabled,
+                DROP COLUMN IF EXISTS residual_closure_threshold,
+                DROP COLUMN IF EXISTS residual_config_overridden;
+        </sql>
         <delete tableName="acc_product_mapping">
             <where>financial_account_type IN (14, 15)</where>
         </delete>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-product-level-residual-configuration-index">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <columnExists tableName="m_product_loan" columnName="residual_auto_close_enabled"/>
+                <not>
+                    <indexExists tableName="m_product_loan" indexName="idx_m_product_loan_residual_closure"/>
+                </not>
+            </and>
+        </preConditions>
         <createIndex tableName="m_product_loan" indexName="idx_m_product_loan_residual_closure">
             <column name="residual_auto_close_enabled"/>
         </createIndex>
