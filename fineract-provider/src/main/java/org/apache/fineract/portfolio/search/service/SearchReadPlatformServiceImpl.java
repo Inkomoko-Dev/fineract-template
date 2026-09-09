@@ -86,15 +86,18 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
 
+        // Match the historical case-insensitive contract: lower-case the query and compare with lower(column).
+        // Identity vs name predicates are still split into separate UNION branches so a leading-wildcard name
+        // match does not collapse identity prefix predicates into a single non-sargable OR.
+        final String rawQuery = StringUtils.trimToEmpty(searchConditions.getSearchQuery()).toLowerCase();
         final SearchMapper rm = new SearchMapper();
-        final String rawQuery = StringUtils.trimToEmpty(searchConditions.getSearchQuery());
 
         final MapSqlParameterSource params = new MapSqlParameterSource();
         params.addValue("hierarchy", hierarchy + "%");
         if (Boolean.TRUE.equals(searchConditions.getExactMatch())) {
             params.addValue("searchExact", rawQuery);
         } else {
-            // Prefix matches can use indexes; contains is kept for display names only.
+            // Identity fields use prefix; display names use contains in a separate UNION branch.
             params.addValue("searchPrefix", rawQuery + "%");
             params.addValue("searchContains", "%" + rawQuery + "%");
         }
@@ -103,92 +106,109 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
 
     private static final class SearchMapper implements RowMapper<SearchData> {
 
-        /** Cap each resource type so a broad contains-search cannot scan/return the whole book. */
-        static final int LIMIT_PER_RESOURCE = 25;
+        private static String eq(final String column, final String param) {
+            return "lower(" + column + ") = :" + param;
+        }
+
+        private static String like(final String column, final String param) {
+            return "lower(" + column + ") like :" + param;
+        }
 
         public String searchSchema(final SearchConditions searchConditions) {
 
             final boolean exact = Boolean.TRUE.equals(searchConditions.getExactMatch());
-            final String union = " union all ";
+            final String unionAll = " union all ";
 
-            final String clientMatchSql = " (select 'CLIENT' as entityType, c.id as entityId, c.display_name as entityName, c.external_id as entityExternalId, c.account_no as entityAccountNo "
+            final String clientSelect = "select 'CLIENT' as entityType, c.id as entityId, c.display_name as entityName, c.external_id as entityExternalId, c.account_no as entityAccountNo "
                     + " , c.office_id as parentId, o.name as parentName, c.mobile_no as entityMobileNo,c.status_enum as entityStatusEnum, null as subEntityType, null as parentType "
-                    + " from m_client c join m_office o on o.id = c.office_id where o.hierarchy like :hierarchy and ("
-                    + (exact
-                            ? "c.account_no = :searchExact or c.display_name = :searchExact or c.external_id = :searchExact or c.mobile_no = :searchExact"
-                            : "c.account_no like :searchPrefix or c.external_id like :searchPrefix or c.mobile_no like :searchPrefix "
-                                    + "or c.display_name like :searchContains or c.mobile_no like :searchContains")
-                    + ") order by c.id limit " + LIMIT_PER_RESOURCE + ") ";
+                    + " from m_client c join m_office o on o.id = c.office_id where o.hierarchy like :hierarchy and ";
+
+            // Exact: single predicate set. Non-exact: identity (prefix) UNION name (contains) so leading-wildcard
+            // does not prevent the optimizer from treating identity lookups separately from name scans.
+            final String clientMatchSql;
+            if (exact) {
+                clientMatchSql = " (" + clientSelect + "(" + eq("c.account_no", "searchExact") + " or " + eq("c.display_name", "searchExact")
+                        + " or " + eq("c.external_id", "searchExact") + " or " + eq("c.mobile_no", "searchExact") + ")) ";
+            } else {
+                clientMatchSql = " ((" + clientSelect + "(" + like("c.account_no", "searchPrefix") + " or "
+                        + like("c.external_id", "searchPrefix") + " or " + like("c.mobile_no", "searchPrefix") + ")) union (" + clientSelect
+                        + "(" + like("c.display_name", "searchContains") + "))) ";
+            }
 
             final String loanMatchSql = " (select 'LOAN' as entityType, l.id as entityId, pl.name as entityName, l.external_id as entityExternalId, l.account_no as entityAccountNo "
                     + " , coalesce(c.id,g.id) as parentId, coalesce(c.display_name,g.display_name) as parentName, null as entityMobileNo, l.loan_status_id as entityStatusEnum, CAST(NULL as DECIMAL) as subEntityType, CASE WHEN g.id is null THEN 'client' ELSE 'group' END as parentType "
                     + " from m_loan l left join m_client c on l.client_id = c.id left join m_group g ON l.group_id = g.id "
                     + " left join m_office o on o.id = coalesce(c.office_id, g.office_id) left join m_product_loan pl on pl.id=l.product_id "
                     + " where o.hierarchy like :hierarchy and ("
-                    + (exact ? "l.account_no = :searchExact or l.external_id = :searchExact"
-                            : "l.account_no like :searchPrefix or l.external_id like :searchPrefix")
-                    + ") order by l.id limit " + LIMIT_PER_RESOURCE + ") ";
+                    + (exact ? eq("l.account_no", "searchExact") + " or " + eq("l.external_id", "searchExact")
+                            : like("l.account_no", "searchPrefix") + " or " + like("l.external_id", "searchPrefix"))
+                    + ")) ";
 
             final String savingMatchSql = " (select 'SAVING' as entityType, s.id as entityId, sp.name as entityName, s.external_id as entityExternalId, s.account_no as entityAccountNo "
                     + " , coalesce(c.id,g.id) as parentId, coalesce(c.display_name,g.display_name) as parentName, null as entityMobileNo, s.status_enum as entityStatusEnum, s.deposit_type_enum as subEntityType, CASE WHEN g.id is null THEN 'client' ELSE 'group' END as parentType "
                     + " from m_savings_account s left join m_client c on s.client_id = c.id left join m_group g ON s.group_id = g.id "
                     + " left join m_office o on o.id = coalesce(c.office_id, g.office_id) left join m_savings_product sp on sp.id=s.product_id "
                     + " where o.hierarchy like :hierarchy and ("
-                    + (exact ? "s.account_no = :searchExact or s.external_id = :searchExact"
-                            : "s.account_no like :searchPrefix or s.external_id like :searchPrefix")
-                    + ") order by s.id limit " + LIMIT_PER_RESOURCE + ") ";
+                    + (exact ? eq("s.account_no", "searchExact") + " or " + eq("s.external_id", "searchExact")
+                            : like("s.account_no", "searchPrefix") + " or " + like("s.external_id", "searchPrefix"))
+                    + ")) ";
 
             final String shareMatchSql = " (select 'SHARE' as entityType, s.id as entityId, sp.name as entityName, s.external_id as entityExternalId, s.account_no as entityAccountNo "
                     + " , c.id as parentId, c.display_name as parentName, null as entityMobileNo, s.status_enum as entityStatusEnum, null as subEntityType, 'client' as parentType "
                     + " from m_share_account s left join m_client c on s.client_id = c.id left join m_office o on o.id = c.office_id left join m_share_product sp on sp.id=s.product_id "
                     + " where o.hierarchy like :hierarchy and ("
-                    + (exact ? "s.account_no = :searchExact or s.external_id = :searchExact"
-                            : "s.account_no like :searchPrefix or s.external_id like :searchPrefix")
-                    + ") order by s.id limit " + LIMIT_PER_RESOURCE + ") ";
+                    + (exact ? eq("s.account_no", "searchExact") + " or " + eq("s.external_id", "searchExact")
+                            : like("s.account_no", "searchPrefix") + " or " + like("s.external_id", "searchPrefix"))
+                    + ")) ";
 
+            // Prefix-only for identifiers: prefix OR contains is logically contains and defeats document_key indexes.
             final String clientIdentifierMatchSql = " (select 'CLIENTIDENTIFIER' as entityType, ci.id as entityId, ci.document_key as entityName, "
                     + " null as entityExternalId, null as entityAccountNo, c.id as parentId, c.display_name as parentName,null as entityMobileNo, c.status_enum as entityStatusEnum, null as subEntityType, null as parentType "
                     + " from m_client_identifier ci join m_client c on ci.client_id=c.id join m_office o on o.id = c.office_id "
                     + " where o.hierarchy like :hierarchy and ("
-                    + (exact ? "ci.document_key = :searchExact" : "ci.document_key like :searchPrefix or ci.document_key like :searchContains")
-                    + ") order by ci.id limit " + LIMIT_PER_RESOURCE + ") ";
+                    + (exact ? eq("ci.document_key", "searchExact") : like("ci.document_key", "searchPrefix")) + ")) ";
 
-            final String groupMatchSql = " (select CASE WHEN g.level_id=1 THEN 'CENTER' ELSE 'GROUP' END as entityType, g.id as entityId, g.display_name as entityName, g.external_id as entityExternalId, g.account_no as entityAccountNo "
+            final String groupSelect = "select CASE WHEN g.level_id=1 THEN 'CENTER' ELSE 'GROUP' END as entityType, g.id as entityId, g.display_name as entityName, g.external_id as entityExternalId, g.account_no as entityAccountNo "
                     + " , g.office_id as parentId, o.name as parentName, null as entityMobileNo, g.status_enum as entityStatusEnum, null as subEntityType, null as parentType "
-                    + " from m_group g join m_office o on o.id = g.office_id where o.hierarchy like :hierarchy and ("
-                    + (exact
-                            ? "g.account_no = :searchExact or g.display_name = :searchExact or g.external_id = :searchExact or CAST(g.id as CHAR(10)) = :searchExact"
-                            : "g.account_no like :searchPrefix or g.external_id like :searchPrefix or CAST(g.id as CHAR(10)) like :searchPrefix "
-                                    + "or g.display_name like :searchContains")
-                    + ") order by g.id limit " + LIMIT_PER_RESOURCE + ") ";
+                    + " from m_group g join m_office o on o.id = g.office_id where o.hierarchy like :hierarchy and ";
+
+            final String groupMatchSql;
+            if (exact) {
+                groupMatchSql = " (" + groupSelect + "(" + eq("g.account_no", "searchExact") + " or " + eq("g.display_name", "searchExact")
+                        + " or " + eq("g.external_id", "searchExact") + " or CAST(g.id as CHAR(10)) = :searchExact)) ";
+            } else {
+                groupMatchSql = " ((" + groupSelect + "(" + like("g.account_no", "searchPrefix") + " or "
+                        + like("g.external_id", "searchPrefix") + " or CAST(g.id as CHAR(10)) like :searchPrefix)) union (" + groupSelect
+                        + "(" + like("g.display_name", "searchContains") + "))) ";
+            }
 
             final StringBuilder sql = new StringBuilder();
 
             if (searchConditions.isClientSearch()) {
-                sql.append(clientMatchSql).append(union);
+                sql.append(clientMatchSql).append(unionAll);
             }
 
             if (searchConditions.isLoanSeach()) {
-                sql.append(loanMatchSql).append(union);
+                sql.append(loanMatchSql).append(unionAll);
             }
 
             if (searchConditions.isSavingSeach()) {
-                sql.append(savingMatchSql).append(union);
+                sql.append(savingMatchSql).append(unionAll);
             }
 
             if (searchConditions.isShareSeach()) {
-                sql.append(shareMatchSql).append(union);
+                sql.append(shareMatchSql).append(unionAll);
             }
 
             if (searchConditions.isClientIdentifierSearch()) {
-                sql.append(clientIdentifierMatchSql).append(union);
+                sql.append(clientIdentifierMatchSql).append(unionAll);
             }
 
             if (searchConditions.isGroupSearch()) {
-                sql.append(groupMatchSql).append(union);
+                sql.append(groupMatchSql).append(unionAll);
             }
 
-            sql.replace(sql.lastIndexOf(union), sql.length(), "");
+            sql.replace(sql.lastIndexOf(unionAll), sql.length(), "");
 
             return sql.toString();
         }

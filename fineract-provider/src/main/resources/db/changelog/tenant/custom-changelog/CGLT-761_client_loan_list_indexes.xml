@@ -190,6 +190,7 @@
         </createIndex>
     </changeSet>
 
+    <!-- Kept for Liquibase checksum stability if already applied; dropped below (duplicates UNIQUE indexes). -->
     <changeSet id="CGLT-761-idx-m-client-account-no" author="nelsonomoi">
         <preConditions onFail="MARK_RAN">
             <not>
@@ -288,6 +289,55 @@
         <createIndex tableName="m_savings_account" indexName="idx_m_savings_account_no">
             <column name="account_no"/>
         </createIndex>
+    </changeSet>
+
+    <!-- Remove indexes that duplicate UNIQUE constraints from the initial schema -->
+    <changeSet id="CGLT-761-drop-dup-idx-m-client-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_client" indexName="idx_m_client_account_no"/>
+        </preConditions>
+        <comment>Duplicates account_no UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_client" indexName="idx_m_client_account_no"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-client-external-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_client" indexName="idx_m_client_external_id"/>
+        </preConditions>
+        <comment>Duplicates external_id UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_client" indexName="idx_m_client_external_id"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-client-mobile-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_client" indexName="idx_m_client_mobile_no"/>
+        </preConditions>
+        <comment>Duplicates mobile_no UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_client" indexName="idx_m_client_mobile_no"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-loan-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_loan" indexName="idx_m_loan_account_no"/>
+        </preConditions>
+        <comment>Duplicates loan account_no UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_loan" indexName="idx_m_loan_account_no"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-loan-external-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_loan" indexName="idx_m_loan_external_id"/>
+        </preConditions>
+        <comment>Duplicates loan external_id UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_loan" indexName="idx_m_loan_external_id"/>
+    </changeSet>
+
+    <changeSet id="CGLT-761-drop-dup-idx-m-savings-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_savings_account" indexName="idx_m_savings_account_no"/>
+        </preConditions>
+        <comment>Duplicates savings account_no UNIQUE from initial schema</comment>
+        <dropIndex tableName="m_savings_account" indexName="idx_m_savings_account_no"/>
     </changeSet>
 
 </databaseChangeLog>
