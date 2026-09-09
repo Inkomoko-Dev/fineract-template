@@ -158,8 +158,10 @@ public class TenantAwareBasicAuthenticationFilter extends BasicAuthenticationFil
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, e.getMessage());
         } finally {
             task.stop();
-            final PlatformRequestLog log = PlatformRequestLog.from(task, request);
-            LOG.debug("{}", this.toApiJsonSerializer.serialize(log));
+            if (LOG.isDebugEnabled()) {
+                final PlatformRequestLog log = PlatformRequestLog.from(task, request);
+                LOG.debug("{}", this.toApiJsonSerializer.serialize(log));
+            }
         }
     }
 
