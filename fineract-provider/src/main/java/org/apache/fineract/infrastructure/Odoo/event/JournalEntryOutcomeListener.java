@@ -28,11 +28,13 @@ import org.apache.fineract.infrastructure.security.service.TenantDetailsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
 // async replacement for the response body the SYNC path applied inline; a lost outcome self-heals via the posting cron's retry
 @Service
+@ConditionalOnProperty(name = "fineract.integrations.kafka.enabled", havingValue = "true")
 public class JournalEntryOutcomeListener {
 
     private static final Logger LOG = LoggerFactory.getLogger(JournalEntryOutcomeListener.class);

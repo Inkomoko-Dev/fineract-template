@@ -98,6 +98,7 @@ import org.apache.xmlrpc.client.XmlRpcClient;
 import org.apache.xmlrpc.client.XmlRpcClientConfigImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationListener;
@@ -147,7 +148,7 @@ public class OdooServiceImpl implements OdooService {
     private String integrationLayerDeliveryMode;
 
     @Autowired
-    private JournalEntryEventPublisher journalEntryEventPublisher;
+    private ObjectProvider<JournalEntryEventPublisher> journalEntryEventPublisher;
     private ClientRepositoryWrapper clientRepository;
     private ConfigurationDomainService configurationDomainService;
 
@@ -779,7 +780,12 @@ public class OdooServiceImpl implements OdooService {
     }
 
     private JsonObject publishJournalEntryEvent(Long loanTransactionId, String payload) {
-        String eventId = journalEntryEventPublisher.publish(loanTransactionId.toString(), payload);
+        final JournalEntryEventPublisher publisher = journalEntryEventPublisher.getIfAvailable();
+        if (publisher == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.event.publish.failed",
+                    "ASYNC journal posting requires Kafka (set fineract.integrations.kafka.enabled=true)");
+        }
+        String eventId = publisher.publish(loanTransactionId.toString(), payload);
 
         JsonObject ack = new JsonObject();
         ack.addProperty("success", true);
