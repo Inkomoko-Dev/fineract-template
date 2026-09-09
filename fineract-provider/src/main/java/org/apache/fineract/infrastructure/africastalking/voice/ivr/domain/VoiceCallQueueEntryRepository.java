@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.infrastructure.africastalking.voice.ivr.domain;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceCallQueueStatus;
@@ -29,6 +30,9 @@ public interface VoiceCallQueueEntryRepository extends JpaRepository<VoiceCallQu
 
     Optional<VoiceCallQueueEntry> findFirstByExternalSessionIdAndStatusOrderByCreatedDateDesc(String externalSessionId,
             VoiceCallQueueStatus status);
+
+    Optional<VoiceCallQueueEntry> findFirstByExternalSessionIdAndStatusInOrderByCreatedDateDesc(String externalSessionId,
+            Collection<VoiceCallQueueStatus> statuses);
 
     long countByDepartmentCodeAndStatus(String departmentCode, VoiceCallQueueStatus status);
 }

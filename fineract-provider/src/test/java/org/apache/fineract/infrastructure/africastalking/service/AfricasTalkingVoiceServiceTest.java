@@ -31,6 +31,7 @@ import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientD
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationDirection;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLog;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLogRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceCallQueueService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceIvrCallbackService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceVoicemailService;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
@@ -65,6 +66,8 @@ class AfricasTalkingVoiceServiceTest {
     private VoiceVoicemailService voiceVoicemailService;
     @Mock
     private org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequestRepository callbackRequestRepository;
+    @Mock
+    private VoiceCallQueueService voiceCallQueueService;
 
     private AfricasTalkingProperties properties;
     private AfricasTalkingVoiceService voiceService;
@@ -83,7 +86,7 @@ class AfricasTalkingVoiceServiceTest {
         properties.getVoice().setBusinessHoursEnd("23:59");
         voiceService = new AfricasTalkingVoiceService(africasTalkingClient, properties, voiceCallLogRepository,
                 recipientResolutionService, phoneNumberNormalizer, clientRepositoryWrapper, staffRepositoryWrapper,
-                voiceIvrCallbackService, voiceVoicemailService, callbackRequestRepository);
+                voiceIvrCallbackService, voiceVoicemailService, callbackRequestRepository, voiceCallQueueService);
     }
 
     @org.junit.jupiter.api.AfterEach

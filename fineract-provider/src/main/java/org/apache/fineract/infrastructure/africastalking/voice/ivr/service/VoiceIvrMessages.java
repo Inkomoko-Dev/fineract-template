@@ -97,6 +97,11 @@ public final class VoiceIvrMessages {
                 : "This call may be recorded for quality and training purposes.";
     }
 
+    public static String goodbye(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Murakoze guhamagara Inkomoko. Muraho."
+                : "Thank you for calling Inkomoko. Goodbye.";
+    }
+
     public static String sanitizeForSpeech(final String text) {
         if (text == null) {
             return "";

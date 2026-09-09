@@ -34,6 +34,7 @@ import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLog;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLogRepository;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequestRepository;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceCallbackRequestStatus;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceCallQueueService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceVoicemailService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceIvrCallbackService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
@@ -60,6 +61,7 @@ public class AfricasTalkingVoiceService {
     private final VoiceIvrCallbackService voiceIvrCallbackService;
     private final VoiceVoicemailService voiceVoicemailService;
     private final VoiceCallbackRequestRepository callbackRequestRepository;
+    private final VoiceCallQueueService voiceCallQueueService;
 
     public String buildIvrResponse(final String rawPayload) {
         return voiceIvrCallbackService.handleInbound(rawPayload);
@@ -115,11 +117,14 @@ public class AfricasTalkingVoiceService {
         });
         callLog.applyEventUpdate(mapCallStatus(values), parseDuration(values), values.get("recordingUrl"),
                 AfricasTalkingPayloadParser.firstNonBlank(values, "dtmfDigits", "digits"));
-        if (AfricasTalkingConstants.CALL_STATUS_ANSWERED.equals(callLog.getStatus()) && callLog.isRecordingConsentRequired()) {
-            callLog.setRecordingConsentGiven(true);
+        if (AfricasTalkingConstants.CALL_STATUS_ANSWERED.equals(callLog.getStatus())) {
+            voiceCallQueueService.markConnected(sessionId);
         }
-        if (AfricasTalkingConstants.CALL_STATUS_COMPLETED.equals(callLog.getStatus()) && callLog.getCallbackRequestId() != null) {
-            completeCallbackRequest(callLog.getCallbackRequestId());
+        if (AfricasTalkingConstants.CALL_STATUS_COMPLETED.equals(callLog.getStatus())) {
+            voiceCallQueueService.markCompleted(sessionId);
+            if (callLog.getCallbackRequestId() != null) {
+                completeCallbackRequest(callLog.getCallbackRequestId());
+            }
         }
         voiceCallLogRepository.save(callLog);
         voiceVoicemailService.completeFromRecordingEvent(sessionId, values.get("recordingUrl"), parseDuration(values));

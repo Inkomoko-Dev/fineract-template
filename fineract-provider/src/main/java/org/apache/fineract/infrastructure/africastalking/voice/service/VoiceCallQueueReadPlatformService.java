@@ -36,7 +36,8 @@ public class VoiceCallQueueReadPlatformService {
     private final VoiceCallQueueMapper mapper = new VoiceCallQueueMapper();
 
     public List<VoiceCallQueueEntryData> retrieveQueueEntries() {
-        return jdbcTemplate.query("select " + mapper.schema() + " order by vcq.created_date asc", mapper);
+        return jdbcTemplate.query("select " + mapper.schema() + " where vcq.status in ('WAITING', 'CONNECTING') order by vcq.created_date asc",
+                mapper);
     }
 
     private static final class VoiceCallQueueMapper implements RowMapper<VoiceCallQueueEntryData> {

@@ -85,6 +85,10 @@ public final class VoiceXmlBuilder {
         return wrap("<Say voice=\"woman\">Invalid selection. Goodbye.</Say><Reject/>");
     }
 
+    public static String buildHangup(final String goodbyeMessage) {
+        return wrap("<Say voice=\"woman\">" + escapeXmlText(goodbyeMessage) + "</Say><Reject/>");
+    }
+
     private static String wrap(final String inner) {
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response>" + inner + "</Response>";
     }

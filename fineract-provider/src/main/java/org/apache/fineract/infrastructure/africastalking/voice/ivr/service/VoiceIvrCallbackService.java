@@ -265,7 +265,7 @@ public class VoiceIvrCallbackService {
             case LOAN_SERVICE -> loanSelfServiceGate.beginLoanService(session, option.getActionTarget());
             case HANGUP -> {
                 sessionService.markClosed(session);
-                yield VoiceXmlBuilder.buildInvalidSelection();
+                yield VoiceXmlBuilder.buildHangup(VoiceIvrMessages.goodbye(language));
             }
         };
     }

@@ -58,11 +58,26 @@ public class VoiceCallQueueService {
 
     @Transactional
     public void markConnected(final VoiceIvrSession session) {
+        markConnected(session.getExternalSessionId());
+    }
+
+    @Transactional
+    public void markConnected(final String externalSessionId) {
         queueEntryRepository
-                .findFirstByExternalSessionIdAndStatusOrderByCreatedDateDesc(session.getExternalSessionId(), VoiceCallQueueStatus.CONNECTING)
+                .findFirstByExternalSessionIdAndStatusOrderByCreatedDateDesc(externalSessionId, VoiceCallQueueStatus.CONNECTING)
                 .ifPresent(entry -> {
                     entry.setStatus(VoiceCallQueueStatus.CONNECTED);
                     entry.setConnectedAt(DateUtils.getLocalDateTimeOfTenant());
+                    entry.setLastModifiedDate(DateUtils.getLocalDateTimeOfTenant());
+                    queueEntryRepository.save(entry);
+                });
+    }
+
+    @Transactional
+    public void markCompleted(final String externalSessionId) {
+        queueEntryRepository.findFirstByExternalSessionIdAndStatusInOrderByCreatedDateDesc(externalSessionId,
+                List.of(VoiceCallQueueStatus.CONNECTING, VoiceCallQueueStatus.CONNECTED)).ifPresent(entry -> {
+                    entry.setStatus(VoiceCallQueueStatus.COMPLETED);
                     entry.setLastModifiedDate(DateUtils.getLocalDateTimeOfTenant());
                     queueEntryRepository.save(entry);
                 });
