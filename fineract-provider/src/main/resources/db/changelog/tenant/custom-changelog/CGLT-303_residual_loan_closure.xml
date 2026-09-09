@@ -125,18 +125,38 @@
         </insert>
     </changeSet>
 
-    <!-- Loan-level residual columns/index may be absent if the earlier createIndex was skipped or interrupted. -->
+    <!-- Loan-level residual columns/index may be absent if the earlier createIndex was skipped or interrupted.
+         Avoid MySQL-incompatible "DROP ... IF EXISTS"; use Liquibase preconditions instead. -->
+    <changeSet author="codex" id="CGLT-303-product-level-residual-configuration-drop-index">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_loan" indexName="idx_m_loan_residual_closure_candidates"/>
+        </preConditions>
+        <dropIndex tableName="m_loan" indexName="idx_m_loan_residual_closure_candidates"/>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-product-level-residual-configuration-drop-loan-enabled">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="m_loan" columnName="residual_auto_close_enabled"/>
+        </preConditions>
+        <dropColumn tableName="m_loan" columnName="residual_auto_close_enabled"/>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-product-level-residual-configuration-drop-loan-threshold">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="m_loan" columnName="residual_closure_threshold"/>
+        </preConditions>
+        <dropColumn tableName="m_loan" columnName="residual_closure_threshold"/>
+    </changeSet>
+
+    <changeSet author="codex" id="CGLT-303-product-level-residual-configuration-drop-loan-overridden">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="m_loan" columnName="residual_config_overridden"/>
+        </preConditions>
+        <dropColumn tableName="m_loan" columnName="residual_config_overridden"/>
+    </changeSet>
+
     <changeSet author="codex" id="CGLT-303-product-level-residual-configuration">
         <validCheckSum>ANY</validCheckSum>
-        <sql>
-            DROP INDEX IF EXISTS idx_m_loan_residual_closure_candidates ON m_loan;
-        </sql>
-        <sql>
-            ALTER TABLE m_loan
-                DROP COLUMN IF EXISTS residual_auto_close_enabled,
-                DROP COLUMN IF EXISTS residual_closure_threshold,
-                DROP COLUMN IF EXISTS residual_config_overridden;
-        </sql>
         <delete tableName="acc_product_mapping">
             <where>financial_account_type IN (14, 15)</where>
         </delete>
