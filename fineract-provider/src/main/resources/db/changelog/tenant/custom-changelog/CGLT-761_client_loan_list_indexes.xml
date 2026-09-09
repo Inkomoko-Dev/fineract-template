@@ -340,4 +340,17 @@
         <dropIndex tableName="m_savings_account" indexName="idx_m_savings_account_no"/>
     </changeSet>
 
+    <changeSet id="CGLT-761-idx-notification-mapper-user-unread" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="notification_mapper" indexName="idx_notification_mapper_user_unread"/>
+            </not>
+        </preConditions>
+        <comment>Auth-filter unread check: user_id + is_read (existing index is user_id only)</comment>
+        <createIndex tableName="notification_mapper" indexName="idx_notification_mapper_user_unread">
+            <column name="user_id"/>
+            <column name="is_read"/>
+        </createIndex>
+    </changeSet>
+
 </databaseChangeLog>

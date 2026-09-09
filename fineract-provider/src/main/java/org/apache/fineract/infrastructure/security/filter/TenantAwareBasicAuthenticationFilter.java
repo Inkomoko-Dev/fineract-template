@@ -169,10 +169,14 @@ public class TenantAwareBasicAuthenticationFilter extends BasicAuthenticationFil
         super.onSuccessfulAuthentication(request, response, authResult);
         AppUser user = (AppUser) authResult.getPrincipal();
 
-        if (notificationReadPlatformService.hasUnreadNotifications(user.getId())) {
-            response.addHeader("X-Notification-Refresh", "true");
-        } else {
-            response.addHeader("X-Notification-Refresh", "false");
+        // notification_mapper is only needed for the UI notification bell (X-Notification-Refresh).
+        // Skip heavy/background endpoints that never drive that header.
+        if (shouldCheckUnreadNotifications(request)) {
+            if (notificationReadPlatformService.hasUnreadNotifications(user.getId())) {
+                response.addHeader("X-Notification-Refresh", "true");
+            } else {
+                response.addHeader("X-Notification-Refresh", "false");
+            }
         }
 
         String pathURL = request.getRequestURI();
@@ -183,5 +187,19 @@ public class TenantAwareBasicAuthenticationFilter extends BasicAuthenticationFil
         if (notAllowed) {
             throw new BadCredentialsException("User not authorised to use the requested resource.");
         }
+    }
+
+    /**
+     * Returns false for scheduler/jobs/reports/batch traffic so those requests do not query notification_mapper.
+     * Interactive API calls still get X-Notification-Refresh for the community-app bell.
+     */
+    private static boolean shouldCheckUnreadNotifications(final HttpServletRequest request) {
+        final String path = request.getRequestURI();
+        if (path == null) {
+            return false;
+        }
+        final String lower = path.toLowerCase();
+        return !(lower.contains("/jobs") || lower.contains("/scheduler") || lower.contains("/runreports") || lower.contains("/batch")
+                || lower.contains("/actuator") || lower.contains("/echodataparameters"));
     }
 }
