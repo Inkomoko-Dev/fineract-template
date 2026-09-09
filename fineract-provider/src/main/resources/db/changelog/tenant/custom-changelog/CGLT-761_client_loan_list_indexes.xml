@@ -190,4 +190,104 @@
         </createIndex>
     </changeSet>
 
+    <changeSet id="CGLT-761-idx-m-client-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client" indexName="idx_m_client_account_no"/>
+            </not>
+        </preConditions>
+        <comment>Global search / client lookup by account number prefix</comment>
+        <createIndex tableName="m_client" indexName="idx_m_client_account_no">
+            <column name="account_no"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-client-external-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client" indexName="idx_m_client_external_id"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_client" indexName="idx_m_client_external_id">
+            <column name="external_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-client-mobile-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client" indexName="idx_m_client_mobile_no"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_client" indexName="idx_m_client_mobile_no">
+            <column name="mobile_no"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan" indexName="idx_m_loan_account_no"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_loan" indexName="idx_m_loan_account_no">
+            <column name="account_no"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-loan-external-id" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan" indexName="idx_m_loan_external_id"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_loan" indexName="idx_m_loan_external_id">
+            <column name="external_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-client-identifier-document-key" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_client_identifier" indexName="idx_m_client_identifier_document_key"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_client_identifier" indexName="idx_m_client_identifier_document_key">
+            <column name="document_key"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-group-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_group" indexName="idx_m_group_account_no"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_group" indexName="idx_m_group_account_no">
+            <column name="account_no"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-group-display-name" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_group" indexName="idx_m_group_display_name"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_group" indexName="idx_m_group_display_name">
+            <column name="display_name"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-761-idx-m-savings-account-no" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_savings_account" indexName="idx_m_savings_account_no"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_savings_account" indexName="idx_m_savings_account_no">
+            <column name="account_no"/>
+        </createIndex>
+    </changeSet>
+
 </databaseChangeLog>
