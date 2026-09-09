@@ -21,11 +21,21 @@ package org.apache.fineract.infrastructure.Odoo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collections;
+import org.apache.fineract.accounting.journalentry.data.JournalData;
+import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
+import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
@@ -33,10 +43,15 @@ import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -71,6 +86,9 @@ public class OdooServiceImplTest {
     private EntityDisbursementDefaultsService entityDisbursementDefaultsService;
 
     @Mock
+    private LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository;
+
+    @Mock
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
 
     @Mock
@@ -81,6 +99,16 @@ public class OdooServiceImplTest {
 
     @Mock
     private org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalRepository provisionBatchJournalRepository;
+
+    @BeforeEach
+    void setTenant() {
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
+    }
+
+    @AfterEach
+    void clearTenant() {
+        ThreadLocalContextUtil.clearTenant();
+    }
 
     @Test
     public void scheduledJournalPostingFetchesAllUnpostedTransactions() throws JobExecutionException {
@@ -93,5 +121,32 @@ public class OdooServiceImplTest {
         verify(loanReadPlatformService).retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo();
         verify(loanReadPlatformService, never()).retrieveLoanTransactionWhoseJournalEntriesAreNotPostedToOdoo(any(LocalDate.class),
                 any(LocalDate.class), isNull(), isNull());
+    }
+
+    @Test
+    public void matchingDisbursementDetailStillEnrichesEntityDefaults() {
+        final JournalData journalData = new JournalData();
+        journalData.setLocation("Nairobi");
+
+        final LocalDate disbursementDate = LocalDate.of(2026, 9, 9);
+        final Loan loan = mock(Loan.class);
+        final LoanTransaction txn = mock(LoanTransaction.class);
+        final Office office = mock(Office.class);
+        final LoanDisbursementDetails detail = mock(LoanDisbursementDetails.class);
+        final MonetaryCurrency currency = mock(MonetaryCurrency.class);
+        final Money amount = mock(Money.class);
+
+        when(txn.isDisbursement()).thenReturn(true);
+        when(txn.getTransactionDate()).thenReturn(disbursementDate);
+        when(loan.getDisbursementDetails()).thenReturn(Collections.singletonList(detail));
+        when(detail.getActualDisbursementDate()).thenReturn(disbursementDate);
+        when(detail.getPrincipal()).thenReturn(BigDecimal.TEN);
+        when(loan.getCurrency()).thenReturn(currency);
+        when(txn.getAmount(currency)).thenReturn(amount);
+        when(amount.getAmount()).thenReturn(BigDecimal.TEN);
+
+        odooService.applyDisbursementFieldsToOdooJournal(journalData, loan, txn, office);
+
+        verify(entityDisbursementDefaultsService).enrichOdooJournalData(journalData, loan, txn, office);
     }
 }

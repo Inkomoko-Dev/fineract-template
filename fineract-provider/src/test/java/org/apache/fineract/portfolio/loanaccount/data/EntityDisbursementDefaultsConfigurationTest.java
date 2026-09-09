@@ -71,10 +71,19 @@ class EntityDisbursementDefaultsConfigurationTest {
     @Test
     void matchesOfficeNameCaseInsensitive() {
         final EntityDisbursementDefaultsConfiguration config = new EntityDisbursementDefaultsConfiguration();
-        config.setOfficeNames(List.of("Inkomoko - Capital Kenya Limited"));
-        
+        config.setOfficeNames(List.of("Inkomoko - Capital Kenya Limited", "Inkomoko Kenya Capital"));
+
         assertTrue(config.matchesOfficeName("inkomoko kenya capital"));
         assertTrue(config.matchesOfficeName("INKOMOKO KENYA CAPITAL"));
+        assertTrue(config.matchesOfficeName("inkomoko - capital kenya limited"));
+    }
+
+    @Test
+    void matchesOfficeNameDoesNotTreatKenyaCapitalAsKenya() {
+        final EntityDisbursementDefaultsConfiguration config = new EntityDisbursementDefaultsConfiguration();
+        config.setOfficeNames(List.of("Inkomoko - Capital Kenya Limited", "Inkomoko Kenya Capital"));
+
+        assertFalse(config.matchesOfficeName("Inkomoko Kenya"));
     }
 
     @Test

@@ -177,7 +177,7 @@ class EntityDisbursementDefaultsServiceTest {
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko - Capital Kenya Limited");
         when(txn.isDisbursement()).thenReturn(true);
-        when(txn.getTransactionDate()).thenReturn(LocalDate.now(ZoneId.systemDefault()));
+        when(txn.getTransactionDate()).thenReturn(LocalDate.of(2026, 8, 15));
         when(txn.getId()).thenReturn(55L);
         when(loan.getId()).thenReturn(100L);
         when(loan.getDisbursementDetails()).thenReturn(Collections.emptyList());
@@ -244,6 +244,25 @@ class EntityDisbursementDefaultsServiceTest {
         assertTrue(service.findConfigurationForOffice("Inkomoko - Capital Kenya Limited") != null);
     }
 
+    @Test
+    void resolveAppliesForInkomokoKenyaCapitalOfficeName() {
+        enableDefaults();
+        stubEntityConfigs();
+
+        final Loan loan = mock(Loan.class);
+        final Office office = mock(Office.class);
+        when(loan.getOffice()).thenReturn(office);
+        when(office.getName()).thenReturn("Inkomoko Kenya Capital");
+        when(codeValueRepository.findOneByCodeNameAndLabelWithNotFoundDetection("Department", "Investment"))
+                .thenReturn(mock(CodeValue.class));
+        when(codeValueRepository.findOneByCodeNameAndLabelOptional(eq("InvestmentsBudget"), anyString())).thenReturn(null);
+
+        final EntityDisbursementDefaultsResult result = service.resolve(loan, LocalDate.of(2026, 9, 9));
+
+        assertTrue(result.isApplicable());
+        assertEquals("Kenya Capital", result.getEntityName());
+    }
+
     private void enableDefaults() {
         when(configurationReadPlatformService.retrieveGlobalConfiguration(EntityDisbursementDefaultsService.CONFIG_ENABLED))
                 .thenReturn(new GlobalConfigurationPropertyData(EntityDisbursementDefaultsService.CONFIG_ENABLED, true, null, null,
@@ -254,13 +273,14 @@ class EntityDisbursementDefaultsServiceTest {
         when(configurationReadPlatformService.retrieveGlobalConfiguration(EntityDisbursementDefaultsService.CONFIG_ENTITIES))
                 .thenReturn(configWithString("["
                         + "{\"entityName\":\"Kenya Capital\","
-                        + "\"officeNames\":[\"Inkomoko - Capital Kenya Limited\"],"
+                        + "\"officeNames\":[\"Inkomoko - Capital Kenya Limited\",\"Inkomoko Kenya Capital\"],"
                         + "\"defaultDepartmentName\":\"Investment\","
                         + "\"budgetCodeName\":\"InvestmentsBudget\","
                         + "\"budgetLocationPrefix\":\"Investments - \"}]"));
     }
 
-    private GlobalConfigurationPropertyData configWithString(final String value) {
-        return new GlobalConfigurationPropertyData("name", false, null, null, value, "description", false);
+    private GlobalConfigurationPropertyData configWithString(final String json) {
+        // Production stores the entity JSON in c_configuration.description (string_value is VARCHAR(100)).
+        return new GlobalConfigurationPropertyData("name", false, null, null, null, json, false);
     }
 }
