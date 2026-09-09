@@ -45,4 +45,16 @@ public enum TemplateEntity {
         return this.id;
     }
 
+    public static TemplateEntity fromInt(final Integer entityId) {
+        if (entityId == null) {
+            return null;
+        }
+        for (final TemplateEntity entity : TemplateEntity.values()) {
+            if (entity.getId() == entityId.intValue()) {
+                return entity;
+            }
+        }
+        return null;
+    }
+
 }

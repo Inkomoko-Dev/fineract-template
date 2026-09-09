@@ -55,6 +55,7 @@ import org.apache.fineract.commands.service.CommandWrapperBuilder;
 import org.apache.fineract.commands.service.PortfolioCommandSourceWritePlatformService;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -127,7 +128,17 @@ public class TemplatesApiResource {
         List<Template> templates = new ArrayList<>();
 
         if (typeId != -1 && entityId != -1) {
-            templates = this.templateService.getAllByEntityAndType(TemplateEntity.values()[entityId], TemplateType.values()[typeId]);
+            final TemplateEntity entity = TemplateEntity.fromInt(entityId);
+            final TemplateType type = TemplateType.fromInt(typeId);
+            if (entity == null) {
+                throw new PlatformDataIntegrityException("error.msg.template.entity.id.invalid",
+                        "Template entity id `" + entityId + "` is not supported", "entityId", entityId);
+            }
+            if (type == null) {
+                throw new PlatformDataIntegrityException("error.msg.template.type.id.invalid",
+                        "Template type id `" + typeId + "` is not supported", "typeId", typeId);
+            }
+            templates = this.templateService.getAllByEntityAndType(entity, type);
         } else {
             templates = this.templateService.getAll();
         }
