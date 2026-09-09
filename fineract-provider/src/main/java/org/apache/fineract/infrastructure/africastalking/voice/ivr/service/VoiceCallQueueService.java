@@ -57,6 +57,14 @@ public class VoiceCallQueueService {
     }
 
     @Transactional
+    public void markConnectingById(final Long queueEntryId) {
+        if (queueEntryId == null) {
+            return;
+        }
+        queueEntryRepository.findById(queueEntryId).ifPresent(this::markConnecting);
+    }
+
+    @Transactional
     public void markConnected(final VoiceIvrSession session) {
         markConnected(session.getExternalSessionId());
     }

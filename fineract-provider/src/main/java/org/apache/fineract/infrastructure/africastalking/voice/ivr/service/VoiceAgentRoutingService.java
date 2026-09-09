@@ -39,6 +39,7 @@ public class VoiceAgentRoutingService {
     private final VoiceCallQueueService queueService;
     private final VoiceIvrDialTargetResolver dialTargetResolver;
     private final VoiceIvrSessionService sessionService;
+    private final VoiceRecordingConsentService recordingConsentService;
     private final AfricasTalkingProperties properties;
 
     @Transactional
@@ -84,17 +85,11 @@ public class VoiceAgentRoutingService {
             queueService.abandonWaitingEntries(session);
             return VoiceXmlBuilder.buildUnavailableDepartment(option.getOptionLabel());
         }
+        if (properties.getVoice().isRecordingConsentRequired()) {
+            return recordingConsentService.beginConsent(session, option.getActionTarget(), option.getOptionLabel(), entry, languageCode);
+        }
         queueService.markConnecting(entry);
         sessionService.markClosed(session);
-        final String connectingMessage = buildConnectingMessage(languageCode, option.getOptionLabel());
-        return VoiceXmlBuilder.buildConnectingDial(connectingMessage, phoneNumber);
-    }
-
-    private String buildConnectingMessage(final String languageCode, final String departmentLabel) {
-        final String connecting = VoiceIvrMessages.connectingToAgent(languageCode, departmentLabel);
-        if (!properties.getVoice().isRecordingConsentRequired()) {
-            return connecting;
-        }
-        return VoiceIvrMessages.recordingConsentNotice(languageCode) + " " + connecting;
+        return VoiceXmlBuilder.buildConnectingDial(VoiceIvrMessages.connectingToAgent(languageCode, option.getOptionLabel()), phoneNumber);
     }
 }

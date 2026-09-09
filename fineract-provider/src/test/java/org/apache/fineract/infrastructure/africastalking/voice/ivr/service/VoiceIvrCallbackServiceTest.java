@@ -75,6 +75,8 @@ class VoiceIvrCallbackServiceTest {
     private ClientRepositoryWrapper clientRepositoryWrapper;
     @Mock
     private StaffRepositoryWrapper staffRepositoryWrapper;
+    @Mock
+    private VoiceRecordingConsentService recordingConsentService;
 
     private AfricasTalkingProperties properties;
     private VoiceIvrCallbackService callbackService;
@@ -85,7 +87,7 @@ class VoiceIvrCallbackServiceTest {
         callbackService = new VoiceIvrCallbackService(properties, sessionService, menuRenderer, menuOptionRepository,
                 callerIdentificationService, clientAuthService, loanSelfServiceGate, agentRoutingService, callbackRequestService,
                 voicemailService, businessHoursService, contextSerializer, recipientResolutionService, phoneNumberNormalizer,
-                clientRepositoryWrapper, staffRepositoryWrapper);
+                clientRepositoryWrapper, staffRepositoryWrapper, recordingConsentService);
         when(businessHoursService.isWithinBusinessHours()).thenReturn(true);
     }
 

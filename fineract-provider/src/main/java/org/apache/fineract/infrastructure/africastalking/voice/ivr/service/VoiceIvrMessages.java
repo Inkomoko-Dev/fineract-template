@@ -48,8 +48,15 @@ public final class VoiceIvrMessages {
     }
 
     public static String otpSentPrompt(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Twoherejwe kode y'igenzura kuri telefone yawe. Andika kode ukurikije hash."
-                : "We sent a verification code to your phone. Enter the code followed by hash.";
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Twoherejwe kode y'igenzura kuri WhatsApp yawe. Andika kode ukurikije hash."
+                : "We sent a verification code to your WhatsApp number. Enter the code followed by hash.";
+    }
+
+    public static String otpDeliveryFailed(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Ntitwashoboye kohereza kode kuri WhatsApp yawe. Hamagara umujyanama wacu cyangwa gerageza nyuma."
+                : "We could not deliver a verification code to your WhatsApp number. Please contact an advisor or try again later.";
     }
 
     public static String otpInvalid(final String languageCode) {
@@ -92,9 +99,15 @@ public final class VoiceIvrMessages {
                 : "Connecting you to " + departmentLabel + ".";
     }
 
-    public static String recordingConsentNotice(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Iyi telefone irashobora gufatwa. Komeza kugirango wemere."
-                : "This call may be recorded for quality and training purposes.";
+    public static String recordingConsentPrompt(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Iyi telefone irashobora gufatwa. Kanda 1 kwemera no gukomeza, cyangwa 2 gukomeza nta gufatwa."
+                : "This call may be recorded for quality and training. Press 1 to consent and continue, or 2 to continue without recording.";
+    }
+
+    public static String recordingConsentInvalid(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Hitamo 1 cyangwa 2."
+                : "Please press 1 to consent or 2 to continue without recording.";
     }
 
     public static String goodbye(final String languageCode) {

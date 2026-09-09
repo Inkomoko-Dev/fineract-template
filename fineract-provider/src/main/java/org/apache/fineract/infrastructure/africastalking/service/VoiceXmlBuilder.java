@@ -52,8 +52,12 @@ public final class VoiceXmlBuilder {
     }
 
     public static String buildConnectingDial(final String sayText, final String phoneNumber) {
+        return buildConnectingDial(sayText, phoneNumber, true);
+    }
+
+    public static String buildConnectingDial(final String sayText, final String phoneNumber, final boolean record) {
         return wrap("<Say voice=\"woman\">" + escapeXmlText(sayText) + "</Say>" + "<Dial phoneNumbers=\"" + escapeXmlAttribute(phoneNumber)
-                + "\" record=\"true\" sequential=\"true\"/>");
+                + "\" record=\"" + (record ? "true" : "false") + "\" sequential=\"true\"/>");
     }
 
     public static String buildAfterHoursVoicemail() {

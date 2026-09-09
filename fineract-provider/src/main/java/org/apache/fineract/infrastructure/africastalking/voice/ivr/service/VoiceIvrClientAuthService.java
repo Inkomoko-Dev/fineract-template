@@ -158,7 +158,9 @@ public class VoiceIvrClientAuthService {
 
     private String issueOtpAndPrompt(final VoiceIvrSession session, final WhatsAppSessionContext context, final String language) {
         final String otp = otpService.issueOtp(session.getCallerNumber(), context.getCandidateClientId());
-        otpNotificationService.sendOtp(session.getCallerNumber(), otp, language);
+        if (!otpNotificationService.sendOtp(session.getCallerNumber(), otp, language)) {
+            return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.otpDeliveryFailed(language));
+        }
         context.setAuthStep(WhatsAppAuthStep.VERIFY_OTP.name());
         session.setSessionContext(contextSerializer.toJson(context));
         session.setSessionStatus(VoiceIvrSessionStatus.AUTHENTICATING);

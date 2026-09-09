@@ -18,7 +18,17 @@
  */
 package org.apache.fineract.infrastructure.africastalking.voice.ivr.constants;
 
-public enum VoiceIvrSessionStatus {
+/**
+ * Voice IVR authentication constraints.
+ * <p>
+ * OTP delivery is intentionally WhatsApp-only for CGLT-678. SMS/voice OTP fallbacks are out of scope until a separate
+ * channel policy is approved.
+ */
+public final class VoiceIvrAuthConstants {
 
-    LANGUAGE_SELECTION, ACTIVE, AUTHENTICATING, AWAITING_INPUT, RECORDING_CONSENT, AFTER_HOURS, QUEUED, VOICEMAIL, CLOSED
+    public static final String OTP_DELIVERY_CHANNEL = "WHATSAPP";
+
+    public static final String PENDING_RECORDING_CONSENT = "VOICE_RECORDING_CONSENT";
+
+    private VoiceIvrAuthConstants() {}
 }

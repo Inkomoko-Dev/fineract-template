@@ -84,7 +84,9 @@ public class AfricasTalkingVoiceService {
                     ? clientRepositoryWrapper.findOneWithNotFoundDetection(recipient.getClientId()) : null;
             final Staff staff = recipient.getStaffId() != null
                     ? staffRepositoryWrapper.findOneWithNotFoundDetection(recipient.getStaffId()) : null;
-            return VoiceCallLog.inbound(sessionId, callerNumber, destinationNumber, client, staff);
+            final VoiceCallLog inbound = VoiceCallLog.inbound(sessionId, callerNumber, destinationNumber, client, staff);
+            inbound.setRecordingConsentRequired(properties.getVoice().isRecordingConsentRequired());
+            return inbound;
         });
         if (StringUtils.isNotBlank(dtmfDigits)) {
             callLog.setDtmfDigits(dtmfDigits);

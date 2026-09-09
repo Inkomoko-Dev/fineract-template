@@ -23,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingClient;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrAuthConstants;
 import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveMessages;
 import org.springframework.stereotype.Service;
 
@@ -34,15 +35,18 @@ public class VoiceIvrOtpNotificationService {
     private final AfricasTalkingClient africasTalkingClient;
     private final AfricasTalkingProperties properties;
 
-    public void sendOtp(final String phoneNumber, final String otp, final String languageCode) {
+    public boolean sendOtp(final String phoneNumber, final String otp, final String languageCode) {
         if (!properties.isConfigured()) {
             log.warn("Skipping voice IVR OTP delivery because AfricasTalking is not configured");
-            return;
+            return false;
         }
         try {
             africasTalkingClient.sendWhatsAppMessage(phoneNumber, WhatsAppInteractiveMessages.otpIssued(languageCode, otp));
+            log.debug("Delivered voice IVR OTP via {}", VoiceIvrAuthConstants.OTP_DELIVERY_CHANNEL);
+            return true;
         } catch (final IOException e) {
-            log.warn("Failed to deliver voice IVR OTP via WhatsApp", e);
+            log.warn("Failed to deliver voice IVR OTP via {}", VoiceIvrAuthConstants.OTP_DELIVERY_CHANNEL, e);
+            return false;
         }
     }
 }

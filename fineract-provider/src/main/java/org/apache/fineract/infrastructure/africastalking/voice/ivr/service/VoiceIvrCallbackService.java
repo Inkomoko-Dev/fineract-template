@@ -65,6 +65,7 @@ public class VoiceIvrCallbackService {
     private final PhoneNumberNormalizer phoneNumberNormalizer;
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final StaffRepositoryWrapper staffRepositoryWrapper;
+    private final VoiceRecordingConsentService recordingConsentService;
 
     @Transactional
     public String handleInbound(final String rawPayload) {
@@ -93,6 +94,9 @@ public class VoiceIvrCallbackService {
         }
         if (session.getSessionStatus() == VoiceIvrSessionStatus.AUTHENTICATING) {
             return clientAuthService.handleAuthInput(session, dtmfDigits.trim());
+        }
+        if (session.getSessionStatus() == VoiceIvrSessionStatus.RECORDING_CONSENT) {
+            return recordingConsentService.handleConsentInput(session, dtmfDigits.trim());
         }
         if (session.getSessionStatus() == VoiceIvrSessionStatus.AWAITING_INPUT) {
             return handleAwaitingInput(session, dtmfDigits.trim());
@@ -150,6 +154,9 @@ public class VoiceIvrCallbackService {
         }
         if (session.getSessionStatus() == VoiceIvrSessionStatus.AUTHENTICATING) {
             return VoiceXmlBuilder.buildCollectInput(clientAuthService.getAuthReprompt(session));
+        }
+        if (session.getSessionStatus() == VoiceIvrSessionStatus.RECORDING_CONSENT) {
+            return recordingConsentService.reprompt(session);
         }
         if (session.getSessionStatus() == VoiceIvrSessionStatus.AWAITING_INPUT) {
             return presentAwaitingInputPrompt(session);
