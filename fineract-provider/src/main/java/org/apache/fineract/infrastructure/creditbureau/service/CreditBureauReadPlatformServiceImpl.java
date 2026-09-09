@@ -115,24 +115,6 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
     private static final class CRBPostingLoggerRowMapper
             implements RowMapper<CRBPostingLoggerData> {
 
-        public String schema() {
-            return """
-                    cpl.id as id,
-                    cpl.batch_id as batchId,
-                    cpl.has_passed as hasPassed,
-                    cpl.loan_id as loanId,
-                    l.account_no as loanAccountNumber,
-                    cpl.crb_response_id as crbResponseId,
-                    cpl.error_logs as errorLogs,
-                    cpl.pay_load as payload,
-                    cpl.date as date,
-                    cpl.created_on_utc as createdDate,
-                    cpl.last_modified_on_utc as lastModifiedDate
-                    from m_crb_posting_logger cpl
-                    join m_loan l on cpl.loan_id = l.id
-                    """;
-        }
-
         public String listSchema() {
             return """
                     cpl.id as id,
