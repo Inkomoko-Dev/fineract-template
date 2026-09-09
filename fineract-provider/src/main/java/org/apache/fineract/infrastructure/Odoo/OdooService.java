@@ -20,8 +20,6 @@ package org.apache.fineract.infrastructure.Odoo;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +43,7 @@ public interface OdooService {
     public void postCustomerUpdatedDetailsToOddo() throws JobExecutionException;
 
     JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo, String location,Long fundSource)
-            throws IOException, NoSuchAlgorithmException, KeyManagementException;
+            throws IOException;
 
     String updateJournalEntryWithOdooStatus(String stringRequest);
 
@@ -87,8 +85,7 @@ public interface OdooService {
      * Posts a previously built provisioning journal payload to the Celery/Odoo
      * endpoint. Account.move creation remains Odoo's responsibility.
      */
-    JsonObject postProvisioningJournalEntry(ProvisionBatchJournal journal)
-            throws IOException, NoSuchAlgorithmException, KeyManagementException;
+    JsonObject postProvisioningJournalEntry(ProvisionBatchJournal journal) throws IOException;
 
     String getStringField(JsonObject jsonObject, String fieldName);
 

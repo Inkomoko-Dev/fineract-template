@@ -29,10 +29,6 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -52,10 +48,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-import javax.net.ssl.SSLSocketFactory;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -203,13 +195,9 @@ public class OdooServiceImpl implements OdooService {
     @PostConstruct
     public void initializeExecutorService() {
         genericExecutorService = Executors.newSingleThreadExecutor();
+        this.celeryHttpClient = new OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build();
         this.integrationLayerHttpClient = new OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).connectTimeout(10, TimeUnit.SECONDS)
                 .build();
-        try {
-            this.celeryHttpClient = buildTrustAllHttpClient();
-        } catch (final Exception e) {
-            LOG.error("Failed to initialize Celery OkHttpClient for Odoo posting", e);
-        }
     }
 
     @Override
@@ -414,7 +402,7 @@ public class OdooServiceImpl implements OdooService {
     @Override
     // unlike createCustomerToOddo/updateCustomerToOddo, no loginToOddo() gate — must not block the ASYNC Kafka publish
     public JsonObject createJournalEntryToOddo(List<JournalEntry> list, Long loanTransactionId, Long transactionType, Boolean isReversed, String loanAccountNo, String location,Long fundSource)
-            throws IOException, NoSuchAlgorithmException, KeyManagementException {
+            throws IOException {
 
         JournalItemData journalEntry;
         List<JournalItemData> journalItems = new ArrayList<>();
@@ -576,8 +564,7 @@ public class OdooServiceImpl implements OdooService {
     }
 
     @Override
-    public JsonObject postProvisioningJournalEntry(ProvisionBatchJournal journal)
-            throws IOException, NoSuchAlgorithmException, KeyManagementException {
+    public JsonObject postProvisioningJournalEntry(ProvisionBatchJournal journal) throws IOException {
 
         if (!this.configurationDomainService.isOdooIntegrationEnabled()) {
             throw new GeneralPlatformDomainRuleException("error.msg.odoo.integration.disabled",
@@ -767,9 +754,10 @@ public class OdooServiceImpl implements OdooService {
         LOG.warn("Odoo response missing journal reference / cbs_journal_entry_id");
     }
 
-    private JsonObject sendRequest(String payload) throws IOException, NoSuchAlgorithmException, KeyManagementException {
+    private JsonObject sendRequest(String payload) throws IOException {
 
-        final OkHttpClient httpClient = this.celeryHttpClient != null ? this.celeryHttpClient : buildTrustAllHttpClient();
+        final OkHttpClient httpClient = this.celeryHttpClient != null ? this.celeryHttpClient
+                : new OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build();
 
         String authorization = Base64.getEncoder().encodeToString((username + ":" + password).getBytes(UTF_8));
 
@@ -788,29 +776,6 @@ public class OdooServiceImpl implements OdooService {
                     " Failed to post Journal Entries to Odoo: " + response.code() + ":" + response.message() + " -Code From Odoo :-"
                             + getStringField(js, "responseCode") + " -Message From Odoo :-" + getStringField(js, "responseMessage"));
         }
-    }
-
-    private OkHttpClient buildTrustAllHttpClient() throws NoSuchAlgorithmException, KeyManagementException {
-        TrustManager[] trustAllCerts = new TrustManager[] { new X509TrustManager() {
-            @Override
-            public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-
-            @Override
-            public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-
-            @Override
-            public X509Certificate[] getAcceptedIssuers() {
-                return new X509Certificate[] {};
-            }
-        } };
-
-        final SSLContext sslContext = SSLContext.getInstance("SSL");
-        sslContext.init(null, trustAllCerts, new SecureRandom());
-        final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
-
-        return new OkHttpClient.Builder().sslSocketFactory(sslSocketFactory, (X509TrustManager) trustAllCerts[0])
-                .hostnameVerifier((hostname, session) -> true).connectTimeout(10, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
-                .build();
     }
 
     private JsonObject publishJournalEntryEvent(Long loanTransactionId, String payload) {
