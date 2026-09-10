@@ -74,11 +74,19 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
 
     @Override
     public LoanClassificationCountryConfigData retrieveTemplate() {
-        final Collection<CodeValueData> countries = this.codeValueReadPlatformService.retrieveCodeValuesByCode("COUNTRY");
-        final List<Long> configured = this.countryConfigRepository.findAll().stream().map(LoanClassificationCountryConfig::getCountryCvId)
-                .collect(Collectors.toList());
-        final List<CodeValueData> available = countries.stream().filter(country -> !configured.contains(country.getId()))
-                .collect(Collectors.toList());
+        final List<CodeValueData> available = this.jdbcTemplate.query(
+                "SELECT cv.id AS id, cv.code_value AS value, cv.external_code AS external_code, "
+                        + "cv.code_description AS description, cv.order_position AS position, "
+                        + "cv.is_active AS isActive, cv.is_mandatory AS mandatory "
+                        + "FROM m_code_value cv INNER JOIN m_code c ON c.id = cv.code_id AND c.code_name = 'COUNTRY' "
+                        + "WHERE cv.is_active = 1 "
+                        + "AND (EXISTS (SELECT 1 FROM m_address a WHERE a.country_id = cv.id) "
+                        + " OR EXISTS (SELECT 1 FROM m_loan_due_diligence_info dd WHERE dd.country_cv_id = cv.id)) "
+                        + "AND NOT EXISTS (SELECT 1 FROM m_loan_classification_country_config cfg WHERE cfg.country_cv_id = cv.id) "
+                        + "ORDER BY cv.code_value",
+                (rs, rowNum) -> CodeValueData.instance(rs.getLong("id"), rs.getString("value"), rs.getString("external_code"),
+                        JdbcSupport.getInteger(rs, "position"), rs.getString("description"), rs.getBoolean("isActive"),
+                        rs.getBoolean("mandatory")));
         return LoanClassificationCountryConfigData.template(available, defaultThresholds());
     }
 
