@@ -73,7 +73,8 @@ public enum JobName {
     SEND_WHATSAPP_MESSAGES("Send WhatsApp Messages"), //
     MONITOR_WHATSAPP_SUPPORT_TICKET_SLA("Monitor WhatsApp Support Ticket SLA"), //
     ESCALATE_PENDING_HISTORICAL_CORRECTIONS("Escalate Pending Historical Corrections"), //
-    PROCESS_RESIDUAL_LOAN_CLOSURES("Process Residual Loan Closures"); //
+    PROCESS_RESIDUAL_LOAN_CLOSURES("Process Residual Loan Closures"), //
+    CLASSIFY_LOANS("Classify Loans"); //
 
     private final String name;
 
