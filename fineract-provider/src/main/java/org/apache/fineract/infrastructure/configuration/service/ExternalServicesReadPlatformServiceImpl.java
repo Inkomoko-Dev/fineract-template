@@ -60,6 +60,10 @@ public class ExternalServicesReadPlatformServiceImpl implements ExternalServices
                 serviceNameToUse = ExternalServicesConstants.NOTIFICATION_SERVICE_NAME;
             break;
 
+            case "NOVU":
+                serviceNameToUse = ExternalServicesConstants.NOVU_SERVICE_NAME;
+            break;
+
             default:
                 throw new ExternalServiceConfigurationNotFoundException(serviceName);
         }

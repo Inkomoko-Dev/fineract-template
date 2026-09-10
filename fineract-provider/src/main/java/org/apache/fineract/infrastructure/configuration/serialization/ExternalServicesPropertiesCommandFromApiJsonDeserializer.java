@@ -25,6 +25,7 @@ import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.configuration.exception.ExternalServiceConfigurationNotFoundException;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesConstants.NotificationJSONinputParams;
+import org.apache.fineract.infrastructure.configuration.service.ExternalServicesConstants.NovuJSONinputParams;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesConstants.S3JSONinputParams;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesConstants.SMSJSONinputParams;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesConstants.SMTPJSONinputParams;
@@ -40,6 +41,7 @@ public class ExternalServicesPropertiesCommandFromApiJsonDeserializer {
     private final Set<String> smtpSupportedParameters = SMTPJSONinputParams.getAllValues();
     private final Set<String> smsSupportedParameters = SMSJSONinputParams.getAllValues();
     private final Set<String> notificationSupportedParameters = NotificationJSONinputParams.getAllValues();
+    private final Set<String> novuSupportedParameters = NovuJSONinputParams.getAllValues();
     private final FromJsonHelper fromApiJsonHelper;
 
     @Autowired
@@ -68,6 +70,10 @@ public class ExternalServicesPropertiesCommandFromApiJsonDeserializer {
 
             case "NOTIFICATION":
                 this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, this.notificationSupportedParameters);
+            break;
+
+            case "NOVU":
+                this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, this.novuSupportedParameters);
             break;
 
             default:

@@ -75,6 +75,10 @@ public class ExternalServiceWritePlatformServiceJpaRepositoryImpl implements Ext
         Map<String, Object> changesList = new LinkedHashMap<>();
         while (it.hasNext()) {
             String name = it.next();
+            if (ExternalServicesConstants.NOVU_SERVICE_NAME.equals(externalServiceName)
+                    && ExternalServicesConstants.NOVU_API_KEY.equals(name) && "XXXX".equals(command.stringValueOfParameterNamed(name))) {
+                continue;
+            }
             final ExternalServicesProperties externalServicesProperties = this.repositoryWrapper.findOneByIdAndName(externalServiceId, name,
                     externalServiceName);
             final Map<String, Object> changes = externalServicesProperties.update(command, name);

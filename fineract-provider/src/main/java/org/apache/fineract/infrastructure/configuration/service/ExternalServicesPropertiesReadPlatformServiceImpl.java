@@ -108,7 +108,7 @@ public class ExternalServicesPropertiesReadPlatformServiceImpl implements Extern
             final String name = rs.getString("name");
             String value = rs.getString("value");
             // Masking the password as we should not send the password back
-            if (name != null && "password".equalsIgnoreCase(name)) {
+            if (name != null && ("password".equalsIgnoreCase(name) || ExternalServicesConstants.NOVU_API_KEY.equalsIgnoreCase(name))) {
                 value = "XXXX";
             }
             return new ExternalServicesPropertiesData(name, value);
@@ -200,6 +200,10 @@ public class ExternalServicesPropertiesReadPlatformServiceImpl implements Extern
 
             case "NOTIFICATION":
                 serviceNameToUse = ExternalServicesConstants.NOTIFICATION_SERVICE_NAME;
+            break;
+
+            case "NOVU":
+                serviceNameToUse = ExternalServicesConstants.NOVU_SERVICE_NAME;
             break;
 
             default:

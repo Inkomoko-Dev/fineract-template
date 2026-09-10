@@ -56,6 +56,12 @@ public final class ExternalServicesConstants {
     public static final String NOTIFICATION_GCM_END_POINT = "gcm_end_point";
     public static final String NOTIFICATION_FCM_END_POINT = "fcm_end_point";
 
+    public static final String NOVU_SERVICE_NAME = "NOVU";
+    public static final String NOVU_API_URL = "api_url";
+    public static final String NOVU_API_KEY = "api_key";
+    public static final String NOVU_ENABLED = "enabled";
+    public static final String NOVU_TIMEOUT_SECONDS = "timeout_seconds";
+
     public enum ExternalservicePropertiesJSONinputParams {
 
         EXTERNAL_SERVICE_ID("external_service_id"), NAME("name"), VALUE("value");
@@ -212,6 +218,32 @@ public final class ExternalServicesConstants {
         @Override
         public String toString() {
             return name().toString().replaceAll("_", " ");
+        }
+
+        public String getValue() {
+            return this.value;
+        }
+    }
+
+    public enum NovuJSONinputParams {
+
+        API_URL("api_url"), API_KEY("api_key"), ENABLED("enabled"), TIMEOUT_SECONDS("timeout_seconds");
+
+        private final String value;
+        private static final Set<String> values = new HashSet<>();
+
+        static {
+            for (final NovuJSONinputParams type : NovuJSONinputParams.values()) {
+                values.add(type.value);
+            }
+        }
+
+        NovuJSONinputParams(final String value) {
+            this.value = value;
+        }
+
+        public static Set<String> getAllValues() {
+            return values;
         }
 
         public String getValue() {
