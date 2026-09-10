@@ -29,7 +29,11 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collections;
+import java.util.Optional;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
+import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
+import org.apache.fineract.useradministration.domain.AppUser;
+import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.office.domain.Office;
@@ -100,6 +104,9 @@ public class OdooServiceImplTest {
     @Mock
     private org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalRepository provisionBatchJournalRepository;
 
+    @Mock
+    private AppUserRepository appUserRepository;
+
     @BeforeEach
     void setTenant() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
@@ -148,5 +155,35 @@ public class OdooServiceImplTest {
         odooService.applyDisbursementFieldsToOdooJournal(journalData, loan, txn, office);
 
         verify(entityDisbursementDefaultsService).enrichOdooJournalData(journalData, loan, txn, office);
+    }
+
+    @Test
+    public void createdByUserEnrichesOdooJournalWithUsernameAndDisplayName() {
+        final JournalData journalData = new JournalData();
+        final JournalEntry entry = mock(JournalEntry.class);
+        final AppUser createdBy = mock(AppUser.class);
+
+        when(entry.getCreatedBy()).thenReturn(Optional.of(7L));
+        given(appUserRepository.findById(7L)).willReturn(Optional.of(createdBy));
+        when(createdBy.getUsername()).thenReturn("jdoe");
+        when(createdBy.getDisplayName()).thenReturn("John Doe");
+
+        odooService.applyCreatedByToOdooJournal(journalData, entry);
+
+        org.junit.jupiter.api.Assertions.assertEquals("jdoe", journalData.getCreatedByUsername());
+        org.junit.jupiter.api.Assertions.assertEquals("John Doe", journalData.getCreatedByDisplayName());
+    }
+
+    @Test
+    public void missingCreatedByLeavesOdooJournalFieldsNull() {
+        final JournalData journalData = new JournalData();
+        final JournalEntry entry = mock(JournalEntry.class);
+
+        when(entry.getCreatedBy()).thenReturn(Optional.empty());
+
+        odooService.applyCreatedByToOdooJournal(journalData, entry);
+
+        org.junit.jupiter.api.Assertions.assertNull(journalData.getCreatedByUsername());
+        org.junit.jupiter.api.Assertions.assertNull(journalData.getCreatedByDisplayName());
     }
 }
