@@ -989,9 +989,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 loan.retriveLastEmiAmount(), loan.getNextPossibleRepaymentDateForRescheduling(), null, loan.getApprovedPrincipal(),
                 loan.getInterestRateDifferential(), totalDisbursementCharge);
 
-        loanTransactionData.setNumberOfRepayments(retrieveNumberOfRepayments(loanId));
-        final List<LoanRepaymentScheduleInstallmentData> loanRepaymentScheduleInstallmentData = getRepaymentDataResponse(loanId);
-        loanTransactionData.setLoanRepaymentScheduleInstallments(loanRepaymentScheduleInstallmentData);
+        // Do not load the full repayment schedule here — disbursement UIs only need amounts,
+        // payment types, and optional recipient fields. Schedule fetch was a major latency cost.
         final GlobalConfigurationPropertyData enableLoanDisbursementRequest = this.configurationReadPlatformService
                 .retrieveGlobalConfiguration("Enable-loan-disbursement-request");
         loanTransactionData.setLoanDisbursementRequestEnabled(enableLoanDisbursementRequest.isEnabled());
