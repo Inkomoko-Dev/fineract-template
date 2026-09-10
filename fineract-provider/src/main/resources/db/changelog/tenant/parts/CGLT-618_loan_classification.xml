@@ -108,7 +108,7 @@
             <column name="id" type="BIGINT" autoIncrement="true">
                 <constraints primaryKey="true" nullable="false"/>
             </column>
-            <column name="country_cv_id" type="BIGINT">
+            <column name="country_cv_id" type="INT">
                 <constraints nullable="false"
                              unique="true"
                              uniqueConstraintName="uk_loan_classification_country"
@@ -179,7 +179,7 @@
                 <constraints nullable="false"/>
             </column>
             <column name="days_in_arrears" type="INT"/>
-            <column name="country_cv_id" type="BIGINT"/>
+            <column name="country_cv_id" type="INT"/>
             <column name="error_message" type="VARCHAR(1000)"/>
             <column name="excluded_from_downstream" type="BOOLEAN" defaultValueBoolean="false">
                 <constraints nullable="false"/>
@@ -231,7 +231,7 @@
                 <constraints nullable="false"/>
             </column>
             <column name="days_in_arrears" type="INT"/>
-            <column name="country_cv_id" type="BIGINT"/>
+            <column name="country_cv_id" type="INT"/>
             <column name="reason" type="VARCHAR(500)"/>
             <column name="error_message" type="VARCHAR(1000)"/>
             <column name="created_by" type="BIGINT"/>
