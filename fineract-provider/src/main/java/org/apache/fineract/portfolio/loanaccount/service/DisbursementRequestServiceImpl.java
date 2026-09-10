@@ -118,17 +118,21 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
                 JsonObject jsonResponse = JsonParser.parseString(resObject).getAsJsonObject();
                 String accessToken = jsonResponse.get("access_token").getAsString();
 
-                LOG.info("Login to inkomoko Integration  is Successful");
+                LOG.info("Login to Payment Hub is Successful");
                 return accessToken;
             } else {
-                LOG.error("Login to inkomoko Integration has failed:" + resObject);
-                throw new LoanDisbursementRequestException("Login to inkomoko Integration has failed",
-                        "integration.disbursementRequest.loginFailed", resObject);
+                LOG.error("Login to Payment Hub has failed:" + resObject);
+                throw new LoanDisbursementRequestException(
+                        "The disbursement could not be sent to the Payment Hub. Please try again later or contact support.",
+                        "integration.disbursementRequest.loginFailed");
             }
+        } catch (LoanDisbursementRequestException e) {
+            throw e;
         } catch (Exception e) {
-            LOG.error("Login to inkomoko Integration has failed:" + e);
-            throw new LoanDisbursementRequestException("Login to inkomoko Integration has failed",
-                    "integration.disbursementRequest.loginFailed", e);
+            LOG.error("Login to Payment Hub failed", e);
+            throw new LoanDisbursementRequestException(
+                    "The disbursement could not be sent to the Payment Hub. Please try again later or contact support.",
+                    "integration.disbursementRequest.loginFailed");
         }
     }
 
@@ -137,7 +141,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
     }
 
     @Override
-    public void disburseRequestLoan(Loan loan, JsonCommand command) {
+    public String disburseRequestLoan(Loan loan, JsonCommand command) {
         String token = authenticateToIntegrationApi();
         final ClientOtherInfo clientOtherInfo = this.clientOtherInfoRepository.getByClientId(loan.client().getId());
         if (clientOtherInfo == null) {
@@ -241,7 +245,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         try {
             requestJson = gson.toJson(disbursementRequestData);
         } catch (RuntimeException e) {
-            LOG.error("Failed to serialize Inkomoko disbursement payload for loanId={}, requestId={}, payloadClass={}", loan.getId(),
+            LOG.error("Failed to serialize Payment Hub disbursement payload for loanId={}, requestId={}, payloadClass={}", loan.getId(),
                     requestId, disbursementRequestData.getClass().getName(), e);
             throw e;
         }
@@ -249,25 +253,63 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         RequestBody body = RequestBody.create(requestJson, JSON);
         Request request = new Request.Builder().url(getConfigProperty("fineract.integrations.inkomoko.rest.initiate.disbursement"))
                 .addHeader("Authorization", "Bearer " + token).post(body).build();
-        final Note requestNote = Note.loanNote(loan, requestJson);
-        this.noteRepository.saveAndFlush(requestNote);
         try (Response response = client.newCall(request).execute()) {
             String responseBody = null;
             if (response.body() != null) {
                 responseBody = response.body().string();
             }
             if (response.isSuccessful()) {
-                LOG.info("Received Response from Inkomoko for request   " + loan.getId() + " and  loanid  " + requestId);
-                final Note responseNote = Note.loanNote(loan, response.toString() + " " + responseBody);
+                LOG.info("Payment Hub disbursement request accepted loanId={}, requestId={}, httpStatus={}, responseBody={}", loan.getId(),
+                        requestId, response.code(), responseBody);
+                final Note responseNote = Note.loanNote(loan, paymentHubSubmissionSuccessNote(requestId));
                 this.noteRepository.saveAndFlush(responseNote);
             } else {
-                Integer responseCode = response.code();
-                throw new LoanDisbursementRequestException("Unprocessable Entity", "integration.disbursementRequest.unprocessableEntity",
-                        requestId, responseCode, responseBody);
+                final int responseCode = response.code();
+                final String errorCategory = disbursementFailureCategory(responseCode);
+                LOG.error("Payment Hub disbursement request rejected loanId={}, requestId={}, httpStatus={}, category={}, responseBody={}",
+                        loan.getId(), requestId, responseCode, errorCategory, responseBody);
+                throw new LoanDisbursementRequestException(defaultFailureMessage(errorCategory),
+                        "integration.disbursementRequest." + errorCategory, requestId);
             }
 
         } catch (IOException e) {
-            throw new LoanDisbursementRequestException("Unexpected response received  from  inkomoko ", "loan", e);
+            LOG.error("Connection failure while sending Payment Hub disbursement request loanId={}, requestId={}", loan.getId(), requestId,
+                    e);
+            throw new LoanDisbursementRequestException(
+                    "There was a connection issue while sending the disbursement to the Payment Hub. Please try again.",
+                    "integration.disbursementRequest.connectionFailed", requestId);
+        }
+        return requestId;
+    }
+
+    static String disbursementFailureCategory(final int responseCode) {
+        if (responseCode == 408 || responseCode == 504) {
+            return "timeout";
+        }
+        if (responseCode == 400 || responseCode == 422) {
+            return "validationFailed";
+        }
+        if (responseCode >= 400 && responseCode < 500) {
+            return "paymentHubRejection";
+        }
+        return "serviceUnavailable";
+    }
+
+    static String paymentHubSubmissionSuccessNote(final String requestId) {
+        return "Disbursement request sent to the Payment Hub successfully. Reference: " + requestId;
+    }
+
+    private static String defaultFailureMessage(final String errorCategory) {
+        switch (errorCategory) {
+            case "timeout":
+            case "connectionFailed":
+                return "There was a connection issue while sending the disbursement to the Payment Hub. Please try again.";
+            case "validationFailed":
+                return "The Payment Hub could not accept the disbursement details. Please review them or contact support.";
+            case "paymentHubRejection":
+                return "Payment Hub rejected this disbursement. Please contact support.";
+            default:
+                return "The disbursement could not be sent to the Payment Hub. Please try again later or contact support.";
         }
     }
 
@@ -325,7 +367,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
     private void logDisbursementRequestPayload(Loan loan, String requestId, LoanDisbursementDetails disbursementDetail,
             DisbursementRequestData disbursementRequestData) {
         Object sourceFxTimestamp = disbursementDetail.getFxTimestamp();
-        LOG.info("Preparing Inkomoko disbursement payload loanId={}, requestId={}, disbursementDetailId={}, sourceFxTimestampType={}, "
+        LOG.info("Preparing Payment Hub disbursement payload loanId={}, requestId={}, disbursementDetailId={}, sourceFxTimestampType={}, "
                 + "sourceFxTimestampValue={}, payloadFxTimestampType={}, payloadFxTimestampValue={}", loan.getId(), requestId,
                 disbursementDetail.getId(), typeName(sourceFxTimestamp), sourceFxTimestamp, typeName(disbursementRequestData.getFxTimestamp()),
                 disbursementRequestData.getFxTimestamp());
@@ -334,10 +376,10 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
             try {
                 field.setAccessible(true);
                 Object value = field.get(disbursementRequestData);
-                LOG.info("Inkomoko disbursement payload field loanId={}, requestId={}, field={}, declaredType={}, valueType={}, value={}",
+                LOG.debug("Payment Hub disbursement payload field loanId={}, requestId={}, field={}, declaredType={}, valueType={}, value={}",
                         loan.getId(), requestId, field.getName(), field.getType().getName(), typeName(value), value);
             } catch (IllegalAccessException e) {
-                LOG.warn("Unable to inspect Inkomoko disbursement payload field loanId={}, requestId={}, field={}", loan.getId(), requestId,
+                LOG.warn("Unable to inspect Payment Hub disbursement payload field loanId={}, requestId={}, field={}", loan.getId(), requestId,
                         field.getName(), e);
             }
         }
