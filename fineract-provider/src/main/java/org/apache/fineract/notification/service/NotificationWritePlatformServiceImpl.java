@@ -82,10 +82,10 @@ public class NotificationWritePlatformServiceImpl implements NotificationWritePl
 
     private List<Long> insertIntoNotificationMapper(Collection<Long> userIds, Long generatedNotificationId) {
         List<Long> mappedIds = new ArrayList<>();
+        final Notification notification = this.notificationGeneratorReadRepositoryWrapper.findById(generatedNotificationId);
         for (Long userId : userIds) {
             AppUser appUser = this.appUserRepository.findById(userId).orElseThrow();
-            NotificationMapper notificationMapper = new NotificationMapper(
-                    this.notificationGeneratorReadRepositoryWrapper.findById(generatedNotificationId), appUser, false,
+            NotificationMapper notificationMapper = new NotificationMapper(notification, appUser, false,
                     DateUtils.getLocalDateTimeOfSystem());
             this.notificationMapperWritePlatformService.create(notificationMapper);
             mappedIds.add(notificationMapper.getId());
