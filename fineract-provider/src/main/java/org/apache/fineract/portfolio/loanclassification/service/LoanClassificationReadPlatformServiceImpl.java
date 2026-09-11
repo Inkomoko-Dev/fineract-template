@@ -126,13 +126,14 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
         final StringBuilder sql = new StringBuilder();
         sql.append("SELECT COALESCE(cv.code_value, 'Unassigned') AS country_name, o.name AS office_name, lp.name AS loan_product_name, ");
         sql.append("lc.classification_code, COALESCE(code.label, 'Invalid/Missing') AS classification_label, COUNT(*) AS loan_count, ");
-        sql.append("SUM(CASE WHEN lc.excluded_from_downstream = 1 THEN 1 ELSE 0 END) AS excluded_count, ");
-        sql.append("SUM(CASE WHEN lc.override_active = 1 THEN 1 ELSE 0 END) AS override_count ");
-        sql.append("FROM m_loan_classification lc INNER JOIN m_loan l ON l.id = lc.loan_id ");
+        sql.append("SUM(CASE WHEN IFNULL(lc.excluded_from_downstream, 0) = 1 THEN 1 ELSE 0 END) AS excluded_count, ");
+        sql.append("SUM(CASE WHEN IFNULL(lc.override_active, 0) = 1 THEN 1 ELSE 0 END) AS override_count ");
+        sql.append("FROM m_loan l ");
         sql.append("INNER JOIN m_office o ON o.id = l.office_id INNER JOIN m_product_loan lp ON lp.id = l.product_id ");
+        sql.append("LEFT JOIN m_loan_classification lc ON lc.loan_id = l.id ");
         sql.append("LEFT JOIN m_code_value cv ON cv.id = lc.country_cv_id ");
         sql.append("LEFT JOIN m_loan_classification_code code ON code.code = lc.classification_code ");
-        sql.append("WHERE l.loan_status_id IN (300, 601) AND DATE(lc.classified_on_utc) BETWEEN ? AND ? ");
+        sql.append("WHERE l.loan_status_id IN (300, 601) AND (lc.loan_id IS NULL OR DATE(lc.classified_on_utc) BETWEEN ? AND ?) ");
         final List<Object> params = new ArrayList<>();
         params.add(java.sql.Date.valueOf(start));
         params.add(java.sql.Date.valueOf(end));

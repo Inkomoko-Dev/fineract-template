@@ -57,8 +57,8 @@ public class LoanClassificationCandidateAssembler {
     }
 
     private String baseSql() {
-        return "SELECT l.id AS loanId, l.loan_status_id AS loanStatusId, mlaa.overdue_since_date_derived AS overdueSince, "
-                + "mlaa.total_overdue_derived AS totalOverdue, COALESCE(("
+        return "SELECT l.id AS loanId, l.loan_status_id AS loanStatusId, mlaa.loan_id AS agingLoanId, "
+                + "mlaa.overdue_since_date_derived AS overdueSince, mlaa.total_overdue_derived AS totalOverdue, COALESCE(("
                 + "SELECT ra.country_id FROM m_client_address ca INNER JOIN m_address ra ON ra.id = ca.address_id "
                 + "WHERE ca.client_id = l.client_id ORDER BY ca.is_active DESC, ca.id DESC LIMIT 1), ("
                 + "SELECT dd.country_cv_id FROM m_loan_due_diligence_info dd WHERE dd.loan_id = l.id LIMIT 1)) AS countryCvId "
@@ -111,23 +111,29 @@ public class LoanClassificationCandidateAssembler {
             final int status = rs.getInt("loanStatusId");
             final boolean writtenOff = status == WRITTEN_OFF_STATUS;
             final LocalDate overdueSince = JdbcSupport.getLocalDate(rs, "overdueSince");
-            final BigDecimal totalOverdue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "totalOverdue");
+            final boolean agingRowPresent = rs.getObject("agingLoanId") != null;
+            final BigDecimal overdueAmount = agingRowPresent ? rs.getBigDecimal("totalOverdue") : null;
             final Long countryCvId = JdbcSupport.getLong(rs, "countryCvId");
-            return new Candidate(loanId, writtenOff, resolveDaysInArrears(writtenOff, overdueSince, totalOverdue), countryCvId,
-                    totalOverdue);
+            return new Candidate(loanId, writtenOff,
+                    LoanClassificationCandidateAssembler.resolveDaysInArrears(writtenOff, agingRowPresent, overdueSince, overdueAmount),
+                    countryCvId, overdueAmount);
         }
+    }
 
-        private Integer resolveDaysInArrears(final boolean writtenOff, final LocalDate overdueSince, final BigDecimal totalOverdue) {
-            if (writtenOff) {
-                return null;
-            }
-            if (overdueSince == null) {
-                if (totalOverdue != null && totalOverdue.compareTo(BigDecimal.ZERO) > 0) {
-                    return null;
-                }
+    static Integer resolveDaysInArrears(final boolean writtenOff, final boolean agingRowPresent, final LocalDate overdueSince,
+            final BigDecimal totalOverdue) {
+        if (writtenOff) {
+            return null;
+        }
+        if (!agingRowPresent) {
+            return 0;
+        }
+        if (overdueSince == null) {
+            if (totalOverdue != null && totalOverdue.compareTo(BigDecimal.ZERO) == 0) {
                 return 0;
             }
-            return Math.toIntExact(ChronoUnit.DAYS.between(overdueSince, DateUtils.getBusinessLocalDate()));
+            return null;
         }
+        return Math.toIntExact(ChronoUnit.DAYS.between(overdueSince, DateUtils.getBusinessLocalDate()));
     }
 }

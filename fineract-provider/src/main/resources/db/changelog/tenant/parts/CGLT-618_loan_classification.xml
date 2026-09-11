@@ -427,4 +427,201 @@ ORDER BY country, office, loan_product, classification]]>
         </insert>
     </changeSet>
 
+    <changeSet id="CGLT-618-13-backfill-existing-loans" author="Felix Mutua">
+        <comment>Classify existing active and written-off loans that have no m_loan_classification row</comment>
+        <sql><![CDATA[
+            INSERT INTO m_loan_classification (
+                loan_id, classification_code, status, source, days_in_arrears, country_cv_id,
+                error_message, excluded_from_downstream, override_active, classified_on_utc)
+            SELECT
+                src.loan_id,
+                src.classification_code,
+                src.status,
+                'BACKFILL',
+                src.days_in_arrears,
+                src.country_cv_id,
+                LEFT(src.error_message, 1000),
+                src.excluded_from_downstream,
+                FALSE,
+                NOW()
+            FROM (
+                SELECT
+                    loan_base.loan_id,
+                    loan_base.days_in_arrears,
+                    loan_base.country_cv_id,
+                    CASE
+                        WHEN loan_base.written_off = 1 THEN 6
+                        WHEN loan_base.country_cv_id IS NULL OR loan_base.has_thresholds = 0 THEN NULL
+                        WHEN loan_base.days_in_arrears IS NULL THEN NULL
+                        ELSE (
+                            SELECT t.classification_code
+                            FROM m_loan_classification_threshold t
+                            INNER JOIN m_loan_classification_country_config cfg ON cfg.id = t.country_config_id
+                            WHERE cfg.country_cv_id = loan_base.country_cv_id
+                              AND t.classification_code BETWEEN 1 AND 5
+                              AND loan_base.days_in_arrears >= t.min_days_in_arrears
+                              AND (t.max_days_in_arrears IS NULL OR loan_base.days_in_arrears <= t.max_days_in_arrears)
+                            ORDER BY t.min_days_in_arrears
+                            LIMIT 1
+                        )
+                    END AS classification_code,
+                    CASE
+                        WHEN loan_base.written_off = 1 THEN 'VALID'
+                        WHEN loan_base.country_cv_id IS NULL OR loan_base.has_thresholds = 0 THEN 'UNCONFIGURED_COUNTRY'
+                        WHEN loan_base.days_in_arrears IS NULL THEN 'FLAGGED'
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM m_loan_classification_threshold t
+                            INNER JOIN m_loan_classification_country_config cfg ON cfg.id = t.country_config_id
+                            WHERE cfg.country_cv_id = loan_base.country_cv_id
+                              AND t.classification_code BETWEEN 1 AND 5
+                              AND loan_base.days_in_arrears >= t.min_days_in_arrears
+                              AND (t.max_days_in_arrears IS NULL OR loan_base.days_in_arrears <= t.max_days_in_arrears)
+                        ) THEN 'VALID'
+                        ELSE 'FLAGGED'
+                    END AS status,
+                    CASE
+                        WHEN loan_base.written_off = 1 THEN NULL
+                        WHEN loan_base.country_cv_id IS NULL OR loan_base.has_thresholds = 0 THEN
+                            'Country is not listed in loan classification thresholds. Configure arrears bands for this country in Organization > Loan Classification before loans can be classified.'
+                        WHEN loan_base.days_in_arrears IS NULL THEN
+                            'Days in arrears is null. Loan flagged for review and not defaulted to classification 0.'
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM m_loan_classification_threshold t
+                            INNER JOIN m_loan_classification_country_config cfg ON cfg.id = t.country_config_id
+                            WHERE cfg.country_cv_id = loan_base.country_cv_id
+                              AND t.classification_code BETWEEN 1 AND 5
+                              AND loan_base.days_in_arrears >= t.min_days_in_arrears
+                              AND (t.max_days_in_arrears IS NULL OR loan_base.days_in_arrears <= t.max_days_in_arrears)
+                        ) THEN NULL
+                        ELSE CONCAT('No arrears threshold matches ', loan_base.days_in_arrears,
+                            ' days in arrears. Review country bands in Organization > Loan Classification.')
+                    END AS error_message,
+                    CASE
+                        WHEN loan_base.written_off = 1 THEN 0
+                        WHEN loan_base.country_cv_id IS NULL OR loan_base.has_thresholds = 0 THEN 1
+                        WHEN loan_base.days_in_arrears IS NULL THEN 1
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM m_loan_classification_threshold t
+                            INNER JOIN m_loan_classification_country_config cfg ON cfg.id = t.country_config_id
+                            WHERE cfg.country_cv_id = loan_base.country_cv_id
+                              AND t.classification_code BETWEEN 1 AND 5
+                              AND loan_base.days_in_arrears >= t.min_days_in_arrears
+                              AND (t.max_days_in_arrears IS NULL OR loan_base.days_in_arrears <= t.max_days_in_arrears)
+                        ) THEN 0
+                        ELSE 1
+                    END AS excluded_from_downstream
+                FROM (
+                    SELECT
+                        resolved.loan_id,
+                        resolved.written_off,
+                        resolved.country_cv_id,
+                        resolved.days_in_arrears,
+                        CASE
+                            WHEN EXISTS (
+                                SELECT 1
+                                FROM m_loan_classification_threshold t
+                                INNER JOIN m_loan_classification_country_config cfg ON cfg.id = t.country_config_id
+                                WHERE cfg.country_cv_id = resolved.country_cv_id
+                            ) THEN 1
+                            ELSE 0
+                        END AS has_thresholds
+                    FROM (
+                        SELECT
+                            l.id AS loan_id,
+                            CASE WHEN l.loan_status_id = 601 THEN 1 ELSE 0 END AS written_off,
+                            COALESCE((
+                                SELECT ra.country_id
+                                FROM m_client_address ca
+                                INNER JOIN m_address ra ON ra.id = ca.address_id
+                                WHERE ca.client_id = l.client_id
+                                ORDER BY ca.is_active DESC, ca.id DESC
+                                LIMIT 1
+                            ), (
+                                SELECT dd.country_cv_id
+                                FROM m_loan_due_diligence_info dd
+                                WHERE dd.loan_id = l.id
+                                LIMIT 1
+                            )) AS country_cv_id,
+                            CASE
+                                WHEN l.loan_status_id = 601 THEN NULL
+                                WHEN mlaa.loan_id IS NULL THEN 0
+                                WHEN mlaa.overdue_since_date_derived IS NULL AND mlaa.total_overdue_derived = 0 THEN 0
+                                WHEN mlaa.overdue_since_date_derived IS NULL THEN NULL
+                                ELSE DATEDIFF(CURRENT_DATE, mlaa.overdue_since_date_derived)
+                            END AS days_in_arrears
+                        FROM m_loan l
+                        LEFT JOIN m_loan_arrears_aging mlaa ON mlaa.loan_id = l.id
+                        WHERE l.loan_status_id IN (300, 601)
+                          AND NOT EXISTS (
+                              SELECT 1 FROM m_loan_classification existing WHERE existing.loan_id = l.id
+                          )
+                    ) resolved
+                ) loan_base
+            ) src;
+        ]]></sql>
+        <sql><![CDATA[
+            INSERT INTO m_loan_classification_audit (
+                loan_id, old_classification, new_classification, old_status, new_status, source,
+                days_in_arrears, country_cv_id, reason, error_message, created_on_utc)
+            SELECT
+                lc.loan_id,
+                NULL,
+                lc.classification_code,
+                NULL,
+                lc.status,
+                lc.source,
+                lc.days_in_arrears,
+                lc.country_cv_id,
+                'Initial backfill of active and written-off loans',
+                lc.error_message,
+                lc.classified_on_utc
+            FROM m_loan_classification lc
+            WHERE lc.source = 'BACKFILL'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM m_loan_classification_audit a
+                  WHERE a.loan_id = lc.loan_id
+                    AND a.source = 'BACKFILL'
+              );
+        ]]></sql>
+    </changeSet>
+
+    <changeSet id="CGLT-618-14-summary-include-unclassified" author="Felix Mutua">
+        <comment>Include active and written-off loans with no classification row in the summary report</comment>
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan Classification Summary'
+            </sqlCheck>
+        </preConditions>
+        <sql><![CDATA[
+            UPDATE stretchy_report
+            SET report_sql = 'SELECT
+    COALESCE(cv.code_value, ''Unassigned'') AS country,
+    o.name AS office,
+    lp.name AS loan_product,
+    lc.classification_code AS classification,
+    COALESCE(code.label, ''Invalid/Missing'') AS classification_label,
+    COUNT(*) AS loan_count,
+    SUM(CASE WHEN IFNULL(lc.excluded_from_downstream, 0) = 1 THEN 1 ELSE 0 END) AS excluded_count,
+    SUM(CASE WHEN IFNULL(lc.override_active, 0) = 1 THEN 1 ELSE 0 END) AS override_count
+FROM m_loan l
+INNER JOIN m_office o ON o.id = l.office_id
+INNER JOIN m_product_loan lp ON lp.id = l.product_id
+LEFT JOIN m_loan_classification lc ON lc.loan_id = l.id
+LEFT JOIN m_code_value cv ON cv.id = lc.country_cv_id
+LEFT JOIN m_loan_classification_code code ON code.code = lc.classification_code
+WHERE l.loan_status_id IN (300, 601)
+  AND (lc.loan_id IS NULL OR DATE(lc.classified_on_utc) BETWEEN DATE(''${startDate}'') AND DATE(''${endDate}''))
+  AND (${officeId} = 0 OR l.office_id = ${officeId} OR o.hierarchy LIKE CONCAT((SELECT hierarchy FROM m_office WHERE id = ${officeId}), ''%''))
+  AND (${loanProductId} = -1 OR l.product_id = ${loanProductId})
+  AND (${countryId} = -1 OR lc.country_cv_id = ${countryId})
+GROUP BY country, office, loan_product, classification, classification_label
+ORDER BY country, office, loan_product, classification'
+            WHERE report_name = 'Loan Classification Summary';
+        ]]></sql>
+    </changeSet>
+
 </databaseChangeLog>
