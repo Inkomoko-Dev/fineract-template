@@ -52,16 +52,21 @@ public final class OfficeAccessScope {
         return new OfficeAccessScope(validated(hierarchies), false);
     }
 
+    /** Rejects anything that is not a system generated office path, for the callers that must inline one. */
+    public static String requireOfficeHierarchy(final String hierarchy) {
+        if (hierarchy == null || !OFFICE_HIERARCHY.matcher(hierarchy).matches()) {
+            throw new IllegalArgumentException("Not an office hierarchy: " + hierarchy);
+        }
+        return hierarchy;
+    }
+
     private static List<String> validated(final Collection<String> hierarchies) {
         if (hierarchies == null || hierarchies.isEmpty()) {
             throw new IllegalArgumentException("An office access scope needs at least one office hierarchy");
         }
         final TreeSet<String> sorted = new TreeSet<>();
         for (final String hierarchy : hierarchies) {
-            if (hierarchy == null || !OFFICE_HIERARCHY.matcher(hierarchy).matches()) {
-                throw new IllegalArgumentException("Not an office hierarchy: " + hierarchy);
-            }
-            sorted.add(hierarchy);
+            sorted.add(requireOfficeHierarchy(hierarchy));
         }
         return new ArrayList<>(sorted);
     }

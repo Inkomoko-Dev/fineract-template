@@ -180,6 +180,17 @@ public class OfficeAccessScopeTest {
     }
 
     @Test
+    @DisplayName("The standalone check guards callers that must inline a hierarchy, such as report SQL")
+    public void requireOfficeHierarchyGuardsInliningCallers() {
+        assertEquals(KIGALI, OfficeAccessScope.requireOfficeHierarchy(KIGALI));
+        assertEquals(".", OfficeAccessScope.requireOfficeHierarchy("."));
+
+        assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.requireOfficeHierarchy(null));
+        assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.requireOfficeHierarchy(".1.' or '1'='1"));
+        assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.requireOfficeHierarchy(".1.%"));
+    }
+
+    @Test
     @DisplayName("A scope with no offices is rejected")
     public void rejectsEmptyScope() {
         assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.hierarchical(Collections.emptyList()));
