@@ -33,6 +33,19 @@ public interface AuditReadPlatformService {
 
     Collection<AuditData> retrieveAllEntriesToBeChecked(SQLBuilder extraCriteria, boolean includeJson);
 
+    /**
+     * Pending maker-checker entries. {@code limit} defaults to 25 when null/invalid.
+     * {@code offset} defaults to 0.
+     */
+    Collection<AuditData> retrieveAllEntriesToBeChecked(SQLBuilder extraCriteria, boolean includeJson, Integer limit,
+            Integer offset);
+
+    /**
+     * Paged pending maker-checker entries including {@code totalFilteredRecords}.
+     */
+    Page<AuditData> retrievePaginatedEntriesToBeChecked(SQLBuilder extraCriteria, boolean includeJson, Integer limit,
+            Integer offset);
+
     AuditData retrieveAuditEntry(Long auditId);
 
     AuditSearchData retrieveSearchTemplate(String useType);

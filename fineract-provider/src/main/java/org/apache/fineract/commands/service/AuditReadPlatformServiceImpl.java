@@ -201,8 +201,51 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
 
     @Override
     public Collection<AuditData> retrieveAllEntriesToBeChecked(final SQLBuilder extraCriteria, final boolean includeJson) {
+        return retrieveAllEntriesToBeChecked(extraCriteria, includeJson, null, null);
+    }
+
+    @Override
+    public Collection<AuditData> retrieveAllEntriesToBeChecked(final SQLBuilder extraCriteria, final boolean includeJson,
+            final Integer limit, final Integer offset) {
         extraCriteria.addCriteria("aud.processing_result_enum = ", 2);
-        return retrieveEntries("makerchecker", extraCriteria, " order by aud.id, mk.username", includeJson);
+        // Always page: callers pass limit; otherwise default to 25.
+        final int pageSize = (limit != null && limit > 0) ? Math.min(limit, 200) : 25;
+        final int pageOffset = (offset != null && offset > 0) ? offset : 0;
+        final String orderBy = " order by aud.id, mk.username " + this.sqlGenerator.limit(pageSize, pageOffset);
+        return retrieveEntries("makerchecker", extraCriteria, orderBy, includeJson);
+    }
+
+    @Override
+    public Page<AuditData> retrievePaginatedEntriesToBeChecked(final SQLBuilder extraCriteria, final boolean includeJson,
+            final Integer limit, final Integer offset) {
+        extraCriteria.addCriteria("aud.processing_result_enum = ", 2);
+
+        final int pageSize = (limit != null && limit > 0) ? Math.min(limit, 200) : 25;
+        final int pageOffset = (offset != null && offset > 0) ? offset : 0;
+
+        final AppUser currentUser = this.context.authenticatedUser();
+        final String hierarchy = currentUser.getOffice().getHierarchy();
+        final AuditMapper rm = new AuditMapper();
+
+        final StringBuilder sqlBuilder = new StringBuilder(400);
+        sqlBuilder.append("select ").append(this.sqlGenerator.calcFoundRows()).append(' ');
+        sqlBuilder.append(rm.schema(includeJson, hierarchy));
+
+        if (currentUser.hasNotPermissionForAnyOf("ALL_FUNCTIONS", "CHECKER_SUPER_USER")) {
+            sqlBuilder.append(
+                    " join m_permission p on REPLACE(p.action_name, '_CHECKER', '')  = aud.action_name and p.entity_name = aud.entity_name and p.code like '%\\_CHECKER'")
+                    .append(" join m_role_permission rp on rp.permission_id = p.id")
+                    .append(" join m_role r on r.id = rp.role_id")
+                    .append(" join m_appuser_role ur on ur.role_id = r.id and ur.appuser_id = ").append(currentUser.getId());
+        }
+
+        sqlBuilder.append(extraCriteria.getSQLTemplate());
+        sqlBuilder.append(" order by aud.id, mk.username ");
+        sqlBuilder.append(this.sqlGenerator.limit(pageSize, pageOffset));
+
+        log.debug("sql: {}", sqlBuilder);
+
+        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), extraCriteria.getArguments(), rm);
     }
 
     private Collection<AuditData> retrieveEntries(final String useType, final SQLBuilder extraCriteria, final String groupAndOrderBySQL,
@@ -233,7 +276,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
         }
         sql += extraCriteria.getSQLTemplate();
         sql += groupAndOrderBySQL;
-        log.info("sql: {}", sql);
+        log.debug("sql: {}", sql);
 
         return this.jdbcTemplate.query(sql, rm, extraCriteria.getArguments()); // NOSONAR
     }

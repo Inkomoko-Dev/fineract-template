@@ -107,6 +107,8 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
     private final DatabaseSpecificSQLGenerator sqlGenerator;
     private final ClientMapper clientMapper = new ClientMapper();
     private final ClientLiteMapper clientLiteMapper = new ClientLiteMapper();
+    /** Lean projection for GET /clients list pages (grid columns only). */
+    private final ClientListMapper clientListMapper = new ClientListMapper();
     private final ClientMembersOfGroupMapper membersOfGroupMapper = new ClientMembersOfGroupMapper();
     private final ParentGroupsMapper clientGroupsMapper = new ParentGroupsMapper();
 
@@ -236,7 +238,8 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
         List<Object> paramList = new ArrayList<>(Arrays.asList(underHierarchySearchString, underHierarchySearchString));
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.clientMapper.schema());
+        // List endpoint only needs grid fields — avoid the full ClientMapper join tree.
+        sqlBuilder.append(this.clientListMapper.schema());
         sqlBuilder.append(" where (o.hierarchy like ? or transferToOffice.hierarchy like ?) ");
 
         if (searchParameters != null) {
@@ -246,7 +249,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
                 paramList.add(appUserID);
             }
 
-            final String extraCriteria = buildSqlStringFromClientCriteria(this.clientMapper.schema(), searchParameters, paramList);
+            final String extraCriteria = buildSqlStringFromClientCriteria(this.clientListMapper.schema(), searchParameters, paramList);
 
             if (StringUtils.isNotBlank(extraCriteria)) {
                 sqlBuilder.append(" and (").append(extraCriteria).append(")");
@@ -273,11 +276,12 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
                 if (this.paginationHelper.getDatabaseTypeResolver().isPostgreSQL()) {
                     // If this is limited and database is postgres, counting records won't be effective
                     return this.paginationHelper.fetchPageNoRecordCount(this.jdbcTemplate, sqlBuilder.toString(), paramList.toArray(),
-                            this.clientMapper);
+                            this.clientListMapper);
                 }
             }
         }
-        return this.paginationHelper.fetchPageWithCount(this.jdbcTemplate, sqlBuilder.toString(), paramList.toArray(), this.clientMapper);
+        return this.paginationHelper.fetchPageWithCount(this.jdbcTemplate, sqlBuilder.toString(), paramList.toArray(),
+                this.clientListMapper);
     }
 
     private String buildSqlStringFromClientCriteria(String schemaSql, final SearchParameters searchParameters, List<Object> paramList) {
@@ -1062,6 +1066,52 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
         }
     }
 
+    /**
+     * Minimal columns/joins for paginated client listing (UI grid). Detail APIs keep using {@link ClientMapper}.
+     */
+    private static final class ClientListMapper implements RowMapper<ClientData> {
+
+        private final String schema;
+
+        ClientListMapper() {
+            final StringBuilder builder = new StringBuilder(280);
+            builder.append("c.id as id, c.account_no as accountNo, c.external_id as externalId, ");
+            builder.append("c.status_enum as statusEnum, c.display_name as displayName, c.mobile_no as mobileNo, ");
+            builder.append("c.firstname as firstname, c.middlename as middlename, c.lastname as lastname, c.fullname as fullname, ");
+            builder.append("c.office_id as officeId, o.name as officeName, c.activation_date as activationDate ");
+            builder.append("from m_client c ");
+            builder.append("join m_office o on o.id = c.office_id ");
+            builder.append("left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
+            this.schema = builder.toString();
+        }
+
+        public String schema() {
+            return this.schema;
+        }
+
+        @Override
+        public ClientData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
+            final Long id = JdbcSupport.getLong(rs, "id");
+            final String accountNo = rs.getString("accountNo");
+            final String externalId = rs.getString("externalId");
+            final Integer statusEnum = JdbcSupport.getInteger(rs, "statusEnum");
+            final EnumOptionData status = ClientEnumerations.status(statusEnum);
+            final String displayName = rs.getString("displayName");
+            final String mobileNo = rs.getString("mobileNo");
+            final String firstname = rs.getString("firstname");
+            final String middlename = rs.getString("middlename");
+            final String lastname = rs.getString("lastname");
+            final String fullname = rs.getString("fullname");
+            final Long officeId = JdbcSupport.getLong(rs, "officeId");
+            final String officeName = rs.getString("officeName");
+            final LocalDate activationDate = JdbcSupport.getLocalDate(rs, "activationDate");
+
+            return ClientData.instance(accountNo, status, null, officeId, officeName, null, null, id, firstname, middlename, lastname,
+                    fullname, displayName, externalId, mobileNo, null, null, null, activationDate, null, null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null, null, null, null);
+        }
+    }
+
     private static final class ParentGroupsMapper implements RowMapper<GroupGeneralData> {
 
         public String parentGroupsSchema() {
@@ -1197,7 +1247,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             List<Object> paramList = new ArrayList<>(Arrays.asList(underHierarchySearchString, underHierarchySearchString));
             final StringBuilder sqlBuilder = new StringBuilder(200);
             sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-            sqlBuilder.append(this.clientMapper.schema());
+            sqlBuilder.append(this.clientListMapper.schema());
             sqlBuilder.append(" where (o.hierarchy like ? or transferToOffice.hierarchy like ?) ");
 
             FilterConstraint[] filterConstraints = mapper.readValue(filterConstraintJson, FilterConstraint[].class);
@@ -1210,7 +1260,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             paramList.add(limit);
             paramList.add(offset);
 
-            return this.jdbcTemplate.query(sqlBuilder.toString(), this.clientMapper, paramList.toArray());
+            return this.jdbcTemplate.query(sqlBuilder.toString(), this.clientListMapper, paramList.toArray());
 
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
