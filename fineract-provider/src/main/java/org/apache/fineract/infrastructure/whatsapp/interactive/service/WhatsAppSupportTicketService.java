@@ -73,6 +73,26 @@ public class WhatsAppSupportTicketService {
         return ticketRepository.save(ticket);
     }
 
+    @Transactional
+    public WhatsAppSupportTicket createFromVoiceEscalation(final String phoneNumber, final Long voiceIvrSessionId, final Client client,
+            final String category, final String languageCode) {
+        final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
+        final WhatsAppSupportTicket ticket = new WhatsAppSupportTicket();
+        ticket.setTicketNumber(generateTicketNumber(now));
+        ticket.setPhoneNumber(phoneNumber);
+        ticket.setClient(client);
+        ticket.setVoiceIvrSessionId(voiceIvrSessionId);
+        ticket.setCategory(StringUtils.defaultIfBlank(category, "VOICE"));
+        ticket.setStatus(WhatsAppTicketStatus.OPEN);
+        ticket.setPriority(WhatsAppTicketPriority.NORMAL);
+        ticket.setSummary("Voice call escalation to " + StringUtils.defaultIfBlank(category, "support"));
+        ticket.setLanguageCode(languageCode);
+        ticket.setSlaDueAt(businessHoursService.calculateSlaDueAt(now));
+        ticket.setCreatedDate(now);
+        ticket.setLastModifiedDate(now);
+        return ticketRepository.save(ticket);
+    }
+
     @Transactional(readOnly = true)
     public List<WhatsAppSupportTicketData> retrieveTickets(final WhatsAppTicketStatus status, final Long assignedStaffId) {
         final List<WhatsAppSupportTicket> tickets;

@@ -54,7 +54,9 @@ public class VoiceCallLogReadPlatformService {
                     + "vcl.caller_number as callerNumber, vcl.destination_number as destinationNumber, "
                     + "vcl.client_id as clientId, vcl.staff_id as staffId, vcl.status as status, "
                     + "vcl.duration_seconds as durationSeconds, vcl.recording_url as recordingUrl, "
-                    + "vcl.dtmf_digits as dtmfDigits, vcl.created_date as createdDate from voice_call_log vcl";
+                    + "vcl.dtmf_digits as dtmfDigits, vcl.call_purpose as callPurpose, "
+                    + "vcl.recording_consent_required as recordingConsentRequired, vcl.recording_consent_given as recordingConsentGiven, "
+                    + "vcl.callback_request_id as callbackRequestId, vcl.created_date as createdDate from voice_call_log vcl";
         }
 
         @Override
@@ -63,7 +65,14 @@ public class VoiceCallLogReadPlatformService {
                     CommunicationDirection.valueOf(rs.getString("direction")), rs.getString("callerNumber"),
                     rs.getString("destinationNumber"), JdbcSupport.getLong(rs, "clientId"), JdbcSupport.getLong(rs, "staffId"),
                     rs.getString("status"), JdbcSupport.getInteger(rs, "durationSeconds"), rs.getString("recordingUrl"),
-                    rs.getString("dtmfDigits"), JdbcSupport.getLocalDateTime(rs, "createdDate"));
+                    rs.getString("dtmfDigits"), rs.getString("callPurpose"), rs.getBoolean("recordingConsentRequired"),
+                    nullableBoolean(rs, "recordingConsentGiven"), JdbcSupport.getLong(rs, "callbackRequestId"),
+                    JdbcSupport.getLocalDateTime(rs, "createdDate"));
+        }
+
+        private static Boolean nullableBoolean(final ResultSet rs, final String columnName) throws SQLException {
+            final boolean value = rs.getBoolean(columnName);
+            return rs.wasNull() ? null : value;
         }
     }
 }

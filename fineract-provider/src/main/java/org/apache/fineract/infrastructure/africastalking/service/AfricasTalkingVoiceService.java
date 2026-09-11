@@ -21,9 +21,6 @@ package org.apache.fineract.infrastructure.africastalking.service;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +32,13 @@ import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientD
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationDirection;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLog;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLogRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequestRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceCallbackRequestStatus;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceCallQueueService;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceVoicemailService;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceIvrCallbackService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -55,17 +58,13 @@ public class AfricasTalkingVoiceService {
     private final PhoneNumberNormalizer phoneNumberNormalizer;
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final StaffRepositoryWrapper staffRepositoryWrapper;
+    private final VoiceIvrCallbackService voiceIvrCallbackService;
+    private final VoiceVoicemailService voiceVoicemailService;
+    private final VoiceCallbackRequestRepository callbackRequestRepository;
+    private final VoiceCallQueueService voiceCallQueueService;
 
     public String buildIvrResponse(final String rawPayload) {
-        final Map<String, String> values = AfricasTalkingPayloadParser.toMap(rawPayload);
-        if (!isWithinBusinessHours()) {
-            return VoiceXmlBuilder.buildAfterHoursVoicemail();
-        }
-        final String dtmfDigits = AfricasTalkingPayloadParser.firstNonBlank(values, "dtmfDigits", "digits");
-        if (StringUtils.isBlank(dtmfDigits)) {
-            return VoiceXmlBuilder.buildMainMenu();
-        }
-        return routeDtmfSelection(dtmfDigits.trim());
+        return voiceIvrCallbackService.handleInbound(rawPayload);
     }
 
     @Transactional
@@ -85,7 +84,9 @@ public class AfricasTalkingVoiceService {
                     ? clientRepositoryWrapper.findOneWithNotFoundDetection(recipient.getClientId()) : null;
             final Staff staff = recipient.getStaffId() != null
                     ? staffRepositoryWrapper.findOneWithNotFoundDetection(recipient.getStaffId()) : null;
-            return VoiceCallLog.inbound(sessionId, callerNumber, destinationNumber, client, staff);
+            final VoiceCallLog inbound = VoiceCallLog.inbound(sessionId, callerNumber, destinationNumber, client, staff);
+            inbound.setRecordingConsentRequired(properties.getVoice().isRecordingConsentRequired());
+            return inbound;
         });
         if (StringUtils.isNotBlank(dtmfDigits)) {
             callLog.setDtmfDigits(dtmfDigits);
@@ -118,7 +119,26 @@ public class AfricasTalkingVoiceService {
         });
         callLog.applyEventUpdate(mapCallStatus(values), parseDuration(values), values.get("recordingUrl"),
                 AfricasTalkingPayloadParser.firstNonBlank(values, "dtmfDigits", "digits"));
+        if (AfricasTalkingConstants.CALL_STATUS_ANSWERED.equals(callLog.getStatus())) {
+            voiceCallQueueService.markConnected(sessionId);
+        }
+        if (AfricasTalkingConstants.CALL_STATUS_COMPLETED.equals(callLog.getStatus())) {
+            voiceCallQueueService.markCompleted(sessionId);
+            if (callLog.getCallbackRequestId() != null) {
+                completeCallbackRequest(callLog.getCallbackRequestId());
+            }
+        }
         voiceCallLogRepository.save(callLog);
+        voiceVoicemailService.completeFromRecordingEvent(sessionId, values.get("recordingUrl"), parseDuration(values));
+    }
+
+    private void completeCallbackRequest(final Long callbackRequestId) {
+        callbackRequestRepository.findById(callbackRequestId).ifPresent(request -> {
+            request.setStatus(VoiceCallbackRequestStatus.COMPLETED);
+            request.setCompletedAt(DateUtils.getLocalDateTimeOfTenant());
+            request.setLastModifiedDate(DateUtils.getLocalDateTimeOfTenant());
+            callbackRequestRepository.save(request);
+        });
     }
 
     @Transactional
@@ -132,6 +152,7 @@ public class AfricasTalkingVoiceService {
         final String clientRequestId = UUID.randomUUID().toString();
         final VoiceCallLog callLog = VoiceCallLog.outbound(clientRequestId, properties.getVoice().getCallerId(), phoneNumber, client,
                 staff);
+        applyOutboundMetadata(callLog, element);
         voiceCallLogRepository.saveAndFlush(callLog);
         try {
             final AfricasTalkingClient.AfricasTalkingApiResponse response = africasTalkingClient.initiateVoiceCall(phoneNumber,
@@ -152,42 +173,28 @@ public class AfricasTalkingVoiceService {
         }
     }
 
+    private void applyOutboundMetadata(final VoiceCallLog callLog, final JsonObject element) {
+        if (element.has("callPurpose") && !element.get("callPurpose").isJsonNull()) {
+            callLog.setCallPurpose(element.get("callPurpose").getAsString());
+        } else {
+            callLog.setCallPurpose("GENERAL");
+        }
+        if (element.has("recordingConsentRequired") && !element.get("recordingConsentRequired").isJsonNull()) {
+            callLog.setRecordingConsentRequired(element.get("recordingConsentRequired").getAsBoolean());
+        } else {
+            callLog.setRecordingConsentRequired(properties.getVoice().isRecordingConsentRequired());
+        }
+        if (element.has("callbackRequestId") && !element.get("callbackRequestId").isJsonNull()) {
+            callLog.setCallbackRequestId(element.get("callbackRequestId").getAsLong());
+        }
+    }
+
     private static Long requirePersistedId(final VoiceCallLog callLog) {
         final Long id = callLog.getId();
         if (id == null) {
             throw new IllegalStateException("Voice call log was not assigned a database id after save");
         }
         return id;
-    }
-
-    private String routeDtmfSelection(final String dtmfDigits) {
-        return switch (dtmfDigits) {
-            case "1" -> dialDepartment("Loans", properties.getVoice().getLoansDepartmentNumber());
-            case "2" -> dialDepartment("Client Support", properties.getVoice().getSupportDepartmentNumber());
-            case "3" -> dialDepartment("Internal Staff", properties.getVoice().getInternalDepartmentNumber());
-            default -> VoiceXmlBuilder.buildInvalidSelection();
-        };
-    }
-
-    private String dialDepartment(final String departmentName, final String phoneNumber) {
-        if (StringUtils.isBlank(phoneNumber)) {
-            return VoiceXmlBuilder.buildUnavailableDepartment(departmentName);
-        }
-        return VoiceXmlBuilder.buildDial(phoneNumber);
-    }
-
-    private boolean isWithinBusinessHours() {
-        final AfricasTalkingProperties.Voice voice = properties.getVoice();
-        try {
-            final ZoneId zoneId = ZoneId.of(voice.getBusinessTimeZone());
-            final LocalTime now = ZonedDateTime.now(zoneId).toLocalTime();
-            final LocalTime start = LocalTime.parse(voice.getBusinessHoursStart());
-            final LocalTime end = LocalTime.parse(voice.getBusinessHoursEnd());
-            return !now.isBefore(start) && now.isBefore(end);
-        } catch (Exception e) {
-            log.warn("Unable to evaluate AfricasTalking business hours; defaulting to open", e);
-            return true;
-        }
     }
 
     private String mapCallStatus(final Map<String, String> values) {
