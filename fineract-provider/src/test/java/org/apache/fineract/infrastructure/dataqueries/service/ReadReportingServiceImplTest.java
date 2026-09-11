@@ -24,6 +24,12 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatIOException;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+import java.io.IOException;
 import java.io.StringWriter;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -34,6 +40,7 @@ import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecific
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.service.SqlInjectionPreventerService;
+import org.apache.fineract.infrastructure.security.utils.SQLInjectionException;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.junit.jupiter.api.BeforeEach;
@@ -163,6 +170,128 @@ public class ReadReportingServiceImplTest {
         service.writeCsv(rs, writer);
 
         assertThat(writer.toString()).isEqualTo("\"Client\",\"Balance\"\n,\n");
+    }
+
+    @Test
+    public void pagedRequestCountsWhenTheCallerAsksForIt() {
+        assertThat(service.shouldRunCountQuery(true, 100)).isTrue();
+    }
+
+    @Test
+    public void pagedRequestSkipsTheCountWhenTheCallerOptsOut() {
+        assertThat(service.shouldRunCountQuery(false, 100)).isFalse();
+    }
+
+    @Test
+    public void unpagedRequestNeverRunsACountQuery() {
+        assertThat(service.shouldRunCountQuery(true, null)).isFalse();
+        assertThat(service.shouldRunCountQuery(false, null)).isFalse();
+    }
+
+    @Test
+    public void limitWithoutOffsetStillPagesFromTheStart() {
+        final String sql = service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "1"), false, 100, null);
+
+        assertThat(sql).endsWith(" LIMIT 100 OFFSET 0");
+    }
+
+    @Test
+    public void parameterValuesAreRevalidatedAtTheSubstitutionPoint() {
+        assertThatExceptionOfType(SQLInjectionException.class)
+                .isThrownBy(() -> service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "1 UNION SELECT password FROM m_appuser"),
+                        false, null, null));
+    }
+
+    @Test
+    public void legitimateParameterValuesStillSubstitute() {
+        final String sql = service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "2026-09-11"), false, null, null);
+
+        assertThat(sql).contains("office_id = 2026-09-11");
+    }
+
+    @Test
+    public void mariaDbStreamsOnThePositiveFetchSize() {
+        assertThat(service.streamsOnPositiveFetchSize("MariaDB Connector/J", "jdbc:mariadb://localhost:3306/fineract")).isTrue();
+    }
+
+    @Test
+    public void mysqlConnectorNeedsRowByRowStreaming() {
+        assertThat(service.streamsOnPositiveFetchSize("MySQL Connector/J", "jdbc:mysql://localhost:3306/fineract")).isFalse();
+    }
+
+    @Test
+    public void mysqlConnectorKeepsThePositiveFetchSizeWithServerSideCursors() {
+        assertThat(service.streamsOnPositiveFetchSize("MySQL Connector/J", "jdbc:mysql://localhost:3306/fineract?useCursorFetch=true"))
+                .isTrue();
+    }
+
+    @Test
+    public void unknownDriverKeepsTheConfiguredFetchSize() {
+        assertThat(service.streamsOnPositiveFetchSize(null, null)).isTrue();
+    }
+
+    @Test
+    public void exportCancelsTheQueryWhenTheClientStopsReading() throws Exception {
+        final PreparedStatement statement = org.mockito.Mockito.mock(PreparedStatement.class);
+        final ResultSet rs = resultSet(new String[] { "Client" }, new String[] { "VARCHAR" }, new String[] { "Doe" });
+        given(statement.executeQuery()).willReturn(rs);
+
+        assertThatIOException().isThrownBy(
+                () -> service.streamResultSet(statement, writerFailingAfter(HEADER_WRITES), new ReadReportingServiceImpl.ExportMetrics()))
+                .withMessage("client gone");
+
+        verify(statement).cancel();
+    }
+
+    @Test
+    public void exportDoesNotCancelTheQueryOnASuccessfulStream() throws Exception {
+        final PreparedStatement statement = org.mockito.Mockito.mock(PreparedStatement.class);
+        final ResultSet rs = resultSet(new String[] { "Client" }, new String[] { "VARCHAR" }, new String[] { "Doe" });
+        given(statement.executeQuery()).willReturn(rs);
+
+        final ReadReportingServiceImpl.ExportMetrics metrics = new ReadReportingServiceImpl.ExportMetrics();
+        service.streamResultSet(statement, new StringWriter(), metrics);
+
+        assertThat(metrics.getRows()).isEqualTo(1);
+        verify(statement, never()).cancel();
+    }
+
+    private Writer writerFailingAfter(final int writes) {
+        return new Writer() {
+
+            private int written;
+
+            private void countOrFail() throws IOException {
+                if (++written > writes) {
+                    throw new IOException("client gone");
+                }
+            }
+
+            @Override
+            public void write(final char[] buffer, final int offset, final int length) throws IOException {
+                countOrFail();
+            }
+
+            @Override
+            public void write(final int c) throws IOException {
+                countOrFail();
+            }
+
+            @Override
+            public void write(final String value) throws IOException {
+                countOrFail();
+            }
+
+            @Override
+            public void flush() throws IOException {
+                // nothing buffered
+            }
+
+            @Override
+            public void close() throws IOException {
+                // nothing to release
+            }
+        };
     }
 
     private void givenReportCountSql(final String countSql) {
