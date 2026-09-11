@@ -34,10 +34,12 @@ import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -90,11 +92,16 @@ public class ReadReportingServiceImpl implements ReadReportingService {
     private static final int UNPAGED_LIMIT = Integer.MAX_VALUE;
     private static final int DEFAULT_QUERY_TIMEOUT_SECONDS = 300;
     private static final int DEFAULT_EXPORT_FETCH_SIZE = 1000;
+    private static final int ROW_BY_ROW_FETCH_SIZE = Integer.MIN_VALUE;
     private static final int CSV_BUFFER_SIZE = 32 * 1024;
+    private static final String MYSQL_CONNECTOR_DRIVER_NAME = "MySQL Connector";
+    private static final String CURSOR_FETCH_PARAMETER = "useCursorFetch=true";
     private static final String TMP_DISK_TABLES_STATUS = "SHOW SESSION STATUS LIKE 'Created_tmp_disk_tables'";
     private static final Pattern LOG_SAFE_CHARACTERS = Pattern.compile("[^A-Za-z0-9 _.:\\-]");
-    private static final String REPORT_METRICS_LOG = "REPORT name={} type={} rows={} totalRows={} limit={} offset={} "
+    private static final String REPORT_METRICS_LOG = "REPORT name={} type={} rows={} totalRows={} limit={} offset={} includeCount={} "
             + "dataQueryMs={} countQueryMs={} totalMs={} tmpDiskTables={}";
+    private static final String EXPORT_METRICS_LOG = "REPORT export=csv name={} type={} rows={} bytes={} queryMs={} streamMs={} "
+            + "totalMs={} tmpDiskTables={}";
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformSecurityContext context;
@@ -122,11 +129,12 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             final CountingOutputStream sink = new CountingOutputStream(out);
             final Writer writer = new BufferedWriter(new OutputStreamWriter(sink, StandardCharsets.UTF_8), CSV_BUFFER_SIZE);
             final long startTime = System.currentTimeMillis();
+            final ExportMetrics metrics = new ExportMetrics();
             try {
-                final long rows = streamCsv(sql, writer);
+                streamCsv(sql, writer, metrics);
                 writer.flush();
-                log.info("REPORT export=csv name={} rows={} bytes={} elapsedMs={}", sanitiseForLog(name), rows, sink.getCount(),
-                        System.currentTimeMillis() - startTime);
+                log.info(EXPORT_METRICS_LOG, sanitiseForLog(name), sanitiseForLog(type), metrics.rows, sink.getCount(), metrics.queryMs,
+                        metrics.streamMs, System.currentTimeMillis() - startTime, metrics.tmpDiskTables);
             } catch (final Exception e) {
                 if (sink.getCount() == 0) {
                     throw new PlatformDataIntegrityException("error.msg.exception.error", e.getMessage(), e);
@@ -137,18 +145,44 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         };
     }
 
-    private long streamCsv(final String sql, final Writer writer) {
-        return reportJdbcTemplate.execute((ConnectionCallback<Long>) connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+    private void streamCsv(final String sql, final Writer writer, final ExportMetrics metrics) {
+        reportJdbcTemplate.execute((ConnectionCallback<Void>) connection -> {
+            final long tmpDiskTablesBefore = readCreatedTmpDiskTables(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
                 statement.setQueryTimeout(queryTimeoutSeconds());
-                applyExportFetchSize(statement);
-                try (ResultSet rs = statement.executeQuery()) {
-                    return writeCsv(rs, writer);
-                }
+                applyExportFetchSize(connection, statement);
+                streamResultSet(statement, writer, metrics);
             } catch (final IOException e) {
                 throw new UncheckedIOException(e);
             }
+            metrics.tmpDiskTables = readCreatedTmpDiskTables(connection) - tmpDiskTablesBefore;
+            return null;
         });
+    }
+
+    void streamResultSet(final PreparedStatement statement, final Writer writer, final ExportMetrics metrics)
+            throws SQLException, IOException {
+        final long queryStartTime = System.currentTimeMillis();
+        try (ResultSet rs = statement.executeQuery()) {
+            metrics.queryMs = System.currentTimeMillis() - queryStartTime;
+            final long streamStartTime = System.currentTimeMillis();
+            try {
+                metrics.rows = writeCsv(rs, writer);
+            } catch (final IOException e) {
+                abandonQuery(statement);
+                throw e;
+            } finally {
+                metrics.streamMs = System.currentTimeMillis() - streamStartTime;
+            }
+        }
+    }
+
+    private void abandonQuery(final Statement statement) {
+        try {
+            statement.cancel();
+        } catch (final SQLException e) {
+            log.debug("Could not cancel the abandoned report export query", e);
+        }
     }
 
     long writeCsv(final ResultSet rs, final Writer writer) throws SQLException, IOException {
@@ -208,7 +242,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
 
     @Override
     public GenericResultsetData retrieveGenericResultset(final String name, final String type, final Map<String, String> queryParams,
-            final boolean isSelfServiceUserReport, final Integer limit, final Integer offset) {
+            final boolean isSelfServiceUserReport, final Integer limit, final Integer offset, final boolean includeCount) {
 
         final long startTime = System.currentTimeMillis();
         final String reportSql = getSql(name, type);
@@ -219,17 +253,25 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         final long dataQueryElapsed = System.currentTimeMillis() - startTime;
 
         long countQueryElapsed = 0;
-        if (limit != null && offset != null) {
+        if (shouldRunCountQuery(includeCount, limit)) {
             final long countStartTime = System.currentTimeMillis();
             result.setCount(countRows(name, type, reportSql, queryParams, isSelfServiceUserReport));
             countQueryElapsed = System.currentTimeMillis() - countStartTime;
-        } else {
+        } else if (isUnpaged(limit)) {
             result.setCount(result.getData().size());
         }
 
-        log.info(REPORT_METRICS_LOG, sanitiseForLog(name), sanitiseForLog(type), result.getData().size(), result.getCount(), limit,
-                offset, dataQueryElapsed, countQueryElapsed, System.currentTimeMillis() - startTime, tmpDiskTables[0]);
+        log.info(REPORT_METRICS_LOG, sanitiseForLog(name), sanitiseForLog(type), result.getData().size(), result.getCount(), limit, offset,
+                includeCount, dataQueryElapsed, countQueryElapsed, System.currentTimeMillis() - startTime, tmpDiskTables[0]);
         return result;
+    }
+
+    boolean shouldRunCountQuery(final boolean includeCount, final Integer limit) {
+        return includeCount && !isUnpaged(limit);
+    }
+
+    private static boolean isUnpaged(final Integer limit) {
+        return limit == null;
     }
 
     private GenericResultsetData fillReportResultset(final String sql, final long[] tmpDiskTables) {
@@ -307,8 +349,8 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         final String sql = this.genericDataService
                 .wrapSQL(applyReportParameters(reportSql, queryParams, isSelfServiceUserReport, limit, offset));
 
-        if (!pagedByReport && limit != null && offset != null) {
-            return sql + " LIMIT " + limit + " OFFSET " + offset;
+        if (!pagedByReport && limit != null) {
+            return sql + " LIMIT " + limit + " OFFSET " + (offset != null ? offset : 0);
         }
         return sql;
     }
@@ -339,11 +381,28 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         return sql;
     }
 
-    private void applyExportFetchSize(final PreparedStatement statement) throws SQLException {
+    private void applyExportFetchSize(final Connection connection, final PreparedStatement statement) throws SQLException {
         final int fetchSize = exportFetchSize();
         if (fetchSize != 0) {
-            statement.setFetchSize(fetchSize);
+            statement.setFetchSize(streamsOnPositiveFetchSize(connection) ? fetchSize : ROW_BY_ROW_FETCH_SIZE);
         }
+    }
+
+    private boolean streamsOnPositiveFetchSize(final Connection connection) {
+        try {
+            final DatabaseMetaData metaData = connection.getMetaData();
+            return streamsOnPositiveFetchSize(metaData.getDriverName(), metaData.getURL());
+        } catch (final SQLException e) {
+            log.debug("Could not resolve the JDBC driver for report export streaming", e);
+            return true;
+        }
+    }
+
+    boolean streamsOnPositiveFetchSize(final String driverName, final String url) {
+        if (!StringUtils.containsIgnoreCase(driverName, MYSQL_CONNECTOR_DRIVER_NAME)) {
+            return true;
+        }
+        return StringUtils.containsIgnoreCase(url, CURSOR_FETCH_PARAMETER);
     }
 
     private int queryTimeoutSeconds() {
@@ -418,7 +477,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
 
         try {
             final GenericResultsetData result = retrieveGenericResultset(reportName, type, queryParams, isSelfServiceUserReport, limit,
-                    offset);
+                    offset, false);
 
             final List<ResultsetColumnHeaderData> columnHeaders = result.getColumnHeaders();
             final List<ResultsetRowData> data = result.getData();
@@ -750,7 +809,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
 
             // Retrieve data from your service
             final GenericResultsetData result = retrieveGenericResultset(reportName, type, queryParams, isSelfServiceUserReport, limit,
-                    offset);
+                    offset, false);
 
             // Generate header row
             List<ResultsetColumnHeaderData> columnHeaders = result.getColumnHeaders();
@@ -786,6 +845,18 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             return outputStream.toByteArray();
         } catch (final IOException e) {
             throw new PlatformDataIntegrityException("error.msg.reporting.error", "Table Report failed: " + e.getMessage());
+        }
+    }
+
+    static final class ExportMetrics {
+
+        private long rows;
+        private long queryMs;
+        private long streamMs;
+        private long tmpDiskTables;
+
+        long getRows() {
+            return rows;
         }
     }
 
