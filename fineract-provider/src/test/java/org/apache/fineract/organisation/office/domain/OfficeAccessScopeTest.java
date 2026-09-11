@@ -159,11 +159,24 @@ public class OfficeAccessScopeTest {
     }
 
     @Test
+    @DisplayName("A deeply nested office path is accepted and bound whole")
+    public void acceptsDeeplyNestedHierarchies() {
+        final String deep = ".1.2.3.4.5.6.7.8.9.10.";
+        final OfficeAccessPredicate predicate = OfficeAccessScope.hierarchical(List.of(deep)).predicate("o.hierarchy");
+
+        assertEquals("(o.hierarchy like ?)", predicate.getSql());
+        assertEquals(List.of(deep + "%"), predicate.getParameters());
+    }
+
+    @Test
     @DisplayName("A hierarchy that is not a system generated office path is rejected")
     public void rejectsHierarchyThatIsNotAnOfficePath() {
         assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.hierarchical(List.of(".1.' or '1'='1")));
         assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.hierarchical(List.of("1.2.")));
         assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.hierarchical(List.of(".1.2")));
+        assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.hierarchical(List.of(".1.2.;drop table m_office;--")));
+        assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.hierarchical(List.of(".1.%")));
+        assertThrows(IllegalArgumentException.class, () -> OfficeAccessScope.hierarchical(List.of(".1..")));
     }
 
     @Test
