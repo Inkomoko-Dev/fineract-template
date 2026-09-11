@@ -434,7 +434,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         throw new ReportNotFoundException(encodedName);
     }
 
-    private static String storedReportType(final String type) {
+    static String storedReportType(final String type) {
         return REPORT_TYPE.equalsIgnoreCase(type) ? REPORT_TYPE : PARAMETER_TYPE;
     }
 
