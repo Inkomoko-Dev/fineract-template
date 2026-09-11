@@ -199,6 +199,15 @@ public class ReadReportingServiceImplTest {
     }
 
     @Test
+    public void loggedReportTypeCollapsesToOneOfTwoKnownValues() {
+        assertThat(service.storedReportType("report")).isEqualTo("report");
+        assertThat(service.storedReportType("REPORT")).isEqualTo("report");
+        assertThat(service.storedReportType("parameter")).isEqualTo("parameter");
+        assertThat(service.storedReportType("<script>alert(1)</script>\n")).isEqualTo("parameter");
+        assertThat(service.storedReportType(null)).isEqualTo("parameter");
+    }
+
+    @Test
     public void parameterValuesAreRevalidatedAtTheSubstitutionPoint() {
         assertThatExceptionOfType(SQLInjectionException.class)
                 .isThrownBy(() -> service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "1 UNION SELECT password FROM m_appuser"),
