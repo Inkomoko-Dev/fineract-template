@@ -46,8 +46,13 @@ public interface ReadReportingService {
     StreamingOutput retrieveReportCSV(String name, String type, Map<String, String> extractedQueryParams, boolean isSelfServiceUserReport,
             final Integer limit, final Integer offset);
 
+    default GenericResultsetData retrieveGenericResultset(String name, String type, Map<String, String> extractedQueryParams,
+            boolean isSelfServiceUserReport, final Integer limit, final Integer offset) {
+        return retrieveGenericResultset(name, type, extractedQueryParams, isSelfServiceUserReport, limit, offset, true);
+    }
+
     GenericResultsetData retrieveGenericResultset(String name, String type, Map<String, String> extractedQueryParams,
-            boolean isSelfServiceUserReport, final Integer limit, final Integer offset);
+            boolean isSelfServiceUserReport, final Integer limit, final Integer offset, boolean includeCount);
 
     // TODO This is weird, could they not be using the retrieveGenericResultset() above after all?
     // needed for smsCampaign and emailCampaign jobs where securityContext is null
