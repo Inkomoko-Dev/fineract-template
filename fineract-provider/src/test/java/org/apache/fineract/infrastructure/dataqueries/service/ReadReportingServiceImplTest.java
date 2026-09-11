@@ -59,6 +59,10 @@ public class ReadReportingServiceImplTest {
     private static final String PAGED_REPORT = "SELECT id FROM m_loan ORDER BY id LIMIT ${limit} OFFSET ${offset}";
     private static final String PLAIN_REPORT = "SELECT id FROM m_loan WHERE office_id = ${officeId}";
     private static final int HEADER_WRITES = 4;
+    private static final String SCOPED_REPORT = "SELECT l.id FROM m_loan l "
+            + "JOIN m_office o ON o.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')";
+    private static final String SCOPED_COUNT = "SELECT COUNT(*) FROM m_loan l "
+            + "JOIN m_office o ON o.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')";
 
     @Mock
     private JdbcTemplate jdbcTemplate;
@@ -196,6 +200,24 @@ public class ReadReportingServiceImplTest {
         final String sql = service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "1"), false, 100, null);
 
         assertThat(sql).endsWith(" LIMIT 100 OFFSET 0");
+    }
+
+    @Test
+    public void pagedReportSqlStillCarriesTheAuthenticatedUsersOfficeHierarchy() {
+        final String sql = service.buildReportSql(SCOPED_REPORT, Map.of(), false, 100, 200);
+
+        assertThat(sql).contains("hierarchy LIKE CONCAT('.', '%')");
+        assertThat(sql).doesNotContain("${currentUserHierarchy}");
+    }
+
+    @Test
+    public void companionCountQueryCarriesTheSameOfficeHierarchy() {
+        givenReportCountSql(SCOPED_COUNT);
+
+        final String sql = service.buildCountSql("Portfolio Management", "report", SCOPED_REPORT, Map.of(), false);
+
+        assertThat(sql).contains("hierarchy LIKE CONCAT('.', '%')");
+        assertThat(sql).doesNotContain("${currentUserHierarchy}");
     }
 
     @Test
