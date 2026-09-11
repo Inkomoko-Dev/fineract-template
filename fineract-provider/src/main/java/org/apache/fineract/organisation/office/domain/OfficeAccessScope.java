@@ -21,17 +21,20 @@ package org.apache.fineract.organisation.office.domain;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 /**
- * The set of office hierarchies a user is allowed to read data from, together with whether that access reaches down into
- * child offices.
+ * The office hierarchies a user may read data from, and whether that reaches down into child offices.
  */
 public final class OfficeAccessScope {
 
     private static final Pattern OFFICE_HIERARCHY = Pattern.compile("^\\.(\\d+\\.)*$");
+    private static final Pattern COLUMN_EXPRESSION = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$");
+    private static final Pattern PARAMETER_NAME = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]*$");
 
     private final List<String> hierarchies;
     private final boolean includeDescendants;
@@ -104,25 +107,72 @@ public final class OfficeAccessScope {
         return false;
     }
 
-    public String sqlPredicate(final String... columnExpressions) {
-        if (columnExpressions == null || columnExpressions.length == 0) {
-            throw new IllegalArgumentException("An office access predicate needs at least one column");
+    /** The restriction as SQL with positional placeholders, and the values to bind for them. */
+    public OfficeAccessPredicate predicate(final String... columnExpressions) {
+        final StringBuilder sql = new StringBuilder("(");
+        final List<Object> parameters = new ArrayList<>();
+        for (final String column : validatedColumns(columnExpressions)) {
+            for (final String hierarchy : this.hierarchies) {
+                if (sql.length() > 1) {
+                    sql.append(" or ");
+                }
+                sql.append(column).append(this.includeDescendants ? " like ?" : " = ?");
+                parameters.add(boundValue(hierarchy));
+            }
         }
+        return new OfficeAccessPredicate(sql.append(")").toString(), parameters);
+    }
+
+    /** The restriction as SQL with named placeholders, and the values to bind for them. */
+    public NamedOfficeAccessPredicate namedPredicate(final String parameterName, final String... columnExpressions) {
+        if (parameterName == null || !PARAMETER_NAME.matcher(parameterName).matches()) {
+            throw new IllegalArgumentException("Not a bind parameter name: " + parameterName);
+        }
+        final StringBuilder sql = new StringBuilder("(");
+        final Map<String, Object> parameters = new LinkedHashMap<>();
+        for (final String column : validatedColumns(columnExpressions)) {
+            for (final String hierarchy : this.hierarchies) {
+                final String name = parameterName + parameters.size();
+                if (sql.length() > 1) {
+                    sql.append(" or ");
+                }
+                sql.append(column).append(this.includeDescendants ? " like :" : " = :").append(name);
+                parameters.put(name, boundValue(hierarchy));
+            }
+        }
+        return new NamedOfficeAccessPredicate(sql.append(")").toString(), parameters);
+    }
+
+    /**
+     * The restriction with validated hierarchies inlined, only for report SQL that cannot bind parameters.
+     */
+    public String inlinedPredicate(final String... columnExpressions) {
         final StringBuilder predicate = new StringBuilder("(");
-        for (final String column : columnExpressions) {
+        for (final String column : validatedColumns(columnExpressions)) {
             for (final String hierarchy : this.hierarchies) {
                 if (predicate.length() > 1) {
                     predicate.append(" or ");
                 }
-                predicate.append(column);
-                if (this.includeDescendants) {
-                    predicate.append(" like '").append(hierarchy).append("%'");
-                } else {
-                    predicate.append(" = '").append(hierarchy).append("'");
-                }
+                predicate.append(column).append(this.includeDescendants ? " like '" : " = '").append(boundValue(hierarchy)).append("'");
             }
         }
         return predicate.append(")").toString();
+    }
+
+    private String boundValue(final String hierarchy) {
+        return this.includeDescendants ? hierarchy + "%" : hierarchy;
+    }
+
+    private static String[] validatedColumns(final String... columnExpressions) {
+        if (columnExpressions == null || columnExpressions.length == 0) {
+            throw new IllegalArgumentException("An office access predicate needs at least one column");
+        }
+        for (final String column : columnExpressions) {
+            if (column == null || !COLUMN_EXPRESSION.matcher(column).matches()) {
+                throw new IllegalArgumentException("Not a column expression: " + column);
+            }
+        }
+        return columnExpressions;
     }
 
     @Override

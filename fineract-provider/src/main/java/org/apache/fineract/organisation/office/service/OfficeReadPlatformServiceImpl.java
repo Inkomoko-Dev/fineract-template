@@ -33,10 +33,9 @@ import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.service.CurrencyReadPlatformService;
 import org.apache.fineract.organisation.office.data.OfficeData;
-import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.office.data.OfficeTransactionData;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.apache.fineract.organisation.office.exception.OfficeNotFoundException;
-import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -155,13 +154,12 @@ public class OfficeReadPlatformServiceImpl implements OfficeReadPlatformService 
     @Override
     @Cacheable(value = "offices", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat(#root.target.context.officeAccessScope().toString()+'of')")
     public Collection<OfficeData> retrieveAllOffices(final boolean includeAllOffices, final SearchParameters searchParameters) {
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
         final OfficeMapper rm = new OfficeMapper();
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select ");
         sqlBuilder.append(rm.officeSchema());
-        sqlBuilder.append(" where ")
-                .append(includeAllOffices ? "o.hierarchy like '.%'" : officeAccessScope.sqlPredicate("o.hierarchy")).append(" ");
+        sqlBuilder.append(" where ").append(includeAllOffices ? "o.hierarchy like '.%'" : officeAccess.getSql()).append(" ");
         if (searchParameters != null) {
             if (searchParameters.isOrderByRequested()) {
                 sqlBuilder.append("order by ").append(searchParameters.getOrderBy());
@@ -175,18 +173,18 @@ public class OfficeReadPlatformServiceImpl implements OfficeReadPlatformService 
             }
         }
 
-        return this.jdbcTemplate.query(sqlBuilder.toString(), rm); // NOSONAR
+        return this.jdbcTemplate.query(sqlBuilder.toString(), rm, includeAllOffices ? new Object[0] : officeAccess.getArguments()); // NOSONAR
     }
 
     @Override
     @Cacheable(value = "officesForDropdown", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat(#root.target.context.officeAccessScope().toString()+'ofd')")
     public Collection<OfficeData> retrieveAllOfficesForDropdown() {
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final OfficeDropdownMapper rm = new OfficeDropdownMapper();
-        final String sql = "select " + rm.schema() + "where " + officeAccessScope.sqlPredicate("o.hierarchy") + " order by o.hierarchy";
+        final String sql = "select " + rm.schema() + "where " + officeAccess.getSql() + " order by o.hierarchy";
 
-        return this.jdbcTemplate.query(sql, rm); // NOSONAR
+        return this.jdbcTemplate.query(sql, rm, officeAccess.getArguments()); // NOSONAR
     }
 
     @Override
@@ -241,13 +239,12 @@ public class OfficeReadPlatformServiceImpl implements OfficeReadPlatformService 
     @Override
     public Collection<OfficeTransactionData> retrieveAllOfficeTransactions() {
 
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("fromoff.hierarchy", "tooff.hierarchy");
 
         final OfficeTransactionMapper rm = new OfficeTransactionMapper(sqlGenerator);
-        final String sql = "select " + rm.schema() + " where " + officeAccessScope.sqlPredicate("fromoff.hierarchy", "tooff.hierarchy")
-                + " order by ot.transaction_date, ot.id";
+        final String sql = "select " + rm.schema() + " where " + officeAccess.getSql() + " order by ot.transaction_date, ot.id";
 
-        return this.jdbcTemplate.query(sql, rm); // NOSONAR
+        return this.jdbcTemplate.query(sql, rm, officeAccess.getArguments()); // NOSONAR
     }
 
     @Override

@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.organisation.office.domain;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -50,11 +52,52 @@ public class OfficeAccessScopeTest {
     }
 
     @Test
-    @DisplayName("A hierarchical scope renders one LIKE predicate per office")
+    @DisplayName("A hierarchical scope renders one bound LIKE placeholder per office")
     public void hierarchicalScopeRendersLikePredicates() {
         final OfficeAccessScope scope = OfficeAccessScope.hierarchical(Arrays.asList(KIGALI_C, KIGALI_B));
+        final OfficeAccessPredicate predicate = scope.predicate("o.hierarchy");
 
-        assertEquals("(o.hierarchy like '.1.2.5.%' or o.hierarchy like '.1.2.6.%')", scope.sqlPredicate("o.hierarchy"));
+        assertEquals("(o.hierarchy like ? or o.hierarchy like ?)", predicate.getSql());
+        assertEquals(List.of(".1.2.5.%", ".1.2.6.%"), predicate.getParameters());
+    }
+
+    @Test
+    @DisplayName("Bound values sit in the statement's placeholder order")
+    public void argumentsFollowTheOrderOfThePlaceholders() {
+        final OfficeAccessPredicate predicate = OfficeAccessScope.hierarchical(List.of(KIGALI)).predicate("o.hierarchy");
+
+        assertArrayEquals(new Object[] { ".1.2.%" }, predicate.getArguments());
+        assertArrayEquals(new Object[] { 7L, ".1.2.%" }, predicate.argumentsPrecededBy(7L));
+        assertArrayEquals(new Object[] { ".1.2.%", 7L, 300 }, predicate.argumentsFollowedBy(7L, 300));
+    }
+
+    @Test
+    @DisplayName("A named predicate numbers its placeholders and maps each to its value")
+    public void namedPredicateNumbersItsPlaceholders() {
+        final NamedOfficeAccessPredicate predicate = OfficeAccessScope.hierarchical(Arrays.asList(KIGALI_B, NAIROBI))
+                .namedPredicate("officeHierarchy", "of.hierarchy");
+
+        assertEquals("(of.hierarchy like :officeHierarchy0 or of.hierarchy like :officeHierarchy1)", predicate.getSql());
+        assertEquals(Map.of("officeHierarchy0", ".1.2.5.%", "officeHierarchy1", ".1.3.%"), predicate.getParameters());
+    }
+
+    @Test
+    @DisplayName("Only the inlined form writes hierarchies into the SQL, for report SQL that cannot bind")
+    public void inlinedPredicateWritesLiterals() {
+        final OfficeAccessScope scope = OfficeAccessScope.hierarchical(Arrays.asList(KIGALI_C, KIGALI_B));
+
+        assertEquals("(o.hierarchy like '.1.2.5.%' or o.hierarchy like '.1.2.6.%')", scope.inlinedPredicate("o.hierarchy"));
+    }
+
+    @Test
+    @DisplayName("A column expression that is not a plain identifier is rejected")
+    public void rejectsColumnThatIsNotAnIdentifier() {
+        final OfficeAccessScope scope = OfficeAccessScope.hierarchical(List.of(KIGALI));
+
+        assertThrows(IllegalArgumentException.class, () -> scope.predicate("o.hierarchy) or (1=1"));
+        assertThrows(IllegalArgumentException.class, () -> scope.inlinedPredicate("o.hierarchy'"));
+        assertThrows(IllegalArgumentException.class, () -> scope.namedPredicate("hierarchy", "o.hierarchy--"));
+        assertThrows(IllegalArgumentException.class, () -> scope.namedPredicate("bad name", "o.hierarchy"));
     }
 
     @Test
@@ -62,9 +105,11 @@ public class OfficeAccessScopeTest {
     public void hierarchicalScopeSpansMultipleColumns() {
         final OfficeAccessScope scope = OfficeAccessScope.hierarchical(Arrays.asList(KIGALI_B, NAIROBI));
 
-        assertEquals("(o.hierarchy like '.1.2.5.%' or o.hierarchy like '.1.3.%'"
-                + " or transferToOffice.hierarchy like '.1.2.5.%' or transferToOffice.hierarchy like '.1.3.%')",
-                scope.sqlPredicate("o.hierarchy", "transferToOffice.hierarchy"));
+        final OfficeAccessPredicate predicate = scope.predicate("o.hierarchy", "transferToOffice.hierarchy");
+
+        assertEquals("(o.hierarchy like ? or o.hierarchy like ?"
+                + " or transferToOffice.hierarchy like ? or transferToOffice.hierarchy like ?)", predicate.getSql());
+        assertEquals(List.of(".1.2.5.%", ".1.3.%", ".1.2.5.%", ".1.3.%"), predicate.getParameters());
     }
 
     @Test
@@ -83,7 +128,8 @@ public class OfficeAccessScopeTest {
         assertFalse(scope.isIncludeDescendants());
         assertTrue(scope.covers(KIGALI));
         assertFalse(scope.covers(KIGALI_B));
-        assertEquals("(o.hierarchy = '.1.2.')", scope.sqlPredicate("o.hierarchy"));
+        assertEquals("(o.hierarchy = ?)", scope.predicate("o.hierarchy").getSql());
+        assertEquals(List.of(KIGALI), scope.predicate("o.hierarchy").getParameters());
     }
 
     @Test
@@ -92,7 +138,8 @@ public class OfficeAccessScopeTest {
         final OfficeAccessScope scope = OfficeAccessScope.exact(Arrays.asList(KIGALI_B, KIGALI));
 
         assertEquals(Arrays.asList(KIGALI, KIGALI_B), scope.getHierarchies());
-        assertEquals("(o.hierarchy = '.1.2.' or o.hierarchy = '.1.2.5.')", scope.sqlPredicate("o.hierarchy"));
+        assertEquals("(o.hierarchy = ? or o.hierarchy = ?)", scope.predicate("o.hierarchy").getSql());
+        assertEquals(List.of(KIGALI, KIGALI_B), scope.predicate("o.hierarchy").getParameters());
     }
 
     @Test
@@ -107,7 +154,8 @@ public class OfficeAccessScopeTest {
         final OfficeAccessScope scope = OfficeAccessScope.hierarchical(List.of("."));
 
         assertTrue(scope.covers(NAIROBI));
-        assertEquals("(o.hierarchy like '.%')", scope.sqlPredicate("o.hierarchy"));
+        assertEquals("(o.hierarchy like ?)", scope.predicate("o.hierarchy").getSql());
+        assertEquals(List.of(".%"), scope.predicate("o.hierarchy").getParameters());
     }
 
     @Test
@@ -130,6 +178,7 @@ public class OfficeAccessScopeTest {
     public void rejectsPredicateWithoutColumn() {
         final OfficeAccessScope scope = OfficeAccessScope.hierarchical(List.of(KIGALI));
 
-        assertThrows(IllegalArgumentException.class, scope::sqlPredicate);
+        assertThrows(IllegalArgumentException.class, scope::predicate);
+        assertThrows(IllegalArgumentException.class, scope::inlinedPredicate);
     }
 }

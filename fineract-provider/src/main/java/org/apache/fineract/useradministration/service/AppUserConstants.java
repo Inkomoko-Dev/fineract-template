@@ -32,7 +32,9 @@ public final class AppUserConstants {
 
     public static final String OFFICE_ACCESS_ENTITY = "OFFICEACCESS";
     public static final String HIERARCHICAL_ACTION = "HIERARCHICAL";
+    public static final String MULTI_LOCATION_ACTION = "MULTILOCATION";
     public static final String HIERARCHICAL_OFFICE_ACCESS_PERMISSION = HIERARCHICAL_ACTION + "_" + OFFICE_ACCESS_ENTITY;
+    public static final String MULTI_LOCATION_OFFICE_ACCESS_PERMISSION = MULTI_LOCATION_ACTION + "_" + OFFICE_ACCESS_ENTITY;
 
     // TODO: Remove hard coding of system user name and make this a configurable parameter
     public static final String SYSTEM_USER_NAME = "system";

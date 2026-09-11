@@ -40,8 +40,8 @@ import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
-import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
+import org.apache.fineract.organisation.office.domain.NamedOfficeAccessPredicate;
 import org.apache.fineract.portfolio.calendar.domain.Calendar;
 import org.apache.fineract.portfolio.calendar.domain.CalendarEntityType;
 import org.apache.fineract.portfolio.calendar.domain.CalendarInstanceRepository;
@@ -68,7 +68,6 @@ import org.apache.fineract.portfolio.meeting.attendance.service.AttendanceEnumer
 import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
 import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatformService;
 import org.apache.fineract.portfolio.savings.data.SavingsProductData;
-import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.ResultSetExtractor;
@@ -360,22 +359,24 @@ public class CollectionSheetReadPlatformServiceImpl implements CollectionSheetRe
         }
 
         this.context.authenticatedUser();
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final NamedOfficeAccessPredicate officeAccess = this.context.officeAccessScope().namedPredicate("officeHierarchy",
+                "of.hierarchy");
 
         final JLGCollectionSheetFaltDataMapper mapper = new JLGCollectionSheetFaltDataMapper(sqlGenerator);
 
         final SqlParameterSource namedParameters = new MapSqlParameterSource().addValue("dueDate", transactionDateStr)
-                .addValue("groupId", group.getId()).addValue("entityTypeId", entityType.getValue());
+                .addValue("groupId", group.getId()).addValue("entityTypeId", entityType.getValue())
+                .addValues(officeAccess.getParameters());
 
         final Collection<JLGCollectionSheetFlatData> collectionSheetFlatDatas = this.namedParameterJdbcTemplate
-                .query(officeScoped(mapper.collectionSheetSchema(false), officeAccessScope), namedParameters, mapper);
+                .query(officeScoped(mapper.collectionSheetSchema(false), officeAccess), namedParameters, mapper);
 
         // loan data for collection sheet
         JLGCollectionSheetData collectionSheetData = buildJLGCollectionSheet(transactionDate, collectionSheetFlatDatas);
 
         // mandatory savings data for collection sheet
         Collection<JLGGroupData> groupsWithSavingsData = this.namedParameterJdbcTemplate
-                .query(officeScoped(mandatorySavingsExtractor.collectionSheetSchema(false), officeAccessScope), namedParameters,
+                .query(officeScoped(mandatorySavingsExtractor.collectionSheetSchema(false), officeAccess), namedParameters,
                         mandatorySavingsExtractor);
 
         // merge savings data into loan data
@@ -456,7 +457,8 @@ public class CollectionSheetReadPlatformServiceImpl implements CollectionSheetRe
         this.collectionSheetGenerateCommandFromApiJsonDeserializer.validateForGenerateCollectionSheet(query.json());
 
         this.context.authenticatedUser();
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final NamedOfficeAccessPredicate officeAccess = this.context.officeAccessScope().namedPredicate("officeHierarchy",
+                "of.hierarchy");
 
         final CenterData center = this.centerReadPlatformService.retrieveOne(centerId);
 
@@ -468,17 +470,18 @@ public class CollectionSheetReadPlatformServiceImpl implements CollectionSheetRe
         StringBuilder sql = new StringBuilder(mapper.collectionSheetSchema(true));
 
         final SqlParameterSource namedParameters = new MapSqlParameterSource().addValue("dueDate", dueDateStr)
-                .addValue("centerId", center.getId()).addValue("entityTypeId", CalendarEntityType.CENTERS.getValue());
+                .addValue("centerId", center.getId()).addValue("entityTypeId", CalendarEntityType.CENTERS.getValue())
+                .addValues(officeAccess.getParameters());
 
         final Collection<JLGCollectionSheetFlatData> collectionSheetFlatDatas = this.namedParameterJdbcTemplate
-                .query(officeScoped(sql.toString(), officeAccessScope), namedParameters, mapper);
+                .query(officeScoped(sql.toString(), officeAccess), namedParameters, mapper);
 
         // loan data for collection sheet
         JLGCollectionSheetData collectionSheetData = buildJLGCollectionSheet(transactionDate, collectionSheetFlatDatas);
 
         // mandatory savings data for collection sheet
         Collection<JLGGroupData> groupsWithSavingsData = this.namedParameterJdbcTemplate
-                .query(officeScoped(mandatorySavingsExtractor.collectionSheetSchema(true), officeAccessScope), namedParameters,
+                .query(officeScoped(mandatorySavingsExtractor.collectionSheetSchema(true), officeAccess), namedParameters,
                         mandatorySavingsExtractor);
 
         // merge savings data into loan data
@@ -681,7 +684,8 @@ public class CollectionSheetReadPlatformServiceImpl implements CollectionSheetRe
         final String transactionDateStr = DateUtils.DEFAULT_DATE_FORMATER.format(transactionDate);
 
         this.context.authenticatedUser();
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final NamedOfficeAccessPredicate officeAccess = this.context.officeAccessScope().namedPredicate("officeHierarchy",
+                "of.hierarchy");
 
         final Long officeId = query.longValueOfParameterNamed(officeIdParamName);
         final Long staffId = query.longValueOfParameterNamed(staffIdParamName);
@@ -691,7 +695,8 @@ public class CollectionSheetReadPlatformServiceImpl implements CollectionSheetRe
         final IndividualCollectionSheetFaltDataMapper mapper = new IndividualCollectionSheetFaltDataMapper(checkForOfficeId,
                 checkForStaffId, sqlGenerator);
 
-        final SqlParameterSource namedParameters = new MapSqlParameterSource().addValue("dueDate", transactionDateStr);
+        final SqlParameterSource namedParameters = new MapSqlParameterSource().addValue("dueDate", transactionDateStr)
+                .addValues(officeAccess.getParameters());
 
         if (checkForOfficeId) {
             ((MapSqlParameterSource) namedParameters).addValue("officeId", officeId);
@@ -701,13 +706,13 @@ public class CollectionSheetReadPlatformServiceImpl implements CollectionSheetRe
         }
 
         final Collection<IndividualCollectionSheetLoanFlatData> collectionSheetFlatDatas = this.namedParameterJdbcTemplate
-                .query(officeScoped(mapper.sqlSchema(), officeAccessScope), namedParameters, mapper);
+                .query(officeScoped(mapper.sqlSchema(), officeAccess), namedParameters, mapper);
 
         IndividualMandatorySavingsCollectionsheetExtractor mandatorySavingsExtractor = new IndividualMandatorySavingsCollectionsheetExtractor(
                 checkForOfficeId, checkForStaffId, sqlGenerator);
         // mandatory savings data for collection sheet
         Collection<IndividualClientData> clientData = this.namedParameterJdbcTemplate
-                .query(officeScoped(mandatorySavingsExtractor.collectionSheetSchema(), officeAccessScope), namedParameters,
+                .query(officeScoped(mandatorySavingsExtractor.collectionSheetSchema(), officeAccess), namedParameters,
                         mandatorySavingsExtractor);
 
         // merge savings data into loan data
@@ -903,7 +908,7 @@ public class CollectionSheetReadPlatformServiceImpl implements CollectionSheetRe
         }
     }
 
-    private String officeScoped(final String sql, final OfficeAccessScope officeAccessScope) {
-        return sql.replace("of.hierarchy like :officeHierarchy", officeAccessScope.sqlPredicate("of.hierarchy"));
+    private String officeScoped(final String sql, final NamedOfficeAccessPredicate officeAccess) {
+        return sql.replace("of.hierarchy like :officeHierarchy", officeAccess.getSql());
     }
 }

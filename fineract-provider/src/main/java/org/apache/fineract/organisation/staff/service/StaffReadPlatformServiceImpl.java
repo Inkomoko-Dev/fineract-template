@@ -31,7 +31,7 @@ import org.apache.fineract.infrastructure.core.exception.UnrecognizedQueryParamE
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.infrastructure.security.utils.SQLBuilder;
-import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.exception.StaffNotFoundException;
 import org.apache.fineract.portfolio.client.domain.ClientStatus;
@@ -172,14 +172,14 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
         // adding the Authorization criteria so that a user cannot see an
         // employee who does not belong to his office or a sub office for his
         // office.
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final Long defaultOfficeId = defaultToUsersOfficeIfNull(officeId);
 
         final String sql = "select " + this.lookupMapper.schema() + " where s.office_id = ? and s.is_active=true and "
-                + officeAccessScope.sqlPredicate("o.hierarchy") + " ";
+                + officeAccess.getSql() + " ";
 
-        return this.jdbcTemplate.query(sql, this.lookupMapper, new Object[] { defaultOfficeId }); // NOSONAR
+        return this.jdbcTemplate.query(sql, this.lookupMapper, officeAccess.argumentsPrecededBy(defaultOfficeId)); // NOSONAR
     }
 
     private Long defaultToUsersOfficeIfNull(final Long officeId) {
@@ -196,13 +196,13 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
         // adding the Authorization criteria so that a user cannot see an
         // employee who does not belong to his office or a sub office for his
         // office.
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         try {
             final StaffMapper rm = new StaffMapper();
-            final String sql = "select " + rm.schema() + " where s.id = ? and " + officeAccessScope.sqlPredicate("o.hierarchy") + " ";
+            final String sql = "select " + rm.schema() + " where s.id = ? and " + officeAccess.getSql() + " ";
 
-            return this.jdbcTemplate.queryForObject(sql, rm, new Object[] { staffId }); // NOSONAR
+            return this.jdbcTemplate.queryForObject(sql, rm, officeAccess.argumentsPrecededBy(staffId)); // NOSONAR
         } catch (final EmptyResultDataAccessException e) {
             throw new StaffNotFoundException(staffId, e);
         }
@@ -221,16 +221,16 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
 
         // adding the Authorization criteria so that a user cannot see an
         // employee who does not belong to one of the offices they are assigned to.
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
-        sql += " where " + officeAccessScope.sqlPredicate("o.hierarchy");
+        sql += " where " + officeAccess.getSql();
         final String furtherCriteria = extraCriteria.getSQLTemplate();
         if (StringUtils.isNotBlank(furtherCriteria)) {
             sql += " and " + furtherCriteria.replaceFirst("(?i)\\s*WHERE\\s+", "");
         }
         sql = sql + " order by s.lastname ";
 
-        return this.jdbcTemplate.query(sql, rm, extraCriteria.getArguments()); // NOSONAR
+        return this.jdbcTemplate.query(sql, rm, officeAccess.argumentsFollowedBy(extraCriteria.getArguments())); // NOSONAR
     }
 
     private SQLBuilder getStaffCriteria(final Long officeId, final boolean loanOfficersOnly, final String status) {

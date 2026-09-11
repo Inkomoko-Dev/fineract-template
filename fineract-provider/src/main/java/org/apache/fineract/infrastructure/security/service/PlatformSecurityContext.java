@@ -42,9 +42,7 @@ public interface PlatformSecurityContext {
 
     String officeHierarchy();
 
-    /**
-     * Every office the authenticated user may read data from, honouring their hierarchical and multi-location access.
-     */
+    /** Every office the authenticated user may read data from. */
     OfficeAccessScope officeAccessScope();
 
     boolean doesPasswordHasToBeRenewed(AppUser currentUser);

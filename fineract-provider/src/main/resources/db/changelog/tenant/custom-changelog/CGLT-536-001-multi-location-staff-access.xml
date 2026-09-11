@@ -52,7 +52,7 @@
     </changeSet>
 
     <changeSet id="CGLT-536-2" author="inkomoko" runOnChange="true">
-        <comment>Permission granting hierarchical and multi-location office access</comment>
+        <comment>Permission granting descent from an assigned office into its child offices</comment>
         <sql>
             INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
             VALUES ('authorisation', 'HIERARCHICAL_OFFICEACCESS', 'OFFICEACCESS', 'HIERARCHICAL', 0)
@@ -65,8 +65,32 @@
         <sql>
             INSERT INTO c_configuration (name, value, enabled, is_trap_door, description)
             VALUES ('strict-office-scope', NULL, 0, 0,
-            'When enabled, a user without the HIERARCHICAL_OFFICEACCESS permission sees only their own office, with no child offices. When disabled, such a user keeps the platform default of seeing their own office and every office beneath it.')
+            'When enabled, a user sees only the offices they are assigned to, with no child offices unless they hold HIERARCHICAL_OFFICEACCESS. When disabled, every user keeps the platform default of seeing their own office and every office beneath it.')
             ON DUPLICATE KEY UPDATE description = VALUES(description)
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-536-4" author="inkomoko" runOnChange="true">
+        <comment>Permission granting access to the offices additionally assigned to a user</comment>
+        <sql>
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('authorisation', 'MULTILOCATION_OFFICEACCESS', 'OFFICEACCESS', 'MULTILOCATION', 0)
+            ON DUPLICATE KEY UPDATE `grouping` = 'authorisation'
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-536-5" author="inkomoko">
+        <comment>Roles already granted the single office access permission keep both halves of it</comment>
+        <sql>
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT rp.role_id, multi.id
+            FROM m_role_permission rp
+            JOIN m_permission single ON single.id = rp.permission_id AND single.code = 'HIERARCHICAL_OFFICEACCESS'
+            JOIN m_permission multi ON multi.code = 'MULTILOCATION_OFFICEACCESS'
+            WHERE NOT EXISTS (
+            SELECT 1 FROM m_role_permission existing
+            WHERE existing.role_id = rp.role_id AND existing.permission_id = multi.id
+            )
         </sql>
     </changeSet>
 

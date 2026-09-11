@@ -24,9 +24,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 
 /**
- * Widens the single office restriction reports carry - {@code x.hierarchy like concat('${currentUserHierarchy}', '%')} -
- * into a predicate over every office the running user is allowed to see, so a report needs no edit to respect
- * hierarchical and multi-location access.
+ * Widens the single office restriction reports carry into a predicate over every office the user may see.
  */
 public final class OfficeScopeReportSqlRewriter {
 
@@ -54,7 +52,7 @@ public final class OfficeScopeReportSqlRewriter {
         final Matcher matcher = pattern.matcher(sql);
         final StringBuilder rewritten = new StringBuilder(sql.length());
         while (matcher.find()) {
-            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(scope.sqlPredicate(matcher.group(1))));
+            matcher.appendReplacement(rewritten, Matcher.quoteReplacement(scope.inlinedPredicate(matcher.group(1))));
         }
         matcher.appendTail(rewritten);
         return rewritten.toString();

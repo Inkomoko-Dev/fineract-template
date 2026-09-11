@@ -43,8 +43,8 @@ import javax.persistence.UniqueConstraint;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
-import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.audit.AuditChangeRecorder;
+import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.domain.PlatformUser;
@@ -469,6 +469,10 @@ public class AppUser extends AbstractPersistableCustom implements PlatformUser {
         return hasAnyPermission(AppUserConstants.HIERARCHICAL_OFFICE_ACCESS_PERMISSION);
     }
 
+    public boolean hasMultiLocationOfficeAccess() {
+        return hasAnyPermission(AppUserConstants.MULTI_LOCATION_OFFICE_ACCESS_PERMISSION);
+    }
+
     public List<Office> getAdditionalOffices() {
         if (this.appUserOfficeMappings == null) {
             return new ArrayList<>();
@@ -477,20 +481,13 @@ public class AppUser extends AbstractPersistableCustom implements PlatformUser {
                 .sorted(Comparator.comparing(Office::getId, Comparator.nullsLast(Comparator.naturalOrder()))).collect(Collectors.toList());
     }
 
-    /**
-     * The offices this user may read data from, expressed as office hierarchies.
-     *
-     * Additional office assignments and the descent into child offices are both gated on
-     * {@link AppUserConstants#HIERARCHICAL_OFFICE_ACCESS_PERMISSION}. Users without that permission keep the platform's
-     * historical behaviour of seeing their own office and everything under it, unless strict office scoping is switched
-     * on, in which case they are held to their own office alone.
-     */
+    /** MULTILOCATION_OFFICEACCESS admits the assigned offices, HIERARCHICAL_OFFICEACCESS their children. */
     public OfficeAccessScope officeAccessScope(final boolean strictOfficeScopeEnforced) {
         final boolean hierarchicalAccess = hasHierarchicalOfficeAccess();
 
         final List<String> hierarchies = new ArrayList<>();
         hierarchies.add(this.office.getHierarchy());
-        if (hierarchicalAccess) {
+        if (hasMultiLocationOfficeAccess()) {
             for (final Office additionalOffice : getAdditionalOffices()) {
                 hierarchies.add(additionalOffice.getHierarchy());
             }

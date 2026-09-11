@@ -27,9 +27,9 @@ import java.util.List;
 import java.util.Set;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
-import org.apache.fineract.organisation.office.domain.Office;
-import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.office.data.OfficeData;
+import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
@@ -82,23 +82,23 @@ public class AppUserReadPlatformServiceImpl implements AppUserReadPlatformServic
     public Collection<AppUserData> retrieveAllUsers() {
 
         this.context.authenticatedUser();
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final AppUserMapper mapper = new AppUserMapper(this.roleReadPlatformService, this.staffReadPlatformService);
-        final String sql = "select " + mapper.schema(officeAccessScope);
+        final String sql = "select " + mapper.schema(officeAccess);
 
-        return this.jdbcTemplate.query(sql, mapper); // NOSONAR
+        return this.jdbcTemplate.query(sql, mapper, officeAccess.getArguments()); // NOSONAR
     }
 
     @Override
     public Collection<AppUserData> retrieveSearchTemplate() {
         final AppUser currentUser = this.context.authenticatedUser();
-        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final AppUserLookupMapper mapper = new AppUserLookupMapper();
-        final String sql = "select " + mapper.schema(officeAccessScope);
+        final String sql = "select " + mapper.schema(officeAccess);
 
-        return this.jdbcTemplate.query(sql, mapper); // NOSONAR
+        return this.jdbcTemplate.query(sql, mapper, officeAccess.getArguments()); // NOSONAR
     }
 
     @Override
@@ -223,10 +223,10 @@ public class AppUserReadPlatformServiceImpl implements AppUserReadPlatformServic
                     linkedStaff, passwordNeverExpire, isSelfServiceUser);
         }
 
-        public String schema(final OfficeAccessScope officeAccessScope) {
+        public String schema(final OfficeAccessPredicate officeAccess) {
             return " u.id as id, u.username as username, u.firstname as firstname, u.lastname as lastname, u.email as email, u.password_never_expires as passwordNeverExpires, "
                     + " u.office_id as officeId, o.name as officeName, u.staff_id as staffId, u.is_self_service_user as isSelfServiceUser from m_appuser u "
-                    + " join m_office o on o.id = u.office_id where " + officeAccessScope.sqlPredicate("o.hierarchy")
+                    + " join m_office o on o.id = u.office_id where " + officeAccess.getSql()
                     + " and u.is_deleted=false order by u.username";
         }
 
@@ -243,9 +243,9 @@ public class AppUserReadPlatformServiceImpl implements AppUserReadPlatformServic
             return AppUserData.dropdown(id, username);
         }
 
-        public String schema(final OfficeAccessScope officeAccessScope) {
+        public String schema(final OfficeAccessPredicate officeAccess) {
             return " u.id as id, u.username as username from m_appuser u " + " join m_office o on o.id = u.office_id where "
-                    + officeAccessScope.sqlPredicate("o.hierarchy") + " and u.is_deleted=false order by u.username";
+                    + officeAccess.getSql() + " and u.is_deleted=false order by u.username";
         }
     }
 

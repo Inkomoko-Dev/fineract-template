@@ -88,13 +88,14 @@ public class AppUserOfficeAccessTest {
         final AppUser user = userIn(this.kigali, roleWith("authorisation", "FUNCTIONS", "ALL"));
 
         assertTrue(user.hasHierarchicalOfficeAccess());
+        assertTrue(user.hasMultiLocationOfficeAccess());
     }
 
     // Scenario 2 - staff assigned to multiple locations
     @Test
     @DisplayName("A user with the permission sees each additionally assigned office and its children")
     public void multiOfficeUserWithPermissionSeesEveryAssignedOffice() {
-        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess());
+        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess(), roleWithMultiLocationAccess());
         user.updateAdditionalOffices(Arrays.asList(this.kigaliB, this.kigaliC));
 
         final OfficeAccessScope scope = user.officeAccessScope(STRICT);
@@ -109,10 +110,38 @@ public class AppUserOfficeAccessTest {
     @Test
     @DisplayName("An additional office that is already under the home office adds nothing")
     public void additionalOfficeUnderHomeOfficeIsCollapsed() {
-        final AppUser user = userIn(this.kigali, roleWithHierarchicalAccess());
+        final AppUser user = userIn(this.kigali, roleWithHierarchicalAccess(), roleWithMultiLocationAccess());
         user.updateAdditionalOffices(List.of(this.kigaliB));
 
         assertEquals(List.of(".1.2."), user.officeAccessScope(STRICT).getHierarchies());
+    }
+
+    @Test
+    @DisplayName("Multi-location access alone holds a user to the offices assigned, with no child offices")
+    public void multiLocationAccessWithoutHierarchicalAccessExcludesChildOffices() {
+        final AppUser user = userIn(this.kigaliB, roleWithMultiLocationAccess());
+        user.updateAdditionalOffices(List.of(this.kigaliC));
+
+        final OfficeAccessScope scope = user.officeAccessScope(STRICT);
+
+        assertFalse(scope.isIncludeDescendants());
+        assertEquals(Arrays.asList(".1.2.5.", ".1.2.6."), scope.getHierarchies());
+        assertTrue(scope.covers(".1.2.6."));
+        assertFalse(scope.covers(".1.2.6.9."));
+        assertFalse(scope.covers(".1.2."));
+    }
+
+    @Test
+    @DisplayName("Hierarchical access alone ignores the offices additionally assigned")
+    public void hierarchicalAccessWithoutMultiLocationAccessIgnoresAssignedOffices() {
+        final AppUser user = userIn(this.kigali, roleWithHierarchicalAccess());
+        user.updateAdditionalOffices(List.of(this.nairobi));
+
+        final OfficeAccessScope scope = user.officeAccessScope(STRICT);
+
+        assertEquals(List.of(".1.2."), scope.getHierarchies());
+        assertTrue(scope.covers(".1.2.5."));
+        assertFalse(scope.covers(".1.3."));
     }
 
     // Scenario 3 - restricted staff
@@ -134,6 +163,7 @@ public class AppUserOfficeAccessTest {
     @DisplayName("Without the permission additional office assignments are ignored")
     public void restrictedUserDoesNotInheritAdditionalOffices() {
         final AppUser user = userIn(this.kigali, roleWith("portfolio", "CLIENT", "READ"));
+        assertFalse(user.hasMultiLocationOfficeAccess());
         user.updateAdditionalOffices(Arrays.asList(this.kigaliB, this.nairobi));
 
         assertEquals(List.of(".1.2."), user.officeAccessScope(STRICT).getHierarchies());
@@ -155,7 +185,7 @@ public class AppUserOfficeAccessTest {
     @Test
     @DisplayName("Changing the assigned offices records a before and after entry for the audit trail")
     public void changingAssignedOfficesIsRecordedForAudit() {
-        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess());
+        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess(), roleWithMultiLocationAccess());
         user.updateAdditionalOffices(List.of(this.kigaliB));
 
         final Map<String, Object> changes = user.updateAdditionalOfficesWithChanges(Arrays.asList(this.kigaliB, this.kigaliC));
@@ -169,7 +199,7 @@ public class AppUserOfficeAccessTest {
     @Test
     @DisplayName("Re-assigning the same offices records no audit change")
     public void reassigningTheSameOfficesRecordsNothing() {
-        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess());
+        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess(), roleWithMultiLocationAccess());
         user.updateAdditionalOffices(Arrays.asList(this.kigaliC, this.kigaliB));
 
         assertTrue(user.updateAdditionalOfficesWithChanges(Arrays.asList(this.kigaliB, this.kigaliC)).isEmpty());
@@ -178,7 +208,7 @@ public class AppUserOfficeAccessTest {
     @Test
     @DisplayName("Clearing the additional offices is recorded and takes effect")
     public void clearingAdditionalOfficesIsRecorded() {
-        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess());
+        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess(), roleWithMultiLocationAccess());
         user.updateAdditionalOffices(List.of(this.kigaliB));
 
         final Map<String, Object> changes = user.updateAdditionalOfficesWithChanges(Collections.emptyList());
@@ -190,7 +220,7 @@ public class AppUserOfficeAccessTest {
     @Test
     @DisplayName("The home office is not duplicated by an additional assignment to itself")
     public void homeOfficeIsAlwaysInScope() {
-        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess());
+        final AppUser user = userIn(this.nairobi, roleWithHierarchicalAccess(), roleWithMultiLocationAccess());
         user.updateAdditionalOffices(List.of(this.nairobi));
 
         assertEquals(List.of(".1.3."), user.officeAccessScope(STRICT).getHierarchies());
@@ -211,6 +241,10 @@ public class AppUserOfficeAccessTest {
 
     private Role roleWithHierarchicalAccess() {
         return roleWith("authorisation", AppUserConstants.OFFICE_ACCESS_ENTITY, AppUserConstants.HIERARCHICAL_ACTION);
+    }
+
+    private Role roleWithMultiLocationAccess() {
+        return roleWith("authorisation", AppUserConstants.OFFICE_ACCESS_ENTITY, AppUserConstants.MULTI_LOCATION_ACTION);
     }
 
     private Role roleWith(final String grouping, final String entity, final String action) {
