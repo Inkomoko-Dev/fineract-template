@@ -46,7 +46,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 import javax.annotation.PostConstruct;
 import javax.ws.rs.core.StreamingOutput;
 import lombok.RequiredArgsConstructor;
@@ -66,6 +65,7 @@ import org.apache.fineract.infrastructure.dataqueries.data.ResultsetRowData;
 import org.apache.fineract.infrastructure.dataqueries.exception.ReportNotFoundException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.service.SqlInjectionPreventerService;
+import org.apache.fineract.infrastructure.security.utils.SQLInjectionValidator;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
@@ -89,6 +89,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
     private static final String LIMIT_PLACEHOLDER = "${limit}";
     private static final String OFFSET_PLACEHOLDER = "${offset}";
     private static final String REPORT_TYPE = "report";
+    private static final String PARAMETER_TYPE = "parameter";
     private static final int UNPAGED_LIMIT = Integer.MAX_VALUE;
     private static final int DEFAULT_QUERY_TIMEOUT_SECONDS = 300;
     private static final int DEFAULT_EXPORT_FETCH_SIZE = 1000;
@@ -97,7 +98,6 @@ public class ReadReportingServiceImpl implements ReadReportingService {
     private static final String MYSQL_CONNECTOR_DRIVER_NAME = "MySQL Connector";
     private static final String CURSOR_FETCH_PARAMETER = "useCursorFetch=true";
     private static final String TMP_DISK_TABLES_STATUS = "SHOW SESSION STATUS LIKE 'Created_tmp_disk_tables'";
-    private static final Pattern LOG_SAFE_CHARACTERS = Pattern.compile("[^A-Za-z0-9 _.:\\-]");
     private static final String REPORT_METRICS_LOG = "REPORT name={} type={} rows={} totalRows={} limit={} offset={} includeCount={} "
             + "dataQueryMs={} countQueryMs={} totalMs={} tmpDiskTables={}";
     private static final String EXPORT_METRICS_LOG = "REPORT export=csv name={} type={} rows={} bytes={} queryMs={} streamMs={} "
@@ -123,7 +123,10 @@ public class ReadReportingServiceImpl implements ReadReportingService {
     public StreamingOutput retrieveReportCSV(final String name, final String type, final Map<String, String> queryParams,
             final boolean isSelfServiceUserReport, final Integer limit, final Integer offset) {
 
-        final String sql = getSQLtoRun(name, type, queryParams, isSelfServiceUserReport, limit, offset);
+        final ReportSql report = getReportSql(name, type);
+        final String sql = buildReportSql(report.sql, queryParams, isSelfServiceUserReport, limit, offset);
+        final String storedName = report.name;
+        final String storedType = storedReportType(type);
 
         return out -> {
             final CountingOutputStream sink = new CountingOutputStream(out);
@@ -133,13 +136,13 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             try {
                 streamCsv(sql, writer, metrics);
                 writer.flush();
-                log.info(EXPORT_METRICS_LOG, sanitiseForLog(name), sanitiseForLog(type), metrics.rows, sink.getCount(), metrics.queryMs,
-                        metrics.streamMs, System.currentTimeMillis() - startTime, metrics.tmpDiskTables);
+                log.info(EXPORT_METRICS_LOG, storedName, storedType, metrics.rows, sink.getCount(), metrics.queryMs, metrics.streamMs,
+                        System.currentTimeMillis() - startTime, metrics.tmpDiskTables);
             } catch (final Exception e) {
                 if (sink.getCount() == 0) {
                     throw new PlatformDataIntegrityException("error.msg.exception.error", e.getMessage(), e);
                 }
-                log.error("Report CSV export aborted after {} bytes: {}", sink.getCount(), sanitiseForLog(name), e);
+                log.error("Report CSV export aborted after {} bytes: {}", sink.getCount(), storedName, e);
                 throw new IOException("Report CSV export aborted", e);
             }
         };
@@ -220,10 +223,6 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         return rows;
     }
 
-    private static String sanitiseForLog(final String value) {
-        return value == null ? null : LOG_SAFE_CHARACTERS.matcher(value).replaceAll("_");
-    }
-
     private String columnValue(final ResultSet rs, final int columnIndex) throws SQLException {
         final Object value = rs.getObject(columnIndex);
         return value == null ? null : value.toString();
@@ -245,7 +244,8 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             final boolean isSelfServiceUserReport, final Integer limit, final Integer offset, final boolean includeCount) {
 
         final long startTime = System.currentTimeMillis();
-        final String reportSql = getSql(name, type);
+        final ReportSql report = getReportSql(name, type);
+        final String reportSql = report.sql;
         final String sql = buildReportSql(reportSql, queryParams, isSelfServiceUserReport, limit, offset);
 
         final long[] tmpDiskTables = new long[1];
@@ -261,7 +261,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             result.setCount(result.getData().size());
         }
 
-        log.info(REPORT_METRICS_LOG, sanitiseForLog(name), sanitiseForLog(type), result.getData().size(), result.getCount(), limit, offset,
+        log.info(REPORT_METRICS_LOG, report.name, storedReportType(type), result.getData().size(), result.getCount(), limit, offset,
                 includeCount, dataQueryElapsed, countQueryElapsed, System.currentTimeMillis() - startTime, tmpDiskTables[0]);
         return result;
     }
@@ -338,11 +338,6 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         return "SELECT COUNT(*) FROM (" + buildReportSql(reportSql, queryParams, isSelfServiceUserReport, null, null) + ") AS temp";
     }
 
-    private String getSQLtoRun(final String name, final String type, final Map<String, String> queryParams,
-            final boolean isSelfServiceUserReport, final Integer limit, final Integer offset) {
-        return buildReportSql(getSql(name, type), queryParams, isSelfServiceUserReport, limit, offset);
-    }
-
     String buildReportSql(final String reportSql, final Map<String, String> queryParams, final boolean isSelfServiceUserReport,
             final Integer limit, final Integer offset) {
         final boolean pagedByReport = reportSql.contains(LIMIT_PLACEHOLDER);
@@ -360,7 +355,9 @@ public class ReadReportingServiceImpl implements ReadReportingService {
 
         String sql = reportSql;
         for (final String key : queryParams.keySet()) {
-            sql = this.genericDataService.replace(sql, key, queryParams.get(key));
+            final String value = queryParams.get(key);
+            SQLInjectionValidator.validateReportParameter(value);
+            sql = this.genericDataService.replace(sql, key, value);
         }
 
         sql = this.genericDataService.replace(sql, LIMIT_PLACEHOLDER, Integer.toString(limit != null ? limit : UNPAGED_LIMIT));
@@ -416,11 +413,15 @@ public class ReadReportingServiceImpl implements ReadReportingService {
     }
 
     private String getSql(final String name, final String type) {
+        return getReportSql(name, type).sql;
+    }
+
+    private ReportSql getReportSql(final String name, final String type) {
         final String encodedName = sqlInjectionPreventerService.encodeSql(name);
         final String encodedType = sqlInjectionPreventerService.encodeSql(type);
 
-        final String inputSql = "select " + encodedType + "_sql as the_sql from stretchy_" + encodedType + " where " + encodedType
-                + "_name = ?";
+        final String inputSql = "select " + encodedType + "_name as the_name, " + encodedType + "_sql as the_sql from stretchy_"
+                + encodedType + " where " + encodedType + "_name = ?";
 
         final String inputSqlWrapped = this.genericDataService.wrapSQL(inputSql);
 
@@ -428,9 +429,13 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         final SqlRowSet rs = this.jdbcTemplate.queryForRowSet(inputSqlWrapped, encodedName);
 
         if (rs.next() && rs.getString("the_sql") != null) {
-            return rs.getString("the_sql");
+            return new ReportSql(rs.getString("the_name"), rs.getString("the_sql"));
         }
         throw new ReportNotFoundException(encodedName);
+    }
+
+    private static String storedReportType(final String type) {
+        return REPORT_TYPE.equalsIgnoreCase(type) ? REPORT_TYPE : PARAMETER_TYPE;
     }
 
     private String getReportCountSql(final String name, final String type) {
@@ -845,6 +850,17 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             return outputStream.toByteArray();
         } catch (final IOException e) {
             throw new PlatformDataIntegrityException("error.msg.reporting.error", "Table Report failed: " + e.getMessage());
+        }
+    }
+
+    private static final class ReportSql {
+
+        private final String name;
+        private final String sql;
+
+        private ReportSql(final String name, final String sql) {
+            this.name = name;
+            this.sql = sql;
         }
     }
 

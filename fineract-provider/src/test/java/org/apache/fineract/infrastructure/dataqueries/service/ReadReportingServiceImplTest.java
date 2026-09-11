@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIOException;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -41,6 +42,7 @@ import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecific
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.service.SqlInjectionPreventerService;
+import org.apache.fineract.infrastructure.security.utils.SQLInjectionException;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.junit.jupiter.api.BeforeEach;
@@ -194,6 +196,20 @@ public class ReadReportingServiceImplTest {
         final String sql = service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "1"), false, 100, null);
 
         assertThat(sql).endsWith(" LIMIT 100 OFFSET 0");
+    }
+
+    @Test
+    public void parameterValuesAreRevalidatedAtTheSubstitutionPoint() {
+        assertThatExceptionOfType(SQLInjectionException.class)
+                .isThrownBy(() -> service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "1 UNION SELECT password FROM m_appuser"),
+                        false, null, null));
+    }
+
+    @Test
+    public void legitimateParameterValuesStillSubstitute() {
+        final String sql = service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "2026-09-11"), false, null, null);
+
+        assertThat(sql).contains("office_id = 2026-09-11");
     }
 
     @Test
