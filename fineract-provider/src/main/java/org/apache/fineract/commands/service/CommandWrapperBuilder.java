@@ -4267,4 +4267,37 @@ public class CommandWrapperBuilder {
         this.href = "/reports/jasper";
         return this;
     }
+
+    public CommandWrapperBuilder createLoanClassificationCountryConfig() {
+        this.actionName = "CREATE";
+        this.entityName = "LOANCLASSIFICATIONCONFIG";
+        this.entityId = null;
+        this.href = "/loanclassification/countries";
+        return this;
+    }
+
+    public CommandWrapperBuilder updateLoanClassificationCountryConfig(final Long configId) {
+        this.actionName = "UPDATE";
+        this.entityName = "LOANCLASSIFICATIONCONFIG";
+        this.entityId = configId;
+        this.href = "/loanclassification/countries/" + configId;
+        return this;
+    }
+
+    public CommandWrapperBuilder deleteLoanClassificationCountryConfig(final Long configId) {
+        this.actionName = "DELETE";
+        this.entityName = "LOANCLASSIFICATIONCONFIG";
+        this.entityId = configId;
+        this.href = "/loanclassification/countries/" + configId;
+        return this;
+    }
+
+    public CommandWrapperBuilder overrideLoanClassification(final Long loanId) {
+        this.actionName = "OVERRIDE";
+        this.entityName = "LOANCLASSIFICATION";
+        this.entityId = loanId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/classification";
+        return this;
+    }
 }
