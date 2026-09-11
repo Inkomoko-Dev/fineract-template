@@ -87,6 +87,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
+import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.apache.xmlrpc.XmlRpcException;
 import org.apache.xmlrpc.client.XmlRpcClient;
 import org.apache.xmlrpc.client.XmlRpcClientConfigImpl;
@@ -137,6 +138,7 @@ public class OdooServiceImpl implements OdooService {
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
     private FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository;
     private FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository;
+    private final AppUserRepository appUserRepository;
 
     @Autowired
     public OdooServiceImpl(ClientRepositoryWrapper clientRepository, ConfigurationDomainService configurationDomainService,
@@ -144,7 +146,8 @@ public class OdooServiceImpl implements OdooService {
             LoanTransactionRepository loanTransactionRepository, LoanRepositoryWrapper loanRepositoryWrapper,
             FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository,
             FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository,
-            FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository) {
+            FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository,
+            AppUserRepository appUserRepository) {
         this.clientRepository = clientRepository;
         this.configurationDomainService = configurationDomainService;
         this.journalEntryRepository = journalEntryRepository;
@@ -154,6 +157,7 @@ public class OdooServiceImpl implements OdooService {
         this.failedClientCreationOnDataMigrationRepository = failedClientCreationOnDataMigrationRepository;
         this.failedLoanCreationOnDataMigrationRepository = failedLoanCreationOnDataMigrationRepository;
         this.failedLoanRepaymentOnDataMigrationRepository = failedLoanRepaymentOnDataMigrationRepository;
+        this.appUserRepository = appUserRepository;
     }
 
     @PostConstruct
@@ -424,6 +428,7 @@ public class OdooServiceImpl implements OdooService {
             journalData.setClientDisplayName(client.getDisplayName());
             journalData.setEntryDate(list.get(0).getTransactionDate().toString());
             journalData.setOfficeId(office.getId());
+            applyCreatedByToOdooJournal(journalData, list.get(0));
             journalData.setJournalItems(journalItems);
             journalData.setLocation(location);
 
@@ -467,6 +472,17 @@ public class OdooServiceImpl implements OdooService {
             return sendRequest(jsonPayload);
         }
         return null;
+    }
+
+    /**
+     * createdBy is populated automatically by JPA auditing on every JournalEntry, so no
+     * new tracking is needed — just surface it (and the AppUser it resolves to) to Odoo.
+     */
+    void applyCreatedByToOdooJournal(final JournalData journalData, final JournalEntry entry) {
+        entry.getCreatedBy().flatMap(appUserRepository::findById).ifPresent(user -> {
+            journalData.setCreatedByUsername(user.getUsername());
+            journalData.setCreatedByDisplayName(user.getDisplayName());
+        });
     }
 
     @Override
