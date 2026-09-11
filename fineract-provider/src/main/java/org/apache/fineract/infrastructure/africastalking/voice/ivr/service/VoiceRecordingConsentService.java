@@ -21,7 +21,6 @@ package org.apache.fineract.infrastructure.africastalking.voice.ivr.service;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
-import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLog;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLogRepository;
 import org.apache.fineract.infrastructure.africastalking.service.VoiceXmlBuilder;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrAuthConstants;
