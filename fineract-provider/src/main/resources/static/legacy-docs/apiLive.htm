@@ -39410,9 +39410,16 @@ GET https://DomainName/api/v1/users/{userId}
 							<td><div class="fineractHeading2">Optional Fields</div></td>
 						</tr>
 						<tr>
-							<td>staffId,passwordNeverExpires,isSelfServiceUser,clients</td>
+							<td>staffId,passwordNeverExpires,isSelfServiceUser,clients,officeIds</td>
 						</tr>
 					</table>
+					<p>
+						<b>officeIds</b> lists offices this user may see besides their own. They are
+						honoured only for a user whose role holds the <code>MULTILOCATION_OFFICEACCESS</code>
+						permission, and each reaches down into its child offices only with
+						<code>HIERARCHICAL_OFFICEACCESS</code>. The offices assigned come back as
+						<code>assignedOffices</code> when the user is retrieved.
+					</p>
 				</div>
 				<div class="method-example">
 					<code class="method-declaration">
@@ -39429,6 +39436,7 @@ Request body:
     "email": "whatever@mifos.org",
     "officeId": 1,
     "staffId": 1,
+    "officeIds": [5,6],
     "roles": [2,3],
     "sendPasswordToEmail": true
 }
@@ -39499,6 +39507,11 @@ Request body:
 						<b>Note:</b> When updating a password you must provide the
 						repeatPassword parameter also.
 					</p>
+					<p>
+						Sending <b>officeIds</b> replaces the offices this user may see besides their own.
+						An empty array clears them. The change is recorded in the audit trail as the
+						office ids before and after.
+					</p>
 				</div>
 				<div class="method-example">
 					<code class="method-declaration">
@@ -39511,7 +39524,8 @@ Request body:
 {
     "firstname": "Test",
     "password": "window75",
-    "repeatPassword": "window75"
+    "repeatPassword": "window75",
+    "officeIds": [5,6]
 }
 					</code>
 					<code class="method-response">
@@ -39520,7 +39534,11 @@ Request body:
     "resourceId": 3,
     "changes": {
         "firstname": "Test",
-        "passwordEncoded": "abc3326b1bb376351c7baeb4175f5e0504e33aadf6a158474a6d71de1befae51"
+        "passwordEncoded": "abc3326b1bb376351c7baeb4175f5e0504e33aadf6a158474a6d71de1befae51",
+        "officeIds": {
+            "before": [5],
+            "after": [5,6]
+        }
     }
 }
 					</code>
