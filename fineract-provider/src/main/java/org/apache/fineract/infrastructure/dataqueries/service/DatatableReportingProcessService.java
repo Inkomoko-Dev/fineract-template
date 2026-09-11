@@ -73,13 +73,14 @@ public class DatatableReportingProcessService implements ReportingProcessService
         final boolean exportXLSX = ApiParameterHelper.exportXLSX(queryParams);
         final boolean exportAPI = ApiParameterHelper.exportAPI(queryParams);
         final String parameterTypeValue = ApiParameterHelper.parameterType(queryParams) ? "parameter" : "report";
+        final boolean includeCount = ApiParameterHelper.includeCount(queryParams);
         Integer limit = null;
         Integer offset = null;
         if (queryParams.getFirst("limit") != null) {
             limit = Integer.valueOf(queryParams.getFirst("limit"));
-            if (queryParams.getFirst("offset") != null) {
-                offset = Integer.valueOf(queryParams.getFirst("offset"));
-            }
+        }
+        if (queryParams.getFirst("offset") != null) {
+            offset = Integer.valueOf(queryParams.getFirst("offset"));
         }
         final Map<String, String> reportParams = getReportParams(queryParams);
 
@@ -108,7 +109,7 @@ public class DatatableReportingProcessService implements ReportingProcessService
 
         if (exportAPI) {
             final GenericResultsetData result = this.readExtraDataAndReportingService.retrieveGenericResultset(reportName,
-                    parameterTypeValue, reportParams, isSelfServiceUserReport, limit, offset);
+                    parameterTypeValue, reportParams, isSelfServiceUserReport, limit, offset, includeCount);
 
             // Convert to JSON
             JsonObject payload = new JsonObject();
@@ -125,7 +126,7 @@ public class DatatableReportingProcessService implements ReportingProcessService
         // JSON format
         if (!exportCsv) {
             final GenericResultsetData result = this.readExtraDataAndReportingService.retrieveGenericResultset(reportName,
-                    parameterTypeValue, reportParams, isSelfServiceUserReport, limit, offset);
+                    parameterTypeValue, reportParams, isSelfServiceUserReport, limit, offset, includeCount);
 
             // INKO-202
             if (reportParams.containsKey("${loanProductId}")) {
