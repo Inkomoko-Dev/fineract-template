@@ -1149,6 +1149,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
             final LocalDate transactionDate = command.localDateValueOfParameterNamed("transactionDate");
             final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
+            if (repaymentTransactionType.isRepayment() && loan.loanProduct().isMultiDisburseLoan()) {
+                final ScheduleGeneratorDTO repaymentScheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
+                final BigDecimal maximumRepaymentAmount = loan.fetchPrepaymentDetail(repaymentScheduleGeneratorDTO, transactionDate)
+                        .getTotalOutstanding(loan.getCurrency()).getAmount();
+                if (transactionAmount.compareTo(maximumRepaymentAmount) > 0) {
+                    throw new GeneralPlatformDomainRuleException("error.msg.loan.repayment.exceeds.disbursed.outstanding",
+                            "The repayment amount cannot exceed the outstanding amount of the disbursed tranches.", transactionAmount,
+                            maximumRepaymentAmount);
+                }
+            }
             if (repaymentTransactionType.isPayOff() && loan.loanProduct().isMultiDisburseLoan()) {
                 final ScheduleGeneratorDTO payoffScheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
                 final BigDecimal maximumPayoffAmount = loan.fetchPrepaymentDetail(payoffScheduleGeneratorDTO, transactionDate)
