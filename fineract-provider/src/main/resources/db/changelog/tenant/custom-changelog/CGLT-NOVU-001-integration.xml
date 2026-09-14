@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260909-01-novu-external-service" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(1) FROM c_external_service WHERE name = 'NOVU'</sqlCheck>
+        </preConditions>
+        <insert tableName="c_external_service">
+            <column name="name" value="NOVU"/>
+        </insert>
+        <sql>
+            INSERT INTO c_external_service_properties (name, value, external_service_id)
+            SELECT p.name, p.value, es.id
+            FROM c_external_service es
+            JOIN (
+                SELECT 'api_url' name, 'https://api.novu.co' value
+                UNION ALL SELECT 'api_key', ''
+                UNION ALL SELECT 'enabled', 'false'
+                UNION ALL SELECT 'timeout_seconds', '10'
+            ) p
+            WHERE es.name = 'NOVU';
+        </sql>
+    </changeSet>
+
+    <changeSet id="20260909-02-novu-campaign" author="inkomoko">
+        <preConditions onFail="MARK_RAN"><not><tableExists tableName="novu_campaign"/></not></preConditions>
+        <createTable tableName="novu_campaign">
+            <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="campaign_name" type="VARCHAR(150)"><constraints nullable="false"/></column>
+            <column name="workflow_id" type="VARCHAR(150)"><constraints nullable="false"/></column>
+            <column name="event_type" type="VARCHAR(80)"><constraints nullable="false"/></column>
+            <column name="recipient_type" type="VARCHAR(20)" defaultValue="CLIENT"><constraints nullable="false"/></column>
+            <column name="channels" type="VARCHAR(100)" defaultValue="IN_APP,EMAIL,SMS"><constraints nullable="false"/></column>
+            <column name="email_subject" type="VARCHAR(255)"/>
+            <column name="email_body" type="TEXT"/>
+            <column name="sms_body" type="VARCHAR(1000)"/>
+            <column name="in_app_body" type="VARCHAR(1000)"/>
+            <column name="active" type="BOOLEAN" defaultValueBoolean="false"><constraints nullable="false"/></column>
+            <column name="created_by" type="BIGINT"/>
+            <column name="created_on" type="DATETIME"><constraints nullable="false"/></column>
+            <column name="last_modified_on" type="DATETIME"/>
+        </createTable>
+        <addUniqueConstraint tableName="novu_campaign" columnNames="campaign_name" constraintName="uk_novu_campaign_name"/>
+        <createIndex tableName="novu_campaign" indexName="idx_novu_campaign_event_active">
+            <column name="event_type"/><column name="active"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260909-03-novu-notification-log" author="inkomoko">
+        <preConditions onFail="MARK_RAN"><not><tableExists tableName="novu_notification_log"/></not></preConditions>
+        <createTable tableName="novu_notification_log">
+            <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="campaign_id" type="BIGINT"/>
+            <column name="event_type" type="VARCHAR(80)"><constraints nullable="false"/></column>
+            <column name="workflow_id" type="VARCHAR(150)"><constraints nullable="false"/></column>
+            <column name="subscriber_id" type="VARCHAR(100)"><constraints nullable="false"/></column>
+            <column name="recipient_type" type="VARCHAR(20)"><constraints nullable="false"/></column>
+            <column name="channel" type="VARCHAR(30)"><constraints nullable="false"/></column>
+            <column name="status" type="VARCHAR(30)"><constraints nullable="false"/></column>
+            <column name="transaction_id" type="VARCHAR(100)"/>
+            <column name="response_message" type="VARCHAR(1000)"/>
+            <column name="created_on" type="DATETIME"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="novu_notification_log" indexName="idx_novu_log_created"><column name="created_on"/></createIndex>
+        <createIndex tableName="novu_notification_log" indexName="idx_novu_log_transaction"><column name="transaction_id"/></createIndex>
+    </changeSet>
+
+    <changeSet id="20260909-04-read-novu-campaign-permission" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(1) FROM m_permission WHERE code = 'READ_NOVUCAMPAIGN'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="organisation"/>
+            <column name="code" value="READ_NOVUCAMPAIGN"/>
+            <column name="entity_name" value="NOVUCAMPAIGN"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20260909-05-create-novu-campaign-permission" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(1) FROM m_permission WHERE code = 'CREATE_NOVUCAMPAIGN'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="organisation"/>
+            <column name="code" value="CREATE_NOVUCAMPAIGN"/>
+            <column name="entity_name" value="NOVUCAMPAIGN"/>
+            <column name="action_name" value="CREATE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20260909-06-update-novu-campaign-permission" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(1) FROM m_permission WHERE code = 'UPDATE_NOVUCAMPAIGN'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="organisation"/>
+            <column name="code" value="UPDATE_NOVUCAMPAIGN"/>
+            <column name="entity_name" value="NOVUCAMPAIGN"/>
+            <column name="action_name" value="UPDATE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20260909-07-delete-novu-campaign-permission" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(1) FROM m_permission WHERE code = 'DELETE_NOVUCAMPAIGN'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="organisation"/>
+            <column name="code" value="DELETE_NOVUCAMPAIGN"/>
+            <column name="entity_name" value="NOVUCAMPAIGN"/>
+            <column name="action_name" value="DELETE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20260909-08-read-novu-log-permission" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(1) FROM m_permission WHERE code = 'READ_NOVUNOTIFICATIONLOG'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="organisation"/>
+            <column name="code" value="READ_NOVUNOTIFICATIONLOG"/>
+            <column name="entity_name" value="NOVUNOTIFICATIONLOG"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20260911-09-novu-campaign-delivery-modes" author="inkomoko">
+        <preConditions onFail="MARK_RAN"><not><columnExists tableName="novu_campaign" columnName="trigger_type"/></not></preConditions>
+        <addColumn tableName="novu_campaign">
+            <column name="trigger_type" type="VARCHAR(20)" defaultValue="TRIGGERED"><constraints nullable="false"/></column>
+            <column name="chat_body" type="VARCHAR(1000)"/>
+            <column name="report_name" type="VARCHAR(255)"/>
+            <column name="param_value" type="TEXT"/>
+            <column name="recurrence" type="VARCHAR(255)"/>
+            <column name="recurrence_start_date" type="DATETIME"/>
+            <column name="next_trigger_date" type="DATETIME"/>
+            <column name="last_trigger_date" type="DATETIME"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="20260911-10-novu-schedule-index" author="inkomoko">
+        <preConditions onFail="MARK_RAN"><not><indexExists tableName="novu_campaign" indexName="idx_novu_campaign_schedule"/></not></preConditions>
+        <createIndex tableName="novu_campaign" indexName="idx_novu_campaign_schedule">
+            <column name="trigger_type"/><column name="active"/><column name="next_trigger_date"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260911-11-novu-scheduled-campaign-job" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM job WHERE name = 'Process Novu Scheduled Campaigns'</sqlCheck>
+        </preConditions>
+        <insert tableName="job">
+            <column name="name" value="Process Novu Scheduled Campaigns"/>
+            <column name="display_name" value="Process Novu Scheduled Campaigns"/>
+            <column name="cron_expression" value="0 */5 * * * ?"/>
+            <column name="create_time" valueDate="NOW()"/>
+            <column name="task_priority" valueNumeric="3"/>
+            <column name="group_name"/>
+            <column name="job_key" value="Process Novu Scheduled Campaigns _ DEFAULT"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="currently_running" valueBoolean="false"/>
+            <column name="updates_allowed" valueBoolean="true"/>
+            <column name="scheduler_group" valueNumeric="0"/>
+            <column name="is_misfired" valueBoolean="false"/>
+            <column name="node_id" valueNumeric="1"/>
+            <column name="is_mismatched_job" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+</databaseChangeLog>
