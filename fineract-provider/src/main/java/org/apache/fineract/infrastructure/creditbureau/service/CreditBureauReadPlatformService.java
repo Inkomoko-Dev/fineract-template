@@ -18,8 +18,9 @@
  */
 package org.apache.fineract.infrastructure.creditbureau.service;
 
-import java.util.List;
 import java.util.Collection;
+import org.apache.fineract.infrastructure.core.data.PaginationParameters;
+import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauData;
 import org.apache.fineract.infrastructure.creditbureau.domain.TransUnionCreditReportCsvData;
 import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
@@ -30,7 +31,10 @@ public interface CreditBureauReadPlatformService {
 
     Collection<CreditBureauData> retrieveCreditBureau();
 
-    List<CRBPostingLoggerData> retrieveCrbPostingLogs();
+    Page<CRBPostingLoggerData> retrieveCrbPostingLogs(PaginationParameters paginationParameters, Boolean status, String fromDate,
+            String toDate, String search);
+
+    CRBPostingLoggerData retrieveCrbPostingLog(Long logId);
 
     void markCRBLogAsFixed(String loanIds);
 

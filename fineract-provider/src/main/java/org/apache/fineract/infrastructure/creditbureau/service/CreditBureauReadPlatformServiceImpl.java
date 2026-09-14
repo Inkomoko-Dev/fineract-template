@@ -27,18 +27,33 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.core.data.PaginationParameters;
+import org.apache.fineract.infrastructure.core.exception.AbstractPlatformException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.Page;
+import org.apache.fineract.infrastructure.core.service.PaginationHelper;
+import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauData;
 import org.apache.fineract.infrastructure.creditbureau.domain.CrbPostingLogReportData;
 import org.apache.fineract.infrastructure.creditbureau.domain.TransUnionCreditReportCsvData;
+import org.apache.fineract.infrastructure.creditbureau.exception.CRBPostingLogNotFoundException;
+import org.apache.fineract.infrastructure.creditbureau.exception.CRBPostingLogsRetrievalException;
+import org.apache.fineract.infrastructure.creditbureau.exception.CRBPostingLogsUnavailableException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
+import org.apache.fineract.useradministration.domain.AppUser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -48,15 +63,23 @@ import javax.ws.rs.core.MultivaluedMap;
 @Service
 public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlatformService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(CreditBureauReadPlatformServiceImpl.class);
+
     private final JdbcTemplate jdbcTemplate;
     private final PlatformSecurityContext context;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
+    private final PaginationHelper paginationHelper;
+    private final DatabaseSpecificSQLGenerator sqlGenerator;
 
     @Autowired
-    public CreditBureauReadPlatformServiceImpl(final PlatformSecurityContext context, final JdbcTemplate jdbcTemplate, LoanRepositoryWrapper loanRepositoryWrapper) {
+    public CreditBureauReadPlatformServiceImpl(final PlatformSecurityContext context, final JdbcTemplate jdbcTemplate,
+            final LoanRepositoryWrapper loanRepositoryWrapper, final PaginationHelper paginationHelper,
+            final DatabaseSpecificSQLGenerator sqlGenerator) {
         this.context = context;
         this.jdbcTemplate = jdbcTemplate;
         this.loanRepositoryWrapper = loanRepositoryWrapper;
+        this.paginationHelper = paginationHelper;
+        this.sqlGenerator = sqlGenerator;
     }
 
     private static final class CBMapper implements RowMapper<CreditBureauData> {
@@ -90,12 +113,113 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
     }
 
     @Override
-    public List<CRBPostingLoggerData> retrieveCrbPostingLogs() {
-        final CRBPostingLoggerRowMapper rm = new CRBPostingLoggerRowMapper();
+    public Page<CRBPostingLoggerData> retrieveCrbPostingLogs(final PaginationParameters paginationParameters, final Boolean status,
+            final String fromDate, final String toDate, final String search) {
+        try {
+            final CRBPostingLoggerRowMapper rm = new CRBPostingLoggerRowMapper(false);
+            final StringBuilder sql = new StringBuilder(300);
+            final List<Object> params = new ArrayList<>();
 
-        final String sql = "select "+ rm.schema() +"order by cpl.date desc";
+            sql.append("select ").append(sqlGenerator.calcFoundRows()).append(' ').append(rm.schema());
+            sql.append(" where 1 = 1");
+            appendListFilters(sql, params, status, parseDate(fromDate), parseDate(toDate), search);
+            sql.append(" order by cpl.date desc, cpl.id desc");
+            if (paginationParameters != null && paginationParameters.isLimited()) {
+                sql.append(' ').append(paginationParameters.limitSql());
+            }
 
-        return this.jdbcTemplate.query(sql, rm);
+            return this.paginationHelper.fetchPage(this.jdbcTemplate, sql.toString(), params.toArray(), rm);
+        } catch (final RuntimeException ex) {
+            throw handleRetrievalFailure(ex);
+        }
+    }
+
+    @Override
+    public CRBPostingLoggerData retrieveCrbPostingLog(final Long logId) {
+        try {
+            final CRBPostingLoggerRowMapper rm = new CRBPostingLoggerRowMapper(true);
+            final String sql = "select " + rm.schema() + " where cpl.id = ?";
+            final List<CRBPostingLoggerData> results = this.jdbcTemplate.query(sql, rm, logId);
+            if (results.isEmpty()) {
+                throw new CRBPostingLogNotFoundException(logId);
+            }
+            return results.get(0);
+        } catch (final CRBPostingLogNotFoundException ex) {
+            logFailedRetrieval(ex);
+            throw ex;
+        } catch (final RuntimeException ex) {
+            throw handleRetrievalFailure(ex);
+        }
+    }
+
+    private RuntimeException handleRetrievalFailure(final RuntimeException exception) {
+        logFailedRetrieval(exception);
+        if (exception instanceof AbstractPlatformException) {
+            return exception;
+        }
+        if (isTimeoutOrUnavailable(exception)) {
+            return new CRBPostingLogsUnavailableException(exception);
+        }
+        return new CRBPostingLogsRetrievalException(exception);
+    }
+
+    private void logFailedRetrieval(final Exception exception) {
+        Long userAccountId = null;
+        String username = "unknown";
+        try {
+            final AppUser currentUser = this.context.authenticatedUser();
+            userAccountId = currentUser.getId();
+            username = currentUser.getUsername();
+        } catch (final Exception ignored) {
+            LOG.warn("Unable to resolve authenticated user while logging CRB posting log retrieval failure");
+        }
+        LOG.error("CRB posting log retrieval failed userAccountID={} username={}", userAccountId, username, exception);
+    }
+
+    private boolean isTimeoutOrUnavailable(final Throwable exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof QueryTimeoutException || current instanceof DataAccessException) {
+                final String message = current.getMessage() == null ? "" : current.getMessage().toLowerCase();
+                if (current instanceof QueryTimeoutException || message.contains("timeout") || message.contains("timed out")
+                        || message.contains("unavailable")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private void appendListFilters(final StringBuilder sql, final List<Object> params, final Boolean status, final LocalDate fromDate,
+            final LocalDate toDate, final String search) {
+        if (status != null) {
+            sql.append(" and cpl.has_passed = ?");
+            params.add(Boolean.TRUE.equals(status) ? 1 : 0);
+        }
+        if (fromDate != null) {
+            sql.append(" and cpl.date >= ?");
+            params.add(java.sql.Date.valueOf(fromDate));
+        }
+        if (toDate != null) {
+            sql.append(" and cpl.date <= ?");
+            params.add(java.sql.Date.valueOf(toDate));
+        }
+        if (StringUtils.isNotBlank(search)) {
+            final String like = "%" + search.trim() + "%";
+            sql.append(" and (l.account_no like ? or cpl.error_logs like ? or cpl.batch_id like ? or cast(cpl.loan_id as char) like ?)");
+            params.add(like);
+            params.add(like);
+            params.add(like);
+            params.add(like);
+        }
+    }
+
+    private LocalDate parseDate(final String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        return LocalDate.parse(value);
     }
 
     @Override
@@ -109,64 +233,62 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
     }
 
 
-    private static final class CRBPostingLoggerRowMapper
-            implements RowMapper<CRBPostingLoggerData> {
+    private static final class CRBPostingLoggerRowMapper implements RowMapper<CRBPostingLoggerData> {
+
+        private final boolean includePayload;
+
+        CRBPostingLoggerRowMapper(final boolean includePayload) {
+            this.includePayload = includePayload;
+        }
 
         public String schema() {
-            return """
-                    cpl.id as id,
-                    cpl.batch_id as batchId,
-                    cpl.has_passed as hasPassed,
-                    cpl.loan_id as loanId,
-                    l.account_no as loanAccountNumber,
-                    cpl.crb_response_id as crbResponseId,
-                    cpl.error_logs as errorLogs,
-                    cpl.pay_load as payload,
-                    cpl.date as date,
-                    cpl.created_on_utc as createdDate,
-                    cpl.last_modified_on_utc as lastModifiedDate
-                    from m_crb_posting_logger cpl
-                    join m_loan l on cpl.loan_id = l.id
-                    """;
+            final String payloadColumn = includePayload ? "cpl.pay_load as payload," : "";
+            return "cpl.id as id, cpl.batch_id as batchId, cpl.has_passed as hasPassed, cpl.loan_id as loanId, "
+                    + "l.account_no as loanAccountNumber, cpl.crb_response_id as crbResponseId, cpl.error_logs as errorLogs, "
+                    + payloadColumn + " cpl.date as date from m_crb_posting_logger cpl join m_loan l on cpl.loan_id = l.id ";
         }
 
         @Override
-        public CRBPostingLoggerData mapRow(final ResultSet rs, final int rowNum)
-                throws SQLException {
-
+        public CRBPostingLoggerData mapRow(final ResultSet rs, final int rowNum) throws SQLException {
             final CRBPostingLoggerData logger = new CRBPostingLoggerData();
-
+            logger.setId(rs.getLong("id"));
             logger.setBatchId(rs.getString("batchId"));
             logger.setHasPassed(rs.getBoolean("hasPassed"));
             logger.setLoanId(rs.getInt("loanId"));
             logger.setLoanAccountNumber(rs.getString("loanAccountNumber"));
             logger.setCrbResponseId(rs.getString("crbResponseId"));
             logger.setErrorLogs(rs.getString("errorLogs"));
-            logger.setPayload(rs.getString("payload"));
-            logger.setDate(rs.getDate("date").toLocalDate());
-
+            if (includePayload) {
+                logger.setPayload(rs.getString("payload"));
+            }
+            final java.sql.Date postedDate = rs.getDate("date");
+            if (postedDate != null) {
+                logger.setDate(postedDate.toLocalDate());
+            }
             return logger;
         }
     }
 
     @Override
     public TransUnionCreditReportCsvData generateCsvReport(MultivaluedMap<String, String> queryParameters) {
-        LocalDate fromDate = null;
-        LocalDate toDate = null;
-        Boolean posted = null;
+        try {
+            LocalDate fromDate = null;
+            LocalDate toDate = null;
+            Boolean posted = null;
 
-        if (queryParameters.getFirst("fromDate") != null) {
-            fromDate = LocalDate.parse(queryParameters.getFirst("fromDate"));
-        }
+            if (queryParameters.getFirst("fromDate") != null) {
+                fromDate = LocalDate.parse(queryParameters.getFirst("fromDate"));
+            }
 
-        if (queryParameters.getFirst("toDate") != null) {
-            toDate = LocalDate.parse(queryParameters.getFirst("toDate"));
-        }
+            if (queryParameters.getFirst("toDate") != null) {
+                toDate = LocalDate.parse(queryParameters.getFirst("toDate"));
+            }
 
-        if (queryParameters.getFirst("status") != null) {
-            posted = Boolean.valueOf(queryParameters.getFirst("status"));
-        }
-        List<CrbPostingLogReportData> logs = this.fetchLogs(fromDate, toDate, posted);
+            if (queryParameters.getFirst("status") != null) {
+                posted = Boolean.valueOf(queryParameters.getFirst("status"));
+            }
+            final String search = queryParameters.getFirst("search");
+            List<CrbPostingLogReportData> logs = this.fetchLogs(fromDate, toDate, posted, search);
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintWriter writer = new PrintWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8));
@@ -194,9 +316,12 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
                 "crb-posting-logs-" + LocalDate.now(ZoneId.systemDefault()),
                 "text/csv"
         );
+        } catch (final RuntimeException ex) {
+            throw handleRetrievalFailure(ex);
+        }
     }
 
-    public List<CrbPostingLogReportData> fetchLogs(LocalDate fromDate, LocalDate toDate, Boolean posted) {
+    public List<CrbPostingLogReportData> fetchLogs(LocalDate fromDate, LocalDate toDate, Boolean posted, String search) {
         final CrbPostingLogReportRowMapper rm = new CrbPostingLogReportRowMapper();
 
         StringBuilder sql = new StringBuilder(rm.schema());
@@ -212,7 +337,15 @@ public class CreditBureauReadPlatformServiceImpl implements CreditBureauReadPlat
         }
         if (posted != null) {
             sql.append(" AND mcpl.has_passed = ?");
-            params.add(posted? 1: 0);
+            params.add(posted ? 1 : 0);
+        }
+        if (StringUtils.isNotBlank(search)) {
+            final String like = "%" + search.trim() + "%";
+            sql.append(" AND (ml.account_no LIKE ? OR mcpl.error_logs LIKE ? OR mcpl.batch_id LIKE ? OR CAST(mcpl.loan_id AS CHAR) LIKE ?)");
+            params.add(like);
+            params.add(like);
+            params.add(like);
+            params.add(like);
         }
         sql.append(" ORDER BY mcpl.`date` DESC");
         return this.jdbcTemplate.query(sql.toString(), params.toArray(), rm);
