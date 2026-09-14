@@ -20,9 +20,12 @@ package org.apache.fineract.infrastructure.creditbureau.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.data.PaginationParameters;
 import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
 import org.apache.fineract.infrastructure.core.serialization.ToApiJsonSerializer;
+import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.creditbureau.domain.TransUnionCreditReportCsvData;
 import org.apache.fineract.infrastructure.creditbureau.service.CreditBureauReadPlatformService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -39,6 +42,7 @@ import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -46,7 +50,6 @@ import javax.ws.rs.core.UriInfo;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Arrays;
-import java.util.Collection;
 
 
 @Slf4j
@@ -66,6 +69,7 @@ public class CRBPostingAPIResource {
             "batchId",
             "hasPassed",
             "loanId",
+            "loanAccountNumber",
             "crbResponseId",
             "errorLogs",
             "payload",
@@ -84,20 +88,45 @@ public class CRBPostingAPIResource {
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAllCRBPostingLogs(@Context final UriInfo uriInfo){
+    public String retrieveAllCRBPostingLogs(@Context final UriInfo uriInfo, @QueryParam("paged") final Boolean paged,
+            @QueryParam("offset") final Integer offset, @QueryParam("limit") final Integer limit, @QueryParam("status") final String status,
+            @QueryParam("fromDate") final String fromDate, @QueryParam("toDate") final String toDate,
+            @QueryParam("search") final String search) {
 
-        String resourceNameForPermissions = "VIEW_CRB_LOGGER";
+        this.context.authenticatedUser().validateHasReadPermission("VIEW_CRB_LOGGER");
 
-        this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
+        Integer safeLimit = limit;
+        if (safeLimit == null || safeLimit <= 0) {
+            safeLimit = 15;
+        } else if (safeLimit > 200) {
+            safeLimit = 200;
+        }
 
-        final Collection<CRBPostingLoggerData> result= crbReadPlatformService.retrieveCrbPostingLogs();
-        result.forEach(logger->{
-            log.info("Retrieved CRB posting logs for logger {}",logger.getErrorLogs());
-        });
+        final PaginationParameters parameters = PaginationParameters.instance(paged == null ? Boolean.TRUE : paged, offset, safeLimit, null,
+                null);
+        final Page<CRBPostingLoggerData> result = crbReadPlatformService.retrieveCrbPostingLogs(parameters, parsePostedStatus(status),
+                fromDate, toDate, search);
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
-
         return this.toApiJsonSerializer.serialize(settings, result, this.responseDataParameters);
+    }
+
+    @GET
+    @Path("/{logId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveCRBPostingLog(@PathParam("logId") final Long logId, @Context final UriInfo uriInfo) {
+        this.context.authenticatedUser().validateHasReadPermission("VIEW_CRB_LOGGER");
+        final CRBPostingLoggerData result = crbReadPlatformService.retrieveCrbPostingLog(logId);
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.toApiJsonSerializer.serialize(settings, result, this.responseDataParameters);
+    }
+
+    private Boolean parsePostedStatus(final String status) {
+        if (StringUtils.isBlank(status) || "all".equalsIgnoreCase(status)) {
+            return null;
+        }
+        return Boolean.valueOf(status);
     }
 
     @POST
