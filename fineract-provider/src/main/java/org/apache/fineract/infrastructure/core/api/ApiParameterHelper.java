@@ -186,6 +186,15 @@ public final class ApiParameterHelper {
         return queryParams.getFirst("genericResultSet") != null;
     }
 
+    public static boolean includeCount(final MultivaluedMap<String, String> queryParams) {
+        boolean includeCount = true;
+        if (queryParams.getFirst("includeCount") != null) {
+            final String includeCountValue = queryParams.getFirst("includeCount");
+            includeCount = !"false".equalsIgnoreCase(includeCountValue);
+        }
+        return includeCount;
+    }
+
     public static Map<String, String> asMap(final MultivaluedMap<String, String> queryParameters) {
 
         final Map<String, String> map = new HashMap<>(queryParameters.size());
