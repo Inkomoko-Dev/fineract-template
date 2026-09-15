@@ -27,43 +27,68 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 public class SQLInjectionValidatorTest {
 
+    private static final String OFFICE_ID = "${officeId}";
+    private static final String REPORT_LISTING = "${reportListing}";
+
     @ParameterizedTest
     @ValueSource(strings = { "1", "-1", "-10", "0", "100", "KES", "ETB", "XAF", "RWF", "2026-08-31", "2024-03-31", "today",
             "000402661", "Proj-Fin-Migr-Rw", "12.5" })
     public void acceptsTheValuesRealReportParametersCarry(final String value) {
-        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter(value));
+        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, value));
     }
 
     @Test
     public void acceptsBlankAndNull() {
-        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter(null));
-        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter(""));
+        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, null));
+        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, ""));
+        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter(REPORT_LISTING, null));
     }
 
     @ParameterizedTest
     @ValueSource(strings = { "1' OR '1'='1", "-1' OR 'a'='a", "1 OR 1<2", "1) OR (2>1", "benchmark(10000000,md5('a'))",
             "1,2", "1;SHOW TABLES", "%", "*", "1\nOR TRUE", "`m_loan`", "\"x\"" })
     public void rejectsCharactersThatOnlyAppearInInjectionAttempts(final String value) {
-        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(value));
+        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, value));
     }
 
     @ParameterizedTest
     @ValueSource(strings = { "1 OR TRUE", "1 AND TRUE", "1 IS NOT NULL", "1 XOR 0" })
     public void rejectsSpaceSeparatedPredicatesThatCarryNoOperatorCharacters(final String value) {
-        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(value));
+        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, value));
     }
 
     @ParameterizedTest
     @ValueSource(strings = { "n/a", "LOAN/12763/2023", "2026-04-26 23:05:04" })
     public void keepsRejectingWhatTheSharedValidatorAlreadyRejected(final String value) {
-        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(value));
+        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, value));
         assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateSQLInput(value));
     }
 
     @ParameterizedTest
     @ValueSource(strings = { "1 UNION SELECT 1", "1; DROP TABLE m_loan", "1 -- comment", "sleep(5)" })
     public void stillRejectsWhatTheSharedValidatorAlreadyCaught(final String value) {
-        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(value));
+        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, value));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "'Loan Payment Details Report'", "'Portfolio Management'", "'Active Loans - Details'",
+            "'Loan Payment Details Report','Portfolio Management'" })
+    public void acceptsTheQuotedReportNamesTheParameterListIsFetchedWith(final String value) {
+        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter(REPORT_LISTING, value));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "Loan Payment Details Report", "'Loan Payment Details Report", "'x') OR ('a'<'b",
+            "'x' OR 'a'<'b'", "'x\\'", "'a', 'b'", "'x'), (SELECT 1" })
+    public void rejectsReportListingsThatAreNotPlainQuotedNames(final String value) {
+        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(REPORT_LISTING, value));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "'OR 1 OR'", "'Loan Payment Details Report'", "'1'" })
+    public void quotedValuesStayRejectedForEveryOtherParameter(final String value) {
+        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, value));
+        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter("${currencyId}", value));
     }
 
     @Test
