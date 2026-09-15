@@ -67,6 +67,7 @@ import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
@@ -79,6 +80,9 @@ import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigration;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
+import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
+import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanJournalEntryCreatedBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionNotPostedToOdooInstanceData;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigration;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
@@ -159,6 +163,8 @@ public class OdooServiceImpl implements OdooService {
     private final LoanRepositoryWrapper loanRepositoryWrapper;
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
     private final LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository;
+    private final AfterCommitExecutor afterCommitExecutor;
+    private final BusinessEventNotifierService businessEventNotifierService;
     private ExecutorService genericExecutorService;
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
     private FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository;
@@ -176,7 +182,8 @@ public class OdooServiceImpl implements OdooService {
             JournalEntryRepository journalEntryRepository, LoanReadPlatformService loanReadPlatformService,
             LoanTransactionRepository loanTransactionRepository, LoanRepositoryWrapper loanRepositoryWrapper,
             EntityDisbursementDefaultsService entityDisbursementDefaultsService,
-            LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository,
+            LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository, AfterCommitExecutor afterCommitExecutor,
+            BusinessEventNotifierService businessEventNotifierService,
             FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository,
             FailedLoanCreationOnDataMigrationRepository failedLoanCreationOnDataMigrationRepository,
             FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository,
@@ -189,6 +196,8 @@ public class OdooServiceImpl implements OdooService {
         this.loanRepositoryWrapper = loanRepositoryWrapper;
         this.entityDisbursementDefaultsService = entityDisbursementDefaultsService;
         this.loanHistoricalPenaltyWaiverRepository = loanHistoricalPenaltyWaiverRepository;
+        this.afterCommitExecutor = afterCommitExecutor;
+        this.businessEventNotifierService = businessEventNotifierService;
         this.failedClientCreationOnDataMigrationRepository = failedClientCreationOnDataMigrationRepository;
         this.failedLoanCreationOnDataMigrationRepository = failedLoanCreationOnDataMigrationRepository;
         this.failedLoanRepaymentOnDataMigrationRepository = failedLoanRepaymentOnDataMigrationRepository;
@@ -202,6 +211,14 @@ public class OdooServiceImpl implements OdooService {
         this.celeryHttpClient = new OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build();
         this.integrationLayerHttpClient = new OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).connectTimeout(10, TimeUnit.SECONDS)
                 .build();
+    }
+
+    // listens on the central createJournalEntriesForLoan choke point instead of a per-transaction-type event,
+    // so every transaction type it journals gets real-time posting, not just disbursement
+    @PostConstruct
+    public void registerBusinessEventListeners() {
+        businessEventNotifierService.addPostBusinessEventListener(LoanJournalEntryCreatedBusinessEvent.class,
+                new OnLoanJournalEntryCreatedListener());
     }
 
     @Override
@@ -651,12 +668,17 @@ public class OdooServiceImpl implements OdooService {
         Map<Long, JournalEntry> journalEntryMap = journalEntries.stream()
                 .collect(Collectors.toMap(JournalEntry::getId, je -> je));
 
+        // one round trip for the whole message instead of one saveAndFlush per journal-entry line —
+        // under concurrent write load (web traffic, the daily posting cron, other outcome-listener
+        // threads) each extra flush is a fresh chance to queue behind a row lock, and this loop can
+        // run dozens of times for a single multi-line disbursement
+        List<JournalEntry> toSave = new ArrayList<>();
+
         if ("POSTED".equals(responseCode) || "REVERSED".equals(responseCode) || "EXISTING".equals(responseCode)) {
             String odooJournalId = getStringField(odooRequest, "journal_entry_no");
 
             if (odooJournalId != null && odooRequest.has("journalDetails") && odooRequest.get("journalDetails").isJsonArray()) {
                 JsonArray journalDetails = odooRequest.getAsJsonArray("journalDetails");
-                final List<JournalEntry> toSave = new ArrayList<>();
 
                 for (JsonElement element : journalDetails) {
                     JsonObject detail = element.getAsJsonObject();
@@ -683,27 +705,24 @@ public class OdooServiceImpl implements OdooService {
                         toSave.add(je);
                     }
                 }
-                if (!toSave.isEmpty()) {
-                    journalEntryRepository.saveAll(toSave);
-                }
             }
 
         } else if ("NOT_FOUND".equals(responseCode)) {
             for (JournalEntry je : journalEntries) {
                 je.setOddoPosted(true);
                 je.setOdooResponse(responseCode + ": " + responseMessage);
-            }
-            if (!journalEntries.isEmpty()) {
-                journalEntryRepository.saveAll(journalEntries);
+                toSave.add(je);
             }
         } else {
             LOG.debug("Loan Transaction Not Posted to Odoo - Code:{} - Message: {}", responseCode, responseMessage);
             for (JournalEntry je : journalEntries) {
                 je.setOdooResponse(responseCode + ": " + responseMessage);
+                toSave.add(je);
             }
-            if (!journalEntries.isEmpty()) {
-                journalEntryRepository.saveAll(journalEntries);
-            }
+        }
+
+        if (!toSave.isEmpty()) {
+            journalEntryRepository.saveAllAndFlush(toSave);
         }
 
         response.addProperty("success", true);
@@ -999,6 +1018,16 @@ public class OdooServiceImpl implements OdooService {
     }
 
     @Override
+    public void postJournalEntryToOddoTask(Long loanTransactionId) {
+        FineractContext context = ThreadLocalContextUtil.getContext();
+        try {
+            this.genericExecutorService.execute(new PostLoanJournalEntryToOddo(loanTransactionId, context));
+        } catch (Exception ex) {
+            // don't throw exception here — the is_oddo_posted=false cron sweep is the safety net
+        }
+    }
+
+    @Override
     public void postClientToOdooOnCreateTask(Client client) {
         try {
             this.genericExecutorService.execute(new PostClientCreationToOdoo(client, ThreadLocalContextUtil.getContext()));
@@ -1131,6 +1160,45 @@ public class OdooServiceImpl implements OdooService {
             return jsonObject.get(fieldName).getAsBoolean();
         }
         return false;
+    }
+
+    class PostLoanJournalEntryToOddo implements Runnable, ApplicationListener<ContextClosedEvent> {
+
+        private final Long loanTransactionId;
+        private final FineractContext context;
+
+        public PostLoanJournalEntryToOddo(Long loanTransactionId, FineractContext context) {
+            this.loanTransactionId = loanTransactionId;
+            this.context = context;
+        }
+
+        @Override
+        public void run() {
+            ThreadLocalContextUtil.init(context);
+            try {
+                // reuses the same query and posting path as the cron, scoped to this one transaction —
+                // if the customer isn't yet synced to Odoo, this finds nothing and no-ops; the cron
+                // sweep picks it up once that gate clears, same as it would have without this task
+                postJournalEntryToOddo(null, null, null, null, loanTransactionId);
+            } catch (Exception ex) {
+                LOG.error("Real-time Odoo posting failed for loan transaction " + loanTransactionId, ex);
+            }
+        }
+
+        @Override
+        public void onApplicationEvent(ContextClosedEvent event) {
+            genericExecutorService.shutdown();
+            LOG.info("Shutting down the ExecutorService");
+        }
+    }
+
+    // fires pre-commit — postJournalEntryToOddoTask still owns the after-commit deferral
+    private class OnLoanJournalEntryCreatedListener implements BusinessEventListener<LoanJournalEntryCreatedBusinessEvent> {
+
+        @Override
+        public void onBusinessEvent(LoanJournalEntryCreatedBusinessEvent event) {
+            postJournalEntryToOddoTask(event.get());
+        }
     }
 
     class PostClientCreationToOdoo implements Runnable, ApplicationListener<ContextClosedEvent> {
