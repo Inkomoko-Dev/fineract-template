@@ -47,4 +47,16 @@ public enum TemplateType {
         return this.name;
     }
 
+    public static TemplateType fromInt(final Integer typeId) {
+        if (typeId == null) {
+            return null;
+        }
+        for (final TemplateType type : TemplateType.values()) {
+            if (type.getId() == typeId.intValue()) {
+                return type;
+            }
+        }
+        return null;
+    }
+
 }

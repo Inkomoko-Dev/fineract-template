@@ -38,7 +38,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.fineract.accounting.closure.domain.GLClosure;
@@ -273,7 +272,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.configurationDomainService = configurationDomainService;
         this.accountDetailsReadPlatformService = accountDetailsReadPlatformService;
         this.columnValidator = columnValidator;
-        this.loanMapper = new LoanMapper(sqlGenerator, paymentTypeReadPlatformService);
+        this.loanMapper = new LoanMapper(sqlGenerator);
         this.sqlGenerator = sqlGenerator;
         this.glClosureRepository = glClosureRepository;
         this.paginationHelper = paginationHelper;
@@ -300,7 +299,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final String hierarchy = currentUser.getOffice().getHierarchy();
             final String hierarchySearchString = hierarchy + "%";
 
-            final LoanMapper rm = new LoanMapper(sqlGenerator, paymentTypeReadPlatformService);
+            final LoanMapper rm = new LoanMapper(sqlGenerator);
 
             final StringBuilder sqlBuilder = new StringBuilder();
             sqlBuilder.append("select ");
@@ -318,18 +317,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     }
 
     private LoanAccountData enrichThirdPartyDisbursementFlag(final LoanAccountData loanAccountData) {
-        if (loanAccountData != null && loanAccountData.loanProductId() != null) {
-            final boolean enabled = this.disbursementProviderReadPlatformService
-                    .isThirdPartyDisbursementEnabled(loanAccountData.loanProductId());
-            loanAccountData.setEnableThirdPartyDisbursement(enabled);
-            if (loanAccountData.getId() != null) {
-                loanAccountData.setThirdPartyDisbursementProvider(this.disbursementProviderReadPlatformService
-                        .findLoanDisbursementProviderCode(loanAccountData.getId()).orElse(null));
-            }
-            if (enabled) {
-                loanAccountData.setThirdPartyDisbursementProviderOptions(
-                        this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
-            }
+        // Flag + provider code are already selected in loanSchema()/mapRow; only load dropdown options when needed.
+        if (loanAccountData != null && Boolean.TRUE.equals(loanAccountData.getEnableThirdPartyDisbursement())) {
+            loanAccountData.setThirdPartyDisbursementProviderOptions(
+                    this.disbursementProviderReadPlatformService.retrieveActiveProviderCodes());
         }
         return loanAccountData;
     }
@@ -339,7 +330,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         // final AppUser currentUser = this.context.authenticatedUser();
         this.context.authenticatedUser();
-        final LoanMapper rm = new LoanMapper(sqlGenerator, paymentTypeReadPlatformService);
+        final LoanMapper rm = new LoanMapper(sqlGenerator);
 
         final String sql = "select " + rm.loanSchema() + " where l.account_no=?";
 
@@ -350,7 +341,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public List<LoanAccountData> retrieveGLIMChildLoansByGLIMParentAccount(String parentloanAccountNumber) {
         this.context.authenticatedUser();
-        final LoanMapper rm = new LoanMapper(sqlGenerator, paymentTypeReadPlatformService);
+        final LoanMapper rm = new LoanMapper(sqlGenerator);
 
         final String sql = "select " + rm.loanSchema()
                 + " left join glim_parent_child_mapping as glim on glim.glim_child_account_id=l.account_no "
@@ -364,7 +355,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     public List<LoanAccountData> retrieveOverDueLoansForClient(Long clientId, Long savingsAccountId) {
         this.context.authenticatedUser();
         PaymentTypeReadPlatformService p;
-        final LoanMapper rm = new LoanMapper(sqlGenerator, paymentTypeReadPlatformService);
+        final LoanMapper rm = new LoanMapper(sqlGenerator);
 
         final String sql = "select " + rm.loanSchema()
                 + " where l.client_id=? and l.total_outstanding_derived > 0 and paa.linked_savings_account_id=? and paa.is_active=true and paa.association_type_enum=1";
@@ -447,7 +438,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loanMapper.loanSchema());
+        sqlBuilder.append(this.loanMapper.loanListSchema());
 
         // TODO - for time being this will data scope list of loans returned to
         // only loans that have a client associated.
@@ -503,6 +494,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     sqlBuilder.append(' ').append(searchParameters.getSortOrder());
                     this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getSortOrder());
                 }
+            } else {
+                sqlBuilder.append(" order by l.id");
             }
 
             if (searchParameters.isLimited()) {
@@ -529,7 +522,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loanMapper.loanSchema());
+        sqlBuilder.append(this.loanMapper.loanListSchema());
 
         // TODO - for time being this will data scope list of loans returned to
         // only loans that have a client associated.
@@ -580,6 +573,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     sqlBuilder.append(' ').append(searchParameters.getSortOrder());
                     this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getSortOrder());
                 }
+            } else {
+                sqlBuilder.append(" order by l.id");
             }
 
             if (searchParameters.isLimited()) {
@@ -678,6 +673,38 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         return LoanTransactionData.templateOnTop(loanTransactionData, paymentOptions);
+    }
+
+    @Override
+    public Map<Long, BigDecimal> retrieveLoanNextRepaymentAmounts(final Collection<Long> loanIds) {
+        if (loanIds == null || loanIds.isEmpty()) {
+            return new HashMap<>();
+        }
+        this.context.authenticatedUser();
+
+        final String sql = "SELECT ranked.loanId AS loanId,"
+                + " (ranked.principalDue + ranked.interestDue + ranked.feeDue + ranked.penaltyDue) AS amount" + " FROM ("
+                + " SELECT l.id AS loanId," + " coalesce(ls.principal_amount, 0) - coalesce(ls.principal_writtenoff_derived, 0)"
+                + " - coalesce(ls.principal_completed_derived, 0) AS principalDue,"
+                + " coalesce(ls.interest_amount, 0) - coalesce(ls.interest_completed_derived, 0)"
+                + " - coalesce(ls.interest_waived_derived, 0) - coalesce(ls.interest_writtenoff_derived, 0) AS interestDue,"
+                + " coalesce(ls.fee_charges_amount, 0) - coalesce(ls.fee_charges_completed_derived, 0)"
+                + " - coalesce(ls.fee_charges_writtenoff_derived, 0) - coalesce(ls.fee_charges_waived_derived, 0) AS feeDue,"
+                + " coalesce(ls.penalty_charges_amount, 0) - coalesce(ls.penalty_charges_completed_derived, 0)"
+                + " - coalesce(ls.penalty_charges_writtenoff_derived, 0)"
+                + " - coalesce(ls.penalty_charges_waived_derived, 0) AS penaltyDue,"
+                + " ROW_NUMBER() OVER (PARTITION BY l.id ORDER BY ls.completed_derived ASC, ls.duedate ASC, ls.installment ASC) AS rn"
+                + " FROM m_loan l" + " JOIN m_loan_repayment_schedule ls ON ls.loan_id = l.id"
+                + " WHERE l.id IN (:loanIds)" + " ) ranked WHERE ranked.rn = 1";
+
+        final Map<String, Object> params = new HashMap<>();
+        params.put("loanIds", loanIds);
+
+        final Map<Long, BigDecimal> amounts = new HashMap<>();
+        this.namedParameterJdbcTemplate.query(sql, params, rs -> {
+            amounts.put(rs.getLong("loanId"), rs.getBigDecimal("amount"));
+        });
+        return amounts;
     }
 
     @Override
@@ -1065,14 +1092,35 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private static final class LoanMapper implements RowMapper<LoanAccountData> {
 
         private final DatabaseSpecificSQLGenerator sqlGenerator;
-        private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
 
-        LoanMapper(DatabaseSpecificSQLGenerator sqlGenerator, PaymentTypeReadPlatformService paymentTypeReadPlatformService) {
+        LoanMapper(DatabaseSpecificSQLGenerator sqlGenerator) {
             this.sqlGenerator = sqlGenerator;
-            this.paymentTypeReadPlatformService = paymentTypeReadPlatformService;
         }
 
         public String loanSchema() {
+            // Detail path: correlated late-fee subqueries scoped to l.id (never full-table aggregates).
+            return buildLoanSchema(false);
+        }
+
+        /**
+         * List projection: join center for name; late fees stay as correlated subqueries so list pages do not
+         * pre-aggregate all of m_loan_daily_late_fee / m_loan_charge.
+         */
+        public String loanListSchema() {
+            return buildLoanSchema(true);
+        }
+
+        private String buildLoanSchema(final boolean forList) {
+            final String centerNameSelect = forList ? " center.display_name as centerName, "
+                    : " (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, ";
+            // Always scope late-fee/penalty totals to the current loan row. Full-table GROUP BY joins were scanning
+            // every active late fee / penalty charge on each list/detail load.
+            final String lateFeeSelect = " coalesce((select sum(dlf.penalty_amount) from m_loan_daily_late_fee dlf where dlf.loan_id = l.id and dlf.is_active = true), 0) as dailyLateFeeChargedToDate,"
+                    + " coalesce((select sum(lc2.amount_outstanding_derived) from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.loan_id = l.id and dlf2.is_active = true and lc2.is_active = true), 0) as dailyLateFeeOutstanding,"
+                    + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
+                    + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(lc3.amount) from m_loan_charge lc3 where lc3.loan_id = l.id and lc3.is_penalty = true and lc3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,";
+            final String listJoins = forList ? " left join m_group center on center.id = g.parent_id" : "";
+
             return "l.id as id, l.account_no as accountNo, l.external_id as externalId, l.fund_id as fundId, f.name as fundName,"
                     + " l.loan_type_enum as loanType, l.loanpurpose_cv_id as loanPurposeId, cv.code_value as loanPurposeName,"
                     + " lp.id as loanProductId, lp.name as loanProductName, lp.description as loanProductDescription,"
@@ -1082,7 +1130,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " lp.can_define_fixed_emi_amount as canDefineInstallmentAmount,"
                     + " c.id as clientId, c.account_no as clientAccountNo, c.display_name as clientName, c.office_id as clientOfficeId,"
                     + " g.id as groupId, g.account_no as groupAccountNo, g.display_name as groupName,"
-                    + " g.office_id as groupOfficeId, g.staff_id As groupStaffId , g.parent_id as groupParentId, (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, "
+                    + " g.office_id as groupOfficeId, g.staff_id As groupStaffId , g.parent_id as groupParentId, "
+                    + centerNameSelect
                     + " g.hierarchy As groupHierarchy , g.level_id as groupLevel, g.external_id As groupExternalId, "
                     + " g.status_enum as statusEnum, g.activation_date as activationDate,l.application_date as applicationDate, "
                     + " l.submittedon_date as submittedOnDate, sbu.username as submittedByUsername, sbu.firstname as submittedByFirstname, sbu.lastname as submittedByLastname,"
@@ -1130,10 +1179,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " l.loan_sub_status_id as loanSubStatusId," + " la.principal_overdue_derived as principalOverdue,"
                     + " la.interest_overdue_derived as interestOverdue," + " la.fee_charges_overdue_derived as feeChargesOverdue,"
                     + " la.penalty_charges_overdue_derived as penaltyChargesOverdue,"
-                    + " coalesce((select sum(dlf.penalty_amount) from m_loan_daily_late_fee dlf where dlf.loan_id = l.id and dlf.is_active = true), 0) as dailyLateFeeChargedToDate,"
-                    + " coalesce((select sum(lc2.amount_outstanding_derived) from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.loan_id = l.id and dlf2.is_active = true and lc2.is_active = true), 0) as dailyLateFeeOutstanding,"
-                    + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
-                    + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(lc3.amount) from m_loan_charge lc3 where lc3.loan_id = l.id and lc3.is_penalty = true and lc3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,"
+                    + lateFeeSelect
                     + " la.total_overdue_derived as totalOverdue," + " la.overdue_since_date_derived as overdueSinceDate,"
                     + " l.sync_disbursement_with_meeting as syncDisbursementWithMeeting,"
                     + " l.loan_counter as loanCounter, l.loan_product_counter as loanProductCounter,"
@@ -1167,6 +1213,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " l.third_party_disbursement_provider as thirdPartyDisbursementProvider, "
                     + " lp.enable_third_party_disbursement as enableThirdPartyDisbursement, "
                     + " lds.expected_disburse_date AS expectedDisburseDate, lds.net_disbursal_amount AS expectedNetDisbursalAmount, lds.payment_type_id AS paymentType, "
+                    + " pt_lds.value as paymentTypeName, pt_lds.description as paymentTypeDescription, "
+                    + " pt_lds.is_cash_payment as paymentTypeIsCashPayment, pt_lds.is_mobile_money as paymentTypeIsMobileMoney, "
+                    + " pt_lds.order_position as paymentTypePosition, "
                     + " l.is_migrated as loanMigrated, l.migrated_on_date as loanMigratedOnDate, "
                     + " l.migrated_from_office_id as loanMigratedFromOfficeId, lmfo.name as loanMigratedFromOfficeName "
                     + " from m_loan l" //
@@ -1202,7 +1251,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " select lds2.id from m_loan_disbursement_detail lds2 where lds2.loan_id = l.id"
                     + " order by case when lds2.disbursedon_date is null then 0 else 1 end,"
                     + " case when lds2.disbursedon_date is null then lds2.expected_disburse_date end asc,"
-                    + " case when lds2.disbursedon_date is not null then lds2.disbursedon_date end desc, lds2.id desc limit 1)";
+                    + " case when lds2.disbursedon_date is not null then lds2.disbursedon_date end desc, lds2.id desc limit 1)"
+                    + " left join m_payment_type pt_lds on pt_lds.id = lds.payment_type_id"
+                    + listJoins;
 
         }
 
@@ -1546,11 +1597,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
             final LocalDate expectedDisburseDate = JdbcSupport.getLocalDate(rs, "expectedDisburseDate");
             final BigDecimal expectedNetDisbursalAmount = rs.getBigDecimal("expectedNetDisbursalAmount");
-            final Long paymentTypeId = rs.getLong("paymentType");
+            final Long paymentTypeId = JdbcSupport.getLong(rs, "paymentType");
 
             PaymentTypeData paymentType = null;
-            if (!Objects.equals(paymentTypeId, Long.valueOf(0L))) {
-                paymentType = this.paymentTypeReadPlatformService.retrieveOne(paymentTypeId);
+            if (paymentTypeId != null && paymentTypeId != 0L) {
+                paymentType = PaymentTypeData.instance(paymentTypeId, rs.getString("paymentTypeName"),
+                        rs.getString("paymentTypeDescription"), rs.getBoolean("paymentTypeIsCashPayment"),
+                        rs.getBoolean("paymentTypeIsMobileMoney"), rs.getLong("paymentTypePosition"));
             }
 
             LoanAccountData loanAccountData = LoanAccountData.basicLoanDetails(id, accountNo, status, externalId, clientId, clientAccountNo,
@@ -2378,6 +2431,25 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     }
 
     @Override
+    public Map<Long, Integer> retriveLoanCounters(final Collection<Long> clientIds, final Long productId) {
+        if (clientIds == null || clientIds.isEmpty() || productId == null) {
+            return new HashMap<>();
+        }
+        final String sql = "SELECT l.client_id AS clientId, MAX(l.loan_product_counter) AS loanCounter"
+                + " FROM m_loan l WHERE l.client_id IN (:clientIds) AND l.product_id = :productId GROUP BY l.client_id";
+        final Map<String, Object> params = new HashMap<>();
+        params.put("clientIds", clientIds);
+        params.put("productId", productId);
+
+        final Map<Long, Integer> counters = new HashMap<>();
+        this.namedParameterJdbcTemplate.query(sql, params, rs -> {
+            final Integer counter = JdbcSupport.getInteger(rs, "loanCounter");
+            counters.put(rs.getLong("clientId"), counter);
+        });
+        return counters;
+    }
+
+    @Override
     public Collection<DisbursementData> retrieveLoanDisbursementDetails(final Long loanId) {
         final LoanDisbursementDetailMapper rm = new LoanDisbursementDetailMapper(sqlGenerator);
         final String sql = "select " + rm.schema()
@@ -3068,12 +3140,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final Collection<InterestRatePeriodData> intRatePeriodData = new ArrayList<>();
             final Collection<InterestRatePeriodData> intRates = this.floatingRatesReadPlatformService
                     .retrieveInterestRatePeriods(loanData.loanProductId());
+            final LoanProductData loanProductData = this.loanProductReadPlatformService
+                    .retrieveLoanProductFloatingDetails(loanData.loanProductId());
             for (final InterestRatePeriodData rate : intRates) {
                 if (rate.getFromDate().compareTo(loanData.getDisbursementDate()) > 0 && loanData.isFloatingInterestRate()) {
-                    updateInterestRatePeriodData(rate, loanData);
+                    updateInterestRatePeriodData(rate, loanData, loanProductData);
                     intRatePeriodData.add(rate);
                 } else if (rate.getFromDate().compareTo(loanData.getDisbursementDate()) <= 0) {
-                    updateInterestRatePeriodData(rate, loanData);
+                    updateInterestRatePeriodData(rate, loanData, loanProductData);
                     intRatePeriodData.add(rate);
                     break;
                 }
@@ -3084,8 +3158,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         return null;
     }
 
-    private void updateInterestRatePeriodData(InterestRatePeriodData rate, LoanAccountData loan) {
-        LoanProductData loanProductData = loanProductReadPlatformService.retrieveLoanProductFloatingDetails(loan.loanProductId());
+    private void updateInterestRatePeriodData(InterestRatePeriodData rate, LoanAccountData loan, LoanProductData loanProductData) {
         rate.setLoanProductDifferentialInterestRate(loanProductData.getInterestRateDifferential());
         rate.setLoanDifferentialInterestRate(loan.getInterestRateDifferential());
 
@@ -3423,12 +3496,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     sqlGenerator.dateDiff(sqlGenerator.currentBusinessDate(), "laa.overdue_since_date_derived") + " as delinquentDays, ");
             sqlBuilder.append(sqlGenerator.currentBusinessDate()
                     + " as delinquentDate, coalesce(laa.total_overdue_derived, 0) as delinquentAmount, ");
-            sqlBuilder.append("lre.transactionDate as lastPaymentDate, coalesce(lre.amount, 0) as lastPaymentAmount ");
+            sqlBuilder.append(
+                    "(select lt.transaction_date from m_loan_transaction lt where lt.loan_id = l.id and lt.is_reversed = false and lt.transaction_type_enum = 2 order by lt.transaction_date desc, lt.id desc limit 1) as lastPaymentDate, ");
+            sqlBuilder.append(
+                    "coalesce((select lt.amount from m_loan_transaction lt where lt.loan_id = l.id and lt.is_reversed = false and lt.transaction_type_enum = 2 order by lt.transaction_date desc, lt.id desc limit 1), 0) as lastPaymentAmount ");
             sqlBuilder.append("from m_loan l left join m_loan_arrears_aging laa on laa.loan_id = l.id ");
-            sqlBuilder.append(
-                    "left join (select lt.loan_id, lt.transaction_date as transactionDate, lt.amount as amount from m_loan_transaction lt ");
-            sqlBuilder.append(
-                    "where lt.is_reversed = false and lt.transaction_type_enum=2 order by lt.transaction_date desc limit 1) lre on lre.loan_id = l.id ");
             sqlBuilder.append("where l.id=? ");
             return sqlBuilder.toString();
         }
@@ -3866,7 +3938,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     public Collection<LoanAccountData> getAllLoansPendingDecisionEngine(Integer loanDecisionState) {
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
-        final LoanMapper rm = new LoanMapper(sqlGenerator, paymentTypeReadPlatformService);
+        final LoanMapper rm = new LoanMapper(sqlGenerator);
         final StringBuilder sqlBuilder = new StringBuilder(200);
 
         String sql = "select " + rm.loanSchema();

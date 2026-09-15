@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260908-677-28-complete-main-menu-rw" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT CASE WHEN COUNT(*) &lt; 8 THEN 1 ELSE 0 END FROM whatsapp_menu_option WHERE menu_key = 'MAIN' AND language_code = 'rw'</sqlCheck>
+        </preConditions>
+        <delete tableName="whatsapp_menu_option">
+            <where>menu_key = 'MAIN' AND language_code = 'rw'</where>
+        </delete>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_number" valueNumeric="1"/>
+            <column name="option_label" value="Amafaranga y'inguzanyo"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_BALANCE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_number" valueNumeric="2"/>
+            <column name="option_label" value="Itariki yo kwishyura ikurikira"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="NEXT_REPAYMENT"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_number" valueNumeric="3"/>
+            <column name="option_label" value="Amafaranga asigaye kwishyura"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="AMOUNT_DUE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_number" valueNumeric="4"/>
+            <column name="option_label" value="Imiterere y'inguzanyo"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="LOAN_STATUS"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_number" valueNumeric="5"/>
+            <column name="option_label" value="Amahugurwa y'ubucuruzi"/>
+            <column name="action_type" value="CONTENT"/>
+            <column name="action_target" value="TRAINING"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_number" valueNumeric="6"/>
+            <column name="option_label" value="Amahirwe yo guhuza isoko"/>
+            <column name="action_type" value="CONTENT"/>
+            <column name="action_target" value="MARKET_LINKAGE"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_number" valueNumeric="7"/>
+            <column name="option_label" value="Vugana n'umujyanama"/>
+            <column name="action_type" value="ADVISOR_HANDOFF"/>
+            <column name="action_target" value="ADVISOR"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="whatsapp_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_number" valueNumeric="8"/>
+            <column name="option_label" value="Ibindi bibazo"/>
+            <column name="action_type" value="ADVISOR_HANDOFF"/>
+            <column name="action_target" value="OTHER"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <update tableName="whatsapp_menu_definition">
+            <column name="header_text" value="Murakaza neza kuri Inkomoko.&#10;Hitamo:"/>
+            <where>menu_key = 'MAIN' AND language_code = 'rw'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="20260908-677-29-update-loan-submenu-headers" author="Felix Mutua">
+        <update tableName="whatsapp_menu_definition">
+            <column name="header_text" value="Loan self-service (verification required):"/>
+            <where>menu_key = 'LOAN' AND language_code = 'en'</where>
+        </update>
+        <update tableName="whatsapp_menu_definition">
+            <column name="header_text" value="Serivisi y'inguzanyo (kwemeza bisabwa):"/>
+            <where>menu_key = 'LOAN' AND language_code = 'rw'</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>

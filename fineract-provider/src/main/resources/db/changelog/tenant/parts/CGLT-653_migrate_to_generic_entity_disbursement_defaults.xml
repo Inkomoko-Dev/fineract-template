@@ -40,4 +40,25 @@
         </rollback>
     </changeSet>
 
+    <!-- v2 only configured the legal entity name. Production/QA still use "Inkomoko Kenya Capital". -->
+    <changeSet id="CGLT-653-add-kenya-capital-office-name-aliases-v3" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="c_configuration"/>
+            <sqlCheck expectedResult="1">
+                select count(1) from c_configuration where name = 'entity-disbursement-defaults-config';
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE `c_configuration`
+            SET `enabled` = 1,
+                `description` = '[{"entityName":"Kenya Capital","officeNames":["Inkomoko - Capital Kenya Limited","Inkomoko Kenya Capital"],"defaultDepartmentName":"Investment","budgetCodeName":"InvestmentsBudget","budgetLocationPrefix":"Investments - "}]'
+            WHERE `name` = 'entity-disbursement-defaults-config';
+        </sql>
+        <sql>
+            UPDATE `c_configuration`
+            SET `enabled` = 1
+            WHERE `name` = 'entity-disbursement-defaults-enabled';
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>

@@ -78,17 +78,8 @@ public class Template extends AbstractPersistableCustom {
     public static Template fromJson(final JsonCommand command) {
         final String name = command.stringValueOfParameterNamed("name");
         final String text = command.stringValueOfParameterNamed("text");
-        final TemplateEntity entity = TemplateEntity.values()[command.integerValueSansLocaleOfParameterNamed("entity")];
-        final int templateTypeId = command.integerValueSansLocaleOfParameterNamed("type");
-        TemplateType type = null;
-        switch (templateTypeId) {
-            case 0:
-                type = TemplateType.DOCUMENT;
-            break;
-            case 2:
-                type = TemplateType.SMS;
-            break;
-        }
+        final TemplateEntity entity = TemplateEntity.fromInt(command.integerValueSansLocaleOfParameterNamed("entity"));
+        final TemplateType type = TemplateType.fromInt(command.integerValueSansLocaleOfParameterNamed("type"));
 
         final JsonArray array = command.arrayOfParameterNamed("mappers");
 

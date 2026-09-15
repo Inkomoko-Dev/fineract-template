@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260907-678-10-voice-ticket-link" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="whatsapp_support_ticket" columnName="voice_ivr_session_id"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="whatsapp_support_ticket">
+            <column name="voice_ivr_session_id" type="BIGINT"/>
+        </addColumn>
+        <createIndex indexName="idx_whatsapp_ticket_voice_session" tableName="whatsapp_support_ticket">
+            <column name="voice_ivr_session_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260907-678-11-voice-call-queue" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="voice_call_queue_entry"/>
+            </not>
+        </preConditions>
+        <createTable tableName="voice_call_queue_entry">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="external_session_id" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ivr_session_id" type="BIGINT"/>
+            <column name="caller_number" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="client_id" type="BIGINT"/>
+            <column name="department_code" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="queue_position" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="support_ticket_id" type="BIGINT"/>
+            <column name="created_date" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+            <column name="lastmodified_date" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+            <column name="connected_at" type="datetime"/>
+        </createTable>
+        <createIndex indexName="idx_voice_queue_department_status" tableName="voice_call_queue_entry">
+            <column name="department_code"/>
+            <column name="status"/>
+        </createIndex>
+        <createIndex indexName="idx_voice_queue_external_session" tableName="voice_call_queue_entry">
+            <column name="external_session_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260907-678-12-voice-voicemail" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="voice_voicemail"/>
+            </not>
+        </preConditions>
+        <createTable tableName="voice_voicemail">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="external_session_id" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ivr_session_id" type="BIGINT"/>
+            <column name="caller_number" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="client_id" type="BIGINT"/>
+            <column name="department_code" type="VARCHAR(50)"/>
+            <column name="recording_url" type="VARCHAR(500)"/>
+            <column name="duration_seconds" type="INT"/>
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_date" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex indexName="idx_voice_voicemail_status" tableName="voice_voicemail">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260907-678-13-voice-callback-request" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="voice_callback_request"/>
+            </not>
+        </preConditions>
+        <createTable tableName="voice_callback_request">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="external_session_id" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ivr_session_id" type="BIGINT"/>
+            <column name="caller_number" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="client_id" type="BIGINT"/>
+            <column name="department_code" type="VARCHAR(50)"/>
+            <column name="language_code" type="VARCHAR(15)"/>
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="support_ticket_id" type="BIGINT"/>
+            <column name="scheduled_at" type="datetime"/>
+            <column name="completed_at" type="datetime"/>
+            <column name="created_date" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+            <column name="lastmodified_date" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex indexName="idx_voice_callback_status" tableName="voice_callback_request">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260907-678-14-main-support-queue" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM voice_ivr_menu_option WHERE menu_key = 'MAIN' AND language_code = 'en' AND option_digit = 2 AND action_type = 'DIAL'</sqlCheck>
+        </preConditions>
+        <update tableName="voice_ivr_menu_option">
+            <column name="action_type" value="QUEUE"/>
+            <where>menu_key = 'MAIN' AND language_code = 'en' AND option_digit = 2</where>
+        </update>
+        <update tableName="voice_ivr_menu_option">
+            <column name="action_type" value="QUEUE"/>
+            <where>menu_key = 'MAIN' AND language_code = 'rw' AND option_digit = 2</where>
+        </update>
+        <update tableName="voice_ivr_menu_option">
+            <column name="action_type" value="QUEUE"/>
+            <where>menu_key = 'MAIN' AND language_code = 'en' AND option_digit = 3</where>
+        </update>
+        <update tableName="voice_ivr_menu_option">
+            <column name="action_type" value="QUEUE"/>
+            <where>menu_key = 'MAIN' AND language_code = 'rw' AND option_digit = 3</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>

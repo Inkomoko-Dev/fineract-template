@@ -37,7 +37,6 @@ import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.security.data.PlatformRequestLog;
 import org.apache.fineract.infrastructure.security.exception.InvalidTenantIdentifierException;
 import org.apache.fineract.infrastructure.security.service.BasicAuthTenantDetailsService;
-import org.apache.fineract.notification.service.NotificationReadPlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,9 +76,6 @@ public class TenantAwareBasicAuthenticationFilter extends BasicAuthenticationFil
 
     @Autowired
     private CacheWritePlatformService cacheWritePlatformService;
-
-    @Autowired
-    private NotificationReadPlatformService notificationReadPlatformService;
 
     @Autowired
     private BasicAuthTenantDetailsService basicAuthTenantDetailsService;
@@ -158,8 +154,10 @@ public class TenantAwareBasicAuthenticationFilter extends BasicAuthenticationFil
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, e.getMessage());
         } finally {
             task.stop();
-            final PlatformRequestLog log = PlatformRequestLog.from(task, request);
-            LOG.debug("{}", this.toApiJsonSerializer.serialize(log));
+            if (LOG.isDebugEnabled()) {
+                final PlatformRequestLog log = PlatformRequestLog.from(task, request);
+                LOG.debug("{}", this.toApiJsonSerializer.serialize(log));
+            }
         }
     }
 
@@ -168,12 +166,6 @@ public class TenantAwareBasicAuthenticationFilter extends BasicAuthenticationFil
             throws IOException {
         super.onSuccessfulAuthentication(request, response, authResult);
         AppUser user = (AppUser) authResult.getPrincipal();
-
-        if (notificationReadPlatformService.hasUnreadNotifications(user.getId())) {
-            response.addHeader("X-Notification-Refresh", "true");
-        } else {
-            response.addHeader("X-Notification-Refresh", "false");
-        }
 
         String pathURL = request.getRequestURI();
         boolean isSelfServiceRequest = pathURL != null && pathURL.contains("/self/");
@@ -184,4 +176,5 @@ public class TenantAwareBasicAuthenticationFilter extends BasicAuthenticationFil
             throw new BadCredentialsException("User not authorised to use the requested resource.");
         }
     }
+
 }

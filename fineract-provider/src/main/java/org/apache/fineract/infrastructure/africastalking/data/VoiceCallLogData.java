@@ -37,11 +37,17 @@ public class VoiceCallLogData {
     private final Integer durationSeconds;
     private final String recordingUrl;
     private final String dtmfDigits;
+    private final String callPurpose;
+    private final boolean recordingConsentRequired;
+    private final Boolean recordingConsentGiven;
+    private final Long callbackRequestId;
     private final LocalDateTime createdDate;
 
     private VoiceCallLogData(final Long id, final String externalSessionId, final CommunicationDirection direction,
             final String callerNumber, final String destinationNumber, final Long clientId, final Long staffId, final String status,
-            final Integer durationSeconds, final String recordingUrl, final String dtmfDigits, final LocalDateTime createdDate) {
+            final Integer durationSeconds, final String recordingUrl, final String dtmfDigits, final String callPurpose,
+            final boolean recordingConsentRequired, final Boolean recordingConsentGiven, final Long callbackRequestId,
+            final LocalDateTime createdDate) {
         this.id = id;
         this.externalSessionId = externalSessionId;
         this.direction = direction;
@@ -53,20 +59,28 @@ public class VoiceCallLogData {
         this.durationSeconds = durationSeconds;
         this.recordingUrl = recordingUrl;
         this.dtmfDigits = dtmfDigits;
+        this.callPurpose = callPurpose;
+        this.recordingConsentRequired = recordingConsentRequired;
+        this.recordingConsentGiven = recordingConsentGiven;
+        this.callbackRequestId = callbackRequestId;
         this.createdDate = createdDate;
     }
 
     public static VoiceCallLogData instance(final Long id, final String externalSessionId, final CommunicationDirection direction,
             final String callerNumber, final String destinationNumber, final Long clientId, final Long staffId, final String status,
-            final Integer durationSeconds, final String recordingUrl, final String dtmfDigits, final LocalDateTime createdDate) {
+            final Integer durationSeconds, final String recordingUrl, final String dtmfDigits, final String callPurpose,
+            final boolean recordingConsentRequired, final Boolean recordingConsentGiven, final Long callbackRequestId,
+            final LocalDateTime createdDate) {
         return new VoiceCallLogData(id, externalSessionId, direction, callerNumber, destinationNumber, clientId, staffId, status,
-                durationSeconds, recordingUrl, dtmfDigits, createdDate);
+                durationSeconds, recordingUrl, dtmfDigits, callPurpose, recordingConsentRequired, recordingConsentGiven, callbackRequestId,
+                createdDate);
     }
 
     public static VoiceCallLogData fromEntity(final VoiceCallLog callLog) {
         return instance(callLog.getId(), callLog.getExternalSessionId(), callLog.getDirection(), callLog.getCallerNumber(),
                 callLog.getDestinationNumber(), callLog.getClient() != null ? callLog.getClient().getId() : null,
                 callLog.getStaff() != null ? callLog.getStaff().getId() : null, callLog.getStatus(), callLog.getDurationSeconds(),
-                callLog.getRecordingUrl(), callLog.getDtmfDigits(), callLog.getCreatedDate());
+                callLog.getRecordingUrl(), callLog.getDtmfDigits(), callLog.getCallPurpose(), callLog.isRecordingConsentRequired(),
+                callLog.getRecordingConsentGiven(), callLog.getCallbackRequestId(), callLog.getCreatedDate());
     }
 }

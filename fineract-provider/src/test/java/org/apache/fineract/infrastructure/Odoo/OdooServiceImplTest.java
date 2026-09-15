@@ -26,7 +26,9 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.HashMap;
@@ -34,6 +36,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
+import java.util.Optional;
+import org.apache.fineract.accounting.journalentry.data.JournalData;
+import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
+import org.apache.fineract.useradministration.domain.AppUser;
+import org.apache.fineract.useradministration.domain.AppUserRepository;
+import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
+import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -49,10 +62,16 @@ import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMig
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -130,6 +149,19 @@ public class OdooServiceImplTest {
 
     @Mock
     private BusinessEventNotifierService businessEventNotifierService;
+
+    @Mock
+    private AppUserRepository appUserRepository;
+
+    @BeforeEach
+    void setTenant() {
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
+    }
+
+    @AfterEach
+    void clearTenant() {
+        ThreadLocalContextUtil.clearTenant();
+    }
 
     @Test
     public void scheduledJournalPostingFetchesAllUnpostedTransactions() throws JobExecutionException {
@@ -214,5 +246,62 @@ public class OdooServiceImplTest {
         listenerCaptor.getValue().onBusinessEvent(new LoanJournalEntryCreatedBusinessEvent(99L));
 
         verify(genericExecutorService).execute(any(Runnable.class));
+    }
+
+    @Test
+    public void matchingDisbursementDetailStillEnrichesEntityDefaults() {
+        final JournalData journalData = new JournalData();
+        journalData.setLocation("Nairobi");
+
+        final LocalDate disbursementDate = LocalDate.of(2026, 9, 9);
+        final Loan loan = mock(Loan.class);
+        final LoanTransaction txn = mock(LoanTransaction.class);
+        final Office office = mock(Office.class);
+        final LoanDisbursementDetails detail = mock(LoanDisbursementDetails.class);
+        final MonetaryCurrency currency = mock(MonetaryCurrency.class);
+        final Money amount = mock(Money.class);
+
+        when(txn.isDisbursement()).thenReturn(true);
+        when(txn.getTransactionDate()).thenReturn(disbursementDate);
+        when(loan.getDisbursementDetails()).thenReturn(Collections.singletonList(detail));
+        when(detail.getActualDisbursementDate()).thenReturn(disbursementDate);
+        when(detail.getPrincipal()).thenReturn(BigDecimal.TEN);
+        when(loan.getCurrency()).thenReturn(currency);
+        when(txn.getAmount(currency)).thenReturn(amount);
+        when(amount.getAmount()).thenReturn(BigDecimal.TEN);
+
+        odooService.applyDisbursementFieldsToOdooJournal(journalData, loan, txn, office);
+
+        verify(entityDisbursementDefaultsService).enrichOdooJournalData(journalData, loan, txn, office);
+    }
+
+    @Test
+    public void createdByUserEnrichesOdooJournalWithUsernameAndDisplayName() {
+        final JournalData journalData = new JournalData();
+        final JournalEntry entry = mock(JournalEntry.class);
+        final AppUser createdBy = mock(AppUser.class);
+
+        when(entry.getCreatedBy()).thenReturn(Optional.of(7L));
+        given(appUserRepository.findById(7L)).willReturn(Optional.of(createdBy));
+        when(createdBy.getUsername()).thenReturn("jdoe");
+        when(createdBy.getDisplayName()).thenReturn("John Doe");
+
+        odooService.applyCreatedByToOdooJournal(journalData, entry);
+
+        org.junit.jupiter.api.Assertions.assertEquals("jdoe", journalData.getCreatedByUsername());
+        org.junit.jupiter.api.Assertions.assertEquals("John Doe", journalData.getCreatedByDisplayName());
+    }
+
+    @Test
+    public void missingCreatedByLeavesOdooJournalFieldsNull() {
+        final JournalData journalData = new JournalData();
+        final JournalEntry entry = mock(JournalEntry.class);
+
+        when(entry.getCreatedBy()).thenReturn(Optional.empty());
+
+        odooService.applyCreatedByToOdooJournal(journalData, entry);
+
+        org.junit.jupiter.api.Assertions.assertNull(journalData.getCreatedByUsername());
+        org.junit.jupiter.api.Assertions.assertNull(journalData.getCreatedByDisplayName());
     }
 }

@@ -101,6 +101,9 @@ public class CommunicationMessage extends AbstractPersistableCustom {
     @Column(name = "read_date")
     private LocalDateTime readDate;
 
+    @Column(name = "dispatch_retry_count", nullable = false)
+    private int dispatchRetryCount = 0;
+
     public static CommunicationMessage pendingOutbound(final CommunicationChannel channel, final String phoneNumber,
             final RecipientType recipientType, final Client client, final Staff staff, final String messageBody) {
         final CommunicationMessage message = new CommunicationMessage();

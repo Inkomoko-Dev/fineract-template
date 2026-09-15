@@ -27,8 +27,6 @@ import org.apache.fineract.infrastructure.creditbureau.domain.TransUnionCreditRe
 import org.apache.fineract.infrastructure.creditbureau.service.CreditBureauReadPlatformService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -59,13 +57,13 @@ public class CRBPostingAPIResource {
     private final ToApiJsonSerializer<CRBPostingLoggerData> toApiJsonSerializer;
     private final ApiRequestParameterHelper apiRequestParameterHelper;
     private final CreditBureauReadPlatformService crbReadPlatformService;
-    private static final Logger LOG = LoggerFactory.getLogger(CRBPostingAPIResource.class);
 
     private final Set<String> responseDataParameters = new HashSet<>(Arrays.asList(
             "id",
             "batchId",
             "hasPassed",
             "loanId",
+            "loanAccountNumber",
             "crbResponseId",
             "errorLogs",
             "payload",
@@ -84,16 +82,16 @@ public class CRBPostingAPIResource {
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAllCRBPostingLogs(@Context final UriInfo uriInfo){
+    public String retrieveAllCRBPostingLogs(@Context final UriInfo uriInfo,
+            @javax.ws.rs.QueryParam("offset") final Integer offset,
+            @javax.ws.rs.QueryParam("limit") final Integer limit) {
 
         String resourceNameForPermissions = "VIEW_CRB_LOGGER";
 
         this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
 
-        final Collection<CRBPostingLoggerData> result= crbReadPlatformService.retrieveCrbPostingLogs();
-        result.forEach(logger->{
-            log.info("Retrieved CRB posting logs for logger {}",logger.getErrorLogs());
-        });
+        final Collection<CRBPostingLoggerData> result = crbReadPlatformService.retrieveCrbPostingLogs(offset, limit);
+        log.debug("Retrieved {} CRB posting log row(s)", result.size());
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
 
@@ -107,7 +105,7 @@ public class CRBPostingAPIResource {
     public String markLogHasFixed(@PathParam("loanId") final Integer loanId, @Context final UriInfo uriInfo){
         String resourceNameForPermissions = "VIEW_CRB_LOGGER";
         this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
-        log.info("Marking CRB posting log as fixed for loanId {}",loanId);
+        log.debug("Marking CRB posting log as fixed for loanId {}", loanId);
 
         crbReadPlatformService.markCRBLogAsFixed(loanId.toString());
 
@@ -127,7 +125,7 @@ public class CRBPostingAPIResource {
 
         this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
 
-        log.info("Exporting CRB posting logs to CSV with query parameters {}", uriInfo.getQueryParameters());
+        log.debug("Exporting CRB posting logs to CSV");
 
         TransUnionCreditReportCsvData fileData = this.crbReadPlatformService.generateCsvReport(uriInfo.getQueryParameters());
 

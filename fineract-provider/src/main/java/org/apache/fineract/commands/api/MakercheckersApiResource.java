@@ -52,6 +52,7 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.exception.UnrecognizedQueryParamException;
 import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
+import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.security.utils.SQLBuilder;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -93,15 +94,24 @@ public class MakercheckersApiResource {
             @QueryParam("groupId") @Parameter(description = "groupId") final Integer groupId,
             @QueryParam("clientId") @Parameter(description = "clientId") final Integer clientId,
             @QueryParam("loanid") @Parameter(description = "loanid") final Integer loanId,
-            @QueryParam("savingsAccountId") @Parameter(description = "savingsAccountId") final Integer savingsAccountId) {
+            @QueryParam("savingsAccountId") @Parameter(description = "savingsAccountId") final Integer savingsAccountId,
+            @QueryParam("paged") @Parameter(description = "When true, returns pageItems + totalFilteredRecords") final Boolean paged,
+            @QueryParam("limit") @Parameter(description = "Number of records to return (default 25, max 200)") final Integer limit,
+            @QueryParam("offset") @Parameter(description = "Number of records to skip (default 0)") final Integer offset) {
 
         final SQLBuilder extraCriteria = getExtraCriteria(actionName, entityName, resourceId, makerId, makerDateTimeFrom, makerDateTimeTo,
                 officeId, groupId, clientId, loanId, savingsAccountId);
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
 
+        if (Boolean.TRUE.equals(paged)) {
+            final Page<AuditData> page = this.readPlatformService.retrievePaginatedEntriesToBeChecked(extraCriteria,
+                    settings.isIncludeJson(), limit, offset);
+            return this.toApiJsonSerializerAudit.serialize(settings, page, RESPONSE_DATA_PARAMETERS);
+        }
+
         final Collection<AuditData> entries = this.readPlatformService.retrieveAllEntriesToBeChecked(extraCriteria,
-                settings.isIncludeJson());
+                settings.isIncludeJson(), limit, offset);
 
         return this.toApiJsonSerializerAudit.serialize(settings, entries, RESPONSE_DATA_PARAMETERS);
     }

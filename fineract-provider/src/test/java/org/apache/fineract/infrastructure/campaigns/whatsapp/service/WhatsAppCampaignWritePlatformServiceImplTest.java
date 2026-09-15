@@ -29,11 +29,11 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
-import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
-import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
-import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
+import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
+import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
+import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaign;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaignRepository;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.serialization.WhatsAppCampaignValidator;
@@ -72,7 +72,7 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
     @Mock
     private ReadReportingService readReportingService;
     @Mock
-    private CommunicationMessageRepository communicationMessageRepository;
+    private NotificationCommandService notificationCommandService;
     @Mock
     private ClientRepositoryWrapper clientRepositoryWrapper;
     @Mock
@@ -85,8 +85,9 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
         final AfricasTalkingProperties properties = new AfricasTalkingProperties();
         properties.getPhone().setDefaultCountryCode("254");
         service = new WhatsAppCampaignWritePlatformServiceImpl(context, whatsAppCampaignRepository, whatsAppCampaignValidator,
-                reportRepository, fromJsonHelper, readReportingService, communicationMessageRepository, clientRepositoryWrapper,
+                reportRepository, fromJsonHelper, readReportingService, notificationCommandService, clientRepositoryWrapper,
                 staffRepositoryWrapper, new PhoneNumberNormalizer(properties));
+        lenient().when(notificationCommandService.send(any(NotificationCommand.class))).thenReturn(NotificationResult.accepted(1L));
     }
 
     private WhatsAppCampaign clientCampaign(final String bodyVariableMapping) {
@@ -120,19 +121,18 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
 
         service.insertDirectCampaignIntoOutboundTable(campaign);
 
-        final ArgumentCaptor<CommunicationMessage> captor = ArgumentCaptor.forClass(CommunicationMessage.class);
-        verify(communicationMessageRepository).save(captor.capture());
-        final CommunicationMessage saved = captor.getValue();
+        final ArgumentCaptor<NotificationCommand> captor = ArgumentCaptor.forClass(NotificationCommand.class);
+        verify(notificationCommandService).send(captor.capture());
+        final NotificationCommand sent = captor.getValue();
 
-        assertEquals("+254712345678", saved.getPhoneNumber());
-        assertEquals("payment_due_today", saved.getTemplateName());
-        assertEquals("en", saved.getTemplateLanguage());
-        assertEquals("[\"John\",\"1000\"]", saved.getTemplateBodyValues());
-        assertEquals("John|1000", saved.getMessageBody());
-        assertEquals(42L, saved.getCampaignId());
-        assertEquals(RecipientType.CLIENT, saved.getRecipientType());
-        assertEquals(client, saved.getClient());
-        assertEquals(CommunicationMessageStatus.PENDING, saved.getStatus());
+        assertEquals("+254712345678", sent.getPhoneNumber());
+        assertEquals("payment_due_today", sent.getTemplateName());
+        assertEquals("en", sent.getTemplateLanguage());
+        assertEquals("[\"John\",\"1000\"]", sent.getTemplateBodyValuesJson());
+        assertEquals("John|1000", sent.getMessageBody());
+        assertEquals(42L, sent.getCampaignId());
+        assertEquals(RecipientType.CLIENT, sent.getRecipientType());
+        assertEquals(client, sent.getClient());
     }
 
     @Test
@@ -149,9 +149,9 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
 
         service.insertDirectCampaignIntoOutboundTable(campaign);
 
-        final ArgumentCaptor<CommunicationMessage> captor = ArgumentCaptor.forClass(CommunicationMessage.class);
-        verify(communicationMessageRepository).save(captor.capture());
-        assertEquals("[\"John\\tDoe\"]", captor.getValue().getTemplateBodyValues());
+        final ArgumentCaptor<NotificationCommand> captor = ArgumentCaptor.forClass(NotificationCommand.class);
+        verify(notificationCommandService).send(captor.capture());
+        assertEquals("[\"John\\tDoe\"]", captor.getValue().getTemplateBodyValuesJson());
     }
 
     @Test
@@ -174,14 +174,14 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
 
         service.insertDirectCampaignIntoOutboundTable(campaign);
 
-        final ArgumentCaptor<CommunicationMessage> captor = ArgumentCaptor.forClass(CommunicationMessage.class);
-        verify(communicationMessageRepository).save(captor.capture());
-        final CommunicationMessage saved = captor.getValue();
+        final ArgumentCaptor<NotificationCommand> captor = ArgumentCaptor.forClass(NotificationCommand.class);
+        verify(notificationCommandService).send(captor.capture());
+        final NotificationCommand sent = captor.getValue();
 
-        assertEquals(RecipientType.STAFF, saved.getRecipientType());
-        assertEquals(staff, saved.getStaff());
-        assertNull(saved.getClient());
-        assertEquals("+254708881885", saved.getPhoneNumber());
+        assertEquals(RecipientType.STAFF, sent.getRecipientType());
+        assertEquals(staff, sent.getStaff());
+        assertNull(sent.getClient());
+        assertEquals("+254708881885", sent.getPhoneNumber());
         verify(clientRepositoryWrapper, never()).findOneWithNotFoundDetection(any(Long.class));
     }
 
@@ -197,8 +197,8 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
 
         service.insertDirectCampaignIntoOutboundTable(campaign);
 
-        final ArgumentCaptor<CommunicationMessage> captor = ArgumentCaptor.forClass(CommunicationMessage.class);
-        verify(communicationMessageRepository).save(captor.capture());
+        final ArgumentCaptor<NotificationCommand> captor = ArgumentCaptor.forClass(NotificationCommand.class);
+        verify(notificationCommandService).send(captor.capture());
         assertEquals("+254708881885", captor.getValue().getPhoneNumber());
     }
 
@@ -219,10 +219,10 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
 
         service.insertDirectCampaignIntoOutboundTable(campaign);
 
-        final ArgumentCaptor<CommunicationMessage> captor = ArgumentCaptor.forClass(CommunicationMessage.class);
-        verify(communicationMessageRepository, org.mockito.Mockito.times(2)).save(captor.capture());
+        final ArgumentCaptor<NotificationCommand> captor = ArgumentCaptor.forClass(NotificationCommand.class);
+        verify(notificationCommandService, org.mockito.Mockito.times(2)).send(captor.capture());
         assertEquals(List.of("+254712345679", "+254712345670"),
-                captor.getAllValues().stream().map(CommunicationMessage::getPhoneNumber).toList());
+                captor.getAllValues().stream().map(NotificationCommand::getPhoneNumber).toList());
     }
 
     @Test
@@ -236,7 +236,7 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
 
         service.insertDirectCampaignIntoOutboundTable(campaign);
 
-        verify(communicationMessageRepository, never()).save(any(CommunicationMessage.class));
+        verify(notificationCommandService, never()).send(any(NotificationCommand.class));
     }
 
     @Test
@@ -252,8 +252,8 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
 
         service.insertDirectCampaignIntoOutboundTable(campaign);
 
-        final ArgumentCaptor<CommunicationMessage> captor = ArgumentCaptor.forClass(CommunicationMessage.class);
-        verify(communicationMessageRepository).save(captor.capture());
+        final ArgumentCaptor<NotificationCommand> captor = ArgumentCaptor.forClass(NotificationCommand.class);
+        verify(notificationCommandService).send(captor.capture());
         assertEquals("+254712345679", captor.getValue().getPhoneNumber());
     }
 }

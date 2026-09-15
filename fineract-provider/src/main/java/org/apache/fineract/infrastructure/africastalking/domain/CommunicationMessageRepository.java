@@ -32,4 +32,6 @@ public interface CommunicationMessageRepository extends JpaRepository<Communicat
             CommunicationChannel channel);
 
     List<CommunicationMessage> findByChannelOrderByCreatedDateDesc(CommunicationChannel channel);
+
+    List<CommunicationMessage> findTop100ByPhoneNumberAndChannelOrderByCreatedDateDesc(String phoneNumber, CommunicationChannel channel);
 }
