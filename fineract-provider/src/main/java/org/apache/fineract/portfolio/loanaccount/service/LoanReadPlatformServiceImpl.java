@@ -200,6 +200,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final StaffReadPlatformService staffReadPlatformService;
     private final PaginationHelper paginationHelper;
     private final LoanMapper loanMapper;
+    private final LoanGridMapper loanGridMapper;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
     private final ReadWriteNonCoreDataService readWriteNonCoreDataService;
@@ -273,6 +274,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.accountDetailsReadPlatformService = accountDetailsReadPlatformService;
         this.columnValidator = columnValidator;
         this.loanMapper = new LoanMapper(sqlGenerator);
+        this.loanGridMapper = new LoanGridMapper();
         this.sqlGenerator = sqlGenerator;
         this.glClosureRepository = glClosureRepository;
         this.paginationHelper = paginationHelper;
@@ -428,167 +430,162 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public Page<LoanAccountData> retrieveAll(final SearchParameters searchParameters) {
+        return retrieveLoanAccountPage(searchParameters, false);
+    }
+
+    @Override
+    public Page<LoanAccountData> retrieveAllActive(final SearchParameters searchParameters) {
+        return retrieveLoanAccountPage(searchParameters, true);
+    }
+
+    /**
+     * Id-first loan list pagination. Counting/sorting against the full loanListSchema (dozens of joins + correlated
+     * late-fee subqueries) with SQL_CALC_FOUND_ROWS was timing out on large tenants even for limit=10.
+     * <p>
+     * Office hierarchy is scoped with {@code office_id IN (SELECT … hierarchy LIKE ?)} rather than
+     * {@code JOIN m_office ON (client OR group)} — the OR join prevented index use and dominated latency (~3s+ for 10
+     * rows on ~45k loans). Page IDs and COUNT(*) separately, then hydrate only the page with a slim grid projection.
+     */
+    private Page<LoanAccountData> retrieveLoanAccountPage(final SearchParameters searchParameters, final boolean activeOnly) {
 
         final AppUser currentUser = this.context.authenticatedUser();
-        Boolean isExtendLoanLifeCycleConfig = configurationReadPlatformService
+        final boolean isExtendLoanLifeCycleConfig = this.configurationReadPlatformService
                 .retrieveGlobalConfiguration("Add-More-Stages-To-A-Loan-Life-Cycle").isEnabled();
 
         final String hierarchy = currentUser.getOffice().getHierarchy();
         final String hierarchySearchString = hierarchy + "%";
 
-        final StringBuilder sqlBuilder = new StringBuilder(200);
-        sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loanMapper.loanListSchema());
+        final StringBuilder fromWhere = new StringBuilder(320);
+        fromWhere.append(" from m_loan l ");
+        fromWhere.append(" left join m_client c on c.id = l.client_id ");
+        fromWhere.append(" left join m_group g on g.id = l.group_id ");
+        if (isExtendLoanLifeCycleConfig && !activeOnly) {
+            fromWhere.append(" left join m_loan_decision ds on ds.loan_id = l.id ");
+        }
+        // Prefer IN-subquery office scoping (index-friendly) over JOIN … OR (full scan).
+        fromWhere.append(" where (c.office_id in (select o.id from m_office o where o.hierarchy like ?)");
+        fromWhere.append(" or g.office_id in (select o.id from m_office o where o.hierarchy like ?)");
+        fromWhere.append(" or c.transfer_to_office_id in (select o.id from m_office o where o.hierarchy like ?))");
 
-        // TODO - for time being this will data scope list of loans returned to
-        // only loans that have a client associated.
-        // to support senario where loan has group_id only OR client_id will
-        // probably require a UNION query
-        // but that at present is an edge case
-        sqlBuilder.append(" join m_office o on (o.id = c.office_id or o.id = g.office_id) ");
-        sqlBuilder.append(" left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
-        sqlBuilder.append(" where ( o.hierarchy like ? or transferToOffice.hierarchy like ?)");
+        final List<Object> criteria = new ArrayList<>();
+        criteria.add(hierarchySearchString);
+        criteria.add(hierarchySearchString);
+        criteria.add(hierarchySearchString);
 
-        if (isExtendLoanLifeCycleConfig) {
-            sqlBuilder.append(
-                    " and (ds.next_loan_ic_review_decision_state = 1900 and l.loan_decision_state = 1900 or l.loan_decision_state is null)  ");
+        if (activeOnly) {
+            fromWhere.append(" and l.loan_status_id = 300");
+        } else if (isExtendLoanLifeCycleConfig) {
+            fromWhere.append(
+                    " and (ds.next_loan_ic_review_decision_state = 1900 and l.loan_decision_state = 1900 or l.loan_decision_state is null) ");
         }
 
-        int arrayPos = 2;
-        List<Object> extraCriterias = new ArrayList<>();
-        extraCriterias.add(hierarchySearchString);
-        extraCriterias.add(hierarchySearchString);
+        appendLoanListSearchCriteria(fromWhere, criteria, searchParameters);
 
-        if (searchParameters != null) {
+        final String countSql = "select count(*)" + fromWhere;
+        final Integer totalFilteredRecords = this.jdbcTemplate.queryForObject(countSql, Integer.class, criteria.toArray());
+        final int total = totalFilteredRecords == null ? 0 : totalFilteredRecords;
+        if (total == 0) {
+            return new Page<>(Collections.emptyList(), 0);
+        }
 
-            String sqlQueryCriteria = searchParameters.getSqlSearch();
-            if (StringUtils.isNotBlank(sqlQueryCriteria)) {
-                SQLInjectionValidator.validateSQLInput(sqlQueryCriteria);
-                sqlQueryCriteria = sqlQueryCriteria.replace("accountNo", "l.account_no");
-                this.columnValidator.validateSqlInjection(sqlBuilder.toString(), sqlQueryCriteria);
-                sqlBuilder.append(" and (").append(sqlQueryCriteria).append(")");
-            }
+        final StringBuilder idSql = new StringBuilder(fromWhere.length() + 64);
+        idSql.append("select l.id as id");
+        idSql.append(fromWhere);
+        appendLoanListOrderAndLimit(idSql, searchParameters);
 
-            if (StringUtils.isNotBlank(searchParameters.getExternalId())) {
-                sqlBuilder.append(" and l.external_id = ?");
-                extraCriterias.add(searchParameters.getExternalId());
-                arrayPos = arrayPos + 1;
-            }
-            if (searchParameters.getOfficeId() != null) {
-                sqlBuilder.append("and c.office_id =?");
-                extraCriterias.add(searchParameters.getOfficeId());
-                arrayPos = arrayPos + 1;
-            }
+        final List<Long> loanIds = this.jdbcTemplate.query(idSql.toString(), (rs, rowNum) -> rs.getLong("id"), criteria.toArray());
+        if (loanIds == null || loanIds.isEmpty()) {
+            return new Page<>(Collections.emptyList(), total);
+        }
 
-            if (StringUtils.isNotBlank(searchParameters.getAccountNo())) {
-                sqlBuilder.append(" and l.account_no = ?");
-                extraCriterias.add(searchParameters.getAccountNo());
-                arrayPos = arrayPos + 1;
-            }
+        final StringBuilder hydrateSql = new StringBuilder(512);
+        hydrateSql.append("select ");
+        hydrateSql.append(this.loanGridMapper.schema());
+        hydrateSql.append(" where l.id in (");
+        hydrateSql.append(String.join(",", Collections.nCopies(loanIds.size(), "?")));
+        hydrateSql.append(")");
 
-            if (searchParameters.isOrderByRequested()) {
-                sqlBuilder.append(" order by ").append(searchParameters.getOrderBy());
-                this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getOrderBy());
-
-                if (searchParameters.isSortOrderProvided()) {
-                    sqlBuilder.append(' ').append(searchParameters.getSortOrder());
-                    this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getSortOrder());
-                }
-            } else {
-                sqlBuilder.append(" order by l.id");
-            }
-
-            if (searchParameters.isLimited()) {
-                sqlBuilder.append(" ");
-                if (searchParameters.isOffset()) {
-                    sqlBuilder.append(sqlGenerator.limit(searchParameters.getLimit(), searchParameters.getOffset()));
-                } else {
-                    sqlBuilder.append(sqlGenerator.limit(searchParameters.getLimit()));
-                }
+        final List<LoanAccountData> hydrated = this.jdbcTemplate.query(hydrateSql.toString(), this.loanGridMapper, loanIds.toArray());
+        final Map<Long, LoanAccountData> byId = new HashMap<>(hydrated.size());
+        for (final LoanAccountData item : hydrated) {
+            byId.put(item.getId(), item);
+        }
+        final List<LoanAccountData> pageItems = new ArrayList<>(loanIds.size());
+        for (final Long loanId : loanIds) {
+            final LoanAccountData item = byId.get(loanId);
+            if (item != null) {
+                pageItems.add(item);
             }
         }
-        final Object[] objectArray = extraCriterias.toArray();
-        final Object[] finalObjectArray = Arrays.copyOf(objectArray, arrayPos);
-        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), finalObjectArray, this.loanMapper);
+        return new Page<>(pageItems, total);
     }
 
-    @Override
-    public Page<LoanAccountData> retrieveAllActive(final SearchParameters searchParameters) {
+    private void appendLoanListSearchCriteria(final StringBuilder sqlBuilder, final List<Object> criteria,
+            final SearchParameters searchParameters) {
+        if (searchParameters == null) {
+            return;
+        }
 
-        final AppUser currentUser = this.context.authenticatedUser();
+        String sqlQueryCriteria = searchParameters.getSqlSearch();
+        if (StringUtils.isNotBlank(sqlQueryCriteria)) {
+            SQLInjectionValidator.validateSQLInput(sqlQueryCriteria);
+            sqlQueryCriteria = sqlQueryCriteria.replace("accountNo", "l.account_no");
+            this.columnValidator.validateSqlInjection(sqlBuilder.toString(), sqlQueryCriteria);
+            sqlBuilder.append(" and (").append(sqlQueryCriteria).append(")");
+        }
 
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        if (StringUtils.isNotBlank(searchParameters.getExternalId())) {
+            sqlBuilder.append(" and l.external_id = ?");
+            criteria.add(searchParameters.getExternalId());
+        }
+        if (searchParameters.getOfficeId() != null) {
+            sqlBuilder.append(" and c.office_id = ?");
+            criteria.add(searchParameters.getOfficeId());
+        }
+        if (StringUtils.isNotBlank(searchParameters.getAccountNo())) {
+            sqlBuilder.append(" and l.account_no = ?");
+            criteria.add(searchParameters.getAccountNo());
+        }
+    }
 
-        final StringBuilder sqlBuilder = new StringBuilder(200);
-        sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loanMapper.loanListSchema());
-
-        // TODO - for time being this will data scope list of loans returned to
-        // only loans that have a client associated.
-        // to support senario where loan has group_id only OR client_id will
-        // probably require a UNION query
-        // but that at present is an edge case
-        sqlBuilder.append(" join m_office o on (o.id = c.office_id or o.id = g.office_id) ");
-        sqlBuilder.append(" left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
-        sqlBuilder.append(" where ( o.hierarchy like ? or transferToOffice.hierarchy like ?) and l.loan_status_id = 300");
-
-        int arrayPos = 2;
-        List<Object> extraCriterias = new ArrayList<>();
-        extraCriterias.add(hierarchySearchString);
-        extraCriterias.add(hierarchySearchString);
-
-        if (searchParameters != null) {
-
-            String sqlQueryCriteria = searchParameters.getSqlSearch();
-            if (StringUtils.isNotBlank(sqlQueryCriteria)) {
-                SQLInjectionValidator.validateSQLInput(sqlQueryCriteria);
-                sqlQueryCriteria = sqlQueryCriteria.replace("accountNo", "l.account_no");
-                this.columnValidator.validateSqlInjection(sqlBuilder.toString(), sqlQueryCriteria);
-                sqlBuilder.append(" and (").append(sqlQueryCriteria).append(")");
+    private void appendLoanListOrderAndLimit(final StringBuilder sqlBuilder, final SearchParameters searchParameters) {
+        if (searchParameters != null && searchParameters.isOrderByRequested()) {
+            final String orderBy = qualifyLoanListOrderBy(searchParameters.getOrderBy());
+            this.columnValidator.validateSqlInjection(sqlBuilder.toString(), orderBy);
+            sqlBuilder.append(" order by ").append(orderBy);
+            if (searchParameters.isSortOrderProvided()) {
+                final String sortOrder = searchParameters.getSortOrder();
+                this.columnValidator.validateSqlInjection(sqlBuilder.toString(), sortOrder);
+                sqlBuilder.append(' ').append(sortOrder);
             }
+        } else {
+            sqlBuilder.append(" order by l.id");
+        }
 
-            if (StringUtils.isNotBlank(searchParameters.getExternalId())) {
-                sqlBuilder.append(" and l.external_id = ?");
-                extraCriterias.add(searchParameters.getExternalId());
-                arrayPos = arrayPos + 1;
-            }
-            if (searchParameters.getOfficeId() != null) {
-                sqlBuilder.append(" and c.office_id = ?");
-                extraCriterias.add(searchParameters.getOfficeId());
-                arrayPos = arrayPos + 1;
-            }
-
-            if (StringUtils.isNotBlank(searchParameters.getAccountNo())) {
-                sqlBuilder.append(" and l.account_no = ?");
-                extraCriterias.add(searchParameters.getAccountNo());
-                arrayPos = arrayPos + 1;
-            }
-
-            if (searchParameters.isOrderByRequested()) {
-                sqlBuilder.append(" order by ").append(searchParameters.getOrderBy());
-                this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getOrderBy());
-
-                if (searchParameters.isSortOrderProvided()) {
-                    sqlBuilder.append(' ').append(searchParameters.getSortOrder());
-                    this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getSortOrder());
-                }
+        if (searchParameters != null && searchParameters.isLimited()) {
+            sqlBuilder.append(' ');
+            if (searchParameters.isOffset()) {
+                sqlBuilder.append(sqlGenerator.limit(searchParameters.getLimit(), searchParameters.getOffset()));
             } else {
-                sqlBuilder.append(" order by l.id");
-            }
-
-            if (searchParameters.isLimited()) {
-                sqlBuilder.append(" ");
-                if (searchParameters.isOffset()) {
-                    sqlBuilder.append(sqlGenerator.limit(searchParameters.getLimit(), searchParameters.getOffset()));
-                } else {
-                    sqlBuilder.append(sqlGenerator.limit(searchParameters.getLimit()));
-                }
+                sqlBuilder.append(sqlGenerator.limit(searchParameters.getLimit()));
             }
         }
-        final Object[] objectArray = extraCriterias.toArray();
-        final Object[] finalObjectArray = Arrays.copyOf(objectArray, arrayPos);
-        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), finalObjectArray, this.loanMapper);
+    }
+
+    /** Map API orderBy aliases to qualified columns so MySQL can use indexes on the slim id query. */
+    private static String qualifyLoanListOrderBy(final String orderBy) {
+        if (StringUtils.isBlank(orderBy)) {
+            return "l.id";
+        }
+        final String trimmed = orderBy.trim();
+        return switch (trimmed) {
+            case "id" -> "l.id";
+            case "accountNo", "account_no" -> "l.account_no";
+            case "externalId", "external_id" -> "l.external_id";
+            case "submittedOnDate", "submittedon_date" -> "l.submittedon_date";
+            case "clientName", "display_name" -> "c.display_name";
+            default -> trimmed;
+        };
     }
 
     @Override
@@ -1088,6 +1085,83 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
     }
 
+    /**
+     * Slim projection for GET /loans list (and task inbox). Avoids late-fee subqueries and the full detail join tree;
+     * fields cover the loans grid and pending-loan cards without changing write-path business logic.
+     */
+    private static final class LoanGridMapper implements RowMapper<LoanAccountData> {
+
+        public String schema() {
+            return "l.id as id, l.account_no as accountNo, l.external_id as externalId,"
+                    + " c.id as clientId, c.display_name as clientName, c.office_id as clientOfficeId,"
+                    + " lp.id as loanProductId, lp.name as loanProductName,"
+                    + " l.loan_status_id as lifeCycleStatusId, l.loan_sub_status_id as loanSubStatusId,"
+                    + " l.principal_amount as principal, l.approved_principal as approvedPrincipal,"
+                    + " l.net_disbursal_amount as netDisbursalAmount,"
+                    + " l.currency_code as currencyCode, l.currency_digits as currencyDigits,"
+                    + " l.submittedon_date as submittedOnDate, l.approvedon_date as approvedOnDate,"
+                    + " l.expected_disbursedon_date as expectedDisbursementDate,"
+                    + " l.loan_officer_id as loanOfficerId, s.display_name as loanOfficerName,"
+                    + " la.overdue_since_date_derived as overdueSinceDate,"
+                    + " ds.loan_decision_state as loanDecisionState"
+                    + " from m_loan l"
+                    + " join m_product_loan lp on lp.id = l.product_id"
+                    + " left join m_client c on c.id = l.client_id"
+                    + " left join m_staff s on s.id = l.loan_officer_id"
+                    + " left join m_loan_arrears_aging la on la.loan_id = l.id"
+                    + " left join m_loan_decision ds on ds.loan_id = l.id";
+        }
+
+        @Override
+        public LoanAccountData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
+            final Long id = rs.getLong("id");
+            final String accountNo = rs.getString("accountNo");
+            final String externalId = rs.getString("externalId");
+            final Long clientId = JdbcSupport.getLong(rs, "clientId");
+            final String clientName = rs.getString("clientName");
+            final Long clientOfficeId = JdbcSupport.getLong(rs, "clientOfficeId");
+            final Long loanProductId = JdbcSupport.getLong(rs, "loanProductId");
+            final String loanProductName = rs.getString("loanProductName");
+            final Integer lifeCycleStatusId = JdbcSupport.getInteger(rs, "lifeCycleStatusId");
+            final LoanStatusEnumData status = LoanEnumerations.status(lifeCycleStatusId);
+            final Integer loanSubStatusId = JdbcSupport.getInteger(rs, "loanSubStatusId");
+            EnumOptionData loanSubStatus = null;
+            if (loanSubStatusId != null) {
+                loanSubStatus = LoanSubStatus.loanSubStatus(loanSubStatusId);
+            }
+            final BigDecimal principal = rs.getBigDecimal("principal");
+            final BigDecimal approvedPrincipal = rs.getBigDecimal("approvedPrincipal");
+            final BigDecimal netDisbursalAmount = rs.getBigDecimal("netDisbursalAmount");
+            final String currencyCode = rs.getString("currencyCode");
+            final Integer currencyDigits = JdbcSupport.getInteger(rs, "currencyDigits");
+            final CurrencyData currencyData = new CurrencyData(currencyCode, currencyDigits == null ? 0 : currencyDigits, null);
+            final LocalDate submittedOnDate = JdbcSupport.getLocalDate(rs, "submittedOnDate");
+            final LocalDate approvedOnDate = JdbcSupport.getLocalDate(rs, "approvedOnDate");
+            final LocalDate expectedDisbursementDate = JdbcSupport.getLocalDate(rs, "expectedDisbursementDate");
+            final LoanApplicationTimelineData timeline = new LoanApplicationTimelineData(null, submittedOnDate, null, null, null, null,
+                    null, null, null, null, null, null, null, approvedOnDate, null, null, null, expectedDisbursementDate, null, null, null,
+                    null, null, null, null, null, null, null, null, null, null);
+            final Long loanOfficerId = JdbcSupport.getLong(rs, "loanOfficerId");
+            final String loanOfficerName = rs.getString("loanOfficerName");
+            final LocalDate overdueSinceDate = JdbcSupport.getLocalDate(rs, "overdueSinceDate");
+            final Boolean inArrears = overdueSinceDate != null;
+
+            final LoanAccountData loanAccountData = LoanAccountData.basicLoanDetails(id, accountNo, status, externalId, clientId, null,
+                    clientName, clientOfficeId, null, null, loanProductId, loanProductName, null, false, null, null, null, null,
+                    loanOfficerId, loanOfficerName, currencyData, principal, principal, approvedPrincipal, netDisbursalAmount, null, null,
+                    null, null, null, null, null, null, null, null, null, null, null, null, null, null, false, null, null, null, null, null,
+                    null, null, null, null, timeline, null, null, null, null, null, false, null, null, null, inArrears, null, null, null,
+                    null, false, null, null, null, null, null, loanSubStatus, false, false, null, null, null, false, null, null, null, false,
+                    null);
+
+            final Long loanDecisionStateId = JdbcSupport.getLong(rs, "loanDecisionState");
+            if (loanDecisionStateId != null) {
+                loanAccountData.setLoanDecisionState(LoanEnumerations.loanDecisionState(loanDecisionStateId.intValue()));
+            }
+            return loanAccountData;
+        }
+    }
+
     private static final class LoanMapper implements RowMapper<LoanAccountData> {
 
         private final DatabaseSpecificSQLGenerator sqlGenerator;
@@ -1098,27 +1172,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         public String loanSchema() {
             // Detail path: correlated late-fee subqueries scoped to l.id (never full-table aggregates).
-            return buildLoanSchema(false);
-        }
-
-        /**
-         * List projection: join center for name; late fees stay as correlated subqueries so list pages do not
-         * pre-aggregate all of m_loan_daily_late_fee / m_loan_charge.
-         */
-        public String loanListSchema() {
-            return buildLoanSchema(true);
-        }
-
-        private String buildLoanSchema(final boolean forList) {
-            final String centerNameSelect = forList ? " center.display_name as centerName, "
-                    : " (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, ";
-            // Always scope late-fee/penalty totals to the current loan row. Full-table GROUP BY joins were scanning
-            // every active late fee / penalty charge on each list/detail load.
+            // List pages use LoanGridMapper (slim projection) instead of this schema.
+            final String centerNameSelect = " (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, ";
             final String lateFeeSelect = " coalesce((select sum(dlf.penalty_amount) from m_loan_daily_late_fee dlf where dlf.loan_id = l.id and dlf.is_active = true), 0) as dailyLateFeeChargedToDate,"
                     + " coalesce((select sum(lc2.amount_outstanding_derived) from m_loan_daily_late_fee dlf2 join m_loan_charge lc2 on lc2.id = dlf2.loan_charge_id where dlf2.loan_id = l.id and dlf2.is_active = true and lc2.is_active = true), 0) as dailyLateFeeOutstanding,"
                     + " coalesce(l.principal_disbursed_derived, 0) as dailyLateFeeCapAmount,"
                     + " case when coalesce(l.principal_disbursed_derived, 0) > 0 and coalesce((select sum(lc3.amount) from m_loan_charge lc3 where lc3.loan_id = l.id and lc3.is_penalty = true and lc3.is_active = true), 0) >= coalesce(l.principal_disbursed_derived, 0) then true else false end as dailyLateFeeCapReached,";
-            final String listJoins = forList ? " left join m_group center on center.id = g.parent_id" : "";
 
             return "l.id as id, l.account_no as accountNo, l.external_id as externalId, l.fund_id as fundId, f.name as fundName,"
                     + " l.loan_type_enum as loanType, l.loanpurpose_cv_id as loanPurposeId, cv.code_value as loanPurposeName,"
@@ -1238,7 +1297,6 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " left join m_product_loan_variable_installment_config lpvi on lpvi.loan_product_id = l.product_id"
                     + " left join m_loan_topup as topup on l.id = topup.loan_id"
                     + " left join m_loan as topuploan on topuploan.id = topup.closure_loan_id"
-                    + " left join m_portfolio_account_associations as paa on l.id = paa.loan_account_id"
                     + " left join m_loan_decision as ds on l.id = ds.loan_id"
                     // LoanAccountData contains singular legacy fields for the currently applicable disbursement. A
                     // direct
@@ -1251,9 +1309,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " order by case when lds2.disbursedon_date is null then 0 else 1 end,"
                     + " case when lds2.disbursedon_date is null then lds2.expected_disburse_date end asc,"
                     + " case when lds2.disbursedon_date is not null then lds2.disbursedon_date end desc, lds2.id desc limit 1)"
-                    + " left join m_payment_type pt_lds on pt_lds.id = lds.payment_type_id"
-                    + listJoins;
-
+                    + " left join m_payment_type pt_lds on pt_lds.id = lds.payment_type_id";
         }
 
         @Override
