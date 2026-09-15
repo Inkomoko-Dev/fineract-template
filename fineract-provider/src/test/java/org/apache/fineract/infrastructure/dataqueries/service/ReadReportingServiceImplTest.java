@@ -58,6 +58,9 @@ public class ReadReportingServiceImplTest {
 
     private static final String PAGED_REPORT = "SELECT id FROM m_loan ORDER BY id LIMIT ${limit} OFFSET ${offset}";
     private static final String PLAIN_REPORT = "SELECT id FROM m_loan WHERE office_id = ${officeId}";
+    private static final String FULL_PARAMETER_LIST = "SELECT sp.parameter_name FROM stretchy_parameter sp "
+            + "JOIN stretchy_report_parameter srp ON srp.parameter_id = sp.id "
+            + "JOIN stretchy_report sr ON sr.id = srp.report_id WHERE sr.report_name in(${reportListing})";
     private static final int HEADER_WRITES = 4;
     private static final String SCOPED_REPORT = "SELECT l.id FROM m_loan l "
             + "JOIN m_office o ON o.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')";
@@ -241,6 +244,20 @@ public class ReadReportingServiceImplTest {
         final String sql = service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "2026-09-11"), false, null, null);
 
         assertThat(sql).contains("office_id = 2026-09-11");
+    }
+
+    @Test
+    public void parameterListLookupSubstitutesTheQuotedReportName() {
+        final String sql = service.buildReportSql(FULL_PARAMETER_LIST, Map.of("${reportListing}", "'Loan Payment Details Report'"), false,
+                null, null);
+
+        assertThat(sql).contains("report_name in('Loan Payment Details Report')");
+    }
+
+    @Test
+    public void quotedValueIsStillRejectedForOrdinaryParameters() {
+        assertThatExceptionOfType(SQLInjectionException.class)
+                .isThrownBy(() -> service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "'OR 1 OR'"), false, null, null));
     }
 
     @Test
