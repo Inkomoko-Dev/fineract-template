@@ -41,13 +41,58 @@
     </changeSet>
 
     <!-- v2 only configured the legal entity name. Production/QA still use "Inkomoko Kenya Capital". -->
-    <changeSet id="CGLT-653-add-kenya-capital-office-name-aliases-v3" author="inkomoko">
+    <changeSet id="CGLT-653-add-kenya-capital-office-name-aliases-v3" author="Felix Mutua">
         <preConditions onFail="MARK_RAN">
             <tableExists tableName="c_configuration"/>
             <sqlCheck expectedResult="1">
                 select count(1) from c_configuration where name = 'entity-disbursement-defaults-config';
             </sqlCheck>
         </preConditions>
+        <sql>
+            UPDATE `c_configuration`
+            SET `enabled` = 1,
+                `description` = '[{"entityName":"Kenya Capital","officeNames":["Inkomoko - Capital Kenya Limited","Inkomoko Kenya Capital"],"defaultDepartmentName":"Investment","budgetCodeName":"InvestmentsBudget","budgetLocationPrefix":"Investments - "}]'
+            WHERE `name` = 'entity-disbursement-defaults-config';
+        </sql>
+        <sql>
+            UPDATE `c_configuration`
+            SET `enabled` = 1
+            WHERE `name` = 'entity-disbursement-defaults-enabled';
+        </sql>
+    </changeSet>
+
+    <!-- Kenya Capital defaults to Department "Investment". INKO-69 only seeded Micro-Enterprise/SME/Vulnerable-Populations. -->
+    <changeSet id="CGLT-653-seed-investment-department-code-value-v4" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                select count(1) from m_code where code_name = 'Department';
+            </sqlCheck>
+            <sqlCheck expectedResult="0">
+                select count(1)
+                from m_code_value cv
+                inner join m_code c on c.id = cv.code_id
+                where c.code_name = 'Department' and cv.code_value = 'Investment';
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_code_value">
+            <column name="code_id" valueComputed="(select id from m_code where code_name='Department')"/>
+            <column name="code_value" value="Investment"/>
+            <column name="code_description" value="Kenya Capital investment department used for disbursement defaults"/>
+            <column name="order_position" valueNumeric="10"/>
+            <column name="code_score"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="is_mandatory" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <!-- Widen description so multi-office JSON cannot truncate; re-assert Kenya Capital config. -->
+    <changeSet id="CGLT-653-widen-entity-defaults-config-description-v5" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="c_configuration"/>
+        </preConditions>
+        <sql>
+            ALTER TABLE `c_configuration` MODIFY COLUMN `description` VARCHAR(2000) NULL;
+        </sql>
         <sql>
             UPDATE `c_configuration`
             SET `enabled` = 1,

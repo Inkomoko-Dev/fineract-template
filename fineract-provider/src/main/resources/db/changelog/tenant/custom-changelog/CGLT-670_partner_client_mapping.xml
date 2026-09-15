@@ -345,4 +345,24 @@
             <dropTable tableName="x_partner_client_verification_audit"/>
         </rollback>
     </changeSet>
+
+    <!-- status_enum 0 is not a valid StatusEnum; listing checks on loan disbursement NPEs. CREATE=100. -->
+    <changeSet id="CGLT-670_fix_partner_client_mapping_entity_check_status" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_entity_datatable_check"/>
+            <sqlCheck expectedResult="1">
+                select count(1) from m_entity_datatable_check
+                where application_table_name = 'm_client'
+                  and x_registered_table_name = 'x_partner_client_mapping'
+                  and status_enum = 0;
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE m_entity_datatable_check
+            SET status_enum = 100
+            WHERE application_table_name = 'm_client'
+              AND x_registered_table_name = 'x_partner_client_mapping'
+              AND status_enum = 0;
+        </sql>
+    </changeSet>
 </databaseChangeLog>

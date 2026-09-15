@@ -55,6 +55,9 @@ public enum StatusEnum {
     }
 
     public static StatusEnum fromInt(final Integer code) {
+        if (code == null) {
+            return null;
+        }
         StatusEnum ret = null;
         switch (code) {
             case 100:
@@ -94,12 +97,22 @@ public enum StatusEnum {
     }
 
     public static EnumOptionData statusTypeEnum(final Integer id) {
-        return statusType(StatusEnum.fromInt(id));
+        if (id == null) {
+            return null;
+        }
+        final StatusEnum status = StatusEnum.fromInt(id);
+        if (status == null) {
+            // Unknown codes (e.g. partner mapping stored 0) must not 500 the disbursement action page.
+            return new EnumOptionData(id.longValue(), "INVALID", "INVALID");
+        }
+        return statusType(status);
     }
 
     public static EnumOptionData statusType(final StatusEnum statusType) {
-        final EnumOptionData optionData = new EnumOptionData(statusType.getCode().longValue(), statusType.name(), statusType.name());
-        return optionData;
+        if (statusType == null) {
+            return null;
+        }
+        return new EnumOptionData(statusType.getCode().longValue(), statusType.name(), statusType.name());
     }
 
 }

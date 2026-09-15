@@ -32,8 +32,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
-import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
-import org.apache.fineract.infrastructure.configuration.service.ConfigurationReadPlatformService;
+import org.apache.fineract.infrastructure.configuration.domain.GlobalConfigurationProperty;
+import org.apache.fineract.infrastructure.configuration.domain.GlobalConfigurationRepositoryWrapper;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.office.domain.Office;
@@ -71,13 +71,13 @@ public class EntityDisbursementDefaultsService {
     private static final String DEPARTMENT_CODE_NAME = "Department";
     private static final DateTimeFormatter BUDGET_MONTH_FORMATTER = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
 
-    private final ConfigurationReadPlatformService configurationReadPlatformService;
+    private final GlobalConfigurationRepositoryWrapper globalConfigurationRepository;
     private final CodeValueRepositoryWrapper codeValueRepository;
     private final ObjectMapper objectMapper;
 
     public boolean isEnabled() {
         try {
-            return configurationReadPlatformService.retrieveGlobalConfiguration(CONFIG_ENABLED).isEnabled();
+            return globalConfigurationRepository.findOneByNameWithNotFoundDetection(CONFIG_ENABLED).isEnabled();
         } catch (Exception ex) {
             return true;
         }
@@ -85,13 +85,14 @@ public class EntityDisbursementDefaultsService {
 
     public List<EntityDisbursementDefaultsConfiguration> getConfigurations() {
         try {
-            final GlobalConfigurationPropertyData config = configurationReadPlatformService
-                    .retrieveGlobalConfiguration(CONFIG_ENTITIES);
+            // Use repository (no authenticatedUser gate) so after-commit Odoo hooks can still resolve config.
+            final GlobalConfigurationProperty config = globalConfigurationRepository
+                    .findOneByNameWithNotFoundDetection(CONFIG_ENTITIES);
             if (config == null) {
                 return new ArrayList<>();
             }
             // JSON lives in description because string_value is VARCHAR(100).
-            String json = config.getDescription();
+            String json = config.toData().getDescription();
             if (StringUtils.isBlank(json) || !json.trim().startsWith("[")) {
                 json = config.getStringValue();
             }
@@ -99,6 +100,7 @@ public class EntityDisbursementDefaultsService {
                 return objectMapper.readValue(json,
                         new TypeReference<List<EntityDisbursementDefaultsConfiguration>>() {});
             }
+            log.warn("entity-disbursement-defaults-config has no JSON array in description/string_value");
         } catch (Exception ex) {
             log.warn("Failed to parse entity disbursement defaults configuration: {}", ex.getMessage(), ex);
         }
@@ -106,13 +108,27 @@ public class EntityDisbursementDefaultsService {
     }
 
     public EntityDisbursementDefaultsConfiguration findConfigurationForOffice(final String officeName) {
-        if (!isEnabled() || StringUtils.isBlank(officeName)) {
+        if (!isEnabled()) {
+            log.info("entity-disbursement-defaults-enabled is off; skipping office match for '{}'", officeName);
             return null;
         }
-        for (final EntityDisbursementDefaultsConfiguration config : getConfigurations()) {
+        if (StringUtils.isBlank(officeName)) {
+            return null;
+        }
+        final List<EntityDisbursementDefaultsConfiguration> configs = getConfigurations();
+        for (final EntityDisbursementDefaultsConfiguration config : configs) {
             if (config.matchesOfficeName(officeName)) {
                 return config;
             }
+        }
+        if (configs.isEmpty()) {
+            log.warn("No entity-disbursement-defaults-config JSON loaded while matching office='{}'", officeName);
+        } else {
+            final List<String> entities = new ArrayList<>();
+            for (final EntityDisbursementDefaultsConfiguration config : configs) {
+                entities.add(config.getEntityName());
+            }
+            log.info("No entity config matched office='{}'. Known entities={}", officeName, entities);
         }
         return null;
     }
@@ -151,11 +167,18 @@ public class EntityDisbursementDefaultsService {
         }
 
         final LocalDate effectiveDate = disbursementDate != null ? disbursementDate : DateUtils.getBusinessLocalDate();
-        final CodeValue department = codeValueRepository.findOneByCodeNameAndLabelWithNotFoundDetection(
+        // Optional lookup: a missing Department code value must not 404 the disbursement template.
+        final CodeValue department = codeValueRepository.findOneByCodeNameAndLabelOptional(
                 DEPARTMENT_CODE_NAME, config.getDefaultDepartmentName());
+        if (department == null) {
+            log.error(
+                    "Department '{}' is missing under code '{}'. Template will still load; flag for review.",
+                    config.getDefaultDepartmentName(), DEPARTMENT_CODE_NAME);
+        }
         final String budgetLocation = formatBudgetLocation(config.getBudgetLocationPrefix(), effectiveDate);
-        final boolean budgetReviewRequired = !isBudgetConfigured(config.getBudgetCodeName(), budgetLocation);
-        
+        final boolean budgetConfigured = isBudgetConfigured(config.getBudgetCodeName(), budgetLocation);
+        final boolean budgetReviewRequired = department == null || !budgetConfigured;
+
         return EntityDisbursementDefaultsResult.applicable(config.getEntityName(), department, budgetLocation,
                 budgetReviewRequired);
     }
@@ -164,7 +187,7 @@ public class EntityDisbursementDefaultsService {
             final JsonCommand command, final Map<String, Object> changes) {
         final EntityDisbursementDefaultsResult defaults = resolve(loan, disbursementDate);
         if (!defaults.isApplicable()) {
-            log.debug("CGLT-653: Skipping entity disbursement defaults for loan {} (office='{}')",
+            log.debug("Skipping entity disbursement defaults for loan {} (office='{}')",
                     loan != null ? loan.getId() : null,
                     loan != null && loan.getOffice() != null ? loan.getOffice().getName() : null);
             return defaults;
@@ -174,7 +197,7 @@ public class EntityDisbursementDefaultsService {
         applyBudgetDefaults(loan, disbursementDate, command, changes, defaults);
 
         log.info(
-                "CGLT-653: Applied entity disbursement defaults for loan {} (entity='{}', department='{}')",
+                "Applied entity disbursement defaults for loan {} (entity='{}', department='{}')",
                 loan.getId(), defaults.getEntityName(), defaults.getDepartmentName());
         return defaults;
     }
@@ -191,37 +214,50 @@ public class EntityDisbursementDefaultsService {
 
         final EntityDisbursementDefaultsResult defaults = resolve(loan, journalOffice,
                 loanTransaction.getTransactionDate());
-        if (!defaults.isApplicable()) {
-            log.info(
-                    "CGLT-653: Odoo payload not enriched for loanTxn {} / loan {} (no matching entity). loanOffice='{}', journalOffice='{}'",
-                    loanTransaction.getId(), loan != null ? loan.getId() : null,
-                    loan != null && loan.getOffice() != null ? loan.getOffice().getName() : null,
-                    journalOffice != null ? journalOffice.getName() : null);
-            return;
-        }
 
         String budgetLocation = findPersistedBudgetLocation(loan, loanTransaction);
         Boolean budgetReviewRequired = findPersistedBudgetReviewRequired(loan, loanTransaction);
+        String departmentName = null;
 
-        if (StringUtils.isBlank(budgetLocation)) {
-            budgetLocation = defaults.getBudgetLocation();
-            budgetReviewRequired = defaults.isBudgetReviewRequired();
-        }
-        if (budgetReviewRequired == null) {
-            budgetReviewRequired = defaults.isBudgetReviewRequired();
+        if (defaults.isApplicable()) {
+            if (StringUtils.isBlank(budgetLocation)) {
+                budgetLocation = defaults.getBudgetLocation();
+                budgetReviewRequired = defaults.isBudgetReviewRequired();
+            }
+            if (budgetReviewRequired == null) {
+                budgetReviewRequired = defaults.isBudgetReviewRequired();
+            }
+            departmentName = getEffectiveDepartmentName(defaults, loan);
+        } else {
+            // Config may be unavailable in after-commit hooks; still send fields already stored on disbursement.
+            departmentName = loan != null && loan.getDepartment() != null ? loan.getDepartment().label() : null;
+            if (StringUtils.isBlank(budgetLocation) && StringUtils.isBlank(departmentName)) {
+                log.info(
+                        "Odoo payload not enriched for loanTxn {} / loan {} (no matching entity, enabled={}, configs={}). loanOffice='{}', journalOffice='{}'",
+                        loanTransaction.getId(), loan != null ? loan.getId() : null, isEnabled(), getConfigurations().size(),
+                        loan != null && loan.getOffice() != null ? loan.getOffice().getName() : null,
+                        journalOffice != null ? journalOffice.getName() : null);
+                return;
+            }
+            log.info(
+                    "Config resolve not applicable for loanTxn {} / loan {}; enriching Odoo from persisted fields (department='{}', location='{}')",
+                    loanTransaction.getId(), loan != null ? loan.getId() : null, departmentName, budgetLocation);
         }
 
         if (StringUtils.isNotBlank(budgetLocation)) {
             journalData.setLocation(budgetLocation);
         }
-        journalData.setBudgetReviewRequired(budgetReviewRequired);
-
-        final String departmentName = getEffectiveDepartmentName(defaults, loan);
-        journalData.setDepartment(departmentName);
+        if (budgetReviewRequired != null) {
+            journalData.setBudgetReviewRequired(budgetReviewRequired);
+        }
+        if (StringUtils.isNotBlank(departmentName)) {
+            journalData.setDepartment(departmentName);
+        }
 
         log.info(
-                "CGLT-653: Enriched Odoo journal for loanTxn {} / loan {} with entity='{}', department='{}', location='{}', budgetReviewRequired={}",
-                loanTransaction.getId(), loan.getId(), defaults.getEntityName(), departmentName, budgetLocation,
+                "Enriched Odoo journal for loanTxn {} / loan {} with entity='{}', department='{}', location='{}', budgetReviewRequired={}",
+                loanTransaction.getId(), loan != null ? loan.getId() : null,
+                defaults.isApplicable() ? defaults.getEntityName() : "persisted", departmentName, budgetLocation,
                 budgetReviewRequired);
     }
 

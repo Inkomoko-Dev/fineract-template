@@ -231,18 +231,22 @@ public class SynchronousCommandProcessingService implements CommandProcessingSer
     }
 
     private void publishErrorEvent(CommandWrapper wrapper, JsonCommand command, Throwable t) {
-
-        ErrorInfo ex;
-        if (t instanceof RuntimeException) {
-            final RuntimeException e = (RuntimeException) t;
-            ex = ErrorHandler.handler(e);
-        } else {
-            // Use Gson to properly escape the exception message to avoid MalformedJsonException
-            String escapedMessage = new Gson().toJson(t.toString());
-            ex = new ErrorInfo(500, 9999, "{\"Exception\": " + escapedMessage + "}");
+        try {
+            ErrorInfo ex;
+            if (t instanceof RuntimeException) {
+                ex = ErrorHandler.handler((RuntimeException) t);
+            } else {
+                // Use Gson to properly escape the exception message to avoid MalformedJsonException
+                String escapedMessage = new Gson().toJson(t.toString());
+                ex = new ErrorInfo(500, 9999, "{\"Exception\": " + escapedMessage + "}");
+            }
+            publishEvent(wrapper.entityName(), wrapper.actionName(), command, ex);
+        } catch (Throwable publishFailure) {
+            // Never replace the original command failure (e.g. ClassNotFoundException while loading ErrorInfo).
+            log.error("Failed to publish command error event for {} {}", wrapper.entityName(), wrapper.actionName(),
+                    publishFailure);
+            log.error("Original command failure", t);
         }
-
-        publishEvent(wrapper.entityName(), wrapper.actionName(), command, ex);
     }
 
     private void publishEvent(final String entityName, final String actionName, JsonCommand command, final Object result) {
