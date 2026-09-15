@@ -171,6 +171,73 @@ public class PartialWriteOffAuditIntegrationTest {
     }
 
     @Test
+    public void testPartialWriteOffUpdatesPrincipalAndInterestOutstanding() {
+        final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec, DATE_OF_JOINING);
+        ClientHelper.verifyClientCreatedOnServer(this.requestSpec, this.responseSpec, clientID);
+
+        final Integer loanProductID = createLoanProduct();
+        LoanProductTestBuilder.verifyLoanProductCreated(loanProductID);
+
+        final Integer loanID = createLoanApplication(clientID, loanProductID);
+        LoanStatusChecker.verifyLoanIsPending(loanID);
+        LoanStatusChecker.approveLoan(loanID);
+        LoanStatusChecker.verifyLoanIsApproved(loanID);
+        LoanStatusChecker.disburseLoan(loanID, DISBURSEMENT_DATE);
+        LoanStatusChecker.verifyLoanIsActive(loanID);
+
+        final JsonPath beforeLoan = getLoanDetails(loanID);
+        final BigDecimal principalOutstandingBefore = new BigDecimal(beforeLoan.getString("summary.principalOutstanding"));
+        final BigDecimal interestOutstandingBefore = new BigDecimal(beforeLoan.getString("summary.interestOutstanding"));
+        final BigDecimal totalOutstandingBefore = new BigDecimal(beforeLoan.getString("summary.totalOutstanding"));
+        final BigDecimal principalWrittenOffBefore = new BigDecimal(beforeLoan.getString("summary.principalWrittenOff"));
+        final BigDecimal interestWrittenOffBefore = new BigDecimal(beforeLoan.getString("summary.interestWrittenOff"));
+        final BigDecimal scheduleOutstandingBefore = new BigDecimal(beforeLoan.getString("repaymentSchedule.totalOutstanding"));
+
+        final BigDecimal principalWriteOff = new BigDecimal("500.00");
+        final BigDecimal interestWriteOff = new BigDecimal("100.00");
+        final BigDecimal totalWriteOff = principalWriteOff.add(interestWriteOff);
+
+        final String partialWriteOffDate = "15 March 2026";
+        final HashMap<String, Object> partialWriteOffMap = new HashMap<>();
+        partialWriteOffMap.put("transactionDate", partialWriteOffDate);
+        partialWriteOffMap.put("principalPortion", principalWriteOff.toString());
+        partialWriteOffMap.put("interestPortion", interestWriteOff.toString());
+        partialWriteOffMap.put("reason", "QA regression: principal and interest partial write-off");
+        partialWriteOffMap.put("note", "CGLT-680 balance update validation");
+
+        this.loanTransactionHelper = new LoanTransactionHelper(this.requestSpec, new ResponseSpecBuilder().build());
+        this.loanTransactionHelper.partialWriteOffLoan(loanID, new Gson().toJson(partialWriteOffMap));
+
+        LoanStatusChecker.verifyLoanIsActive(loanID);
+
+        final JsonPath afterLoan = getLoanDetails(loanID);
+        final BigDecimal principalOutstandingAfter = new BigDecimal(afterLoan.getString("summary.principalOutstanding"));
+        final BigDecimal interestOutstandingAfter = new BigDecimal(afterLoan.getString("summary.interestOutstanding"));
+        final BigDecimal totalOutstandingAfter = new BigDecimal(afterLoan.getString("summary.totalOutstanding"));
+        final BigDecimal principalWrittenOffAfter = new BigDecimal(afterLoan.getString("summary.principalWrittenOff"));
+        final BigDecimal interestWrittenOffAfter = new BigDecimal(afterLoan.getString("summary.interestWrittenOff"));
+        final BigDecimal scheduleOutstandingAfter = new BigDecimal(afterLoan.getString("repaymentSchedule.totalOutstanding"));
+
+        assertEquals(principalWriteOff, principalOutstandingBefore.subtract(principalOutstandingAfter),
+                "Principal outstanding should decrease by write-off amount");
+        assertEquals(interestWriteOff, interestOutstandingBefore.subtract(interestOutstandingAfter),
+                "Interest outstanding should decrease by write-off amount");
+        assertEquals(totalWriteOff, totalOutstandingBefore.subtract(totalOutstandingAfter),
+                "Total outstanding should decrease by principal plus interest write-off");
+        assertEquals(principalWriteOff, principalWrittenOffAfter.subtract(principalWrittenOffBefore),
+                "Principal written off summary should increase");
+        assertEquals(interestWriteOff, interestWrittenOffAfter.subtract(interestWrittenOffBefore),
+                "Interest written off summary should increase");
+        assertEquals(totalWriteOff, scheduleOutstandingBefore.subtract(scheduleOutstandingAfter),
+                "Repayment schedule total outstanding should reflect write-off");
+
+        assertEquals(totalOutstandingAfter, new BigDecimal(getLoanOutstandingBalance(loanID)),
+                "Loan summary total outstanding should match outstanding balance helper");
+
+        LOG.info("CGLT-680 Principal and interest outstanding update test passed successfully");
+    }
+
+    @Test
     public void testDuplicatePartialWriteOffPrevention() {
         // CREATE CLIENT
         final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec, DATE_OF_JOINING);
@@ -394,10 +461,13 @@ public class PartialWriteOffAuditIntegrationTest {
         return LoanApplicationTestBuilder.createLoanApplication(loanApplicationJSON);
     }
 
+    private JsonPath getLoanDetails(final Integer loanID) {
+        final String response = Utils.performServerGet("/loans/" + loanID + "?associations=all", "", requestSpec, responseSpec);
+        return new JsonPath(response);
+    }
+
     private String getLoanOutstandingBalance(final Integer loanID) {
-        final String response = Utils.performServerGet("/loans/" + loanID, "", requestSpec, responseSpec);
-        final JsonPath jsonPath = new JsonPath(response);
-        return jsonPath.getString("summary.totalOutstanding");
+        return getLoanDetails(loanID).getString("summary.totalOutstanding");
     }
 
     private String getPartialWriteOffAuditData(final Integer loanID) {

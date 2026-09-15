@@ -1786,13 +1786,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final List<Long> existingTransactionIds = new ArrayList<>();
         final List<Long> existingReversedTransactionIds = new ArrayList<>();
 
-        LocalDate recalculateFrom = null;
-        if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
-            recalculateFrom = command.localDateValueOfParameterNamed("transactionDate");
-        }
-
-        ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
-
         final LocalDate writeOffDate = command.localDateValueOfParameterNamed("transactionDate");
         final String txnExternalId = command.stringValueOfParameterNamedAllowingNull("externalId");
 
@@ -1803,8 +1796,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // Capture loan balance before write-off
         final Money loanBalanceBefore = loan.getLoanSummary().getTotalOutstanding(loan.getCurrency());
 
-        // Add transaction to loan and save
-        loan.addLoanTransaction(partialWriteOffTransaction);
+        loan.applyPartialWriteOff(partialWriteOffTransaction, existingTransactionIds, existingReversedTransactionIds);
         this.loanTransactionRepository.saveAndFlush(partialWriteOffTransaction);
 
         // Set helpers on loan to enable transaction processing
