@@ -91,7 +91,8 @@ public final class LoanEventApiJsonValidator {
                     LoanApiConstants.disbursementNetDisbursalAmountParameterName, LoanApiConstants.disbursementTypeParameterName,
                     LoanApiConstants.fxRateParameterName, LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName,
                     LoanApiConstants.fxTimestampParameterName, LoanApiConstants.disbursementDataParameterName,
-                    LoanApiConstants.disbursementDateParameterName, LoanApiConstants.approvedLoanAmountParameterName));
+                    LoanApiConstants.disbursementDateParameterName, LoanApiConstants.approvedLoanAmountParameterName,
+                    LoanApiConstants.BUDGET_LOCATION_PARAM, LoanApiConstants.BUDGET_REVIEW_REQUIRED_PARAM));
         } else {
             disbursementParameters = new HashSet<>(Arrays.asList("actualDisbursementDate", "externalId", "note", "locale", "dateFormat",
                     "resultCode", "paymentTypeId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
@@ -100,7 +101,8 @@ public final class LoanEventApiJsonValidator {
                     LoanApiConstants.disbursementTypeParameterName, LoanApiConstants.fxRateParameterName,
                     LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName,
                     LoanApiConstants.disbursementDataParameterName, LoanApiConstants.disbursementDateParameterName,
-                    LoanApiConstants.approvedLoanAmountParameterName));
+                    LoanApiConstants.approvedLoanAmountParameterName, LoanApiConstants.BUDGET_LOCATION_PARAM,
+                    LoanApiConstants.BUDGET_REVIEW_REQUIRED_PARAM));
         }
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
