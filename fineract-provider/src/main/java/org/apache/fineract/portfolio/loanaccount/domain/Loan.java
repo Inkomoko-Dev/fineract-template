@@ -4430,6 +4430,24 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return changedTransactionDetail;
     }
 
+    /**
+     * Applies a partial write-off transaction to repayment schedule installments and refreshes loan summary.
+     * Does not change loan status (loan remains active).
+     */
+    public void applyPartialWriteOff(final LoanTransaction partialWriteOffTransaction, final List<Long> existingTransactionIds,
+            final List<Long> existingReversedTransactionIds) {
+        existingTransactionIds.addAll(findExistingTransactionIds());
+        existingReversedTransactionIds.addAll(findExistingReversedTransactionIds());
+
+        final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
+                .determineProcessor(this.transactionProcessingStrategy);
+
+        addLoanTransaction(partialWriteOffTransaction);
+        loanRepaymentScheduleTransactionProcessor.handlePartialWriteOff(partialWriteOffTransaction, loanCurrency(),
+                getRepaymentScheduleInstallments());
+        updateLoanSummaryDerivedFields();
+    }
+
     private ChangedTransactionDetail closeDisbursements(final ScheduleGeneratorDTO scheduleGeneratorDTO,
             final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor) {
         ChangedTransactionDetail changedTransactionDetail = null;
