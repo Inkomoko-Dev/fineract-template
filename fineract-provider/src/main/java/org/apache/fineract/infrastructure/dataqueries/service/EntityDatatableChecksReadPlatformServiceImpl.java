@@ -162,7 +162,9 @@ public class EntityDatatableChecksReadPlatformServiceImpl implements EntityDatat
         if (statuses != null) {
             for (Integer status : statuses) {
                 StatusEnum statusEnum = StatusEnum.fromInt(status);
-                ret.add(new DatatableCheckStatusData(statusEnum.name(), statusEnum.getCode()));
+                if (statusEnum != null) {
+                    ret.add(new DatatableCheckStatusData(statusEnum.name(), statusEnum.getCode()));
+                }
             }
         }
         return ret;
@@ -198,11 +200,8 @@ public class EntityDatatableChecksReadPlatformServiceImpl implements EntityDatat
 
             final Long id = JdbcSupport.getLong(rs, "id");
             final String entity = rs.getString("entity");
-            final Long status = rs.getLong("status");
-            EnumOptionData statusEnum = null;
-            if (status != null) {
-                statusEnum = StatusEnum.statusTypeEnum(status.intValue());
-            }
+            final Long status = JdbcSupport.getLong(rs, "status");
+            final EnumOptionData statusEnum = status != null ? StatusEnum.statusTypeEnum(status.intValue()) : null;
             final String datatableName = rs.getString("datatableName");
             final boolean systemDefined = rs.getBoolean("systemDefined");
             final Long productId = JdbcSupport.getLong(rs, "productId");
