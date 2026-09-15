@@ -679,7 +679,6 @@ public class OdooServiceImpl implements OdooService {
 
             if (odooJournalId != null && odooRequest.has("journalDetails") && odooRequest.get("journalDetails").isJsonArray()) {
                 JsonArray journalDetails = odooRequest.getAsJsonArray("journalDetails");
-                final List<JournalEntry> toSave = new ArrayList<>();
 
                 for (JsonElement element : journalDetails) {
                     JsonObject detail = element.getAsJsonObject();
@@ -705,9 +704,6 @@ public class OdooServiceImpl implements OdooService {
                         je.setOddoPosted(true);
                         toSave.add(je);
                     }
-                }
-                if (!toSave.isEmpty()) {
-                    journalEntryRepository.saveAll(toSave);
                 }
             }
 
