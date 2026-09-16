@@ -40,6 +40,7 @@ import org.apache.fineract.infrastructure.core.filters.FilterType;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.organisation.office.data.OfficeData;
+import org.apache.fineract.organisation.office.domain.NamedOfficeAccessPredicate;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.teller.util.DateRange;
 import org.apache.fineract.portfolio.client.domain.ClientEnumerations;
@@ -101,7 +102,10 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
             params.addValue("searchPrefix", rawQuery + "%");
             params.addValue("searchContains", "%" + rawQuery + "%");
         }
-        return this.namedParameterJdbcTemplate.query(rm.searchSchema(searchConditions), params, rm);
+        final NamedOfficeAccessPredicate officeAccess = this.context.officeAccessScope().namedPredicate("hierarchy", "o.hierarchy");
+        params.addValues(officeAccess.getParameters());
+        final String sql = rm.searchSchema(searchConditions).replace("o.hierarchy like :hierarchy", officeAccess.getSql());
+        return this.namedParameterJdbcTemplate.query(sql, params, rm);
     }
 
     private static final class SearchMapper implements RowMapper<SearchData> {

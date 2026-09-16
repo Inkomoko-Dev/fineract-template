@@ -37,6 +37,8 @@ public interface ConfigurationDomainService {
 
     boolean isConstraintApproachEnabledForDatatables();
 
+    boolean isStrictOfficeScopeEnabled();
+
     boolean isEhcacheEnabled();
 
     void updateCache(CacheType cacheType);

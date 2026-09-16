@@ -22,11 +22,13 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -41,6 +43,7 @@ import javax.persistence.UniqueConstraint;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.audit.AuditChangeRecorder;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -50,6 +53,7 @@ import org.apache.fineract.infrastructure.security.service.PlatformPasswordEncod
 import org.apache.fineract.infrastructure.security.service.RandomPasswordGenerator;
 import org.apache.fineract.infrastructure.security.utils.LogParameterEscapeUtil;
 import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.useradministration.service.AppUserConstants;
@@ -118,6 +122,9 @@ public class AppUser extends AbstractPersistableCustom implements PlatformUser {
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER, mappedBy = "appUser")
     private Set<AppUserClientMapping> appUserClientMappings = new HashSet<>();
+
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER, mappedBy = "appUser")
+    private Set<AppUserOfficeMapping> appUserOfficeMappings = new HashSet<>();
 
     @Column(name = "cannot_change_password", nullable = true)
     private Boolean cannotChangePassword;
@@ -456,6 +463,72 @@ public class AppUser extends AbstractPersistableCustom implements PlatformUser {
 
     public Office getOffice() {
         return this.office;
+    }
+
+    public boolean hasHierarchicalOfficeAccess() {
+        return hasAnyPermission(AppUserConstants.HIERARCHICAL_OFFICE_ACCESS_PERMISSION);
+    }
+
+    public boolean hasMultiLocationOfficeAccess() {
+        return hasAnyPermission(AppUserConstants.MULTI_LOCATION_OFFICE_ACCESS_PERMISSION);
+    }
+
+    public List<Office> getAdditionalOffices() {
+        if (this.appUserOfficeMappings == null) {
+            return new ArrayList<>();
+        }
+        return this.appUserOfficeMappings.stream().map(AppUserOfficeMapping::getOffice)
+                .sorted(Comparator.comparing(Office::getId, Comparator.nullsLast(Comparator.naturalOrder()))).collect(Collectors.toList());
+    }
+
+    /** MULTILOCATION_OFFICEACCESS admits the assigned offices, HIERARCHICAL_OFFICEACCESS their children. */
+    public OfficeAccessScope officeAccessScope(final boolean strictOfficeScopeEnforced) {
+        final boolean hierarchicalAccess = hasHierarchicalOfficeAccess();
+
+        final List<String> hierarchies = new ArrayList<>();
+        hierarchies.add(this.office.getHierarchy());
+        if (hasMultiLocationOfficeAccess()) {
+            for (final Office additionalOffice : getAdditionalOffices()) {
+                hierarchies.add(additionalOffice.getHierarchy());
+            }
+        }
+
+        if (hierarchicalAccess || !strictOfficeScopeEnforced) {
+            return OfficeAccessScope.hierarchical(hierarchies);
+        }
+        return OfficeAccessScope.exact(hierarchies);
+    }
+
+    public void updateAdditionalOffices(final Collection<Office> offices) {
+        final Set<AppUserOfficeMapping> newMappings = createAppUserOfficeMappings(offices);
+        if (this.appUserOfficeMappings == null) {
+            this.appUserOfficeMappings = new HashSet<>();
+        } else {
+            this.appUserOfficeMappings.retainAll(newMappings);
+        }
+        this.appUserOfficeMappings.addAll(newMappings);
+    }
+
+    public Map<String, Object> updateAdditionalOfficesWithChanges(final Collection<Office> offices) {
+        final Map<String, Object> actualChanges = new LinkedHashMap<>(1);
+        final List<Long> before = getAdditionalOfficeIds();
+        updateAdditionalOffices(offices);
+        AuditChangeRecorder.recordChange(actualChanges, AppUserConstants.OFFICE_IDS, before, getAdditionalOfficeIds());
+        return actualChanges;
+    }
+
+    private List<Long> getAdditionalOfficeIds() {
+        return getAdditionalOffices().stream().map(Office::getId).collect(Collectors.toList());
+    }
+
+    private Set<AppUserOfficeMapping> createAppUserOfficeMappings(final Collection<Office> offices) {
+        final Set<AppUserOfficeMapping> mappings = new HashSet<>();
+        if (offices != null) {
+            for (final Office office : offices) {
+                mappings.add(new AppUserOfficeMapping(this, office));
+            }
+        }
+        return mappings;
     }
 
     public Staff getStaff() {

@@ -28,7 +28,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -53,6 +52,7 @@ import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChe
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
 import org.apache.fineract.portfolio.account.data.AccountTransferData;
@@ -211,20 +211,17 @@ public class SavingsAccountReadPlatformServiceImpl implements SavingsAccountRead
     @Override
     public Page<SavingsAccountData> retrieveAll(final SearchParameters searchParameters) {
 
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        this.context.authenticatedUser();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(this.savingAccountMapper.schema());
 
         sqlBuilder.append(" join m_office o on (o.id = c.office_id or o.id = g.office_id)");
-        sqlBuilder.append(" where o.hierarchy like ?");
+        sqlBuilder.append(" where ").append(officeAccess.getSql());
 
-        final Object[] objectArray = new Object[2];
-        objectArray[0] = hierarchySearchString;
-        int arrayPos = 1;
+        final List<Object> queryArguments = new ArrayList<>(officeAccess.getParameters());
         if (searchParameters != null) {
             String sqlQueryCriteria = searchParameters.getSqlSearch();
             if (StringUtils.isNotBlank(sqlQueryCriteria)) {
@@ -235,18 +232,15 @@ public class SavingsAccountReadPlatformServiceImpl implements SavingsAccountRead
 
             if (StringUtils.isNotBlank(searchParameters.getExternalId())) {
                 sqlBuilder.append(" and sa.external_id = ?");
-                objectArray[arrayPos] = searchParameters.getExternalId();
-                arrayPos = arrayPos + 1;
+                queryArguments.add(searchParameters.getExternalId());
             }
             if (StringUtils.isNotBlank(searchParameters.getAccountNo())) {
                 sqlBuilder.append(" and sa.account_no = ?");
-                objectArray[arrayPos] = searchParameters.getAccountNo();
-                arrayPos = arrayPos + 1;
+                queryArguments.add(searchParameters.getAccountNo());
             }
             if (searchParameters.getOfficeId() != null) {
                 sqlBuilder.append("and c.office_id =?");
-                objectArray[arrayPos] = searchParameters.getOfficeId();
-                arrayPos = arrayPos + 1;
+                queryArguments.add(searchParameters.getOfficeId());
             }
             if (searchParameters.isOrderByRequested()) {
                 sqlBuilder.append(" order by ").append(searchParameters.getOrderBy());
@@ -267,8 +261,8 @@ public class SavingsAccountReadPlatformServiceImpl implements SavingsAccountRead
                 }
             }
         }
-        final Object[] finalObjectArray = Arrays.copyOf(objectArray, arrayPos);
-        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), finalObjectArray, this.savingAccountMapper);
+        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), queryArguments.toArray(),
+                this.savingAccountMapper);
     }
 
     @Override

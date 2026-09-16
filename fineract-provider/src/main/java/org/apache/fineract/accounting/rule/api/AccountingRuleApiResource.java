@@ -130,8 +130,7 @@ public class AccountingRuleApiResource {
         final AppUser currentUser = this.context.authenticatedUser();
         currentUser.validateHasReadPermission(this.resourceNameForPermission);
 
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final String hierarchySearchString = this.context.officeAccessScope().primaryHierarchy() + "%";
 
         final Set<String> associationParameters = ApiParameterHelper.extractAssociationsForResponseIfProvided(uriInfo.getQueryParameters());
         boolean isAssociationParametersExists = false;

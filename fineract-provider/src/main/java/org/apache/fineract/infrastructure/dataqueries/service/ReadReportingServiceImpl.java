@@ -64,6 +64,7 @@ import org.apache.fineract.infrastructure.dataqueries.data.ResultsetColumnHeader
 import org.apache.fineract.infrastructure.dataqueries.data.ResultsetRowData;
 import org.apache.fineract.infrastructure.dataqueries.exception.ReportNotFoundException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.infrastructure.security.service.SqlInjectionPreventerService;
 import org.apache.fineract.infrastructure.security.utils.SQLInjectionValidator;
 import org.apache.fineract.useradministration.domain.AppUser;
@@ -364,8 +365,11 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         sql = this.genericDataService.replace(sql, OFFSET_PLACEHOLDER, Integer.toString(offset != null ? offset : 0));
 
         final AppUser currentUser = this.context.authenticatedUser();
+        // Allows sql query to restrict data by every office the user may see
+        sql = OfficeScopeReportSqlRewriter.rewrite(sql, this.context.officeAccessScope());
         // Allows sql query to restrict data by office hierarchy if required
-        sql = this.genericDataService.replace(sql, "${currentUserHierarchy}", currentUser.getOffice().getHierarchy());
+        sql = this.genericDataService.replace(sql, "${currentUserHierarchy}",
+                OfficeAccessScope.requireOfficeHierarchy(currentUser.getOffice().getHierarchy()));
         // Allows sql query to restrict data by current user Id if required
         // (typically used to return report lists containing only reports
         // permitted to be run by the user

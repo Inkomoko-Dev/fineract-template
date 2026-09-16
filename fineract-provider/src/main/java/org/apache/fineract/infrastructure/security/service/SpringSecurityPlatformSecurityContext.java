@@ -27,6 +27,7 @@ import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDoma
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.exception.NoAuthorizationException;
 import org.apache.fineract.infrastructure.security.exception.ResetPasswordException;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.exception.UnAuthenticatedUserException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -151,10 +152,7 @@ public class SpringSecurityPlatformSecurityContext implements PlatformSecurityCo
     @Override
     public void validateAccessRights(final String resourceOfficeHierarchy) {
 
-        final AppUser user = authenticatedUser();
-        final String userOfficeHierarchy = user.getOffice().getHierarchy();
-
-        if (!resourceOfficeHierarchy.startsWith(userOfficeHierarchy)) {
+        if (!officeAccessScope().covers(resourceOfficeHierarchy)) {
             throw new NoAuthorizationException("The user doesn't have enough permissions to access the resource.");
         }
 
@@ -163,6 +161,11 @@ public class SpringSecurityPlatformSecurityContext implements PlatformSecurityCo
     @Override
     public String officeHierarchy() {
         return authenticatedUser().getOffice().getHierarchy();
+    }
+
+    @Override
+    public OfficeAccessScope officeAccessScope() {
+        return authenticatedUser().officeAccessScope(this.configurationDomainService.isStrictOfficeScopeEnabled());
     }
 
     @Override

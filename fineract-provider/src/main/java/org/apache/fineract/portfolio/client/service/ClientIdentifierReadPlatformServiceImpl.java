@@ -25,10 +25,10 @@ import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.apache.fineract.portfolio.client.data.ClientIdentifierData;
 import org.apache.fineract.portfolio.client.domain.ClientIdentifierStatus;
 import org.apache.fineract.portfolio.client.exception.ClientIdentifierNotFoundException;
-import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -44,34 +44,32 @@ public class ClientIdentifierReadPlatformServiceImpl implements ClientIdentifier
     @Override
     public Collection<ClientIdentifierData> retrieveClientIdentifiers(final Long clientId) {
 
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        this.context.authenticatedUser();
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final ClientIdentityMapper rm = new ClientIdentityMapper();
 
-        String sql = "select " + rm.schema();
+        String sql = "select " + rm.schema(officeAccess);
 
         sql += " order by ci.id";
 
-        return this.jdbcTemplate.query(sql, rm, clientId, hierarchySearchString); // NOSONAR
+        return this.jdbcTemplate.query(sql, rm, officeAccess.argumentsFollowedBy(clientId)); // NOSONAR
     }
 
     @Override
     public ClientIdentifierData retrieveClientIdentifier(final Long clientId, final Long clientIdentifierId) {
         try {
-            final AppUser currentUser = this.context.authenticatedUser();
-            final String hierarchy = currentUser.getOffice().getHierarchy();
-            final String hierarchySearchString = hierarchy + "%";
+            this.context.authenticatedUser();
+            final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
             final ClientIdentityMapper rm = new ClientIdentityMapper();
 
-            String sql = "select " + rm.schema();
+            String sql = "select " + rm.schema(officeAccess);
 
             sql += " and ci.id = ?";
 
             final ClientIdentifierData clientIdentifierData = this.jdbcTemplate.queryForObject(sql, rm, // NOSONAR
-                    clientId, hierarchySearchString, clientIdentifierId);
+                    officeAccess.argumentsFollowedBy(clientId, clientIdentifierId));
 
             return clientIdentifierData;
         } catch (final EmptyResultDataAccessException e) {
@@ -84,12 +82,12 @@ public class ClientIdentifierReadPlatformServiceImpl implements ClientIdentifier
 
         ClientIdentityMapper() {}
 
-        public String schema() {
+        public String schema(final OfficeAccessPredicate officeAccess) {
             return "ci.id as id, ci.client_id as clientId, ci.document_type_id as documentTypeId, ci.status as status, ci.document_key as documentKey,"
                     + " ci.description as description, cv.code_value as documentType "
                     + " from m_client_identifier ci, m_client c, m_office o, m_code_value cv"
-                    + " where ci.client_id=c.id and c.office_id=o.id" + " and ci.document_type_id=cv.id"
-                    + " and ci.client_id = ? and o.hierarchy like ? ";
+                    + " where ci.client_id=c.id and c.office_id=o.id" + " and ci.document_type_id=cv.id" + " and "
+                    + officeAccess.getSql() + " and ci.client_id = ? ";
         }
 
         @Override

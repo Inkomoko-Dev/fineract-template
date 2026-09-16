@@ -39,6 +39,7 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.infrastructure.security.utils.SQLBuilder;
 import org.apache.fineract.organisation.office.data.OfficeData;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
@@ -141,16 +142,16 @@ public class GroupReadPlatformServiceImpl implements GroupReadPlatformService {
 
         this.paginationParametersDataValidator.validateParameterValues(parameters, supportedOrderByValues, "audits");
         final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(this.allGroupTypesDataMapper.schema());
 
         final SQLBuilder extraCriteria = getGroupExtraCriteria(this.allGroupTypesDataMapper.schema(), searchParameters);
-        extraCriteria.addCriteria(" o.hierarchy like ", hierarchySearchString);
-        sqlBuilder.append(" ").append(extraCriteria.getSQLTemplate());
+        final String furtherCriteria = extraCriteria.getSQLTemplate();
+        sqlBuilder.append(" ").append(furtherCriteria);
+        sqlBuilder.append(furtherCriteria.isEmpty() ? " where " : " and ").append(officeAccess.getSql());
         if (parameters.isOrderByRequested()) {
             sqlBuilder.append(" order by ").append(searchParameters.getOrderBy()).append(' ').append(searchParameters.getSortOrder());
             this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getOrderBy(),
@@ -164,23 +165,23 @@ public class GroupReadPlatformServiceImpl implements GroupReadPlatformService {
             }
         }
 
-        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), extraCriteria.getArguments(),
-                this.allGroupTypesDataMapper);
+        return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(),
+                officeAccess.argumentsPrecededBy(extraCriteria.getArguments()), this.allGroupTypesDataMapper);
     }
 
     @Override
     public Collection<GroupGeneralData> retrieveAll(SearchParameters searchParameters, final PaginationParameters parameters) {
         final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select ");
         sqlBuilder.append(this.allGroupTypesDataMapper.schema());
         final SQLBuilder extraCriteria = getGroupExtraCriteria(this.allGroupTypesDataMapper.schema(), searchParameters);
-        extraCriteria.addCriteria("o.hierarchy like ", hierarchySearchString);
+        final String furtherCriteria = extraCriteria.getSQLTemplate();
 
-        sqlBuilder.append(" ").append(extraCriteria.getSQLTemplate());
+        sqlBuilder.append(" ").append(furtherCriteria);
+        sqlBuilder.append(furtherCriteria.isEmpty() ? " where " : " and ").append(officeAccess.getSql());
 
         if (searchParameters != null) {
             if (searchParameters.isOrphansOnly()) {
@@ -200,7 +201,8 @@ public class GroupReadPlatformServiceImpl implements GroupReadPlatformService {
             }
         }
 
-        return this.jdbcTemplate.query(sqlBuilder.toString(), this.allGroupTypesDataMapper, extraCriteria.getArguments()); // NOSONAR
+        return this.jdbcTemplate.query(sqlBuilder.toString(), this.allGroupTypesDataMapper, // NOSONAR
+                officeAccess.argumentsPrecededBy(extraCriteria.getArguments()));
     }
 
     // 'g.' preffix because of ERROR 1052 (23000): Column 'column_name' in where
@@ -239,11 +241,11 @@ public class GroupReadPlatformServiceImpl implements GroupReadPlatformService {
 
         try {
             final AppUser currentUser = this.context.authenticatedUser();
-            final String hierarchy = currentUser.getOffice().getHierarchy();
-            final String hierarchySearchString = hierarchy + "%";
+            final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
-            final String sql = "select " + this.allGroupTypesDataMapper.schema() + " where g.id = ? and o.hierarchy like ?";
-            return this.jdbcTemplate.queryForObject(sql, this.allGroupTypesDataMapper, new Object[] { groupId, hierarchySearchString }); // NOSONAR
+            final String sql = "select " + this.allGroupTypesDataMapper.schema() + " where g.id = ? and " + officeAccess.getSql();
+            return this.jdbcTemplate.queryForObject(sql, this.allGroupTypesDataMapper, // NOSONAR
+                    officeAccess.argumentsPrecededBy(groupId));
         } catch (final EmptyResultDataAccessException e) {
             throw new GroupNotFoundException(groupId, e);
         }

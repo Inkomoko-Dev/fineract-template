@@ -88,6 +88,8 @@ final class UsersApiResourceSwagger {
         public StaffData staff;
         public Collection<RoleData> availableRoles;
         public Collection<RoleData> selectedRoles;
+        @Schema(description = "Offices assigned to this user besides their own")
+        public Collection<OfficeData> assignedOffices;
 
     }
 
@@ -99,6 +101,8 @@ final class UsersApiResourceSwagger {
         }
 
         public Collection<OfficeData> allowedOffices;
+        @Schema(description = "Offices assigned to this user besides their own")
+        public Collection<OfficeData> assignedOffices;
         public Collection<RoleData> availableRoles;
         public Collection<RoleData> selfServiceRoles;
     }
@@ -134,6 +138,8 @@ final class UsersApiResourceSwagger {
         public Boolean isSelfServiceUser;
         @Schema(example = "CGLT-564 new joiner onboarding")
         public String notes;
+        @Schema(description = "Offices this user may see besides their own, honoured only with the MULTILOCATION_OFFICEACCESS permission", example = "[5,6]")
+        public List<Long> officeIds;
     }
 
     @Schema(description = "PostUsersResponse")
@@ -155,6 +161,9 @@ final class UsersApiResourceSwagger {
         private PutUsersUserIdRequest() {
 
         }
+
+        @Schema(description = "Replaces the offices this user may see besides their own; an empty array clears them", example = "[5,6]")
+        public List<Long> officeIds;
 
         @Schema(example = "Test")
         public String firstname;
