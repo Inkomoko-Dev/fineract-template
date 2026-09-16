@@ -90,6 +90,24 @@ public class OfficeAccessScopeTest {
     }
 
     @Test
+    @DisplayName("The inlined form spans every column and drops the wildcard when descendants are excluded")
+    public void inlinedPredicateSpansColumnsAndHonoursExactScope() {
+        final OfficeAccessScope hierarchical = OfficeAccessScope.hierarchical(Arrays.asList(KIGALI_B, NAIROBI));
+
+        assertEquals(
+                "(o.hierarchy like '.1.2.5.%' or o.hierarchy like '.1.3.%'"
+                        + " or transferToOffice.hierarchy like '.1.2.5.%' or transferToOffice.hierarchy like '.1.3.%')",
+                hierarchical.inlinedPredicate("o.hierarchy", "transferToOffice.hierarchy"));
+
+        final OfficeAccessScope exact = OfficeAccessScope.exact(Arrays.asList(KIGALI_B, NAIROBI));
+
+        assertEquals(
+                "(o.hierarchy = '.1.2.5.' or o.hierarchy = '.1.3.'"
+                        + " or transferToOffice.hierarchy = '.1.2.5.' or transferToOffice.hierarchy = '.1.3.')",
+                exact.inlinedPredicate("o.hierarchy", "transferToOffice.hierarchy"));
+    }
+
+    @Test
     @DisplayName("A column expression that is not a plain identifier is rejected")
     public void rejectsColumnThatIsNotAnIdentifier() {
         final OfficeAccessScope scope = OfficeAccessScope.hierarchical(List.of(KIGALI));

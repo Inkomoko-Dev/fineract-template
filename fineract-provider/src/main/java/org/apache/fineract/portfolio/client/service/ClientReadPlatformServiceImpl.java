@@ -391,12 +391,14 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
     @Override
     public ClientData retrieveOne(final Long clientId) {
         try {
-            final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy",
+            final String hierarchySearchString = "%";
+            final String officeRestriction = this.context.officeAccessScope().inlinedPredicate("o.hierarchy",
                     "transferToOffice.hierarchy");
 
-            final String sql = "select " + this.clientMapper.schema() + " where " + officeAccess.getSql() + " and c.id = ?";
+            final String sql = "select " + this.clientMapper.schema()
+                    + " where ( o.hierarchy like ? or transferToOffice.hierarchy like ?) and " + officeRestriction + " and c.id = ?";
             final ClientData clientData = this.jdbcTemplate.queryForObject(sql, this.clientMapper, // NOSONAR
-                    officeAccess.argumentsFollowedBy(clientId));
+                    hierarchySearchString, hierarchySearchString, clientId);
             // Get client collaterals
             final Collection<ClientCollateralManagement> clientCollateralManagements = this.clientCollateralManagementRepositoryWrapper
                     .getCollateralsPerClient(clientId);
