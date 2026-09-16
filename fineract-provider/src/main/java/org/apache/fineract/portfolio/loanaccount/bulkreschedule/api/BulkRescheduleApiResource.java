@@ -496,6 +496,10 @@ public class BulkRescheduleApiResource {
         response.setTotalFailed(failed);
         response.setTotalProcessed(succeeded + (response.getTotalExecutionFailed() == null ? 0 : response.getTotalExecutionFailed()));
         response.setTotalRemaining(remaining);
+        if (Boolean.TRUE.equals(response.getRecoveryAvailable())) {
+            final long uncommitted = resultRepository.countUncommittedFailures(executionId, BulkRescheduleResultStatus.FAILED);
+            response.setRecoveryAvailable(remaining > 0 || uncommitted > 0);
+        }
     }
 
 

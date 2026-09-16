@@ -26,6 +26,7 @@ import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkResch
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -46,6 +47,18 @@ public interface BulkRescheduleResultRepository extends JpaRepository<BulkResche
     @Query("SELECT COUNT(r) FROM BulkRescheduleResult r WHERE r.execution.id = :executionId AND r.status = :status")
     long countByExecutionIdAndStatus(@Param("executionId") Long executionId,
             @Param("status") BulkRescheduleResultStatus status);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE BulkRescheduleResult r SET r.status = :previewMatched, r.errorMessage = null "
+            + "WHERE r.execution.id = :executionId AND r.status = :failed AND r.rescheduleRequestId IS NULL")
+    int resetUncommittedFailures(@Param("executionId") Long executionId,
+            @Param("failed") BulkRescheduleResultStatus failed,
+            @Param("previewMatched") BulkRescheduleResultStatus previewMatched);
+
+    @Query("SELECT COUNT(r) FROM BulkRescheduleResult r WHERE r.execution.id = :executionId "
+            + "AND r.status = :failed AND r.rescheduleRequestId IS NULL")
+    long countUncommittedFailures(@Param("executionId") Long executionId,
+            @Param("failed") BulkRescheduleResultStatus failed);
 
     /**
      * Find all results for a specific execution

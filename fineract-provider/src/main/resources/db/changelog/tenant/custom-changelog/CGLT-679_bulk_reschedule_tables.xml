@@ -297,4 +297,20 @@
         </createIndex>
     </changeSet>
 
+    <changeSet id="grant-recover-bulk-reschedule-to-creators" author="codex">
+        <sql>
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT DISTINCT rp.role_id, recover_permission.id
+            FROM m_role_permission rp
+            JOIN m_permission create_permission ON create_permission.id = rp.permission_id
+                AND create_permission.code = 'CREATE_RESCHEDULELOAN'
+            CROSS JOIN m_permission recover_permission
+            WHERE recover_permission.code = 'RECOVER_RESCHEDULELOAN'
+              AND NOT EXISTS (
+                SELECT 1 FROM m_role_permission existing
+                WHERE existing.role_id = rp.role_id AND existing.permission_id = recover_permission.id
+              )
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>

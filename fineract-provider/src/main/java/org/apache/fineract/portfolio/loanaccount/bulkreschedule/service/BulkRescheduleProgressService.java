@@ -50,6 +50,11 @@ public class BulkRescheduleProgressService {
                 now) == 1) {
             return ClaimResult.RECOVERED;
         }
+        if (executionRepository.claimIncomplete(executionId, BulkRescheduleExecutionStatus.FAILED,
+                BulkRescheduleExecutionStatus.PARTIAL_SUCCESS, BulkRescheduleExecutionStatus.EXECUTING, workerToken,
+                leaseExpiresAt) == 1) {
+            return ClaimResult.RECOVERED;
+        }
         return ClaimResult.NONE;
     }
 
@@ -84,6 +89,18 @@ public class BulkRescheduleProgressService {
             execution.setTotalSucceeded(succeeded);
             execution.setTotalFailed(failed);
             execution.setTotalExecutionFailed(executionFailures);
+            final int remaining = (int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.PREVIEW_MATCHED);
+            if (remaining > 0) {
+                execution.setStatus(BulkRescheduleExecutionStatus.FAILED);
+                execution.setExecutionError("Execution stopped with " + remaining + " loans still pending");
+                execution.setExecutionCompletedAt(DateUtils.getLocalDateTimeOfSystem());
+                execution.setWorkerToken(null);
+                execution.setLeaseExpiresAt(null);
+                execution.setLastHeartbeatAt(null);
+                execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
+                executionRepository.save(execution);
+                return;
+            }
             execution.setStatus(executionFailures == 0 ? BulkRescheduleExecutionStatus.COMPLETED
                     : succeeded == 0 ? BulkRescheduleExecutionStatus.FAILED : BulkRescheduleExecutionStatus.PARTIAL_SUCCESS);
             execution.setExecutionCompletedAt(DateUtils.getLocalDateTimeOfSystem());
