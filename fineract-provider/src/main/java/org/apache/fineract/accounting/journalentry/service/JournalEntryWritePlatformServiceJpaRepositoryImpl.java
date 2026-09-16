@@ -84,7 +84,11 @@ import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientAddressRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.ClientTransaction;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
 import org.apache.fineract.portfolio.paymentdetail.service.PaymentDetailWritePlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
@@ -135,6 +139,8 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
     private final AfterCommitExecutor afterCommitExecutor;
     private final ClientAddressRepositoryWrapper clientAddressRepositoryWrapper;
     private final BusinessEventNotifierService businessEventNotifierService;
+    private final LoanTransactionRepository loanTransactionRepository;
+    private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
 
     // transaction types createJournalEntriesForLoan actually posts to Odoo, shared with the real-time notifier below
     private static final List<Long> ODOO_POSTABLE_TRANSACTION_TYPES = Arrays.asList(1L, 2L, 4L, 5L, 6L, 8L, 9L, 10L, 19L, 26L, 27L);
@@ -605,6 +611,12 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
                 journalData.setFundSource(fundSource);
             }
 
+            // Live CBS→Odoo path for loan journals. Kenya Capital (and other entity) disbursement
+            // defaults must enrich here — OdooServiceImpl's parallel path is not used for this hook.
+            if (LoanTransactionType.DISBURSEMENT.getValue().longValue() == paymentTypeId.id()) {
+                applyEntityDisbursementDefaultsToOdooJournal(journalData, loanId, transactionId, office);
+            }
+
             AppUser currentUser = this.context.authenticatedUser();
 
             JsonObject payload = convertJournalDataToJson(journalData, currentUser);
@@ -613,6 +625,41 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
 
             postWebHook(payload,currentUser);
 
+        }
+    }
+
+    private void applyEntityDisbursementDefaultsToOdooJournal(final JournalData journalData, final Long loanId,
+            final String transactionId, final Office office) {
+        try {
+            final Long loanTransactionId = Long.valueOf(transactionId);
+            final LoanTransaction loanTransaction = this.loanTransactionRepository.findById(loanTransactionId).orElse(null);
+            if (loanTransaction == null || !loanTransaction.isDisbursement()) {
+                return;
+            }
+            Loan loan = loanTransaction.getLoan();
+            if (loan == null && loanId != null) {
+                log.warn("Loan missing on loanTxn {}; cannot enrich Odoo journal for loan {}", loanTransactionId,
+                        loanId);
+                return;
+            }
+            // Touch lazy associations while the persistence context is still available.
+            if (loan != null) {
+                if (loan.getOffice() != null) {
+                    loan.getOffice().getName();
+                }
+                if (loan.getDepartment() != null) {
+                    loan.getDepartment().label();
+                }
+                if (loan.getDisbursementDetails() != null) {
+                    for (final org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails detail : loan
+                            .getDisbursementDetails()) {
+                        detail.getBudgetLocation();
+                    }
+                }
+            }
+            this.entityDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
+        } catch (Exception e) {
+            log.error("Failed to enrich Odoo journal for loan {} / txn {}", loanId, transactionId, e);
         }
     }
 
