@@ -57,6 +57,7 @@ import org.apache.fineract.portfolio.search.data.AdHocQuerySearchConditions;
 import org.apache.fineract.portfolio.search.data.AdHocSearchQueryData;
 import org.apache.fineract.portfolio.search.data.SearchConditions;
 import org.apache.fineract.portfolio.search.data.SearchData;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -83,17 +84,19 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
 
     @Override
     public Collection<SearchData> retriveMatchingData(final SearchConditions searchConditions) {
-        this.context.authenticatedUser();
-        final NamedOfficeAccessPredicate officeAccess = this.context.officeAccessScope().namedPredicate("hierarchy", "o.hierarchy");
+        final AppUser currentUser = this.context.authenticatedUser();
+        final String hierarchy = currentUser.getOffice().getHierarchy();
 
         final SearchMapper rm = new SearchMapper();
 
         final MapSqlParameterSource params = new MapSqlParameterSource();
+        params.addValue("hierarchy", hierarchy + "%");
         if (searchConditions.getExactMatch()) {
             params.addValue("search", searchConditions.getSearchQuery().toLowerCase());
         } else {
             params.addValue("search", "%" + searchConditions.getSearchQuery().toLowerCase() + "%");
         }
+        final NamedOfficeAccessPredicate officeAccess = this.context.officeAccessScope().namedPredicate("hierarchy", "o.hierarchy");
         params.addValues(officeAccess.getParameters());
         final String sql = rm.searchSchema(searchConditions).replace("o.hierarchy like :hierarchy", officeAccess.getSql());
         return this.namedParameterJdbcTemplate.query(sql, params, rm);

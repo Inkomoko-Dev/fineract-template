@@ -52,6 +52,17 @@ public final class OfficeAccessPredicate {
     }
 
     /**
+     * Substitutes this predicate for the stock office restriction already written into the statement. Throws when that
+     * restriction is absent, so a statement can never silently lose its office scoping.
+     */
+    public String rewrite(final String sql, final String stockPredicate) {
+        if (sql == null || !sql.contains(stockPredicate)) {
+            throw new IllegalStateException("Office restriction '" + stockPredicate + "' is not present in the statement to be scoped");
+        }
+        return sql.replace(stockPredicate, this.sql);
+    }
+
+    /**
      * The values to bind when placeholders appear before this predicate in the statement.
      */
     public Object[] argumentsPrecededBy(final Object... leading) {

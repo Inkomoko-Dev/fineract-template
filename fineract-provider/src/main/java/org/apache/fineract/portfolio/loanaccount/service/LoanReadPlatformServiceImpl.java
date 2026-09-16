@@ -39,6 +39,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.fineract.accounting.closure.domain.GLClosure;
@@ -3870,12 +3872,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public Collection<LoanAccountData> getAllLoansPendingDecisionEngine(Integer loanDecisionState) {
-        this.context.authenticatedUser();
+        final AppUser currentUser = this.context.authenticatedUser();
+        final String hierarchy = currentUser.getOffice().getHierarchy();
+        final LoanMapper rm = new LoanMapper(sqlGenerator,paymentTypeReadPlatformService);
+        final StringBuilder sqlBuilder = new StringBuilder(200);
         final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
         final OfficeAccessPredicate officeAccess = officeAccessScope.predicate("o2.hierarchy");
         final boolean officeScoped = !".".equals(officeAccessScope.primaryHierarchy()) || !officeAccessScope.isIncludeDescendants();
-        final LoanMapper rm = new LoanMapper(sqlGenerator,paymentTypeReadPlatformService);
-        final StringBuilder sqlBuilder = new StringBuilder(200);
 
         String sql = "select " + rm.loanSchema();
         if (officeScoped) {

@@ -239,7 +239,9 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(this.clientMapper.schema());
-        sqlBuilder.append(" where ").append(officeAccess.getSql()).append(" ");
+        sqlBuilder.append(" where (o.hierarchy like ? or transferToOffice.hierarchy like ?) ");
+        sqlBuilder.replace(0, sqlBuilder.length(),
+                officeAccess.rewrite(sqlBuilder.toString(), "(o.hierarchy like ? or transferToOffice.hierarchy like ?)"));
 
         if (searchParameters != null) {
             if (searchParameters.isSelfUser()) {
@@ -1171,7 +1173,9 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             final StringBuilder sqlBuilder = new StringBuilder(200);
             sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
             sqlBuilder.append(this.clientMapper.schema());
-            sqlBuilder.append(" where ").append(officeAccess.getSql()).append(" ");
+            sqlBuilder.append(" where (o.hierarchy like ? or transferToOffice.hierarchy like ?) ");
+            sqlBuilder.replace(0, sqlBuilder.length(),
+                    officeAccess.rewrite(sqlBuilder.toString(), "(o.hierarchy like ? or transferToOffice.hierarchy like ?)"));
 
             FilterConstraint[] filterConstraints = mapper.readValue(filterConstraintJson, FilterConstraint[].class);
             final String extraCriteria = searchReadPlatformService.buildSqlStringFromFilterConstraints(filterConstraints, params,
