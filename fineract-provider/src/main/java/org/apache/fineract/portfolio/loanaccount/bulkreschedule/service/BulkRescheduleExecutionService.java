@@ -19,15 +19,28 @@
 package org.apache.fineract.portfolio.loanaccount.bulkreschedule.service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.serialization.GoogleGsonSerializerHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.notification.service.NotificationWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleFailedDto;
@@ -69,6 +82,7 @@ import com.google.gson.Gson;
 public class BulkRescheduleExecutionService {
 
     private static final int BATCH_SIZE = 100;
+    private static final int LOAN_THREADS = 4;
 
     private final BulkRescheduleExecutionRepository bulkRescheduleExecutionRepository;
     private final BulkRescheduleResultRepository bulkRescheduleResultRepository;
@@ -79,8 +93,23 @@ public class BulkRescheduleExecutionService {
     private final PlatformSecurityContext platformSecurityContext;
     private final OfficeHierarchyService officeHierarchyService;
     private final NotificationWritePlatformService notificationService;
+    private final BulkRescheduleAlertService alertService;
     private final BulkRescheduleProgressService progressService;
     private final Gson gson = GoogleGsonSerializerHelper.createGsonBuilder().create();
+    private ExecutorService loanExecutor;
+
+    @PostConstruct
+    void initializeLoanExecutor() {
+        loanExecutor = new ThreadPoolExecutor(LOAN_THREADS, LOAN_THREADS, 60L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(200),
+                new ThreadPoolExecutor.CallerRunsPolicy());
+    }
+
+    @PreDestroy
+    void shutdownLoanExecutor() {
+        if (loanExecutor != null) {
+            loanExecutor.shutdown();
+        }
+    }
 
     /**
      * Executes reschedule operations for all approved loans in a bulk execution.
@@ -109,9 +138,9 @@ public class BulkRescheduleExecutionService {
         log.info("Starting execution of bulk reschedule: {}", executionId);
         
         LocalDateTime executionStartTime = DateUtils.getLocalDateTimeOfSystem();
-        int successCount = 0;
-        int failCount = 0;
-        int skipCount = 0;
+        final AtomicInteger successCount = new AtomicInteger();
+        final AtomicInteger failCount = new AtomicInteger();
+        final AtomicInteger skipCount = new AtomicInteger();
         final String workerToken = UUID.randomUUID().toString();
 
         try {
@@ -140,7 +169,7 @@ public class BulkRescheduleExecutionService {
             execution = bulkRescheduleExecutionRepository.findById(executionId).orElseThrow();
             final boolean recovered = claimResult == ClaimResult.RECOVERED;
             if (recovered && execution.getTotalExecutionFailed() != null) {
-                failCount = execution.getTotalExecutionFailed();
+                failCount.set(execution.getTotalExecutionFailed());
             }
             log.info("Execution {} {}", executionId, recovered ? "recovered" : "set to EXECUTING status");
             logAudit(execution, recovered ? BulkRescheduleAudit.BulkRescheduleAuditAction.RECOVER
@@ -156,6 +185,7 @@ public class BulkRescheduleExecutionService {
             );
 
             // Always read page zero: processed rows leave PREVIEW_MATCHED, keeping memory bounded.
+            final FineractContext context = copyContext(ThreadLocalContextUtil.getContext());
             while (true) {
                 final List<BulkRescheduleResult> batch = bulkRescheduleResultRepository
                         .findPageByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.PREVIEW_MATCHED,
@@ -164,49 +194,51 @@ public class BulkRescheduleExecutionService {
                 if (batch.isEmpty()) {
                     break;
                 }
+                if (!progressService.renewLease(executionId, workerToken)) {
+                    log.warn("Execution {} lost its worker lease; stopping this worker", executionId);
+                    return buildExecutionResponse(bulkRescheduleExecutionRepository.findById(executionId).orElseThrow(), false);
+                }
+                final List<Future<?>> tasks = new ArrayList<>();
                 for (BulkRescheduleResult result : batch) {
-                    if (!progressService.renewLease(executionId, workerToken)) {
-                        log.warn("Execution {} lost its worker lease; stopping this worker", executionId);
-                        return buildExecutionResponse(bulkRescheduleExecutionRepository.findById(executionId).orElseThrow(), false);
-                    }
+                    final Long resultId = result.getId();
+                    final Long loanId = result.getLoanId();
+                    tasks.add(loanExecutor.submit(() -> processLoanResult(executionId, resultId, loanId, reschedulingDetails,
+                            context, successCount, failCount, skipCount)));
+                }
+                for (Future<?> task : tasks) {
+                    progressService.renewLease(executionId, workerToken);
                     try {
-                        // IDEMPOTENCY CHECK: Skip if already processed
-                        if (result.getRescheduleRequestId() != null) {
-                            log.debug("Loan {} already processed with reschedule request {}. Skipping.",
-                                result.getLoanId(), result.getRescheduleRequestId());
-                            result.setStatus(BulkRescheduleResultStatus.SKIPPED);
-                            bulkRescheduleResultRepository.save(result);
-                            skipCount++;
-                            continue;
-                        }
-
-                        loanWorker.executeLoan(executionId, result.getId(), reschedulingDetails);
-                        successCount++;
-
-                    } catch (Exception e) {
-                        log.error("Error processing loan {} in execution {}: {}", 
-                            result.getLoanId(), executionId, e.getMessage(), e);
-                        failureService.markFailed(result.getId(), executionId, result.getLoanId(), e);
-                        failCount++;
+                        task.get();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("Bulk reschedule execution was interrupted", e);
+                    } catch (ExecutionException e) {
+                        log.error("Unexpected error while processing a bulk reschedule loan in execution {}", executionId, e);
                     }
                 }
-                progressService.refreshCounts(executionId, failCount, workerToken);
+                if (!progressService.renewLease(executionId, workerToken)) {
+                    log.warn("Execution {} lost its worker lease; stopping this worker", executionId);
+                    return buildExecutionResponse(bulkRescheduleExecutionRepository.findById(executionId).orElseThrow(), false);
+                }
+                progressService.refreshCounts(executionId, failCount.get(), workerToken);
             }
 
-            progressService.complete(executionId, failCount, workerToken);
+            progressService.complete(executionId, failCount.get(), workerToken);
             execution = bulkRescheduleExecutionRepository.findById(executionId).orElseThrow();
             log.info("Execution {} completed: {} succeeded, {} failed, {} skipped",
-                executionId, successCount, failCount, skipCount);
+                executionId, successCount.get(), failCount.get(), skipCount.get());
 
             // Step 6: Log audit entry
             long duration = java.time.temporal.ChronoUnit.SECONDS
                 .between(executionStartTime, DateUtils.getLocalDateTimeOfSystem());
             logAudit(execution, BulkRescheduleAudit.BulkRescheduleAuditAction.EXECUTE, currentUser, 
-                String.format("Succeeded: %d, Failed: %d, Skipped: %d, Duration: %ds", 
-                    successCount, failCount, skipCount, duration));
-            notificationService.notify(execution.getUser().getId(), "BULK_RESCHEDULE", execution.getId(), "EXECUTE", currentUser.getId(),
-                    String.format("Bulk reschedule request #%d finished: %d succeeded, %d failed.", execution.getId(), successCount,
-                            failCount), true);
+                    String.format("Succeeded: %d, Failed: %d, Skipped: %d, Duration: %ds",
+                    successCount.get(), failCount.get(), skipCount.get(), duration));
+            final long remaining = bulkRescheduleResultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.PREVIEW_MATCHED);
+            if (remaining == 0) {
+                alertService.notifyExecutionCompleted(execution, currentUser, successCount.get(), failCount.get());
+            }
 
             // Return response
             // Detailed rows remain available through the paged preview/export endpoints.
@@ -216,6 +248,52 @@ public class BulkRescheduleExecutionService {
             log.error("Error executing bulk reschedule {}: {}", executionId, e.getMessage(), e);
             throw e;
         }
+    }
+
+    private void processLoanResult(final Long executionId, final Long resultId, final Long loanId,
+            final ReschedulingDetailsDto reschedulingDetails, final FineractContext context, final AtomicInteger successCount,
+            final AtomicInteger failCount, final AtomicInteger skipCount) {
+        // Worker threads start with empty ThreadLocals. getContext() requires business dates and
+        // must not run before init(). getTenant() is safe to read when unset.
+        final boolean inheritedContext = ThreadLocalContextUtil.getTenant() != null;
+        try {
+            ThreadLocalContextUtil.init(copyContext(context));
+            final BulkRescheduleResult result = bulkRescheduleResultRepository.findById(resultId).orElse(null);
+            if (result == null) {
+                return;
+            }
+            if (result.getRescheduleRequestId() != null) {
+                result.setStatus(BulkRescheduleResultStatus.SKIPPED);
+                bulkRescheduleResultRepository.save(result);
+                skipCount.incrementAndGet();
+                return;
+            }
+            loanWorker.executeLoan(executionId, resultId, reschedulingDetails);
+            successCount.incrementAndGet();
+        } catch (Exception e) {
+            log.error("Error processing loan {} in execution {}: {}", loanId, executionId, e.getMessage(), e);
+            try {
+                if (ThreadLocalContextUtil.getTenant() == null) {
+                    ThreadLocalContextUtil.init(copyContext(context));
+                }
+                failureService.markFailed(resultId, executionId, loanId, e);
+            } catch (Exception persistFailure) {
+                log.error("Could not persist failure for loan {} in execution {}", loanId, executionId, persistFailure);
+            }
+            failCount.incrementAndGet();
+        } finally {
+            if (!inheritedContext) {
+                ThreadLocalContextUtil.clear();
+            } else {
+                ThreadLocalContextUtil.init(copyContext(context));
+            }
+        }
+    }
+
+    private FineractContext copyContext(final FineractContext source) {
+        return new FineractContext(source.getContextHolder(), source.getTenantContext(), source.getAuthTokenContext(),
+                source.getBusinessDateContext() == null ? null : new HashMap<>(source.getBusinessDateContext()),
+                source.getActionContext());
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

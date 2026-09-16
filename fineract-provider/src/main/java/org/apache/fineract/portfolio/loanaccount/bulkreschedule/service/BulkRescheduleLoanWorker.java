@@ -57,16 +57,17 @@ public class BulkRescheduleLoanWorker {
         final BulkRescheduleResult result = resultRepository.findById(resultId).orElseThrow();
         final Loan loan = loanRepository.findById(result.getLoanId()).orElseThrow();
         final BulkRescheduleFilterDto filters = gson.fromJson(execution.getFiltersJson(), BulkRescheduleFilterDto.class);
-        details.setRescheduleFromDate(resolveRescheduleFromDate(loan, filters.getRescheduleFromDateStrategy()));
-        if (details.getRescheduleFromDate() == null) {
+        final ReschedulingDetailsDto loanDetails = gson.fromJson(gson.toJson(details), ReschedulingDetailsDto.class);
+        loanDetails.setRescheduleFromDate(resolveRescheduleFromDate(loan, filters.getRescheduleFromDateStrategy()));
+        if (loanDetails.getRescheduleFromDate() == null) {
             throw new IllegalArgumentException("Loan has no repayment installment available for the selected strategy");
         }
         final List<String> errors = validationService.validateLoanEligibilityForReschedule(loan);
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException(String.join("; ", errors));
         }
-        validationService.validateRescheduleParameters(details, loan);
-        final Long requestId = rescheduleEngine.performReschedule(loan, details);
+        validationService.validateRescheduleParameters(loanDetails, loan);
+        final Long requestId = rescheduleEngine.performReschedule(loan, loanDetails);
         rescheduleEngine.approveReschedule(requestId);
         noteService.addRescheduleNoteToLoan(loan, execution);
         result.setStatus(BulkRescheduleResultStatus.SUCCEEDED);
