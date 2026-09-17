@@ -61,7 +61,9 @@ public enum LoanTransactionType {
 
     DEPOSIT_REDRAW(27, "loanTransactionType.depositRedraw"), PAY_OFF(28, "loanTransactionType.payOff"),
     DISBURSEMENT_CHARGE_ADJUSTMENT(29, "loanTransactionType.disbursementChargeAdjustment"),
-    FUTURE_INTEREST_CANCELLATION(30, "loanTransactionType.futureInterestCancellation");
+    FUTURE_INTEREST_CANCELLATION(30, "loanTransactionType.futureInterestCancellation"),
+    PARTIAL_WRITEOFF(31, "loanTransactionType.partialWriteOff"),
+    RESIDUAL_BALANCE_ADJUSTMENT(32, "loanTransactionType.residualBalanceAdjustment");
 
 
 
@@ -176,6 +178,12 @@ public enum LoanTransactionType {
             case 30:
                 loanTransactionType = LoanTransactionType.FUTURE_INTEREST_CANCELLATION;
                 break;
+            case 31:
+                loanTransactionType = LoanTransactionType.PARTIAL_WRITEOFF;
+                break;
+            case 32:
+                loanTransactionType = LoanTransactionType.RESIDUAL_BALANCE_ADJUSTMENT;
+                break;
             default:
                 loanTransactionType = LoanTransactionType.INVALID;
             break;
@@ -229,6 +237,18 @@ public enum LoanTransactionType {
 
     public boolean isWriteOff() {
         return this.value.equals(LoanTransactionType.WRITEOFF.getValue());
+    }
+
+    public boolean isPartialWriteOff() {
+        return this.value.equals(LoanTransactionType.PARTIAL_WRITEOFF.getValue());
+    }
+
+    public boolean isWriteOffOrPartialWriteOff() {
+        return isWriteOff() || isPartialWriteOff();
+    }
+
+    public boolean isResidualBalanceAdjustment() {
+        return this.value.equals(LoanTransactionType.RESIDUAL_BALANCE_ADJUSTMENT.getValue());
     }
 
     public boolean isChargePayment() {
