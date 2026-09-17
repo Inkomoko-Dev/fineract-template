@@ -91,7 +91,7 @@ public class BulkRescheduleExecutionDto {
                 .executionError(execution.getExecutionError())
                 .executionStartedAt(isoDateTime(execution.getExecutionStartedAt()))
                 .executionCompletedAt(isoDateTime(execution.getExecutionCompletedAt()))
-                .totalProcessed(value(execution.getTotalSucceeded()) + value(execution.getTotalExecutionFailed()))
+                .totalProcessed(value(execution.getTotalSucceeded()) + value(execution.getTotalFailed()))
                 .totalRemaining(Math.max(0, value(execution.getTotalLoansFound()) - value(execution.getTotalExcluded())
                         - value(execution.getTotalFailed()) - value(execution.getTotalSucceeded())))
                 .recoveryAvailableAt(isoDateTime(execution.getLeaseExpiresAt()))

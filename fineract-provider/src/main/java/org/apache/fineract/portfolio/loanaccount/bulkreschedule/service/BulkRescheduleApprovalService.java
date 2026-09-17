@@ -26,7 +26,6 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuild
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
-import org.apache.fineract.notification.service.NotificationWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleLoansApiConstants;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleAudit;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution;
@@ -45,14 +44,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class  BulkRescheduleApprovalService {
+public class BulkRescheduleApprovalService {
 
     private final BulkRescheduleExecutionRepository bulkRescheduleExecutionRepository;
     private final BulkRescheduleAuditRepository bulkRescheduleAuditRepository;
     private final BulkRescheduleResultRepository bulkRescheduleResultRepository;
     private final PlatformSecurityContext platformSecurityContext;
     private final OfficeHierarchyService officeHierarchyService;
-    private final NotificationWritePlatformService notificationService;
+    private final BulkRescheduleAlertService alertService;
 
     /** Persists approval; the command handler starts execution after this transaction commits. */
     @Transactional
@@ -102,8 +101,7 @@ public class  BulkRescheduleApprovalService {
         execution.setUpdatedAt(now);
         bulkRescheduleExecutionRepository.save(execution);
         logAudit(execution, BulkRescheduleAudit.BulkRescheduleAuditAction.APPROVE, currentUser, approvalNote);
-        notificationService.notify(execution.getUser().getId(), "BULK_RESCHEDULE", execution.getId(), "APPROVE", currentUser.getId(),
-                "Bulk reschedule request #" + execution.getId() + " was approved and execution has started.", false);
+        alertService.notifyApproved(execution, currentUser, approvalNote.trim());
 
         return new CommandProcessingResultBuilder().withCommandId(jsonCommand.commandId()).withEntityId(execution.getId())
                 .withOfficeId(execution.getOfficeId()).build();
@@ -149,8 +147,7 @@ public class  BulkRescheduleApprovalService {
         execution.setUpdatedAt(now);
         bulkRescheduleExecutionRepository.save(execution);
         logAudit(execution, BulkRescheduleAudit.BulkRescheduleAuditAction.REJECT, currentUser, rejectReason.trim());
-        notificationService.notify(execution.getUser().getId(), "BULK_RESCHEDULE", execution.getId(), "REJECT", currentUser.getId(),
-                "Bulk reschedule request #" + execution.getId() + " was rejected. Reason: " + rejectReason.trim(), false);
+        alertService.notifyRejected(execution, currentUser, rejectReason.trim());
 
         return new CommandProcessingResultBuilder().withCommandId(jsonCommand.commandId()).withEntityId(execution.getId())
                 .withOfficeId(execution.getOfficeId()).build();

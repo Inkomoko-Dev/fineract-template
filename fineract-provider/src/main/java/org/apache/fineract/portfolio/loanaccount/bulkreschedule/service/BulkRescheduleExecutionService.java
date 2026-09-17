@@ -30,7 +30,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -138,9 +137,6 @@ public class BulkRescheduleExecutionService {
         log.info("Starting execution of bulk reschedule: {}", executionId);
         
         LocalDateTime executionStartTime = DateUtils.getLocalDateTimeOfSystem();
-        final AtomicInteger successCount = new AtomicInteger();
-        final AtomicInteger failCount = new AtomicInteger();
-        final AtomicInteger skipCount = new AtomicInteger();
         final String workerToken = UUID.randomUUID().toString();
 
         try {
@@ -168,9 +164,6 @@ public class BulkRescheduleExecutionService {
             }
             execution = bulkRescheduleExecutionRepository.findById(executionId).orElseThrow();
             final boolean recovered = claimResult == ClaimResult.RECOVERED;
-            if (recovered && execution.getTotalExecutionFailed() != null) {
-                failCount.set(execution.getTotalExecutionFailed());
-            }
             log.info("Execution {} {}", executionId, recovered ? "recovered" : "set to EXECUTING status");
             logAudit(execution, recovered ? BulkRescheduleAudit.BulkRescheduleAuditAction.RECOVER
                     : BulkRescheduleAudit.BulkRescheduleAuditAction.EXECUTE, currentUser,
@@ -203,7 +196,7 @@ public class BulkRescheduleExecutionService {
                     final Long resultId = result.getId();
                     final Long loanId = result.getLoanId();
                     tasks.add(loanExecutor.submit(() -> processLoanResult(executionId, resultId, loanId, reschedulingDetails,
-                            context, successCount, failCount, skipCount)));
+                            context)));
                 }
                 for (Future<?> task : tasks) {
                     progressService.renewLease(executionId, workerToken);
@@ -220,24 +213,27 @@ public class BulkRescheduleExecutionService {
                     log.warn("Execution {} lost its worker lease; stopping this worker", executionId);
                     return buildExecutionResponse(bulkRescheduleExecutionRepository.findById(executionId).orElseThrow(), false);
                 }
-                progressService.refreshCounts(executionId, failCount.get(), workerToken);
+                progressService.refreshCounts(executionId, workerToken);
             }
 
-            progressService.complete(executionId, failCount.get(), workerToken);
+            progressService.complete(executionId, workerToken);
             execution = bulkRescheduleExecutionRepository.findById(executionId).orElseThrow();
-            log.info("Execution {} completed: {} succeeded, {} failed, {} skipped",
-                executionId, successCount.get(), failCount.get(), skipCount.get());
+            final int succeeded = zero(execution.getTotalSucceeded());
+            final int failed = zero(execution.getTotalFailed());
+            final int skipped = (int) bulkRescheduleResultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.SKIPPED);
+            log.info("Execution {} completed: {} succeeded, {} failed, {} skipped", executionId, succeeded, failed, skipped);
 
             // Step 6: Log audit entry
             long duration = java.time.temporal.ChronoUnit.SECONDS
                 .between(executionStartTime, DateUtils.getLocalDateTimeOfSystem());
             logAudit(execution, BulkRescheduleAudit.BulkRescheduleAuditAction.EXECUTE, currentUser, 
                     String.format("Succeeded: %d, Failed: %d, Skipped: %d, Duration: %ds",
-                    successCount.get(), failCount.get(), skipCount.get(), duration));
+                    succeeded, failed, skipped, duration));
             final long remaining = bulkRescheduleResultRepository.countByExecutionIdAndStatus(executionId,
                     BulkRescheduleResultStatus.PREVIEW_MATCHED);
             if (remaining == 0) {
-                alertService.notifyExecutionCompleted(execution, currentUser, successCount.get(), failCount.get());
+                alertService.notifyExecutionCompleted(execution, currentUser, succeeded, failed);
             }
 
             // Return response
@@ -251,8 +247,7 @@ public class BulkRescheduleExecutionService {
     }
 
     private void processLoanResult(final Long executionId, final Long resultId, final Long loanId,
-            final ReschedulingDetailsDto reschedulingDetails, final FineractContext context, final AtomicInteger successCount,
-            final AtomicInteger failCount, final AtomicInteger skipCount) {
+            final ReschedulingDetailsDto reschedulingDetails, final FineractContext context) {
         // Worker threads start with empty ThreadLocals. getContext() requires business dates and
         // must not run before init(). getTenant() is safe to read when unset.
         final boolean inheritedContext = ThreadLocalContextUtil.getTenant() != null;
@@ -265,11 +260,9 @@ public class BulkRescheduleExecutionService {
             if (result.getRescheduleRequestId() != null) {
                 result.setStatus(BulkRescheduleResultStatus.SKIPPED);
                 bulkRescheduleResultRepository.save(result);
-                skipCount.incrementAndGet();
                 return;
             }
             loanWorker.executeLoan(executionId, resultId, reschedulingDetails);
-            successCount.incrementAndGet();
         } catch (Exception e) {
             log.error("Error processing loan {} in execution {}: {}", loanId, executionId, e.getMessage(), e);
             try {
@@ -280,7 +273,6 @@ public class BulkRescheduleExecutionService {
             } catch (Exception persistFailure) {
                 log.error("Could not persist failure for loan {} in execution {}", loanId, executionId, persistFailure);
             }
-            failCount.incrementAndGet();
         } finally {
             if (!inheritedContext) {
                 ThreadLocalContextUtil.clear();
@@ -486,6 +478,10 @@ public class BulkRescheduleExecutionService {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private static int zero(final Integer value) {
+        return value == null ? 0 : value;
     }
 
     /**
