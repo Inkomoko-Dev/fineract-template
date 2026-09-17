@@ -64,4 +64,8 @@ public class CodeValueRepositoryWrapper {
         return codeValue;
     }
 
+    public CodeValue findOneByCodeNameAndLabelOptional(final String codeName, final String label) {
+        return this.repository.findByCodeNameAndLabel(codeName, label);
+    }
+
 }
