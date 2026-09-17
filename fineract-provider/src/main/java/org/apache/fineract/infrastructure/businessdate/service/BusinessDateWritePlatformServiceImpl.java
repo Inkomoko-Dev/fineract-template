@@ -45,6 +45,7 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -57,6 +58,7 @@ public class BusinessDateWritePlatformServiceImpl implements BusinessDateWritePl
     private final ConfigurationDomainService configurationDomainService;
 
     @Override
+    @CacheEvict(value = "businessDates", allEntries = true)
     public CommandProcessingResult updateBusinessDate(@NotNull final JsonCommand command) {
         BusinessDateData data = dataValidator.validateAndParseUpdate(command);
         Map<String, Object> changes = new HashMap<>();
@@ -81,12 +83,14 @@ public class BusinessDateWritePlatformServiceImpl implements BusinessDateWritePl
 
     @Override
     @CronTarget(jobName = JobName.INCREASE_COB_DATE_BY_1_DAY)
+    @CacheEvict(value = "businessDates", allEntries = true)
     public void increaseCOBDateByOneDay() throws JobExecutionException {
         increaseDateByTypeByOneDay(BusinessDateType.COB_DATE);
     }
 
     @Override
     @CronTarget(jobName = JobName.INCREASE_BUSINESS_DATE_BY_1_DAY)
+    @CacheEvict(value = "businessDates", allEntries = true)
     public void increaseBusinessDateByOneDay() throws JobExecutionException {
         increaseDateByTypeByOneDay(BusinessDateType.BUSINESS_DATE);
     }

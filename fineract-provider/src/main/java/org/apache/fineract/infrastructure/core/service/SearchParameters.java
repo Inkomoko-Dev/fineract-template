@@ -478,17 +478,12 @@ public final class SearchParameters {
     public static Integer getCheckedLimit(final Integer limit) {
 
         final Integer maxLimitAllowed = 200;
-        // default to max limit first off
-        Integer checkedLimit = maxLimitAllowed;
-
+        // Always paginate list APIs: default and upper-bound to maxLimitAllowed.
+        // limit <= 0 previously meant "unlimited" and could scan entire portfolios.
         if (limit != null && limit > 0) {
-            checkedLimit = limit;
-        } else if (limit != null) {
-            // unlimited case: limit provided and 0 or less
-            checkedLimit = null;
+            return Math.min(limit, maxLimitAllowed);
         }
-
-        return checkedLimit;
+        return maxLimitAllowed;
     }
 
     public boolean isOfficeIdPassed() {

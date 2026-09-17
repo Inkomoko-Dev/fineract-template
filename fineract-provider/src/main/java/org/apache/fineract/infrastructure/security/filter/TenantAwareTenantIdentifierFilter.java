@@ -149,8 +149,10 @@ public class TenantAwareTenantIdentifierFilter extends GenericFilterBean {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, e.getMessage());
         } finally {
             task.stop();
-            final PlatformRequestLog logRequest = PlatformRequestLog.from(task, request);
-            log.info("{}", this.toApiJsonSerializer.serialize(logRequest));
+            if (log.isDebugEnabled()) {
+                final PlatformRequestLog logRequest = PlatformRequestLog.from(task, request);
+                log.debug("{}", this.toApiJsonSerializer.serialize(logRequest));
+            }
         }
 
     }
