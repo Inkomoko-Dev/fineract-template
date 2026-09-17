@@ -590,12 +590,12 @@ ORDER BY country, office, loan_product, classification]]>
     </changeSet>
 
     <changeSet id="CGLT-618-14-summary-include-unclassified" author="Felix Mutua">
-        <comment>Include active and written-off loans with no classification row in the summary report</comment>
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
                 SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan Classification Summary'
             </sqlCheck>
         </preConditions>
+        <comment>Include active and written-off loans with no classification row in the summary report</comment>
         <sql><![CDATA[
             UPDATE stretchy_report
             SET report_sql = 'SELECT
