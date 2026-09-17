@@ -160,4 +160,5 @@
     <include file="parts/CGLT-588_kiva_posting_logger.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-658_future_interest_cancellation.xml" relativeToChangelogFile="true"/>
     <include file="parts/042_add_notes_to_command_source.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-753_add_migrated_flag_to_client.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
