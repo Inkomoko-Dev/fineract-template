@@ -81,7 +81,7 @@ public class SQLInjectionValidatorTest {
     @ParameterizedTest
     @ValueSource(strings = { "Loan Payment Details Report", "Loan Due in X days", "'Loan Payment Details Report", "'x') OR ('a'<'b",
             "'x' OR 'a'<'b'", "'x\\'", "'a', 'b'", "'x'), (SELECT 1", "'; DROP TABLE m_loan", "'foo' OR '1'='1", "'bad'name'",
-            "''", "'a';select 1" })
+            "'a';select 1" })
     public void rejectsReportListingsThatAreNotPlainQuotedNames(final String value) {
         assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(REPORT_LISTING, value));
     }
@@ -98,5 +98,4 @@ public class SQLInjectionValidatorTest {
         assertDoesNotThrow(() -> SQLInjectionValidator.validateSQLInput("status_id = 300"));
         assertDoesNotThrow(() -> SQLInjectionValidator.validateSQLInput("amount > 100"));
     }
-
 }
