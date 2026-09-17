@@ -75,6 +75,26 @@ public interface BulkRescheduleExecutionRepository
     @Modifying
     @Query("""
         UPDATE BulkRescheduleExecution e
+        SET e.status = :executing,
+            e.workerToken = :workerToken,
+            e.leaseExpiresAt = :leaseExpiresAt,
+            e.lastHeartbeatAt = CURRENT_TIMESTAMP,
+            e.executionCompletedAt = NULL,
+            e.executionError = NULL,
+            e.updatedAt = CURRENT_TIMESTAMP
+        WHERE e.id = :executionId
+          AND e.status IN (:failed, :partialSuccess)
+        """)
+    int claimIncomplete(@Param("executionId") Long executionId,
+            @Param("failed") BulkRescheduleExecutionStatus failed,
+            @Param("partialSuccess") BulkRescheduleExecutionStatus partialSuccess,
+            @Param("executing") BulkRescheduleExecutionStatus executing,
+            @Param("workerToken") String workerToken,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt);
+
+    @Modifying
+    @Query("""
+        UPDATE BulkRescheduleExecution e
         SET e.leaseExpiresAt = :leaseExpiresAt,
             e.lastHeartbeatAt = CURRENT_TIMESTAMP,
             e.updatedAt = CURRENT_TIMESTAMP

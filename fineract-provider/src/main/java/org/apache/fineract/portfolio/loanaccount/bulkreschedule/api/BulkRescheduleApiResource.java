@@ -111,6 +111,26 @@ public class BulkRescheduleApiResource {
     private final BulkRescheduleResultExportService resultExportService;
     private final Gson gson = GoogleGsonSerializerHelper.createGsonBuilder().create();
 
+    private static final Map<String, String> PREVIEW_SORT_FIELDS = Map.ofEntries(
+            Map.entry("loanAccountNumber", "loanAccountNumber"),
+            Map.entry("clientName", "clientName"),
+            Map.entry("officeName", "officeName"),
+            Map.entry("loanProductName", "loanProductName"),
+            Map.entry("loanOfficerName", "loanOfficerName"),
+            Map.entry("loanStatus", "loanStatus"),
+            Map.entry("resultStatus", "status"),
+            Map.entry("currentInterestRate", "originalInterestRate"),
+            Map.entry("newInterestRate", "newInterestRate"),
+            Map.entry("interestRateMethod", "interestRateMethod"),
+            Map.entry("totalOutstanding", "totalOutstanding"),
+            Map.entry("newTotalOutstanding", "newTotalOutstanding"),
+            Map.entry("currentTerm", "currentTerm"),
+            Map.entry("newTerm", "newTerm"),
+            Map.entry("nextScheduledInstallment", "nextScheduledInstallment"),
+            Map.entry("rescheduleReason", "rescheduleReason"),
+            Map.entry("excludeReason", "excludeReason"),
+            Map.entry("resultReason", "errorMessage"));
+
     /**
      * Retrieves template data for bulk reschedule form including filter options, validation rules,
      * and user permissions.
@@ -181,7 +201,9 @@ public class BulkRescheduleApiResource {
     public String getPreview(@PathParam("executionId") final Long executionId,
             @QueryParam("page") @DefaultValue("0") final Integer page,
             @QueryParam("size") @DefaultValue("100") final Integer size,
-            @QueryParam("status") final String status) {
+            @QueryParam("status") final String status,
+            @QueryParam("sortBy") final String sortBy,
+            @QueryParam("sortOrder") final String sortOrder) {
         final var user = platformSecurityContext.authenticatedUser();
         final BulkRescheduleExecution execution = findAccessibleExecution(executionId, user);
         validateCanViewExecution(user, execution);
@@ -189,7 +211,7 @@ public class BulkRescheduleApiResource {
         final int requestedSize = size == null ? 100 : Math.min(500, Math.max(1, size));
         final BulkRescheduleResultStatus resultStatus = StringUtils.isBlank(status) ? null
                 : BulkRescheduleResultStatus.valueOf(status.trim().toUpperCase());
-        final Pageable resultPageable = PageRequest.of(requestedPage, requestedSize, Sort.by("createdAt").descending());
+        final Pageable resultPageable = PageRequest.of(requestedPage, requestedSize, previewSort(sortBy, sortOrder));
         final Page<BulkRescheduleResult> resultPage = resultStatus == null
                 ? resultRepository.findPageByExecutionId(executionId, resultPageable)
                 : resultRepository.findPageByExecutionIdAndStatus(executionId, resultStatus, resultPageable);
@@ -494,10 +516,21 @@ public class BulkRescheduleApiResource {
                 BulkRescheduleResultStatus.PREVIEW_MATCHED);
         response.setTotalSucceeded(succeeded);
         response.setTotalFailed(failed);
-        response.setTotalProcessed(succeeded + (response.getTotalExecutionFailed() == null ? 0 : response.getTotalExecutionFailed()));
+        response.setTotalProcessed(succeeded + failed);
         response.setTotalRemaining(remaining);
+        if (Boolean.TRUE.equals(response.getRecoveryAvailable())) {
+            response.setRecoveryAvailable(remaining > 0);
+        }
     }
 
+    private static Sort previewSort(final String sortBy, final String sortOrder) {
+        final String property = PREVIEW_SORT_FIELDS.get(sortBy);
+        if (property == null) {
+            return Sort.by(Sort.Direction.DESC, "createdAt");
+        }
+        final Sort.Direction direction = "DESC".equalsIgnoreCase(sortOrder) ? Sort.Direction.DESC : Sort.Direction.ASC;
+        return Sort.by(direction, property).and(Sort.by(Sort.Direction.ASC, "id"));
+    }
 
     /**
      * Lists bulk reschedule executions with optional filtering by status, office, and date range.

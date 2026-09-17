@@ -91,16 +91,25 @@ public class BulkRescheduleExecutionDto {
                 .executionError(execution.getExecutionError())
                 .executionStartedAt(isoDateTime(execution.getExecutionStartedAt()))
                 .executionCompletedAt(isoDateTime(execution.getExecutionCompletedAt()))
-                .totalProcessed(value(execution.getTotalSucceeded()) + value(execution.getTotalExecutionFailed()))
+                .totalProcessed(value(execution.getTotalSucceeded()) + value(execution.getTotalFailed()))
                 .totalRemaining(Math.max(0, value(execution.getTotalLoansFound()) - value(execution.getTotalExcluded())
                         - value(execution.getTotalFailed()) - value(execution.getTotalSucceeded())))
                 .recoveryAvailableAt(isoDateTime(execution.getLeaseExpiresAt()))
-                .recoveryAvailable(execution.getStatus() == BulkRescheduleExecution.BulkRescheduleExecutionStatus.EXECUTING
-                        && (execution.getLeaseExpiresAt() == null
-                                || !execution.getLeaseExpiresAt().isAfter(DateUtils.getLocalDateTimeOfSystem())))
+                .recoveryAvailable(isRecoveryAvailable(execution))
                 .createdAt(isoDateTime(execution.getCreatedAt()))
                 .updatedAt(isoDateTime(execution.getUpdatedAt()))
                 .build();
+    }
+
+    private static boolean isRecoveryAvailable(final BulkRescheduleExecution execution) {
+        final var status = execution.getStatus();
+        if (status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.FAILED
+                || status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.PARTIAL_SUCCESS) {
+            return true;
+        }
+        return status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.EXECUTING
+                && (execution.getLeaseExpiresAt() == null
+                        || !execution.getLeaseExpiresAt().isAfter(DateUtils.getLocalDateTimeOfSystem()));
     }
 
     private static int value(final Integer number) {
