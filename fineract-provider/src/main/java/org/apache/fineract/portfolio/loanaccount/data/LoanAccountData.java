@@ -225,6 +225,10 @@ public final class LoanAccountData {
     private final Integer maximumGap;
 
     private List<DatatableData> datatables = null;
+    private Boolean migrated;
+    private LocalDate migratedOnDate;
+    private Long migratedFromOfficeId;
+    private String migratedFromOfficeName;
     private final Boolean isEqualAmortization;
     private final BigDecimal fixedPrincipalPercentagePerInstallment;
 
@@ -2189,6 +2193,38 @@ public final class LoanAccountData {
     public void setResidualClosureConfiguration(final Boolean enabled, final BigDecimal threshold) {
         this.residualAutoCloseEnabled = enabled;
         this.residualClosureThreshold = threshold;
+    }
+
+    public Boolean getMigrated() {
+        return this.migrated;
+    }
+
+    public void setMigrated(final Boolean migrated) {
+        this.migrated = migrated;
+    }
+
+    public LocalDate getMigratedOnDate() {
+        return this.migratedOnDate;
+    }
+
+    public void setMigratedOnDate(final LocalDate migratedOnDate) {
+        this.migratedOnDate = migratedOnDate;
+    }
+
+    public Long getMigratedFromOfficeId() {
+        return this.migratedFromOfficeId;
+    }
+
+    public void setMigratedFromOfficeId(final Long migratedFromOfficeId) {
+        this.migratedFromOfficeId = migratedFromOfficeId;
+    }
+
+    public String getMigratedFromOfficeName() {
+        return this.migratedFromOfficeName;
+    }
+
+    public void setMigratedFromOfficeName(final String migratedFromOfficeName) {
+        this.migratedFromOfficeName = migratedFromOfficeName;
     }
 
     public Boolean getEnableThirdPartyDisbursement() {
