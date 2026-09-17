@@ -704,6 +704,29 @@ public class LoanTest {
     }
 
     @Test
+    public void trancheDisbursementDateAfterMaturityIsRejected() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "expectedMaturityDate", LocalDate.of(2027, 2, 28));
+
+        assertThrows(TrancheDisbursementAfterMaturityException.class,
+                () -> loan.validateTrancheDisbursementDateIsNotAfterMaturity(LocalDate.of(2027, 3, 1)));
+    }
+
+    @Test
+    public void trancheDisbursementDateOnMaturityIsAllowed() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "expectedMaturityDate", LocalDate.of(2027, 2, 28));
+
+        loan.validateTrancheDisbursementDateIsNotAfterMaturity(LocalDate.of(2027, 2, 28));
+    }
+
+    @Test
     public void icReviewWithReducedAmountKeepsAppliedAmountAndUpdatesApprovedAmount() {
         final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
         final LoanProductRelatedDetail scheduleDetail = (LoanProductRelatedDetail) ReflectionTestUtils.getField(loan,
