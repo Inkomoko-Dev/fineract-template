@@ -255,6 +255,14 @@ public class ReadReportingServiceImplTest {
     }
 
     @Test
+    public void quotedReportListingSubstitutesLoanDueInXDays() {
+        final String sql = service.buildReportSql(FULL_PARAMETER_LIST, Map.of("${reportListing}", "'Loan Due in X days'"), false, null,
+                null);
+
+        assertThat(sql).contains("report_name in('Loan Due in X days')");
+    }
+
+    @Test
     public void quotedValueIsStillRejectedForOrdinaryParameters() {
         assertThatExceptionOfType(SQLInjectionException.class)
                 .isThrownBy(() -> service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "'OR 1 OR'"), false, null, null));
