@@ -35,6 +35,7 @@ public class AfricasTalkingProperties {
     private String voiceBaseUrl = "https://voice.africastalking.com";
     private final Whatsapp whatsapp = new Whatsapp();
     private final Voice voice = new Voice();
+    private final VoiceIvr voiceIvr = new VoiceIvr();
     private final Webhook webhook = new Webhook();
     private final Phone phone = new Phone();
     private final Dispatch dispatch = new Dispatch();
@@ -58,9 +59,21 @@ public class AfricasTalkingProperties {
         private String loansDepartmentNumber;
         private String supportDepartmentNumber;
         private String internalDepartmentNumber;
+        private boolean recordingConsentRequired = true;
         private String businessHoursStart = "08:00";
         private String businessHoursEnd = "17:00";
         private String businessTimeZone = "Africa/Nairobi";
+    }
+
+    @Getter
+    @Setter
+    public static class VoiceIvr {
+
+        private String mainMenuKey = "MAIN";
+        private String languageMenuKey = "LANGUAGE";
+        private String defaultLanguage = "en";
+        private String languagePickerLanguage = "en";
+        private int sessionTimeoutMinutes = 30;
     }
 
     @Getter

@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.notifications.service;
 
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.notifications.channel.VoiceNotificationChannel;
 import org.apache.fineract.infrastructure.notifications.channel.WhatsAppNotificationChannel;
 import org.apache.fineract.infrastructure.notifications.constants.NotificationChannel;
 import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
@@ -32,6 +33,7 @@ public class NotificationCommandService {
 
     private final NotificationPolicy notificationPolicy;
     private final WhatsAppNotificationChannel whatsAppNotificationChannel;
+    private final VoiceNotificationChannel voiceNotificationChannel;
 
     public NotificationResult send(final NotificationCommand command) {
         if (!notificationPolicy.isAllowed(command)) {
@@ -39,6 +41,9 @@ public class NotificationCommandService {
         }
         if (command.getChannel() == NotificationChannel.WHATSAPP) {
             return whatsAppNotificationChannel.send(command);
+        }
+        if (command.getChannel() == NotificationChannel.VOICE) {
+            return voiceNotificationChannel.send(command);
         }
         return NotificationResult.rejected("Unsupported notification channel: " + command.getChannel());
     }

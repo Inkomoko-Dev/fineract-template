@@ -1154,6 +1154,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
             final LocalDate transactionDate = command.localDateValueOfParameterNamed("transactionDate");
             final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
+            if (repaymentTransactionType.isRepayment() && loan.loanProduct().isMultiDisburseLoan()) {
+                final ScheduleGeneratorDTO repaymentScheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
+                final BigDecimal maximumRepaymentAmount = loan.fetchPrepaymentDetail(repaymentScheduleGeneratorDTO, transactionDate)
+                        .getTotalOutstanding(loan.getCurrency()).getAmount();
+                if (transactionAmount.compareTo(maximumRepaymentAmount) > 0) {
+                    throw new GeneralPlatformDomainRuleException("error.msg.loan.repayment.exceeds.disbursed.outstanding",
+                            "The repayment amount cannot exceed the outstanding amount of the disbursed tranches.", transactionAmount,
+                            maximumRepaymentAmount);
+                }
+            }
             if (repaymentTransactionType.isPayOff() && loan.loanProduct().isMultiDisburseLoan()) {
                 final ScheduleGeneratorDTO payoffScheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
                 final BigDecimal maximumPayoffAmount = loan.fetchPrepaymentDetail(payoffScheduleGeneratorDTO, transactionDate)
@@ -1777,13 +1787,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final List<Long> existingTransactionIds = new ArrayList<>();
         final List<Long> existingReversedTransactionIds = new ArrayList<>();
 
-        LocalDate recalculateFrom = null;
-        if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
-            recalculateFrom = command.localDateValueOfParameterNamed("transactionDate");
-        }
-
-        ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
-
         final LocalDate writeOffDate = command.localDateValueOfParameterNamed("transactionDate");
         final String txnExternalId = command.stringValueOfParameterNamedAllowingNull("externalId");
 
@@ -1794,8 +1797,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // Capture loan balance before write-off
         final Money loanBalanceBefore = loan.getLoanSummary().getTotalOutstanding(loan.getCurrency());
 
-        // Add transaction to loan and save
-        loan.addLoanTransaction(partialWriteOffTransaction);
+        loan.applyPartialWriteOff(partialWriteOffTransaction, existingTransactionIds, existingReversedTransactionIds);
         this.loanTransactionRepository.saveAndFlush(partialWriteOffTransaction);
 
         saveLoanWithDataIntegrityViolationChecks(loan);
@@ -4343,12 +4345,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // Non-cash payments are sent to the integration for both single and
         // multi-disbursement loans. The integration service selects the next
         // undisbursed tranche and sends its net payment instruction.
-        this.disbursementRequestService.disburseRequestLoan(loan, command);
+        final String transactionReference = this.disbursementRequestService.disburseRequestLoan(loan, command);
         loan.handleDisbursementRequest();
         this.saveLoanWithDataIntegrityViolationChecks(loan);
+        final Map<String, Object> responseChanges = new HashMap<>();
+        responseChanges.put("userMessageGlobalisationCode", "label.message.paymenthub.disbursement.request.success");
+        responseChanges.put("defaultUserMessage", "Disbursement request sent to the Payment Hub successfully.");
+        responseChanges.put("transactionReference", transactionReference);
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loan.getId())
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
-                .build();
+                .with(responseChanges).build();
     }
 
     private boolean isSouthSudanLoan(final Loan loan) {

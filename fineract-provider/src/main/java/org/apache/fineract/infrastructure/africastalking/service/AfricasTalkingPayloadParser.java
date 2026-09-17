@@ -26,11 +26,11 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
-final class AfricasTalkingPayloadParser {
+public final class AfricasTalkingPayloadParser {
 
     private AfricasTalkingPayloadParser() {}
 
-    static Map<String, String> toMap(final String rawPayload) {
+    public static Map<String, String> toMap(final String rawPayload) {
         if (StringUtils.isBlank(rawPayload)) {
             return Map.of();
         }
@@ -46,7 +46,7 @@ final class AfricasTalkingPayloadParser {
         return Map.of("message", trimmed);
     }
 
-    static String firstNonBlank(final Map<String, String> values, final String... keys) {
+    public static String firstNonBlank(final Map<String, String> values, final String... keys) {
         for (final String key : keys) {
             final String value = values.get(key);
             if (StringUtils.isNotBlank(value)) {

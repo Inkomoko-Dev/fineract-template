@@ -78,11 +78,17 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.office.domain.OfficeRepositoryWrapper;
 import org.apache.fineract.organisation.office.domain.OrganisationCurrencyRepositoryWrapper;
+import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanJournalEntryCreatedBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientAddressRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.ClientTransaction;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
 import org.apache.fineract.portfolio.paymentdetail.service.PaymentDetailWritePlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
@@ -132,6 +138,12 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
     private final ApplicationEventPublisher eventPublisher;
     private final AfterCommitExecutor afterCommitExecutor;
     private final ClientAddressRepositoryWrapper clientAddressRepositoryWrapper;
+    private final BusinessEventNotifierService businessEventNotifierService;
+    private final LoanTransactionRepository loanTransactionRepository;
+    private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
+
+    // transaction types createJournalEntriesForLoan actually posts to Odoo, shared with the real-time notifier below
+    private static final List<Long> ODOO_POSTABLE_TRANSACTION_TYPES = Arrays.asList(1L, 2L, 4L, 5L, 6L, 8L, 9L, 10L, 19L, 26L, 27L);
 
     @Value("${app.local-ip}")
     private String localIpAddress;
@@ -515,6 +527,23 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
             accountingProcessorForLoan.createJournalEntriesForLoan(loanDTO);
             // ensure to post only after the commit
             afterCommitExecutor.execute(() -> postHookForLoanJournalEntries(loanDTO));
+            // captures every transaction type this call journals, not just disbursement — independent of the webhook above
+            afterCommitExecutor.execute(() -> notifyOdooOfNewLoanTransactions(loanDTO));
+        }
+    }
+
+    // fires one event per postable transaction so OdooServiceImpl's real-time listener covers every transaction
+    // type that reaches this method, not only disbursement; own try/catch per transaction so one bad id can't
+    // block the rest, same resilience pattern as OdooServiceImpl's own afterCommit tasks
+    private void notifyOdooOfNewLoanTransactions(LoanDTO loanDTO) {
+        for (final LoanTransactionDTO loanTransactionDTO : loanDTO.getNewLoanTransactions()) {
+            if (!ODOO_POSTABLE_TRANSACTION_TYPES.contains(loanTransactionDTO.getTransactionType().id())) continue; // not a transaction to post
+            try {
+                businessEventNotifierService
+                        .notifyPostBusinessEvent(new LoanJournalEntryCreatedBusinessEvent(Long.valueOf(loanTransactionDTO.getTransactionId())));
+            } catch (Exception e) {
+                log.error("Failed to notify Odoo listeners for loan transaction " + loanTransactionDTO.getTransactionId(), e);
+            }
         }
     }
 
@@ -531,7 +560,7 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
 
             // continue, not return: skipping one transaction must not abandon the rest of the batch. CGLT-656 posts
             // a waiver alongside a reversal and a replacement for every repayment it reallocates.
-            if(!Arrays.asList(new Long[]{1L, 2L, 4L, 5L, 6L, 8L, 9L, 10L, 19L, 26L, 27L}).contains(paymentTypeId.id()))
+            if(!ODOO_POSTABLE_TRANSACTION_TYPES.contains(paymentTypeId.id()))
                 continue; // not a transaction to post
 
             List<JournalEntry> journalEntries = glJournalEntryRepository.findJournalEntriesByLoanTransactionId("L" + transactionId);
@@ -582,6 +611,12 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
                 journalData.setFundSource(fundSource);
             }
 
+            // Live CBS→Odoo path for loan journals. Kenya Capital (and other entity) disbursement
+            // defaults must enrich here — OdooServiceImpl's parallel path is not used for this hook.
+            if (LoanTransactionType.DISBURSEMENT.getValue().longValue() == paymentTypeId.id()) {
+                applyEntityDisbursementDefaultsToOdooJournal(journalData, loanId, transactionId, office);
+            }
+
             AppUser currentUser = this.context.authenticatedUser();
 
             JsonObject payload = convertJournalDataToJson(journalData, currentUser);
@@ -590,6 +625,41 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
 
             postWebHook(payload,currentUser);
 
+        }
+    }
+
+    private void applyEntityDisbursementDefaultsToOdooJournal(final JournalData journalData, final Long loanId,
+            final String transactionId, final Office office) {
+        try {
+            final Long loanTransactionId = Long.valueOf(transactionId);
+            final LoanTransaction loanTransaction = this.loanTransactionRepository.findById(loanTransactionId).orElse(null);
+            if (loanTransaction == null || !loanTransaction.isDisbursement()) {
+                return;
+            }
+            Loan loan = loanTransaction.getLoan();
+            if (loan == null && loanId != null) {
+                log.warn("Loan missing on loanTxn {}; cannot enrich Odoo journal for loan {}", loanTransactionId,
+                        loanId);
+                return;
+            }
+            // Touch lazy associations while the persistence context is still available.
+            if (loan != null) {
+                if (loan.getOffice() != null) {
+                    loan.getOffice().getName();
+                }
+                if (loan.getDepartment() != null) {
+                    loan.getDepartment().label();
+                }
+                if (loan.getDisbursementDetails() != null) {
+                    for (final org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails detail : loan
+                            .getDisbursementDetails()) {
+                        detail.getBudgetLocation();
+                    }
+                }
+            }
+            this.entityDisbursementDefaultsService.enrichOdooJournalData(journalData, loan, loanTransaction, office);
+        } catch (Exception e) {
+            log.error("Failed to enrich Odoo journal for loan {} / txn {}", loanId, transactionId, e);
         }
     }
 

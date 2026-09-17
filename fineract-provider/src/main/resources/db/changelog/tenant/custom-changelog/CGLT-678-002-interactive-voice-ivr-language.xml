@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260907-678-05-seed-language-menu" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM voice_ivr_menu_definition WHERE menu_key = 'LANGUAGE'</sqlCheck>
+        </preConditions>
+        <insert tableName="voice_ivr_menu_definition">
+            <column name="menu_key" value="LANGUAGE"/>
+            <column name="language_code" value="en"/>
+            <column name="prompt_text" value="Welcome to Inkomoko."/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LANGUAGE"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="1"/>
+            <column name="option_label" value="English"/>
+            <column name="action_type" value="LANGUAGE_SELECT"/>
+            <column name="action_target" value="en"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LANGUAGE"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="2"/>
+            <column name="option_label" value="Kinyarwanda"/>
+            <column name="action_type" value="LANGUAGE_SELECT"/>
+            <column name="action_target" value="rw"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20260907-678-06-seed-main-menu-rw" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM voice_ivr_menu_definition WHERE menu_key = 'MAIN' AND language_code = 'rw'</sqlCheck>
+        </preConditions>
+        <insert tableName="voice_ivr_menu_definition">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="prompt_text" value="Murakaza neza kuri Inkomoko."/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="1"/>
+            <column name="option_label" value="Inguzanyo"/>
+            <column name="action_type" value="DIAL"/>
+            <column name="action_target" value="LOANS"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="2"/>
+            <column name="option_label" value="Ubufasha bw'abakiriya"/>
+            <column name="action_type" value="DIAL"/>
+            <column name="action_target" value="SUPPORT"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="3"/>
+            <column name="option_label" value="Abakozi ba Inkomoko"/>
+            <column name="action_type" value="DIAL"/>
+            <column name="action_target" value="STAFF"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

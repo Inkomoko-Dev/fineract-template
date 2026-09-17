@@ -31,6 +31,11 @@ import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientD
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationDirection;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLog;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLogRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceCallQueueService;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceIvrCallbackService;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceVoicemailService;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,12 +60,21 @@ class AfricasTalkingVoiceServiceTest {
     private ClientRepositoryWrapper clientRepositoryWrapper;
     @Mock
     private StaffRepositoryWrapper staffRepositoryWrapper;
+    @Mock
+    private VoiceIvrCallbackService voiceIvrCallbackService;
+    @Mock
+    private VoiceVoicemailService voiceVoicemailService;
+    @Mock
+    private org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequestRepository callbackRequestRepository;
+    @Mock
+    private VoiceCallQueueService voiceCallQueueService;
 
     private AfricasTalkingProperties properties;
     private AfricasTalkingVoiceService voiceService;
 
     @BeforeEach
     void setUp() {
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         properties = new AfricasTalkingProperties();
         properties.setUsername("Inkomoko-Capital");
         properties.setApiKey("test-key");
@@ -71,17 +85,27 @@ class AfricasTalkingVoiceServiceTest {
         properties.getVoice().setBusinessHoursStart("00:00");
         properties.getVoice().setBusinessHoursEnd("23:59");
         voiceService = new AfricasTalkingVoiceService(africasTalkingClient, properties, voiceCallLogRepository,
-                recipientResolutionService, phoneNumberNormalizer, clientRepositoryWrapper, staffRepositoryWrapper);
+                recipientResolutionService, phoneNumberNormalizer, clientRepositoryWrapper, staffRepositoryWrapper,
+                voiceIvrCallbackService, voiceVoicemailService, callbackRequestRepository, voiceCallQueueService);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        ThreadLocalContextUtil.clearTenant();
     }
 
     @Test
     void returnsMainMenuWhenNoDtmfDigits() {
+        when(voiceIvrCallbackService.handleInbound("sessionId=ATV_1&callerNumber=%2B254700000099"))
+                .thenReturn("<?xml version=\"1.0\"?><Response><GetDigits/></Response>");
         final String xml = voiceService.buildIvrResponse("sessionId=ATV_1&callerNumber=%2B254700000099");
         assertTrue(xml.contains("<GetDigits"));
     }
 
     @Test
     void routesLoansSelectionToDial() {
+        when(voiceIvrCallbackService.handleInbound("sessionId=ATV_1&dtmfDigits=1"))
+                .thenReturn("<?xml version=\"1.0\"?><Response><Dial phoneNumbers=\"+254700000001\"/></Response>");
         final String xml = voiceService.buildIvrResponse("sessionId=ATV_1&dtmfDigits=1");
         assertTrue(xml.contains("phoneNumbers=\"+254700000001\""));
     }

@@ -35,6 +35,9 @@ public class WhatsAppSessionContext {
     private Long selectedLoanId;
     private String pendingLoanAction;
     private Long ticketId;
+    private String pendingDepartmentCode;
+    private String pendingDepartmentLabel;
+    private Long pendingQueueEntryId;
 
     public static WhatsAppSessionContext empty() {
         return new WhatsAppSessionContext();

@@ -40,11 +40,13 @@ public final class NotificationCommand {
     private final String templateBodyValuesJson;
     private final Long campaignId;
     private final boolean sendImmediately;
+    private final String callPurpose;
+    private final boolean recordingConsentRequired;
 
     private NotificationCommand(final NotificationChannel channel, final NotificationIntent intent, final NotificationPurpose purpose,
             final String phoneNumber, final RecipientType recipientType, final Client client, final Staff staff, final String messageBody,
             final String templateName, final String templateLanguage, final String templateBodyValuesJson, final Long campaignId,
-            final boolean sendImmediately) {
+            final boolean sendImmediately, final String callPurpose, final boolean recordingConsentRequired) {
         this.channel = channel;
         this.intent = intent;
         this.purpose = purpose;
@@ -58,20 +60,22 @@ public final class NotificationCommand {
         this.templateBodyValuesJson = templateBodyValuesJson;
         this.campaignId = campaignId;
         this.sendImmediately = sendImmediately;
+        this.callPurpose = callPurpose;
+        this.recordingConsentRequired = recordingConsentRequired;
     }
 
     public static NotificationCommand freeformWhatsApp(final NotificationPurpose purpose, final String phoneNumber,
             final RecipientType recipientType, final Client client, final Staff staff, final String messageBody,
             final boolean sendImmediately) {
         return new NotificationCommand(NotificationChannel.WHATSAPP, NotificationIntent.FREEFORM, purpose, phoneNumber, recipientType,
-                client, staff, messageBody, null, null, null, null, sendImmediately);
+                client, staff, messageBody, null, null, null, null, sendImmediately, null, false);
     }
 
     public static NotificationCommand templateWhatsApp(final NotificationPurpose purpose, final String phoneNumber,
             final RecipientType recipientType, final Client client, final Staff staff, final String templateName,
             final String templateLanguage, final String templateBodyValuesJson, final String auditMessageBody, final Long campaignId) {
         return new NotificationCommand(NotificationChannel.WHATSAPP, NotificationIntent.TEMPLATE, purpose, phoneNumber, recipientType,
-                client, staff, auditMessageBody, templateName, templateLanguage, templateBodyValuesJson, campaignId, false);
+                client, staff, auditMessageBody, templateName, templateLanguage, templateBodyValuesJson, campaignId, false, null, false);
     }
 
     public static NotificationCommand templateWhatsApp(final NotificationPurpose purpose, final String phoneNumber,
@@ -79,7 +83,15 @@ public final class NotificationCommand {
             final String templateLanguage, final String templateBodyValuesJson, final String auditMessageBody, final Long campaignId,
             final boolean sendImmediately) {
         return new NotificationCommand(NotificationChannel.WHATSAPP, NotificationIntent.TEMPLATE, purpose, phoneNumber, recipientType,
-                client, staff, auditMessageBody, templateName, templateLanguage, templateBodyValuesJson, campaignId, sendImmediately);
+                client, staff, auditMessageBody, templateName, templateLanguage, templateBodyValuesJson, campaignId, sendImmediately, null,
+                false);
+    }
+
+    public static NotificationCommand outboundVoice(final NotificationPurpose purpose, final String phoneNumber,
+            final RecipientType recipientType, final Client client, final Staff staff, final String callPurpose,
+            final boolean recordingConsentRequired) {
+        return new NotificationCommand(NotificationChannel.VOICE, NotificationIntent.FREEFORM, purpose, phoneNumber, recipientType, client,
+                staff, null, null, null, null, null, true, callPurpose, recordingConsentRequired);
     }
 
     public NotificationChannel getChannel() {
@@ -132,5 +144,13 @@ public final class NotificationCommand {
 
     public boolean isSendImmediately() {
         return sendImmediately;
+    }
+
+    public String getCallPurpose() {
+        return callPurpose;
+    }
+
+    public boolean isRecordingConsentRequired() {
+        return recordingConsentRequired;
     }
 }

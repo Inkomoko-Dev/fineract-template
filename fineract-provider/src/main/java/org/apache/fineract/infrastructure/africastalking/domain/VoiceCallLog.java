@@ -75,6 +75,18 @@ public class VoiceCallLog extends AbstractPersistableCustom {
     @Column(name = "dtmf_digits", length = 50)
     private String dtmfDigits;
 
+    @Column(name = "call_purpose", length = 50)
+    private String callPurpose;
+
+    @Column(name = "recording_consent_required", nullable = false)
+    private boolean recordingConsentRequired = false;
+
+    @Column(name = "recording_consent_given")
+    private Boolean recordingConsentGiven;
+
+    @Column(name = "callback_request_id")
+    private Long callbackRequestId;
+
     @Column(name = "created_date", nullable = false)
     private LocalDateTime createdDate;
 

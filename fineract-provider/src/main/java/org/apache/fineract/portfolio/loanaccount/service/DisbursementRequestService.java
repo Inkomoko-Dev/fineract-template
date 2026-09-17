@@ -23,5 +23,5 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 
 public interface DisbursementRequestService {
 
-    void disburseRequestLoan(Loan loan, JsonCommand command);
+    String disburseRequestLoan(Loan loan, JsonCommand command);
 }

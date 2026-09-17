@@ -50,6 +50,8 @@ public class JournalData {
     private String currencyCode;
     private String externalId;
     private String beneficiaryName;
+    private String createdByUsername;
+    private String createdByDisplayName;
     private List<JournalItemData> journalItems;
 
 }
