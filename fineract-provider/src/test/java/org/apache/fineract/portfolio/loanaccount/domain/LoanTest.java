@@ -609,6 +609,29 @@ public class LoanTest {
     }
 
     @Test
+    public void multiDisbursementRejectsFutureTrancheBeforeItsExpectedDate() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("7000000.00"));
+        final LoanDisbursementDetails futureTranche = new LoanDisbursementDetails(LocalDate.of(2026, 12, 15), null,
+                new BigDecimal("7000000.00"), new BigDecimal("7000000.00"));
+        final JsonCommand command = jsonCommand("{\"transactionAmount\":7000000,\"locale\":\"en\"}");
+
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("7000000.00"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Collections.singletonList(futureTranche)));
+        futureTranche.updateLoan(loan);
+
+        final LoanDisbursalException exception = assertThrows(LoanDisbursalException.class,
+                () -> loan.adjustDisburseAmount(command, LocalDate.of(2026, 8, 24)));
+
+        assertEquals("error.msg.loan.actualdisbursementdate.before.expectedtranchedate", exception.getGlobalisationMessageCode());
+        assertNull(futureTranche.actualDisbursementDate());
+    }
+
+    @Test
     public void icReviewWithReducedAmountKeepsAppliedAmountAndUpdatesApprovedAmount() {
         final Loan loan = newLoanForIcReview(new BigDecimal("5000.00"));
         final LoanProductRelatedDetail scheduleDetail = (LoanProductRelatedDetail) ReflectionTestUtils.getField(loan,
