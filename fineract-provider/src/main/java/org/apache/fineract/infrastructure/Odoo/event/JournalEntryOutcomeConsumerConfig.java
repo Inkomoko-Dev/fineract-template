@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.Odoo.event;
 import java.util.Map;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.context.annotation.Bean;
@@ -28,12 +29,14 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
 
 // scoped to JournalEntryOutcomeListener only, built from the same spring.kafka.consumer.* settings
 // as the app's default factory with just these overrides — so any future @KafkaListener in this app
 // keeps the default batch size instead of silently inheriting these
 @Configuration
 @ConditionalOnProperty(name = "fineract.integrations.kafka.enabled", havingValue = "true")
+@ConditionalOnBean(KafkaTemplate.class)
 public class JournalEntryOutcomeConsumerConfig {
 
     @Bean

@@ -67,7 +67,9 @@ public enum JobName {
     POST_UPDATED_DETAILS_OF_CUSTOMER_TO_ODDO("Post Updated Customer To Odoo"), //
     POST_RWANDA_CORPORATE_CREDIT_TO_TRANSUNION_CRB("Post Rwanda Corporate Credit To TransUnion (CRB)"), //
     POST_JOURNAL_ENTRY_TO_ODDO("Post Journal Entry To Odoo"), //
-    DOWNLOAD_KIVA_DEPENDENCIES_META_DATA("Download Kiva Metadata"), REPROCESS_LOAN_TRANSACTIONS("Reprocess Loan Transactions"); //
+    DOWNLOAD_KIVA_DEPENDENCIES_META_DATA("Download Kiva Metadata"), REPROCESS_LOAN_TRANSACTIONS("Reprocess Loan Transactions"), //
+    MONITOR_WHATSAPP_SUPPORT_TICKET_SLA("Monitor WhatsApp Support Ticket SLA"), //
+    PROCESS_RESIDUAL_LOAN_CLOSURES("Process Residual Loan Closures"); //
 
     private final String name;
 
