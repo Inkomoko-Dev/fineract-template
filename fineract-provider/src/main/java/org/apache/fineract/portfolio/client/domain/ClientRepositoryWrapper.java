@@ -111,4 +111,13 @@ public class ClientRepositoryWrapper {
         }
         return clients;
     }
+
+    @Transactional(readOnly = true)
+    public Client findByMobileNo(final String mobileNo) {
+        if (mobileNo == null || mobileNo.isBlank()) {
+            return null;
+        }
+        final List<Client> clients = this.repository.findByMobileNumbers(List.of(mobileNo));
+        return clients.isEmpty() ? null : clients.get(0);
+    }
 }
