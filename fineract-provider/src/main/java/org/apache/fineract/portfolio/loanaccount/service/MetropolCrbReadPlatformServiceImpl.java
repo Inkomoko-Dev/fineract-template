@@ -50,9 +50,14 @@ public class MetropolCrbReadPlatformServiceImpl implements MetropolCrbReadPlatfo
 
     @Override
     public MetropolCrbCreditInfoEnchancedData fetchCreditInfoEnhancedDetails(Integer loanId) {
-        final MetropolCrbCreditInfoEnchancedMapper mapper = new MetropolCrbCreditInfoEnchancedMapper();
-        final String sql = "SELECT " + mapper.schema() + " order by cie.id DESC LIMIT 1 ";
-        return this.jdbcTemplate.queryForObject(sql, mapper, new Object[] { loanId });
+        try {
+            final MetropolCrbCreditInfoEnchancedMapper mapper = new MetropolCrbCreditInfoEnchancedMapper();
+            final String sql = "SELECT " + mapper.schema() + " order by cie.id DESC LIMIT 1 ";
+            return this.jdbcTemplate.queryForObject(sql, mapper, new Object[] { loanId });
+        } catch (final EmptyResultDataAccessException e) {
+            // Optional association on the identity-verification GET — no report yet is a valid state.
+            return null;
+        }
     }
 
     @Override

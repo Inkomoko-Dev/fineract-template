@@ -473,7 +473,7 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
     private void handleAPIIntegrityIssues(String httpResponse) {
 
-        log.info("http response: {}", httpResponse);
+        log.debug("http response: {}", httpResponse);
 
         JsonObject json;
         try {
@@ -655,7 +655,7 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
             String resObject = response.body() != null ? response.body().string() : "";
 
-            log.info("Consumer Credit Response from TransUnion :=> {}", resObject);
+            log.debug("Consumer Credit Response from TransUnion :=> {}", resObject);
 
             if (!response.isSuccessful()) {
                 throw new CrbSystemException(
@@ -715,7 +715,7 @@ public class TransUnionCrbServiceImpl implements TransUnionCrbService {
 
             String responseBody = response.body() != null ? response.body().string() : "";
 
-            log.info("Corporate Credit Response from TransUnion => {}", responseBody);
+            log.debug("Corporate Credit Response from TransUnion => {}", responseBody);
 
             // HTTP-level failure → system failure (retryable)
             if (!response.isSuccessful()) {

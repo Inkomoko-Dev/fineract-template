@@ -258,7 +258,7 @@ public class EmailHookProcessor implements HookProcessor {
             EmailDetail emailDetail = new EmailDetail(subject, message, email, contactName);
             emailDetail.setAttachmentMimeType("text/html");
 
-            log.info("Sending email to {} (contact: {}) | subject: {} | message:\n{}", email, contactName, subject, message);
+            log.debug("Sending email to {} (contact: {}) | subject: {}", email, contactName, subject);
 
             emailService.sendDefinedEmail(emailDetail);
         }

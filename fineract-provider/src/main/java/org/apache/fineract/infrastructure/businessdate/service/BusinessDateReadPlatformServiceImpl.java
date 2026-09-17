@@ -33,6 +33,7 @@ import org.apache.fineract.infrastructure.businessdate.exception.BusinessDateNot
 import org.apache.fineract.infrastructure.businessdate.mapper.BusinessDateMapper;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -68,6 +69,7 @@ public class BusinessDateReadPlatformServiceImpl implements BusinessDateReadPlat
     }
 
     @Override
+    @Cacheable(value = "businessDates", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('_map')")
     public HashMap<BusinessDateType, LocalDate> getBusinessDates() {
         HashMap<BusinessDateType, LocalDate> businessDateMap = new HashMap<>();
         ZoneId zone = DateUtils.getDateTimeZoneOfTenant();

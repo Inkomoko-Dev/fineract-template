@@ -49,6 +49,11 @@ public final class LoanCollateralResponseData {
                 totalCollateral, loanCollateralManagement.getClientCollateralManagement().getId());
     }
 
+    public static LoanCollateralResponseData instance(final Long collateralId, final BigDecimal quantity, final BigDecimal total,
+            final BigDecimal totalCollateral, final Long clientCollateralId) {
+        return new LoanCollateralResponseData(collateralId, quantity, total, totalCollateral, clientCollateralId);
+    }
+
     public LoanCollateralManagementData toCommand() {
         return new LoanCollateralManagementData(this.clientCollateralId, this.quantity, this.total, this.totalCollateral,
                 this.collateralId);

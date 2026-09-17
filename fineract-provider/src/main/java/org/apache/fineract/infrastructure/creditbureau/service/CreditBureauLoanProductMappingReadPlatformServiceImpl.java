@@ -21,7 +21,9 @@ package org.apache.fineract.infrastructure.creditbureau.service;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Collection;
+import java.util.List;
 import org.apache.fineract.infrastructure.creditbureau.data.CreditBureauLoanProductMappingData;
+import org.apache.fineract.infrastructure.creditbureau.exception.CreditBureauLoanProductMappingNotFoundException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -102,9 +104,13 @@ public class CreditBureauLoanProductMappingReadPlatformServiceImpl implements Cr
         this.context.authenticatedUser();
 
         final CreditBureauLoanProductMapper rm = new CreditBureauLoanProductMapper();
-        final String sql = "select " + rm.schema() + " and cblp.loan_product_id=?";
+        final String sql = "select " + rm.schema() + " and cblp.loan_product_id=? order by cblp.id limit 1";
 
-        return this.jdbcTemplate.queryForObject(sql, rm, new Object[] { loanProductId }); // NOSONAR
+        final List<CreditBureauLoanProductMappingData> results = this.jdbcTemplate.query(sql, rm, loanProductId); // NOSONAR
+        if (results.isEmpty()) {
+            throw new CreditBureauLoanProductMappingNotFoundException(loanProductId);
+        }
+        return results.get(0);
     }
 
     @Override

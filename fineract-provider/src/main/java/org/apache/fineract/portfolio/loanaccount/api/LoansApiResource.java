@@ -498,12 +498,16 @@ public class LoansApiResource {
                     Map<Long, Integer> memberLoanCycle = new HashMap<>();
                     Collection<ClientData> members = loanAccountGroupData.groupData().clientMembers();
                     accountLinkingOptions = new ArrayList<>();
-                    if (members != null) {
+                    if (members != null && !members.isEmpty()) {
+                        final List<Long> memberIds = new ArrayList<>(members.size());
                         for (ClientData clientData : members) {
-                            Integer loanCounter = this.loanReadPlatformService.retriveLoanCounter(clientData.id(), productId);
-                            memberLoanCycle.put(clientData.id(), loanCounter);
-                            accountLinkingOptions.addAll(getaccountLinkingOptions(newLoanAccount, clientData.id(), groupId));
+                            memberIds.add(clientData.id());
                         }
+                        final Map<Long, Integer> counters = this.loanReadPlatformService.retriveLoanCounters(memberIds, productId);
+                        for (Long memberId : memberIds) {
+                            memberLoanCycle.put(memberId, counters.get(memberId));
+                        }
+                        accountLinkingOptions.addAll(getaccountLinkingOptionsForClients(newLoanAccount, memberIds));
                     }
 
                     newLoanAccount = LoanAccountData.associateMemberVariations(newLoanAccount, memberLoanCycle);
@@ -555,6 +559,19 @@ public class LoansApiResource {
         return this.portfolioAccountReadPlatformService.retrieveAllForLookup(portfolioAccountDTO);
     }
 
+    private Collection<PortfolioAccountData> getaccountLinkingOptionsForClients(final LoanAccountData newLoanAccount,
+            final Collection<Long> clientIds) {
+        final CurrencyData currencyData = newLoanAccount.currency();
+        String currencyCode = null;
+        if (currencyData != null) {
+            currencyCode = currencyData.code();
+        }
+        final long[] accountStatus = { SavingsAccountStatusType.ACTIVE.getValue() };
+        final PortfolioAccountDTO portfolioAccountDTO = new PortfolioAccountDTO(PortfolioAccountType.SAVINGS.getValue(), null, currencyCode,
+                accountStatus, DepositAccountType.SAVINGS_DEPOSIT.getValue());
+        return this.portfolioAccountReadPlatformService.retrieveAllForLookup(portfolioAccountDTO, clientIds);
+    }
+
     @GET
     @Path("{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
@@ -572,7 +589,7 @@ public class LoansApiResource {
             @QueryParam("exclude") @Parameter(in = ParameterIn.QUERY, name = "exclude", description = "Optional Loan object relation list to be filtered in the response", required = false, example = "guarantors,futureSchedule") final String exclude,
             @QueryParam("fields") @Parameter(in = ParameterIn.QUERY, name = "fields", description = "Optional Loan attribute list to be in the response", required = false, example = "id,principal,annualInterestRate") final String fields,
             @Context final UriInfo uriInfo) {
-        log.info("retrieveLoan called with loanId: {}", loanId);
+        log.debug("retrieveLoan called with loanId: {}", loanId);
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
         LoanAccountData loanBasicDetails = this.loanReadPlatformService.retrieveOne(loanId);
@@ -874,6 +891,7 @@ public class LoansApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "List Loans", description = "The list capability of loans can support pagination and sorting.\n"
+            + "Default limit is 200; maximum limit is 200. Use offset and limit for pages.\n"
             + "Example Requests:\n" + "\n" + "loans\n" + "\n" + "loans?fields=accountNo\n" + "\n" + "loans?offset=10&limit=50\n" + "\n"
             + "loans?orderBy=accountNo&sortOrder=DESC")
     @ApiResponses({
@@ -1097,14 +1115,24 @@ public class LoansApiResource {
         Collection<GlimRepaymentTemplate> glimRepaymentTemplate = this.glimAccountInfoReadPlatformService.findglimRepaymentTemplate(glimId,
                 isRepayment);
         if (!CollectionUtils.isEmpty(glimRepaymentTemplate)) {
+            final List<Long> activeChildLoanIds = new ArrayList<>();
             for (GlimRepaymentTemplate template : glimRepaymentTemplate) {
-
-                if (template.getLoanStatus() != null && template.getLoanStatus().id().intValue() == LoanStatus.ACTIVE.getValue()) {
-                    LoanTransactionData transactionData = this.loanReadPlatformService
-                            .retrieveLoanTransactionTemplate(template.getChildLoanId().longValue());
-                    template.setNextRepaymentAmount(transactionData.getAmount());
+                if (template.getLoanStatus() != null && template.getLoanStatus().id().intValue() == LoanStatus.ACTIVE.getValue()
+                        && template.getChildLoanId() != null) {
+                    activeChildLoanIds.add(template.getChildLoanId().longValue());
                 }
-
+            }
+            if (!activeChildLoanIds.isEmpty()) {
+                final Map<Long, java.math.BigDecimal> nextAmounts = this.loanReadPlatformService
+                        .retrieveLoanNextRepaymentAmounts(activeChildLoanIds);
+                for (GlimRepaymentTemplate template : glimRepaymentTemplate) {
+                    if (template.getChildLoanId() != null) {
+                        final java.math.BigDecimal amount = nextAmounts.get(template.getChildLoanId().longValue());
+                        if (amount != null) {
+                            template.setNextRepaymentAmount(amount);
+                        }
+                    }
+                }
             }
         }
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());

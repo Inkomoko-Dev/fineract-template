@@ -30,5 +30,8 @@ public interface PortfolioAccountReadPlatformService {
 
     Collection<PortfolioAccountData> retrieveAllForLookup(PortfolioAccountDTO portfolioAccountDTO);
 
+    /** Savings (or loan) lookup for multiple clients in one query — JLG bulk template. */
+    Collection<PortfolioAccountData> retrieveAllForLookup(PortfolioAccountDTO portfolioAccountDTO, Collection<Long> clientIds);
+
     PortfolioAccountData retrieveOneByPaidInAdvance(Long accountId, Integer accountTypeId);
 }
