@@ -4578,6 +4578,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 .findFirst().orElse(null);
     }
 
+    public boolean hasPendingApprovedDisbursement() {
+        return this.loanProduct != null && this.loanProduct.isMultiDisburseLoan() && getNextUndisbursedDisbursementDetail() != null;
+    }
+
     public int getDisbursementTrancheNumber(final LoanDisbursementDetails selectedDetail) {
         if (selectedDetail == null) {
             return 0;
