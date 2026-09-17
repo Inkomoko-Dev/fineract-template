@@ -252,6 +252,8 @@ public final class LoanAccountData {
     private Collection<ClientData> vendorClientOptions;
     private Collection<PortfolioAccountData> vendorSavingsAccountOptions;
     private Boolean isBnplLoan;
+    private Boolean residualAutoCloseEnabled;
+    private BigDecimal residualClosureThreshold;
     private Boolean requiresEquityContribution;
     private Boolean enableThirdPartyDisbursement;
     private String thirdPartyDisbursementProvider;
@@ -2182,6 +2184,11 @@ public final class LoanAccountData {
 
     public void setBnplLoan(Boolean isBnplLoan) {
         this.isBnplLoan = isBnplLoan;
+    }
+
+    public void setResidualClosureConfiguration(final Boolean enabled, final BigDecimal threshold) {
+        this.residualAutoCloseEnabled = enabled;
+        this.residualClosureThreshold = threshold;
     }
 
     public Boolean getEnableThirdPartyDisbursement() {
