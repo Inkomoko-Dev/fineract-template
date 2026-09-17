@@ -38,6 +38,9 @@ import org.springframework.web.util.HtmlUtils;
 @RequiredArgsConstructor
 public class BulkRescheduleAlertService {
 
+    private static final String OBJECT_TYPE = "BULK_RESCHEDULE";
+    private static final String DEFAULT_UI_ROOT = "https://www.cbs.inkomoko.com/#";
+
     private final NotificationWritePlatformService notificationService;
     private final PlatformEmailService emailService;
     private final AppUserRepository appUserRepository;
@@ -47,7 +50,7 @@ public class BulkRescheduleAlertService {
 
     public void notifySubmittedForApproval(final BulkRescheduleExecution execution, final AppUser initiator,
             final AppUser approver, final String reason) {
-        notificationService.notify(approver.getId(), "BULK_RESCHEDULE", execution.getId(), "SUBMIT_FOR_APPROVAL",
+        notificationService.notify(approver.getId(), OBJECT_TYPE, execution.getId(), "SUBMIT_FOR_APPROVAL",
                 initiator.getId(),
                 "Bulk reschedule request #" + execution.getId() + " requires your approval. Reason: " + reason, true);
         if (!hasEmail(approver)) {
@@ -55,12 +58,11 @@ public class BulkRescheduleAlertService {
                     approver.getId());
             return;
         }
-        final String requestUrl = requestUrl(execution.getId());
         final String subject = "Bulk reschedule request #" + execution.getId() + " requires approval";
         final String body = "Dear " + escape(displayName(approver)) + ",<br><br>"
                 + "A Bulk reschedule request was submitted by " + escape(displayName(initiator)) + ".<br>"
                 + "Reason: " + escape(reason) + "<br><br>"
-                + "Please <a href=\"" + escape(requestUrl) + "\">review the request</a> and approve or reject it.<br><br>"
+                + reviewLink("review the request", execution.getId()) + " and approve or reject it.<br><br>"
                 + "Kind regards.";
         sendEmail(subject, body, approver, initiator);
     }
@@ -79,20 +81,59 @@ public class BulkRescheduleAlertService {
             recipients.add(approver.getId());
         }
         if (!recipients.isEmpty()) {
-            notificationService.notify(recipients, "BULK_RESCHEDULE", execution.getId(), "EXECUTE",
+            notificationService.notify(recipients, OBJECT_TYPE, execution.getId(), "EXECUTE",
                     actor == null ? null : actor.getId(), content, true);
         }
         if (creator == null || !hasEmail(creator)) {
             log.warn("Bulk reschedule request {} completed, but the creator has no email address", execution.getId());
             return;
         }
-        final String requestUrl = requestUrl(execution.getId());
         final String subject = "Bulk reschedule request #" + execution.getId() + " is complete";
         final String body = "Dear " + escape(displayName(creator)) + ",<br><br>"
                 + "Bulk reschedule request <strong>#" + execution.getId() + "</strong> is complete.<br>"
                 + "Succeeded: " + succeeded + "<br>"
                 + "Failed: " + failed + "<br><br>"
-                + "Please <a href=\"" + escape(requestUrl) + "\">review the results</a>.<br><br>"
+                + reviewLink("review the results", execution.getId()) + ".<br><br>"
+                + "Kind regards.";
+        sendEmail(subject, body, creator, approver);
+    }
+
+    public void notifyApproved(final BulkRescheduleExecution execution, final AppUser approver, final String note) {
+        final AppUser creator = loadUser(execution.getUser());
+        final String content = "Bulk reschedule request #" + execution.getId() + " was approved and execution has started.";
+        if (creator != null) {
+            notificationService.notify(creator.getId(), OBJECT_TYPE, execution.getId(), "APPROVE",
+                    approver.getId(), content, false);
+        }
+        sendDecisionEmail(execution, creator, approver, "was approved",
+                "Bulk reschedule request #" + execution.getId() + " was approved",
+                "Your bulk reschedule request has been approved and execution has started.", note);
+    }
+
+    public void notifyRejected(final BulkRescheduleExecution execution, final AppUser approver, final String reason) {
+        final AppUser creator = loadUser(execution.getUser());
+        final String content = "Bulk reschedule request #" + execution.getId() + " was rejected. Reason: " + reason;
+        if (creator != null) {
+            notificationService.notify(creator.getId(), OBJECT_TYPE, execution.getId(), "REJECT",
+                    approver.getId(), content, false);
+        }
+        sendDecisionEmail(execution, creator, approver, "was rejected",
+                "Bulk reschedule request #" + execution.getId() + " was rejected",
+                "Your bulk reschedule request has been rejected.", reason);
+    }
+
+    private void sendDecisionEmail(final BulkRescheduleExecution execution, final AppUser creator, final AppUser approver,
+            final String statusPhrase, final String subject, final String intro, final String note) {
+        if (creator == null || !hasEmail(creator)) {
+            log.warn("Bulk reschedule request {} {}, but the creator has no email address", execution.getId(),
+                    statusPhrase);
+            return;
+        }
+        final String body = "Dear " + escape(displayName(creator)) + ",<br><br>"
+                + escape(intro) + "<br>"
+                + "Decision by: " + escape(displayName(approver)) + "<br>"
+                + "Reason: " + escape(note) + "<br><br>"
+                + reviewLink("review the request", execution.getId()) + ".<br><br>"
                 + "Kind regards.";
         sendEmail(subject, body, creator, approver);
     }
@@ -119,7 +160,18 @@ public class BulkRescheduleAlertService {
     }
 
     private String requestUrl(final Long executionId) {
-        return StringUtils.removeEnd(StringUtils.defaultString(baseUrl), "/") + "/#/bulkreschedule/" + executionId;
+        String root = StringUtils.trimToEmpty(baseUrl);
+        if (StringUtils.isBlank(root)) {
+            root = DEFAULT_UI_ROOT;
+        }
+        if (!root.contains("#")) {
+            root = StringUtils.removeEnd(root, "/") + "/#";
+        }
+        return StringUtils.removeEnd(root, "/") + "/bulkreschedule/" + executionId;
+    }
+
+    private String reviewLink(final String label, final Long executionId) {
+        return "Please <a href=\"" + escape(requestUrl(executionId)) + "\">" + escape(label) + "</a>";
     }
 
     private static boolean hasEmail(final AppUser user) {

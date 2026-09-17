@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.bulkreschedule.service;
 
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution.BulkRescheduleExecutionStatus;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleResult.BulkRescheduleResultStatus;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleExecutionRepository;
@@ -65,51 +66,58 @@ public class BulkRescheduleProgressService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void refreshCounts(final Long executionId, final int executionFailures, final String workerToken) {
+    public void refreshCounts(final Long executionId, final String workerToken) {
         executionRepository.findById(executionId).ifPresent(execution -> {
             if (!workerToken.equals(execution.getWorkerToken())) {
                 return;
             }
-            execution.setTotalSucceeded((int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.SUCCEEDED));
-            execution.setTotalFailed((int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.FAILED));
-            execution.setTotalExecutionFailed(executionFailures);
+            applyLiveCounts(execution, executionId);
             execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
             executionRepository.save(execution);
         });
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void complete(final Long executionId, final int executionFailures, final String workerToken) {
+    public void complete(final Long executionId, final String workerToken) {
         executionRepository.findById(executionId).ifPresent(execution -> {
             if (!workerToken.equals(execution.getWorkerToken())) {
                 return;
             }
-            final int succeeded = (int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.SUCCEEDED);
-            final int failed = (int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.FAILED);
-            execution.setTotalSucceeded(succeeded);
-            execution.setTotalFailed(failed);
-            execution.setTotalExecutionFailed(executionFailures);
-            final int remaining = (int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.PREVIEW_MATCHED);
+            applyLiveCounts(execution, executionId);
+            final int remaining = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.PREVIEW_MATCHED);
             if (remaining > 0) {
                 execution.setStatus(BulkRescheduleExecutionStatus.FAILED);
                 execution.setExecutionError("Execution stopped with " + remaining + " loans still pending");
-                execution.setExecutionCompletedAt(DateUtils.getLocalDateTimeOfSystem());
-                execution.setWorkerToken(null);
-                execution.setLeaseExpiresAt(null);
-                execution.setLastHeartbeatAt(null);
-                execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
-                executionRepository.save(execution);
-                return;
+            } else {
+                final int succeeded = zero(execution.getTotalSucceeded());
+                final int failed = zero(execution.getTotalFailed());
+                execution.setStatus(failed == 0 ? BulkRescheduleExecutionStatus.COMPLETED
+                        : succeeded == 0 ? BulkRescheduleExecutionStatus.FAILED : BulkRescheduleExecutionStatus.PARTIAL_SUCCESS);
             }
-            execution.setStatus(executionFailures == 0 ? BulkRescheduleExecutionStatus.COMPLETED
-                    : succeeded == 0 ? BulkRescheduleExecutionStatus.FAILED : BulkRescheduleExecutionStatus.PARTIAL_SUCCESS);
             execution.setExecutionCompletedAt(DateUtils.getLocalDateTimeOfSystem());
-            execution.setWorkerToken(null);
-            execution.setLeaseExpiresAt(null);
-            execution.setLastHeartbeatAt(null);
-            execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
+            releaseWorker(execution);
             executionRepository.save(execution);
         });
+    }
+
+    private void applyLiveCounts(final BulkRescheduleExecution execution, final Long executionId) {
+        final int succeeded = (int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.SUCCEEDED);
+        final int failed = (int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.FAILED);
+        execution.setTotalSucceeded(succeeded);
+        execution.setTotalFailed(failed);
+        execution.setTotalExecutionFailed(failed);
+    }
+
+    private static void releaseWorker(final BulkRescheduleExecution execution) {
+        execution.setWorkerToken(null);
+        execution.setLeaseExpiresAt(null);
+        execution.setLastHeartbeatAt(null);
+        execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
+    }
+
+    private static int zero(final Integer value) {
+        return value == null ? 0 : value;
     }
 
     public enum ClaimResult {

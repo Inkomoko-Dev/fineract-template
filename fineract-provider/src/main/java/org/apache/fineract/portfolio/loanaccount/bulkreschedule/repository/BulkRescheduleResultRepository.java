@@ -55,11 +55,6 @@ public interface BulkRescheduleResultRepository extends JpaRepository<BulkResche
             @Param("failed") BulkRescheduleResultStatus failed,
             @Param("previewMatched") BulkRescheduleResultStatus previewMatched);
 
-    @Query("SELECT COUNT(r) FROM BulkRescheduleResult r WHERE r.execution.id = :executionId "
-            + "AND r.status = :failed AND r.rescheduleRequestId IS NULL")
-    long countUncommittedFailures(@Param("executionId") Long executionId,
-            @Param("failed") BulkRescheduleResultStatus failed);
-
     /**
      * Find all results for a specific execution
      */
