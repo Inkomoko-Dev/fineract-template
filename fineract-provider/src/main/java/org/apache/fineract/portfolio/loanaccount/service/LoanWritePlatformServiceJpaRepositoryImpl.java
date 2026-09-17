@@ -4090,8 +4090,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 kenyaCapitalChanges);
         final AppUser currentUser = getAppUserIfPresent();
         this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
-        if(!loan.isMultiDisburmentLoan()){
-            if (loan.getDisbursementDetails().get(0).getPaymentType().isCashPayment())
+        if (!loan.isMultiDisburmentLoan()) {
+            if (loan.getDisbursementDetails().get(0).getPaymentType().isCashPayment()) {
                 return disburseLoan(loanId, command, false, false);
             }
 
