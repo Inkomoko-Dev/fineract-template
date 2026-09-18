@@ -171,29 +171,7 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     + "       13                                                                                AS nature, "
                     + "       other_info.national_identification_number                                         AS nationalId, "
                     + "       other_info.passport_number                                                        AS passportNumber, ");
-            if (databaseTypeResolver.isMySQL()) {
-                sql.append("       CASE " + "           WHEN mlaa.overdue_since_date_derived IS NULL OR "
-                        + "                DATEDIFF(NOW(), mlaa.overdue_since_date_derived) < 30 THEN 1 "
-                        + "           WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) BETWEEN 31 AND 90 " + "               THEN 2 "
-                        + "          WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) BETWEEN 91 AND 180 " + "               THEN 3 "
-                        + "            WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) BETWEEN 181 AND 365 "
-                        + "               THEN 4 " + "           WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) BETWEEN 366 AND 719 "
-                        + "               THEN 5 " + "           WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) > 720 THEN 6 "
-                        + "          END                                                                                            AS classification, ");
-            } else {
-                sql.append("       CASE " + "           WHEN mlaa.overdue_since_date_derived IS NULL OR "
-                        + "                EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) < 30 THEN 1 "
-                        + "           WHEN EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) BETWEEN 31 AND 90 "
-                        + "               THEN 2 "
-                        + "          WHEN EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) BETWEEN 91 AND 180 "
-                        + "               THEN 3 "
-                        + "            WHEN EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) BETWEEN 181 AND 365 "
-                        + "               THEN 4 "
-                        + "           WHEN EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) BETWEEN 366 AND 719 "
-                        + "               THEN 5 "
-                        + "           WHEN EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) > 720 THEN 6 "
-                        + "          END                                                                                            AS classification, ");
-            }
+            sql.append("       lc.classification_code AS classification, ");
             sql.append("      ''                                                                                AS emailAddress, "
                     + "       'T'                                                                               AS residenceType, "
                     + "        l.total_outstanding_derived                           AS availableCredit, "
@@ -202,7 +180,10 @@ public class TransUnionCrbPostConsumerCreditReadPlatformServiceImpl implements T
                     + "       ''                                                                                AS workTelephone, "
                     + "      now()                                                          AS dateAccountUpdated, "
                     + "       r.installments_in_arrears                                                         AS installmentsInArrears "
-                    + "  FROM m_loan l " + "         INNER JOIN m_client mc ON l.client_id = mc.id "
+                    + "  FROM m_loan l "
+                    + "         INNER JOIN m_loan_classification lc ON lc.loan_id = l.id AND IFNULL(lc.excluded_from_downstream, 0) = 0 "
+                    + "           AND lc.classification_code BETWEEN 1 AND 6 "
+                    + "         INNER JOIN m_client mc ON l.client_id = mc.id "
                     + "         LEFT JOIN m_loan_arrears_aging mlaa ON l.id = mlaa.loan_id "
                     + "         LEFT JOIN m_client_other_info info ON mc.id = info.client_id "
                     + "         LEFT JOIN m_code_value nationality_cv ON info.nationality_cv_id = nationality_cv.id "

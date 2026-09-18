@@ -69,6 +69,7 @@ class TransUnionCrbPostConsumerCreditReadPlatformServiceImplTest {
         assertContainsPattern(sql, "mc\\.firstname\\s+AS foreName1");
         assertDoesNotContainPattern(sql, "mc\\.firstname\\s+AS surName");
         assertUsesPreferredAddressFallback(sql);
+        assertUsesStoredLoanClassification(sql);
         assertTrue(sql.contains("DATEDIFF(NOW(), mlaa.overdue_since_date_derived)"));
     }
 
@@ -84,6 +85,7 @@ class TransUnionCrbPostConsumerCreditReadPlatformServiceImplTest {
         assertContainsPattern(sql, "mc\\.firstname\\s+AS foreName1");
         assertDoesNotContainPattern(sql, "mc\\.firstname\\s+AS surName");
         assertUsesPreferredAddressFallback(sql);
+        assertUsesStoredLoanClassification(sql);
         assertTrue(sql.contains("EXTRACT(DAY FROM"));
     }
 
@@ -106,6 +108,15 @@ class TransUnionCrbPostConsumerCreditReadPlatformServiceImplTest {
 
     private void assertDoesNotContainPattern(String sql, String regex) {
         assertFalse(Pattern.compile(regex).matcher(sql).find(), "Expected SQL not to contain pattern: " + regex);
+    }
+
+    private void assertUsesStoredLoanClassification(String sql) {
+        assertTrue(sql.contains("lc.classification_code AS classification"));
+        assertTrue(sql.contains("INNER JOIN m_loan_classification lc ON lc.loan_id = l.id"));
+        assertTrue(sql.contains("IFNULL(lc.excluded_from_downstream, 0) = 0"));
+        assertTrue(sql.contains("lc.classification_code BETWEEN 1 AND 6"));
+        assertFalse(sql.contains("WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) BETWEEN 31 AND 90"));
+        assertFalse(sql.contains("WHEN DATEDIFF(NOW(), mlaa.overdue_since_date_derived) < 30 THEN 1"));
     }
 
     private void assertUsesPreferredAddressFallback(String sql) {

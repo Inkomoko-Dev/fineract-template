@@ -69,7 +69,7 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
         assertContainsPattern(sql, "COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\)\\s+AS daysInArrears");
         assertContainsPattern(sql,
                 "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
-        assertContainsPattern(sql, "WHEN COALESCE\\(DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\), 0\\) < 30 THEN 1");
+        assertUsesStoredLoanClassification(sql);
         assertDoesNotContainPattern(sql, "WHEN DATEDIFF\\(NOW\\(\\), mlaa\\.overdue_since_date_derived\\) <= 90\\s+THEN 'C'");
     }
 
@@ -87,8 +87,7 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
                 "Expected SQL to use a null-safe PostgreSQL arrears expression");
         assertContainsPattern(sql,
                 "WHEN l\\.loan_status_id IN\\(600,601,700\\) THEN 'C'\\s+WHEN COALESCE\\(CAST\\(EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\) AS INTEGER\\), 0\\) > 90 THEN 'D'\\s+ELSE 'C'");
-        assertContainsPattern(sql,
-                "WHEN COALESCE\\(CAST\\(EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\) AS INTEGER\\), 0\\) < 30 THEN 1");
+        assertUsesStoredLoanClassification(sql);
         assertDoesNotContainPattern(sql,
                 "WHEN EXTRACT\\(DAY FROM \\(now\\(\\)::TIMESTAMP - mlaa\\.overdue_since_date_derived::TIMESTAMP\\)\\)\\s+<= 90\\s+THEN 'C'");
     }
@@ -104,6 +103,16 @@ class TransUnionCrbPostCorporateCreditReadPlatformServiceImplTest {
         verify(jdbcTemplate).query(sqlCaptor.capture(), org.mockito.ArgumentMatchers.<RowMapper<TransUnionRwandaCorporateCreditData>>any(),
                 eq(LAST_LOAN_ID), eq(PAGE_SIZE));
         return sqlCaptor.getValue();
+    }
+
+    private void assertUsesStoredLoanClassification(String sql) {
+        assertTrue(sql.contains("lc.classification_code AS classification"));
+        assertTrue(sql.contains("INNER JOIN m_loan_classification lc ON lc.loan_id = l.id"));
+        assertTrue(sql.contains("IFNULL(lc.excluded_from_downstream, 0) = 0"));
+        assertTrue(sql.contains("lc.classification_code BETWEEN 1 AND 6"));
+        assertFalse(sql.contains("WHEN COALESCE(DATEDIFF(NOW(), mlaa.overdue_since_date_derived), 0) < 30 THEN 1"));
+        assertFalse(sql.contains(
+                "WHEN COALESCE(CAST(EXTRACT(DAY FROM (now()::TIMESTAMP - mlaa.overdue_since_date_derived::TIMESTAMP)) AS INTEGER), 0) < 30 THEN 1"));
     }
 
     private void assertUsesPreferredAddressFallback(String sql) {
