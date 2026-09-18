@@ -33,7 +33,6 @@ import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.codes.service.CodeValueReadPlatformService;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
-import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanclassification.data.LoanClassificationAuditData;
 import org.apache.fineract.portfolio.loanclassification.data.LoanClassificationCodes;
@@ -59,6 +58,11 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
     private final LoanClassificationDataMapper loanMapper = new LoanClassificationDataMapper();
     private final AuditMapper auditMapper = new AuditMapper();
     private final SummaryMapper summaryMapper = new SummaryMapper();
+
+    static final String LOAN_COUNTRY_CV_ID = "COALESCE(lc.country_cv_id, ("
+            + "SELECT ra.country_id FROM m_client_address ca INNER JOIN m_address ra ON ra.id = ca.address_id "
+            + "WHERE ca.client_id = l.client_id ORDER BY ca.is_active DESC, ca.id DESC LIMIT 1), ("
+            + "SELECT dd.country_cv_id FROM m_loan_due_diligence_info dd WHERE dd.loan_id = l.id LIMIT 1))";
 
     @Override
     public Collection<LoanClassificationCountryConfigData> retrieveAllCountryConfigs() {
@@ -121,8 +125,6 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
     @Override
     public Collection<LoanClassificationSummaryRowData> retrieveSummary(final Long countryId, final Long officeId, final Long loanProductId,
             final LocalDate fromDate, final LocalDate toDate) {
-        final LocalDate start = fromDate == null ? DateUtils.getBusinessLocalDate().minusYears(10) : fromDate;
-        final LocalDate end = toDate == null ? DateUtils.getBusinessLocalDate() : toDate;
         final StringBuilder sql = new StringBuilder();
         sql.append("SELECT COALESCE(cv.code_value, 'Unassigned') AS country_name, o.name AS office_name, lp.name AS loan_product_name, ");
         sql.append("lc.classification_code, COALESCE(code.label, 'Invalid/Missing') AS classification_label, COUNT(*) AS loan_count, ");
@@ -131,14 +133,12 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
         sql.append("FROM m_loan l ");
         sql.append("INNER JOIN m_office o ON o.id = l.office_id INNER JOIN m_product_loan lp ON lp.id = l.product_id ");
         sql.append("LEFT JOIN m_loan_classification lc ON lc.loan_id = l.id ");
-        sql.append("LEFT JOIN m_code_value cv ON cv.id = lc.country_cv_id ");
+        sql.append("LEFT JOIN m_code_value cv ON cv.id = ").append(LOAN_COUNTRY_CV_ID).append(" ");
         sql.append("LEFT JOIN m_loan_classification_code code ON code.code = lc.classification_code ");
-        sql.append("WHERE l.loan_status_id IN (300, 601) AND (lc.loan_id IS NULL OR DATE(lc.classified_on_utc) BETWEEN ? AND ?) ");
+        sql.append("WHERE l.loan_status_id IN (300, 601) ");
         final List<Object> params = new ArrayList<>();
-        params.add(java.sql.Date.valueOf(start));
-        params.add(java.sql.Date.valueOf(end));
         if (countryId != null && countryId > 0) {
-            sql.append("AND lc.country_cv_id = ? ");
+            sql.append("AND ").append(LOAN_COUNTRY_CV_ID).append(" = ? ");
             params.add(countryId);
         }
         if (officeId != null && officeId > 0) {
@@ -152,6 +152,9 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
         }
         sql.append("GROUP BY country_name, office_name, loan_product_name, lc.classification_code, classification_label ");
         sql.append("ORDER BY country_name, office_name, loan_product_name, lc.classification_code");
+        if (params.isEmpty()) {
+            return this.jdbcTemplate.query(sql.toString(), this.summaryMapper);
+        }
         return this.jdbcTemplate.query(sql.toString(), this.summaryMapper, params.toArray());
     }
 

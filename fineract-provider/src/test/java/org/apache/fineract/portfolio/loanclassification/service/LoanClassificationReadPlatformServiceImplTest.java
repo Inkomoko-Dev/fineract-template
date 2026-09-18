@@ -63,48 +63,52 @@ class LoanClassificationReadPlatformServiceImplTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void summaryIncludesActiveAndWrittenOffLoansWithoutClassificationRows() {
+    void summaryIsCurrentSnapshotAndIncludesLoansWithoutClassificationRows() {
         mockEmptySummary();
 
         readPlatformService.retrieveSummary(null, null, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
 
-        final String sql = captureSummarySql(2);
+        final String sql = captureSummarySql(false);
         assertTrue(sql.contains("FROM m_loan l"));
         assertTrue(sql.contains("LEFT JOIN m_loan_classification lc ON lc.loan_id = l.id"));
-        assertTrue(sql.contains("lc.loan_id IS NULL OR DATE(lc.classified_on_utc) BETWEEN ? AND ?"));
         assertTrue(sql.contains("l.loan_status_id IN (300, 601)"));
         assertTrue(sql.contains("Invalid/Missing"));
+        assertTrue(sql.contains("m_client_address"));
+        assertTrue(sql.contains("m_loan_due_diligence_info"));
+        assertFalse(sql.contains("classified_on_utc"));
         assertFalse(sql.contains("INNER JOIN m_loan_classification"));
         assertFalse(sql.contains("FROM m_loan_classification lc INNER JOIN m_loan"));
     }
 
     @Test
-    void summaryStillFiltersByCountryWhenRequested() {
+    void summaryCountryFilterIncludesUnclassifiedLoansForThatCountry() {
         mockEmptySummary();
 
         readPlatformService.retrieveSummary(44L, null, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
 
-        final String sql = captureSummarySql(3);
-        assertTrue(sql.contains("AND lc.country_cv_id = ?"));
+        final String sql = captureSummarySql(true);
+        assertTrue(sql.contains(LoanClassificationReadPlatformServiceImpl.LOAN_COUNTRY_CV_ID + " = ?"));
+        assertFalse(sql.contains("AND lc.country_cv_id = ?"));
         assertTrue(sql.contains("LEFT JOIN m_loan_classification lc ON lc.loan_id = l.id"));
+        assertFalse(sql.contains("classified_on_utc"));
     }
 
     private void mockEmptySummary() {
         final List<LoanClassificationSummaryRowData> results = Collections.emptyList();
-        given(jdbcTemplate.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<LoanClassificationSummaryRowData>>any(), any(),
-                any())).willReturn(results);
-        given(jdbcTemplate.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<LoanClassificationSummaryRowData>>any(), any(), any(),
-                any())).willReturn(results);
+        given(jdbcTemplate.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<LoanClassificationSummaryRowData>>any()))
+                .willReturn(results);
+        given(jdbcTemplate.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<LoanClassificationSummaryRowData>>any(), any()))
+                .willReturn(results);
     }
 
-    private String captureSummarySql(final int argumentCount) {
+    private String captureSummarySql(final boolean countryFilter) {
         final ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-        if (argumentCount == 2) {
+        if (countryFilter) {
             verify(jdbcTemplate).query(sqlCaptor.capture(),
-                    org.mockito.ArgumentMatchers.<RowMapper<LoanClassificationSummaryRowData>>any(), any(), any());
+                    org.mockito.ArgumentMatchers.<RowMapper<LoanClassificationSummaryRowData>>any(), any());
         } else {
             verify(jdbcTemplate).query(sqlCaptor.capture(),
-                    org.mockito.ArgumentMatchers.<RowMapper<LoanClassificationSummaryRowData>>any(), any(), any(), any());
+                    org.mockito.ArgumentMatchers.<RowMapper<LoanClassificationSummaryRowData>>any());
         }
         return sqlCaptor.getValue();
     }
