@@ -26,7 +26,9 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -65,8 +67,13 @@ public class PasswordResetWritePlatformService {
     private static final int OTP_LENGTH = 6;
     private static final int OTP_TTL_MINUTES = 15;
     private static final int MAX_ATTEMPTS = 5;
-    private static final int MAX_REQUESTS_PER_HOUR = 5;
+    /** Minimum seconds between reset emails for the same username (resend / spam protection). */
+    private static final int REQUEST_COOLDOWN_SECONDS = 60;
+    private static final int MAX_REQUESTS_PER_HOUR = 3;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    /** In-memory cooldown so repeated requests (including unknown usernames) avoid DB/email work. */
+    private final ConcurrentHashMap<String, Long> recentRequestMillisByUsername = new ConcurrentHashMap<>();
 
     private final AppUserRepository appUserRepository;
     private final AppUserPasswordResetRepository passwordResetRepository;
@@ -87,16 +94,25 @@ public class PasswordResetWritePlatformService {
 
         final Map<String, Object> response = genericAcceptedResponse();
 
+        // Cheap first gate: block rapid resends / probing before any DB or email work.
+        if (isUsernameCoolingDown(username)) {
+            return response;
+        }
+
         final AppUser user = this.appUserRepository.findAppUserByName(username);
         if (user == null || user.isDeleted() || user.isNotEnabled() || StringUtils.isBlank(user.getEmail())) {
             return response;
         }
 
         final LocalDateTime now = DateUtils.getLocalDateTimeOfSystem();
-        final long recent = this.passwordResetRepository.countRecentForUser(user.getId(), now.minusHours(1));
-        if (recent >= MAX_REQUESTS_PER_HOUR) {
+        if (this.passwordResetRepository.countRecentForUser(user.getId(), now.minusSeconds(REQUEST_COOLDOWN_SECONDS)) > 0) {
+            log.info("Password reset cooldown active for user {}", user.getId());
+            return response;
+        }
+        final long recentHour = this.passwordResetRepository.countRecentForUser(user.getId(), now.minusHours(1));
+        if (recentHour >= MAX_REQUESTS_PER_HOUR) {
             // Still return the generic success body — do not reveal rate-limit vs missing account.
-            log.warn("Password reset rate-limited for user {}", user.getId());
+            log.warn("Password reset hourly rate-limited for user {}", user.getId());
             return response;
         }
 
@@ -118,6 +134,26 @@ public class PasswordResetWritePlatformService {
         }
 
         return response;
+    }
+
+    /**
+     * @return true if another request for this username was accepted within the cooldown window
+     */
+    private boolean isUsernameCoolingDown(final String username) {
+        final String key = username.toLowerCase(Locale.ROOT);
+        final long nowMs = System.currentTimeMillis();
+        final long cooldownMs = REQUEST_COOLDOWN_SECONDS * 1000L;
+
+        final Long previous = this.recentRequestMillisByUsername.get(key);
+        if (previous != null && nowMs - previous < cooldownMs) {
+            return true;
+        }
+        this.recentRequestMillisByUsername.put(key, nowMs);
+
+        if (this.recentRequestMillisByUsername.size() > 10_000) {
+            this.recentRequestMillisByUsername.entrySet().removeIf(e -> nowMs - e.getValue() > cooldownMs);
+        }
+        return false;
     }
 
     /**
