@@ -58,7 +58,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class NovuCampaignService {
 
     public static final List<String> LOAN_EVENTS = List.of("LOAN_CREATED", "LOAN_APPROVED", "LOAN_DISBURSED", "LOAN_REJECTED",
-            "LOAN_REPAYMENT", "LOAN_REPAYMENT_DUE", "LOAN_OVERDUE", "LOAN_CLOSED");
+            "LOAN_REPAYMENT", "LOAN_CLOSED");
+    public static final List<String> EVENT_TEMPLATE_VARIABLES = List.of("clientName", "firstName", "lastName", "loanAccountNumber",
+            "approvedPrincipal", "disbursedAmount", "currency", "transactionAmount", "eventType");
+    public static final List<String> REPORT_TEMPLATE_VARIABLES = List.of("clientName", "firstName", "lastName", "loanAccountNumber",
+            "dueDate", "amountDue", "daysUntilDue", "mobileNo", "email");
     public static final List<String> TRIGGER_TYPES = List.of("DIRECT", "SCHEDULED", "TRIGGERED");
     public static final List<String> CHANNELS = List.of("IN_APP", "EMAIL", "SMS", "WHATSAPP", "TELEGRAM", "SLACK");
     public static final Map<String, String> CHAT_PROVIDERS = Map.of("WHATSAPP", "whatsapp-business", "TELEGRAM", "telegram", "SLACK",
@@ -79,16 +83,76 @@ public class NovuCampaignService {
         this.readReportingService = readReportingService;
     }
 
+    public NovuCampaign getCampaign(final Long id) {
+        return find(id);
+    }
+
     public List<NovuCampaign> findAll() {
         return repository.findAll();
+    }
+
+    public List<Map<String, Object>> findAllAsMaps() {
+        return findAll().stream().map(this::toApiMap).collect(Collectors.toList());
+    }
+
+    public Map<String, Object> toApiMap(final NovuCampaign campaign) {
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", campaign.getId());
+        result.put("campaignName", campaign.getCampaignName());
+        result.put("workflowId", campaign.getWorkflowId());
+        result.put("eventType", campaign.getEventType());
+        result.put("triggerType", campaign.getTriggerType());
+        result.put("recipientType", campaign.getRecipientType());
+        result.put("channels", campaign.getChannels());
+        result.put("emailSubject", campaign.getEmailSubject());
+        result.put("emailBody", campaign.getEmailBody());
+        result.put("smsBody", campaign.getSmsBody());
+        result.put("inAppBody", campaign.getInAppBody());
+        result.put("chatBody", campaign.getChatBody());
+        result.put("reportName", campaign.getReportName());
+        result.put("paramValue", campaign.getParamValue());
+        result.put("recurrence", campaign.getRecurrence());
+        result.put("recurrenceStartDate", formatDateTime(campaign.getRecurrenceStartDate()));
+        result.put("nextTriggerDate", formatDateTime(campaign.getNextTriggerDate()));
+        result.put("lastTriggerDate", formatDateTime(campaign.getLastTriggerDate()));
+        result.put("active", campaign.isActive());
+        result.put("createdBy", campaign.getCreatedBy());
+        result.put("createdOn", formatDateTime(campaign.getCreatedOn()));
+        result.put("lastModifiedOn", formatDateTime(campaign.getLastModifiedOn()));
+        return result;
+    }
+
+    private String formatDateTime(final LocalDateTime value) {
+        return value == null ? null : value.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+    }
+
+    public List<Map<String, Object>> listAudienceReports() {
+        try {
+            return jdbcTemplate.query("SELECT sr.id reportId, sr.report_name reportName, sr.report_type reportType, "
+                    + "sr.report_subtype reportSubType, sr.description reportDescription FROM stretchy_report sr "
+                    + "WHERE UPPER(sr.report_type) = 'SMS' ORDER BY sr.report_name", (rs, rowNum) -> {
+                        final Map<String, Object> report = new LinkedHashMap<>();
+                        report.put("reportId", rs.getLong("reportId"));
+                        report.put("reportName", rs.getString("reportName"));
+                        report.put("reportType", rs.getString("reportType"));
+                        report.put("reportSubType", rs.getString("reportSubType"));
+                        report.put("reportDescription", rs.getString("reportDescription"));
+                        return report;
+                    });
+        } catch (final RuntimeException ignored) {
+            return List.of();
+        }
     }
 
     @Transactional
     public NovuCampaign create(final String json, final Long userId) {
         final CampaignValues values = parse(json);
-        return repository.saveAndFlush(new NovuCampaign(values.name, values.workflowId, values.eventType, values.triggerType,
-                values.recipientType, values.channels, values.emailSubject, values.emailBody, values.smsBody, values.inAppBody,
-                values.chatBody, values.reportName, values.paramValue, values.recurrence, values.recurrenceStartDate, values.active, userId));
+        final NovuCampaign campaign = repository.saveAndFlush(new NovuCampaign(values.name, values.workflowId, values.eventType,
+                values.triggerType, values.recipientType, values.channels, values.emailSubject, values.emailBody, values.smsBody,
+                values.inAppBody, values.chatBody, values.reportName, values.paramValue, values.recurrence, values.recurrenceStartDate,
+                values.active, userId));
+        ensureWorkflow(campaign);
+        return campaign;
     }
 
     @Transactional
@@ -98,12 +162,33 @@ public class NovuCampaignService {
         campaign.update(values.name, values.workflowId, values.eventType, values.triggerType, values.recipientType, values.channels,
                 values.emailSubject, values.emailBody, values.smsBody, values.inAppBody, values.chatBody, values.reportName,
                 values.paramValue, values.recurrence, values.recurrenceStartDate, values.active);
-        return repository.saveAndFlush(campaign);
+        final NovuCampaign saved = repository.saveAndFlush(campaign);
+        ensureWorkflow(saved);
+        return saved;
     }
 
     @Transactional
     public void delete(final Long id) {
-        repository.delete(find(id));
+        final NovuCampaign campaign = find(id);
+        final String workflowId = campaign.getWorkflowId();
+        final boolean unusedWorkflow = StringUtils.isNotBlank(workflowId) && repository.countByWorkflowId(workflowId) <= 1;
+        repository.delete(campaign);
+        if (unusedWorkflow) {
+            final NovuClient.TriggerResult result = novuClient.deleteWorkflow(workflowId);
+            if (!result.isSuccessful()) {
+                throw new PlatformDataIntegrityException("error.msg.novu.workflow.delete.failed",
+                        "Campaign was removed locally but the Novu workflow could not be deleted: " + result.getMessage());
+            }
+        }
+    }
+
+    private void ensureWorkflow(final NovuCampaign campaign) {
+        final NovuClient.TriggerResult result = novuClient.ensureWorkflow(campaign.getWorkflowId(), campaign.getCampaignName(),
+                splitChannels(campaign.getChannels()));
+        if (!result.isSuccessful()) {
+            throw new PlatformDataIntegrityException("error.msg.novu.workflow.create.failed",
+                    "Campaign was saved but the Novu workflow could not be created: " + result.getMessage());
+        }
     }
 
     public void triggerLoanEvent(final String eventType, final Loan loan, final Map<String, Object> additionalPayload) {
@@ -245,6 +330,8 @@ public class NovuCampaignService {
         final List<Map<String, Object>> subscribers = jdbcTemplate.query(
                 "SELECT CONCAT('client-', id) subscriberId, firstname firstName, lastname lastName, "
                         + "email_address email, mobile_no phone FROM m_client WHERE status_enum = 300 "
+                        + "UNION ALL SELECT CONCAT('staff-', id), firstname, lastname, email_address, mobile_no "
+                        + "FROM m_staff WHERE is_active = 1 "
                         + "UNION ALL SELECT CONCAT('user-', u.id), u.firstname, u.lastname, u.email, s.mobile_no "
                         + "FROM m_appuser u LEFT JOIN m_staff s ON s.id = u.staff_id WHERE u.is_deleted = false",
                 (rs, rowNum) -> {
@@ -269,6 +356,7 @@ public class NovuCampaignService {
             final String recipientType) {
         final String transactionId = UUID.randomUUID().toString();
         final Map<String, Object> deliveryPayload = new LinkedHashMap<>(payload);
+        deliveryPayload.put("channels", campaign.getChannels());
         putIfPresent(deliveryPayload, "emailSubject", render(campaign.getEmailSubject(), deliveryPayload));
         putIfPresent(deliveryPayload, "emailBody", render(campaign.getEmailBody(), deliveryPayload));
         putIfPresent(deliveryPayload, "smsBody", render(campaign.getSmsBody(), deliveryPayload));
@@ -303,7 +391,10 @@ public class NovuCampaignService {
         payload.put("loanAccountNumber", loan.getAccountNumber());
         payload.put("clientId", loan.getClient() == null ? null : loan.getClient().getId());
         payload.put("clientName", loan.getClient() == null ? null : loan.getClient().getDisplayName());
+        payload.put("firstName", loan.getClient() == null ? null : loan.getClient().getFirstname());
+        payload.put("lastName", loan.getClient() == null ? null : loan.getClient().getLastname());
         payload.put("approvedPrincipal", loan.getApprovedPrincipal());
+        payload.put("disbursedAmount", loan.getDisbursedAmount());
         payload.put("currency", loan.getCurrencyCode());
         return payload;
     }

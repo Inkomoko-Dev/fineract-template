@@ -26,4 +26,6 @@ public interface NovuCampaignRepository extends JpaRepository<NovuCampaign, Long
     List<NovuCampaign> findByEventTypeAndTriggerTypeAndActiveTrue(String eventType, String triggerType);
 
     List<NovuCampaign> findByTriggerTypeAndActiveTrue(String triggerType);
+
+    long countByWorkflowId(String workflowId);
 }

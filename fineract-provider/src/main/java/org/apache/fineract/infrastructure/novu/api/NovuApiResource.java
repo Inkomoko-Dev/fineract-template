@@ -72,7 +72,7 @@ public class NovuApiResource {
     @Path("campaigns")
     public String campaigns() {
         securityContext.authenticatedUser().validateHasReadPermission(CAMPAIGN_RESOURCE);
-        return gson.toJson(campaignService.findAll());
+        return gson.toJson(campaignService.findAllAsMaps());
     }
 
     @GET
@@ -99,27 +99,47 @@ public class NovuApiResource {
         result.put("channels", NovuCampaignService.CHANNELS);
         result.put("chatProviders", NovuCampaignService.CHAT_PROVIDERS);
         result.put("loanEvents", NovuCampaignService.LOAN_EVENTS);
-        result.put("businessRulesAndScheduleOptions", smsCampaignReadPlatformService.retrieveTemplate("SMS"));
+        result.put("audienceReports", campaignService.listAudienceReports());
+        try {
+            result.put("businessRulesAndScheduleOptions", smsCampaignReadPlatformService.retrieveTemplate("SMS"));
+        } catch (final RuntimeException ignored) {
+            result.put("businessRulesAndScheduleOptions", Map.of());
+        }
         result.put("templateSyntax", "${variableName}");
-        result.put("templateVariables", List.of("clientName", "firstName", "lastName", "loanAccountNumber", "approvedPrincipal",
-                "currency", "transactionAmount", "dueDate", "amountDue", "daysUntilDue"));
+        result.put("eventTemplateVariables", NovuCampaignService.EVENT_TEMPLATE_VARIABLES);
+        result.put("reportTemplateVariables", NovuCampaignService.REPORT_TEMPLATE_VARIABLES);
+        result.put("templateVariables", NovuCampaignService.EVENT_TEMPLATE_VARIABLES);
         result.put("novuWorkflowBindings", Map.of("emailSubject", "{{payload.emailSubject}}", "emailBody", "{{payload.emailBody}}",
                 "smsBody", "{{payload.smsBody}}", "inAppBody", "{{payload.inAppBody}}", "chatBody", "{{payload.chatBody}}"));
         return gson.toJson(result);
+    }
+
+    @GET
+    @Path("campaigns/reports")
+    public String audienceReports() {
+        securityContext.authenticatedUser().validateHasReadPermission(CAMPAIGN_RESOURCE);
+        return gson.toJson(campaignService.listAudienceReports());
+    }
+
+    @GET
+    @Path("campaigns/{id:[0-9]+}")
+    public String campaign(@PathParam("id") final Long id) {
+        securityContext.authenticatedUser().validateHasReadPermission(CAMPAIGN_RESOURCE);
+        return gson.toJson(campaignService.toApiMap(campaignService.getCampaign(id)));
     }
 
     @POST
     @Path("campaigns")
     public String create(final String json) {
         securityContext.authenticatedUser().validateHasCreatePermission(CAMPAIGN_RESOURCE);
-        return gson.toJson(campaignService.create(json, securityContext.authenticatedUser().getId()));
+        return gson.toJson(campaignService.toApiMap(campaignService.create(json, securityContext.authenticatedUser().getId())));
     }
 
     @PUT
     @Path("campaigns/{id}")
     public String update(@PathParam("id") final Long id, final String json) {
         securityContext.authenticatedUser().validateHasUpdatePermission(CAMPAIGN_RESOURCE);
-        return gson.toJson(campaignService.update(id, json));
+        return gson.toJson(campaignService.toApiMap(campaignService.update(id, json)));
     }
 
     @DELETE
@@ -149,6 +169,12 @@ public class NovuApiResource {
                 + "l.transaction_id transactionId, l.response_message responseMessage, l.created_on createdOn "
                 + "FROM novu_notification_log l LEFT JOIN novu_campaign c ON c.id = l.campaign_id "
                 + "ORDER BY l.created_on DESC LIMIT ? OFFSET ?", limit, offset);
+        for (final Map<String, Object> log : logs) {
+            final Object createdOn = log.get("createdOn");
+            if (createdOn != null && !(createdOn instanceof String) && !(createdOn instanceof Number)) {
+                log.put("createdOn", createdOn.toString());
+            }
+        }
         final Map<String, Object> response = new LinkedHashMap<>();
         response.put("pageItems", logs);
         response.put("totalFilteredRecords", jdbcTemplate.queryForObject("SELECT COUNT(*) FROM novu_notification_log", Long.class));

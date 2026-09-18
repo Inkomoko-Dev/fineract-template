@@ -5,7 +5,8 @@
 1. Apply the tenant Liquibase migrations.
 2. In CBS, open **System > External Services > Novu**.
 3. Set `api_url` (`https://api.novu.co` for the US cloud), `api_key`, `timeout_seconds`, and `enabled=true`.
-4. In Novu, create workflows whose identifiers match the workflow IDs configured under **Organization > Novu campaigns**.
+4. Saving a Novu campaign creates the matching Novu workflow if it does not already exist. Deleting the last campaign
+   that uses a workflow ID also deletes that workflow in Novu.
 5. Configure workflow steps to use the CBS-managed content fields:
    - Email subject: `{{payload.emailSubject}}`
    - Email body: `{{payload.emailBody}}`
@@ -28,8 +29,10 @@ campaign should use a stretchy report that returns installments due in the desir
 `mobileNo`/`phone`, `email`, and any message variables such as `dueDate`, `amountDue`, and `daysUntilDue` in the report columns.
 
 Message fields accept the familiar campaign syntax `${variableName}` (and also `{{variableName}}`). CBS resolves those values
-from the loan event or report row before calling Novu. `GET /api/v1/novu/campaigns/template` returns the SMS campaign business
-rules and scheduling choices, supported channels, and a starter variable catalogue for the UI.
+from the loan event or report row before calling Novu. `GET /api/v1/novu/campaigns/template` and
+`GET /api/v1/novu/campaigns/reports` return stretchy reports with `report_type = SMS` for send-now and scheduled
+audiences. Those same reports are used for every Novu channel (SMS, WhatsApp, email, in-app, chat), plus scheduling
+choices, supported channels, and a starter variable catalogue for the UI.
 
 WhatsApp, Telegram, and Slack are Novu chat providers. Configure the corresponding integration in the Novu environment, then
 store the subscriber's provider credential through `POST /api/v1/novu/subscribers/{subscriberId}/credentials`. The accepted

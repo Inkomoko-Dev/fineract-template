@@ -22,6 +22,10 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -109,6 +113,105 @@ public class NovuClient {
         try (Response response = client.newCall(request).execute()) {
             final String responseBody = response.body() == null ? "" : response.body().string();
             return new TriggerResult(response.isSuccessful(), transactionId, truncate(responseBody));
+        } catch (final IOException e) {
+            return new TriggerResult(false, transactionId, truncate(e.getMessage()));
+        }
+    }
+
+    public TriggerResult ensureWorkflow(final String workflowId, final String campaignName, final List<String> channels) {
+        final NovuConfigurationData configuration = configurationService.getConfiguration();
+        if (!configuration.isEnabled() || StringUtils.isBlank(configuration.getApiKey())) {
+            return new TriggerResult(true, workflowId, "Novu is disabled; workflow was not created");
+        }
+        if (StringUtils.isBlank(workflowId)) {
+            return new TriggerResult(false, workflowId, "workflowId is required");
+        }
+        if (workflowExists(configuration, workflowId)) {
+            return new TriggerResult(true, workflowId, "Workflow already exists");
+        }
+        final List<Map<String, Object>> steps = new ArrayList<>();
+        for (final String channel : channels) {
+            switch (channel) {
+                case "SMS":
+                    steps.add(step("sms", "SMS", Map.of("body", "{{payload.smsBody}}")));
+                    break;
+                case "EMAIL":
+                    steps.add(step("email", "Email",
+                            Map.of("subject", "{{payload.emailSubject}}", "body", "{{payload.emailBody}}", "editorType", "html")));
+                    break;
+                case "IN_APP":
+                    steps.add(step("in_app", "In-app", Map.of("subject", "Notification", "body", "{{payload.inAppBody}}")));
+                    break;
+                case "WHATSAPP":
+                case "TELEGRAM":
+                case "SLACK":
+                    steps.add(step("chat", channel, Map.of("body", "{{payload.chatBody}}")));
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (steps.isEmpty()) {
+            steps.add(step("sms", "SMS", Map.of("body", "{{payload.smsBody}}")));
+        }
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("name", StringUtils.defaultIfBlank(campaignName, workflowId));
+        body.put("workflowId", workflowId);
+        body.put("active", true);
+        body.put("steps", steps);
+        return execute(configuration, "POST", "/v2/workflows", body, workflowId, 201, 200, 409);
+    }
+
+    public TriggerResult deleteWorkflow(final String workflowId) {
+        final NovuConfigurationData configuration = configurationService.getConfiguration();
+        if (!configuration.isEnabled() || StringUtils.isBlank(configuration.getApiKey()) || StringUtils.isBlank(workflowId)) {
+            return new TriggerResult(true, workflowId, "Workflow delete skipped");
+        }
+        return execute(configuration, "DELETE", workflowPath(workflowId), null, workflowId, 200, 204, 404);
+    }
+
+    private boolean workflowExists(final NovuConfigurationData configuration, final String workflowId) {
+        final TriggerResult result = execute(configuration, "GET", workflowPath(workflowId), null, workflowId, 200);
+        return result.isSuccessful();
+    }
+
+    private String workflowPath(final String workflowId) {
+        return "/v2/workflows/" + URLEncoder.encode(workflowId, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private Map<String, Object> step(final String type, final String name, final Map<String, Object> controlValues) {
+        final Map<String, Object> step = new LinkedHashMap<>();
+        step.put("name", name);
+        step.put("type", type);
+        step.put("controlValues", controlValues);
+        return step;
+    }
+
+    private TriggerResult execute(final NovuConfigurationData configuration, final String method, final String path,
+            final Map<String, Object> body, final String transactionId, final int... successCodes) {
+        final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS)
+                .readTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS).build();
+        final Request.Builder builder = new Request.Builder().url(stripTrailingSlash(configuration.getApiUrl()) + path)
+                .header("Authorization", "ApiKey " + configuration.getApiKey()).header("Idempotency-Key",
+                        StringUtils.defaultIfBlank(transactionId, java.util.UUID.randomUUID().toString()));
+        final RequestBody requestBody = body == null ? null : RequestBody.create(gson.toJson(body), JSON);
+        if ("POST".equals(method)) {
+            builder.post(requestBody);
+        } else if ("DELETE".equals(method)) {
+            builder.delete();
+        } else {
+            builder.get();
+        }
+        try (Response response = client.newCall(builder.build()).execute()) {
+            final String responseBody = response.body() == null ? "" : response.body().string();
+            boolean successful = false;
+            for (final int code : successCodes) {
+                if (response.code() == code) {
+                    successful = true;
+                    break;
+                }
+            }
+            return new TriggerResult(successful, transactionId, truncate(responseBody));
         } catch (final IOException e) {
             return new TriggerResult(false, transactionId, truncate(e.getMessage()));
         }
