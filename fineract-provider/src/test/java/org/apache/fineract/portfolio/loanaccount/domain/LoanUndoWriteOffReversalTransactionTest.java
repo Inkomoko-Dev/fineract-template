@@ -72,6 +72,8 @@ class LoanUndoWriteOffReversalTransactionTest {
     private static final Long CANCELLATION_ID = 10L;
     private static final Long REPAYMENT_ID = 5L;
     private static final LocalDate REPAYMENT_DATE = LocalDate.of(2026, 1, 5);
+    private static final Long RECOVERY_ID = 11L;
+    private static final LocalDate RECOVERY_DATE = LocalDate.of(2026, 2, 10);
     private static final String WRITE_OFF_REVERSAL = "Write-off Reversal";
 
     private RoundingMode originalRoundingMode;
@@ -254,6 +256,24 @@ class LoanUndoWriteOffReversalTransactionTest {
         replacement.updateLoan(loan);
         loan.adjustExistingTransaction(replacement, new DefaultLoanLifecycleStateMachine(List.of(LoanStatus.values())), repayment,
                 new ArrayList<>(), new ArrayList<>(), scheduleGeneratorDTO, true);
+    }
+
+    @Test
+    void undoWriteOffOnALoanWithARecoveryPaymentRecordsOneReversalAndCarriesTheRecoveryThroughTheReprocess() {
+        final Loan loan = writtenOffLoan();
+        final LoanTransaction recovery = transaction(RECOVERY_ID,
+                LoanTransaction.recoveryRepayment(mock(Office.class), Money.of(KES, new BigDecimal("4000.00")), null, RECOVERY_DATE, null));
+        recovery.updateLoan(loan);
+        loan.addLoanTransaction(recovery);
+
+        final ChangedTransactionDetail detail = loan.undoWrittenOff(new ArrayList<>(), new ArrayList<>(), mock(ScheduleGeneratorDTO.class));
+
+        assertEquals(1, writeOffReversalsOf(loan).size(), "a recovery payment must not produce a second write-off reversal");
+        final List<LoanTransaction> carried = detail.getNewTransactionMappings().values().stream()
+                .filter(transaction -> RECOVERY_DATE.equals(transaction.getTransactionDate())).collect(Collectors.toList());
+        assertEquals(1, carried.size(), "the recovery payment must be carried through the reprocess as a replacement transaction");
+        assertTrue(carried.get(0).isRecoveryRepayment());
+        assertAmount("4000.00", carried.get(0).getAmount(KES).getAmount());
     }
 
     private Loan writtenOffLoan() {
