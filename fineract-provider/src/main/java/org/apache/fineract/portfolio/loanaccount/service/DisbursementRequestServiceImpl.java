@@ -73,6 +73,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -97,6 +100,8 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
     private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
 
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
+
+    private final PlatformTransactionManager transactionManager;
 
     private OkHttpClient client = new OkHttpClient();
     private Gson gson = new Gson();
@@ -273,15 +278,16 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
                 final String userMessage = failureMessage(errorCategory, parsedError);
                 LOG.error("Payment Hub disbursement request rejected loanId={}, requestId={}, httpStatus={}, category={}, responseBody={}",
                         loan.getId(), requestId, responseCode, errorCategory, responseBody);
+                saveLoanNoteOutsideCurrentTransaction(loan, paymentHubSubmissionFailureNote(requestId, userMessage));
                 throw new LoanDisbursementRequestException(userMessage, "integration.disbursementRequest." + errorCategory, requestId);
             }
 
         } catch (IOException e) {
             LOG.error("Connection failure while sending Payment Hub disbursement request loanId={}, requestId={}", loan.getId(), requestId,
                     e);
-            throw new LoanDisbursementRequestException(
-                    "There was a connection issue while sending the disbursement to the Payment Hub. Please try again.",
-                    "integration.disbursementRequest.connectionFailed", requestId);
+            final String userMessage = "There was a connection issue while sending the disbursement to the Payment Hub. Please try again.";
+            saveLoanNoteOutsideCurrentTransaction(loan, paymentHubSubmissionFailureNote(requestId, userMessage));
+            throw new LoanDisbursementRequestException(userMessage, "integration.disbursementRequest.connectionFailed", requestId);
         }
         return requestId;
     }
@@ -311,6 +317,31 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
     static String paymentHubSubmissionSuccessNote(final String requestId) {
         return "Disbursement request sent to the Payment Hub successfully. Reference: " + requestId;
+    }
+
+    static String paymentHubSubmissionFailureNote(final String requestId, final String userMessage) {
+        final String detail = StringUtils.isBlank(userMessage) ? "The Payment Hub could not accept the disbursement details."
+                : userMessage.trim();
+        if (StringUtils.isBlank(requestId)) {
+            return "Payment Hub rejected this disbursement. " + detail;
+        }
+        return "Payment Hub rejected this disbursement. " + detail + " Reference: " + requestId;
+    }
+
+    private void saveLoanNoteOutsideCurrentTransaction(final Loan loan, final String noteText) {
+        if (loan == null || StringUtils.isBlank(noteText)) {
+            return;
+        }
+        try {
+            final TransactionTemplate template = new TransactionTemplate(this.transactionManager);
+            template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            template.execute(status -> {
+                this.noteRepository.saveAndFlush(Note.loanNote(loan, noteText));
+                return null;
+            });
+        } catch (RuntimeException e) {
+            LOG.warn("Unable to persist Payment Hub disbursement failure note for loanId={}", loan.getId(), e);
+        }
     }
 
     static String failureMessage(final String errorCategory, final PaymentHubErrorResponse parsedError) {
