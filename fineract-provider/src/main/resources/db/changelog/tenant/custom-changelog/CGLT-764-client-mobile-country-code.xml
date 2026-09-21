@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="CGLT-764-client-mobile-country-code-column" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_client" columnName="mobile_country_code"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_client">
+            <column name="mobile_country_code" type="VARCHAR(8)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="CGLT-764-mobile-country-code-code" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(1) FROM m_code WHERE code_name = 'MobileCountryCode'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_code">
+            <column name="code_name" value="MobileCountryCode"/>
+            <column name="is_system_defined" valueBoolean="true"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-764-mobile-country-code-values" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1) FROM m_code_value cv
+                INNER JOIN m_code c ON c.id = cv.code_id
+                WHERE c.code_name = 'MobileCountryCode'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_code_value">
+            <column name="code_id" valueComputed="(select id from m_code where code_name='MobileCountryCode')"/>
+            <column name="code_value" value="Kenya (+254)"/>
+            <column name="code_description" value="254"/>
+            <column name="order_position" valueNumeric="1"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="is_mandatory" valueBoolean="false"/>
+        </insert>
+        <insert tableName="m_code_value">
+            <column name="code_id" valueComputed="(select id from m_code where code_name='MobileCountryCode')"/>
+            <column name="code_value" value="Rwanda (+250)"/>
+            <column name="code_description" value="250"/>
+            <column name="order_position" valueNumeric="2"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="is_mandatory" valueBoolean="false"/>
+        </insert>
+        <insert tableName="m_code_value">
+            <column name="code_id" valueComputed="(select id from m_code where code_name='MobileCountryCode')"/>
+            <column name="code_value" value="Uganda (+256)"/>
+            <column name="code_description" value="256"/>
+            <column name="order_position" valueNumeric="3"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="is_mandatory" valueBoolean="false"/>
+        </insert>
+        <insert tableName="m_code_value">
+            <column name="code_id" valueComputed="(select id from m_code where code_name='MobileCountryCode')"/>
+            <column name="code_value" value="South Sudan (+211)"/>
+            <column name="code_description" value="211"/>
+            <column name="order_position" valueNumeric="4"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="is_mandatory" valueBoolean="false"/>
+        </insert>
+        <insert tableName="m_code_value">
+            <column name="code_id" valueComputed="(select id from m_code where code_name='MobileCountryCode')"/>
+            <column name="code_value" value="Tanzania (+255)"/>
+            <column name="code_description" value="255"/>
+            <column name="order_position" valueNumeric="5"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="is_mandatory" valueBoolean="false"/>
+        </insert>
+        <insert tableName="m_code_value">
+            <column name="code_id" valueComputed="(select id from m_code where code_name='MobileCountryCode')"/>
+            <column name="code_value" value="Burundi (+257)"/>
+            <column name="code_description" value="257"/>
+            <column name="order_position" valueNumeric="6"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="is_mandatory" valueBoolean="false"/>
+        </insert>
+        <insert tableName="m_code_value">
+            <column name="code_id" valueComputed="(select id from m_code where code_name='MobileCountryCode')"/>
+            <column name="code_value" value="DRC (+243)"/>
+            <column name="code_description" value="243"/>
+            <column name="order_position" valueNumeric="7"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="is_mandatory" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+</databaseChangeLog>

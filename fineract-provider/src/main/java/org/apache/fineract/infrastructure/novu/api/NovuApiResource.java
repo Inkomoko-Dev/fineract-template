@@ -23,8 +23,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
@@ -36,11 +34,9 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
-import org.apache.fineract.infrastructure.campaigns.sms.service.SmsCampaignReadPlatformService;
 import org.apache.fineract.infrastructure.novu.service.NovuCampaignService;
 import org.apache.fineract.infrastructure.novu.service.NovuClient;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 @Path("/novu")
@@ -51,20 +47,16 @@ public class NovuApiResource {
 
     private static final String CAMPAIGN_RESOURCE = "NOVUCAMPAIGN";
     private static final String LOG_RESOURCE = "NOVUNOTIFICATIONLOG";
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
     private final PlatformSecurityContext securityContext;
     private final NovuCampaignService campaignService;
-    private final JdbcTemplate jdbcTemplate;
-    private final SmsCampaignReadPlatformService smsCampaignReadPlatformService;
     private final NovuClient novuClient;
     private final Gson gson = new Gson();
 
     public NovuApiResource(final PlatformSecurityContext securityContext, final NovuCampaignService campaignService,
-            final JdbcTemplate jdbcTemplate, final SmsCampaignReadPlatformService smsCampaignReadPlatformService,
             final NovuClient novuClient) {
         this.securityContext = securityContext;
         this.campaignService = campaignService;
-        this.jdbcTemplate = jdbcTemplate;
-        this.smsCampaignReadPlatformService = smsCampaignReadPlatformService;
         this.novuClient = novuClient;
     }
 
@@ -79,13 +71,9 @@ public class NovuApiResource {
     @Path("events")
     public String events() {
         securityContext.authenticatedUser().validateHasReadPermission(CAMPAIGN_RESOURCE);
-        final Map<String, Object> result = new LinkedHashMap<>();
-        result.put("loanEvents", NovuCampaignService.LOAN_EVENTS);
+        final Map<String, Object> result = campaignService.catalogue();
         result.put("customEventsSupported", true);
         result.put("customTriggerEndpoint", "/novu/events/{eventType}/trigger");
-        result.put("triggerTypes", NovuCampaignService.TRIGGER_TYPES);
-        result.put("channels", NovuCampaignService.CHANNELS);
-        result.put("chatProviders", NovuCampaignService.CHAT_PROVIDERS);
         return gson.toJson(result);
     }
 
@@ -93,25 +81,7 @@ public class NovuApiResource {
     @Path("campaigns/template")
     public String template() {
         securityContext.authenticatedUser().validateHasReadPermission(CAMPAIGN_RESOURCE);
-        final Map<String, Object> result = new LinkedHashMap<>();
-        result.put("triggerTypes", NovuCampaignService.TRIGGER_TYPES);
-        result.put("recipientTypes", List.of("CLIENT", "STAFF", "BOTH"));
-        result.put("channels", NovuCampaignService.CHANNELS);
-        result.put("chatProviders", NovuCampaignService.CHAT_PROVIDERS);
-        result.put("loanEvents", NovuCampaignService.LOAN_EVENTS);
-        result.put("audienceReports", campaignService.listAudienceReports());
-        try {
-            result.put("businessRulesAndScheduleOptions", smsCampaignReadPlatformService.retrieveTemplate("SMS"));
-        } catch (final RuntimeException ignored) {
-            result.put("businessRulesAndScheduleOptions", Map.of());
-        }
-        result.put("templateSyntax", "${variableName}");
-        result.put("eventTemplateVariables", NovuCampaignService.EVENT_TEMPLATE_VARIABLES);
-        result.put("reportTemplateVariables", NovuCampaignService.REPORT_TEMPLATE_VARIABLES);
-        result.put("templateVariables", NovuCampaignService.EVENT_TEMPLATE_VARIABLES);
-        result.put("novuWorkflowBindings", Map.of("emailSubject", "{{payload.emailSubject}}", "emailBody", "{{payload.emailBody}}",
-                "smsBody", "{{payload.smsBody}}", "inAppBody", "{{payload.inAppBody}}", "chatBody", "{{payload.chatBody}}"));
-        return gson.toJson(result);
+        return gson.toJson(campaignService.templateOptions());
     }
 
     @GET
@@ -161,24 +131,7 @@ public class NovuApiResource {
     @Path("logs")
     public String logs(@QueryParam("limit") final Integer requestedLimit, @QueryParam("offset") final Integer requestedOffset) {
         securityContext.authenticatedUser().validateHasReadPermission(LOG_RESOURCE);
-        final int limit = Math.max(1, Math.min(requestedLimit == null ? 100 : requestedLimit, 500));
-        final int offset = Math.max(0, requestedOffset == null ? 0 : requestedOffset);
-        final List<Map<String, Object>> logs = jdbcTemplate.queryForList("SELECT l.id, l.campaign_id campaignId, "
-                + "c.campaign_name campaignName, l.event_type eventType, l.workflow_id workflowId, "
-                + "l.subscriber_id subscriberId, l.recipient_type recipientType, l.channel, l.status, "
-                + "l.transaction_id transactionId, l.response_message responseMessage, l.created_on createdOn "
-                + "FROM novu_notification_log l LEFT JOIN novu_campaign c ON c.id = l.campaign_id "
-                + "ORDER BY l.created_on DESC LIMIT ? OFFSET ?", limit, offset);
-        for (final Map<String, Object> log : logs) {
-            final Object createdOn = log.get("createdOn");
-            if (createdOn != null && !(createdOn instanceof String) && !(createdOn instanceof Number)) {
-                log.put("createdOn", createdOn.toString());
-            }
-        }
-        final Map<String, Object> response = new LinkedHashMap<>();
-        response.put("pageItems", logs);
-        response.put("totalFilteredRecords", jdbcTemplate.queryForObject("SELECT COUNT(*) FROM novu_notification_log", Long.class));
-        return gson.toJson(response);
+        return gson.toJson(campaignService.listLogs(requestedLimit, requestedOffset));
     }
 
     @POST
@@ -186,9 +139,8 @@ public class NovuApiResource {
     public String triggerCustom(@PathParam("eventType") final String eventType, final String json) {
         securityContext.authenticatedUser().validateHasCreatePermission(CAMPAIGN_RESOURCE);
         final JsonObject body = JsonParser.parseString(json).getAsJsonObject();
-        final Type mapType = new TypeToken<Map<String, Object>>() {}.getType();
-        final Map<String, Object> subscriber = gson.fromJson(body.get("subscriber"), mapType);
-        final Map<String, Object> payload = body.has("payload") ? gson.fromJson(body.get("payload"), mapType) : Map.of();
+        final Map<String, Object> subscriber = gson.fromJson(body.get("subscriber"), MAP_TYPE);
+        final Map<String, Object> payload = body.has("payload") ? gson.fromJson(body.get("payload"), MAP_TYPE) : Map.of();
         return gson.toJson(campaignService.triggerCustomEvent(eventType, subscriber, payload));
     }
 
@@ -203,8 +155,7 @@ public class NovuApiResource {
     @Path("subscribers/{subscriberId}/credentials")
     public String subscriberCredentials(@PathParam("subscriberId") final String subscriberId, final String json) {
         securityContext.authenticatedUser().validateHasUpdatePermission(CAMPAIGN_RESOURCE);
-        final Type mapType = new TypeToken<Map<String, Object>>() {}.getType();
-        final Map<String, Object> body = gson.fromJson(json, mapType);
+        final Map<String, Object> body = gson.fromJson(json, MAP_TYPE);
         final String providerId = body.get("providerId") == null ? "" : body.get("providerId").toString();
         if (!NovuCampaignService.CHAT_PROVIDERS.containsValue(providerId)) {
             throw new IllegalArgumentException("providerId must be whatsapp-business, telegram or slack");

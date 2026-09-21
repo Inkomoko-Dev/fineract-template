@@ -196,6 +196,9 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
         final List<CodeValueData> titleOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(ClientApiConstants.TITLE));
 
+        final List<CodeValueData> mobileCountryCodeOptions = new ArrayList<>(
+                this.codeValueReadPlatformService.retrieveCodeValuesByCode(ClientApiConstants.MOBILE_COUNTRY_CODE));
+
         final List<EnumOptionData> clientLegalFormOptions = ClientEnumerations.legalForm(LegalForm.values());
 
         final List<DatatableData> datatableTemplates = this.entityDatatableChecksReadService
@@ -206,6 +209,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
                 clientNonPersonConstitutionOptions, clientNonPersonMainBusinessLineOptions, clientLegalFormOptions, familyMemberOptions,
                 new ArrayList<AddressData>(Arrays.asList(address)), isAddressEnabled, datatableTemplates,
                 new ArrayList<ClientBusinessOwnerData>(Arrays.asList(ownerData)), isbusinessOwnersEnabled, titleOptions);
+        clientData.setMobileCountryCodeOptions(mobileCountryCodeOptions);
         clientData.setClientBusinessDetailData(clientBusinessDetailData);
         clientData.setClientBusinessDetailEnabled(isClientBusinessDetailEnabled);
         clientData.setClientOtherInfoEnabled(isClientOtherInfoEnabled);
@@ -717,6 +721,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             builder.append("c.firstname as firstname, c.middlename as middlename, c.lastname as lastname, ");
             builder.append("c.fullname as fullname, c.display_name as displayName, ");
             builder.append("c.mobile_no as mobileNo, ");
+            builder.append("c.mobile_country_code as mobileCountryCode, ");
             builder.append("c.is_staff as isStaff, ");
             builder.append("c.is_migrated as migrated, ");
             builder.append("c.migrated_on_date as migratedOnDate, ");
@@ -921,6 +926,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             clientData.setMigratedOnDate(JdbcSupport.getLocalDate(rs, "migratedOnDate"));
             clientData.setMigratedFromOfficeId(JdbcSupport.getLong(rs, "migratedFromOfficeId"));
             clientData.setMigratedFromOfficeName(rs.getString("migratedFromOfficeName"));
+            clientData.setMobileCountryCode(rs.getString("mobileCountryCode"));
             return clientData;
 
         }

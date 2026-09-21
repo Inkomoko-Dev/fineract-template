@@ -110,6 +110,9 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
     @Column(name = "mobile_no", length = 50, nullable = true)
     private String mobileNo;
 
+    @Column(name = "mobile_country_code", length = 8)
+    private String mobileCountryCode;
+
     @Column(name = "email_address", length = 50, unique = true)
     private String emailAddress;
 
@@ -254,6 +257,7 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
         final String externalId = command.stringValueOfParameterNamed(ClientApiConstants.externalIdParamName);
         final String kivaId = command.stringValueOfParameterNamed(ClientApiConstants.KIVA_ID);
         final String mobileNo = command.stringValueOfParameterNamed(ClientApiConstants.mobileNoParamName);
+        final String mobileCountryCode = command.stringValueOfParameterNamed(ClientApiConstants.mobileCountryCodeParamName);
         final String emailAddress = command.stringValueOfParameterNamed(ClientApiConstants.emailAddressParamName);
 
         final String firstname = command.stringValueOfParameterNamed(ClientApiConstants.firstnameParamName);
@@ -294,6 +298,7 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
                 savingsAccountId, dataOfBirth, gender, clientType, clientClassification, legalForm, isStaff, migrated,
                 migratedOnDate, migratedFromOffice);
         client.setKivaId(kivaId);
+        client.setMobileCountryCode(mobileCountryCode);
         return client;
     }
 
@@ -527,6 +532,12 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
             final String newValue = command.stringValueOfParameterNamed(ClientApiConstants.mobileNoParamName);
             actualChanges.put(ClientApiConstants.mobileNoParamName, newValue);
             this.mobileNo = StringUtils.defaultIfEmpty(newValue, null);
+        }
+
+        if (command.isChangeInStringParameterNamed(ClientApiConstants.mobileCountryCodeParamName, this.mobileCountryCode)) {
+            final String newValue = command.stringValueOfParameterNamed(ClientApiConstants.mobileCountryCodeParamName);
+            actualChanges.put(ClientApiConstants.mobileCountryCodeParamName, newValue);
+            this.mobileCountryCode = StringUtils.defaultIfEmpty(newValue, null);
         }
 
         if (command.isChangeInStringParameterNamed(ClientApiConstants.emailAddressParamName, this.emailAddress)) {
@@ -783,6 +794,14 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom {
 
     public String mobileNo() {
         return this.mobileNo;
+    }
+
+    public String getMobileCountryCode() {
+        return this.mobileCountryCode;
+    }
+
+    public void setMobileCountryCode(final String mobileCountryCode) {
+        this.mobileCountryCode = StringUtils.defaultIfEmpty(StringUtils.trimToNull(mobileCountryCode), null);
     }
 
     public String emailAddress() {

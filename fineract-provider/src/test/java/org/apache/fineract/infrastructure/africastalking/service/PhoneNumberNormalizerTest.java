@@ -47,6 +47,16 @@ class PhoneNumberNormalizerTest {
     }
 
     @Test
+    void usesClientCountryCodeWhenProvided() {
+        assertEquals("+250788123456", normalizer.normalize("0788123456", "250"));
+    }
+
+    @Test
+    void usesIsoCountryCodeWhenProvided() {
+        assertEquals("+250788123456", normalizer.normalize("0788123456", "RW"));
+    }
+
+    @Test
     void lookupVariantsIncludeLocalAndInternationalForms() {
         final var variants = normalizer.lookupVariants("0712345678");
         assertTrue(variants.contains("0712345678"));

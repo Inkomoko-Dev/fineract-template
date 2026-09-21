@@ -90,6 +90,8 @@ public class ClientApiConstants {
     public static final String externalIdParamName = "externalId";
     public static final String kivaIdParamName = "kivaId";
     public static final String mobileNoParamName = "mobileNo";
+    public static final String mobileCountryCodeParamName = "mobileCountryCode";
+    public static final String MOBILE_COUNTRY_CODE = "MobileCountryCode";
     public static final String emailAddressParamName = "emailAddress";
     public static final String firstnameParamName = "firstname";
     public static final String middlenameParamName = "middlename";
@@ -267,7 +269,7 @@ public class ClientApiConstants {
      */
     protected static final Set<String> CLIENT_RESPONSE_DATA_PARAMETERS = new HashSet<>(Arrays.asList(idParamName, accountNoParamName,
             externalIdParamName, statusParamName, activeParamName, activationDateParamName, firstnameParamName, middlenameParamName,
-            lastnameParamName, fullnameParamName, displayNameParamName, mobileNoParamName, emailAddressParamName, officeIdParamName,
+            lastnameParamName, fullnameParamName, displayNameParamName, mobileNoParamName, mobileCountryCodeParamName, emailAddressParamName, officeIdParamName,
             officeNameParamName, transferToOfficeIdParamName, transferToOfficeNameParamName, hierarchyParamName, imageIdParamName,
             imagePresentParamName, staffIdParamName, staffNameParamName, timelineParamName, groupsParamName, officeOptionsParamName,
             staffOptionsParamName, dateOfBirthParamName, genderParamName, clientTypeParamName, clientClassificationParamName,

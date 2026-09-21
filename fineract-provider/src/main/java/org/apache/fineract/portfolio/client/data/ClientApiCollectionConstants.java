@@ -27,7 +27,7 @@ public class ClientApiCollectionConstants extends ClientApiConstants {
 
     protected static final Set<String> CLIENT_CREATE_REQUEST_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList(familyMembers, address, localeParamName, dateFormatParamName, groupIdParamName, accountNoParamName,
-                    externalIdParamName, mobileNoParamName, emailAddressParamName, firstnameParamName, middlenameParamName,
+                    externalIdParamName, mobileNoParamName, mobileCountryCodeParamName, emailAddressParamName, firstnameParamName, middlenameParamName,
                     lastnameParamName, fullnameParamName, officeIdParamName, activeParamName, activationDateParamName, staffIdParamName,
                     submittedOnDateParamName, savingsProductIdParamName, dateOfBirthParamName, genderIdParamName, clientTypeIdParamName,
                     clientClassificationIdParamName, clientLevelIdParamName, clientNonPersonDetailsParamName, displaynameParamName,
@@ -43,7 +43,7 @@ public class ClientApiCollectionConstants extends ClientApiConstants {
                     PHYSICAL_ADDRESS_CELL, PHYSICAL_ADDRESS_SECTOR));
 
     protected static final Set<String> CLIENT_UPDATE_REQUEST_DATA_PARAMETERS = new HashSet<>(Arrays.asList(localeParamName,
-            dateFormatParamName, accountNoParamName, externalIdParamName, mobileNoParamName, emailAddressParamName, firstnameParamName,
+            dateFormatParamName, accountNoParamName, externalIdParamName, mobileNoParamName, mobileCountryCodeParamName, emailAddressParamName, firstnameParamName,
             middlenameParamName, clientLevelIdParamName, lastnameParamName, fullnameParamName, activeParamName, activationDateParamName,
             staffIdParamName, savingsProductIdParamName, dateOfBirthParamName, genderIdParamName, clientTypeIdParamName,
             clientClassificationIdParamName, submittedOnDateParamName, clientNonPersonDetailsParamName, displaynameParamName,

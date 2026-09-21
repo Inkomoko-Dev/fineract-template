@@ -36,6 +36,10 @@ public class PhoneNumberNormalizer {
     }
 
     public String normalize(final String rawPhoneNumber) {
+        return normalize(rawPhoneNumber, null);
+    }
+
+    public String normalize(final String rawPhoneNumber, final String countryCodeOverride) {
         if (StringUtils.isBlank(rawPhoneNumber)) {
             return null;
         }
@@ -46,7 +50,11 @@ public class PhoneNumberNormalizer {
         if (digits.startsWith("00")) {
             return "+" + digits.substring(2);
         }
-        final String countryCode = properties.getPhone().getDefaultCountryCode();
+        final String countryCode = StringUtils.defaultIfBlank(CountryCallingCodes.dialCodeFor(countryCodeOverride),
+                StringUtils.getDigits(properties.getPhone().getDefaultCountryCode()));
+        if (StringUtils.isBlank(countryCode)) {
+            return digits;
+        }
         if (digits.startsWith(countryCode)) {
             return "+" + digits;
         }

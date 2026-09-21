@@ -23,12 +23,14 @@ import javax.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanApprovedBusinessEvent;
+import org.apache.fineract.portfolio.businessevent.domain.loan.LoanBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanCloseBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanCreatedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDisbursalBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanRejectedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanTransactionMakeRepaymentPostBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -55,13 +57,11 @@ public class NovuLoanEventListener {
                         event.get().getId(), "transactionAmount", event.get().getAmount(event.get().getLoan().getCurrency()).getAmount())));
     }
 
-    private <T extends org.apache.fineract.portfolio.businessevent.domain.loan.LoanBusinessEvent> BusinessEventListener<T> loanListener(
-            final String eventType) {
+    private <T extends LoanBusinessEvent> BusinessEventListener<T> loanListener(final String eventType) {
         return event -> safeTrigger(eventType, event.get(), Map.of());
     }
 
-    private void safeTrigger(final String eventType, final org.apache.fineract.portfolio.loanaccount.domain.Loan loan,
-            final Map<String, Object> payload) {
+    private void safeTrigger(final String eventType, final Loan loan, final Map<String, Object> payload) {
         try {
             campaignService.triggerLoanEvent(eventType, loan, payload);
         } catch (final RuntimeException e) {

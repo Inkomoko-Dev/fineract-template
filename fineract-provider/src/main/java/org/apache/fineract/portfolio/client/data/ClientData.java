@@ -129,6 +129,8 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
     private LocalDate migratedOnDate;
     private Long migratedFromOfficeId;
     private String migratedFromOfficeName;
+    private String mobileCountryCode;
+    private Collection<CodeValueData> mobileCountryCodeOptions;
 
     private final BigDecimal dailyWithdrawLimit;
 
@@ -410,12 +412,14 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
                 templateData.clientNonPersonMainBusinessLineOptions, clientData.clientNonPersonDetails, templateData.clientLegalFormOptions,
                 templateData.familyMemberOptions, clientData.legalForm, clientData.address, clientData.isAddressEnabled, null,
                 clientData.isStaff, clientCollateralManagements, clientData.ownersData, clientData.isBusinessOwnerEnabled,
-                clientData.getClientLevel(), clientData.getDailyWithdrawLimit(), clientData.singleWithdrawLimit, templateData.titleOptions,
+                clientData.getClientLevel(), clientData.getDailyWithdrawLimit(), clientData.singleWithdrawLimit,                 templateData.titleOptions,
                 clientData.clientAdditionalInfoData, clientData.createdDate, clientData.kivaId);
         copy.migrated = clientData.migrated;
         copy.migratedOnDate = clientData.migratedOnDate;
         copy.migratedFromOfficeId = clientData.migratedFromOfficeId;
         copy.migratedFromOfficeName = clientData.migratedFromOfficeName;
+        copy.mobileCountryCode = clientData.mobileCountryCode;
+        copy.mobileCountryCodeOptions = templateData.mobileCountryCodeOptions;
         return copy;
 
     }
@@ -442,6 +446,8 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
         copy.migratedOnDate = clientData.migratedOnDate;
         copy.migratedFromOfficeId = clientData.migratedFromOfficeId;
         copy.migratedFromOfficeName = clientData.migratedFromOfficeName;
+        copy.mobileCountryCode = clientData.mobileCountryCode;
+        copy.mobileCountryCodeOptions = clientData.mobileCountryCodeOptions;
         return copy;
 
     }
@@ -466,6 +472,8 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
         copy.migratedOnDate = clientData.migratedOnDate;
         copy.migratedFromOfficeId = clientData.migratedFromOfficeId;
         copy.migratedFromOfficeName = clientData.migratedFromOfficeName;
+        copy.mobileCountryCode = clientData.mobileCountryCode;
+        copy.mobileCountryCodeOptions = clientData.mobileCountryCodeOptions;
         return copy;
 
     }
@@ -849,6 +857,22 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
 
     public void setMigratedFromOfficeName(final String migratedFromOfficeName) {
         this.migratedFromOfficeName = migratedFromOfficeName;
+    }
+
+    public String getMobileCountryCode() {
+        return this.mobileCountryCode;
+    }
+
+    public void setMobileCountryCode(final String mobileCountryCode) {
+        this.mobileCountryCode = mobileCountryCode;
+    }
+
+    public Collection<CodeValueData> getMobileCountryCodeOptions() {
+        return this.mobileCountryCodeOptions;
+    }
+
+    public void setMobileCountryCodeOptions(final Collection<CodeValueData> mobileCountryCodeOptions) {
+        this.mobileCountryCodeOptions = mobileCountryCodeOptions;
     }
 
     public void setClientBusinessDetailDataSet(Set<ClientBusinessDetailData> clientBusinessDetailDataSet) {

@@ -44,6 +44,8 @@ import org.apache.fineract.infrastructure.dataqueries.service.ReadReportingServi
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
+import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
+import org.apache.fineract.infrastructure.campaigns.sms.service.SmsCampaignReadPlatformService;
 import org.apache.fineract.infrastructure.novu.domain.NovuCampaign;
 import org.apache.fineract.infrastructure.novu.domain.NovuCampaignRepository;
 import org.apache.fineract.organisation.staff.domain.Staff;
@@ -67,32 +69,86 @@ public class NovuCampaignService {
     public static final List<String> CHANNELS = List.of("IN_APP", "EMAIL", "SMS", "WHATSAPP", "TELEGRAM", "SLACK");
     public static final Map<String, String> CHAT_PROVIDERS = Map.of("WHATSAPP", "whatsapp-business", "TELEGRAM", "telegram", "SLACK",
             "slack");
-    private static final List<String> RECIPIENT_TYPES = List.of("CLIENT", "STAFF", "BOTH");
+    public static final List<String> RECIPIENT_TYPES = List.of("CLIENT", "STAFF", "BOTH");
+    public static final Map<String, String> WORKFLOW_BINDINGS = Map.of("emailSubject", "{{payload.emailSubject}}", "emailBody",
+            "{{payload.emailBody}}", "smsBody", "{{payload.smsBody}}", "inAppBody", "{{payload.inAppBody}}", "chatBody",
+            "{{payload.chatBody}}");
 
     private final NovuCampaignRepository repository;
     private final NovuClient novuClient;
     private final JdbcTemplate jdbcTemplate;
     private final ReadReportingService readReportingService;
+    private final SmsCampaignReadPlatformService smsCampaignReadPlatformService;
+    private final PhoneNumberNormalizer phoneNumberNormalizer;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public NovuCampaignService(final NovuCampaignRepository repository, final NovuClient novuClient, final JdbcTemplate jdbcTemplate,
-            final ReadReportingService readReportingService) {
+            final ReadReportingService readReportingService, final SmsCampaignReadPlatformService smsCampaignReadPlatformService,
+            final PhoneNumberNormalizer phoneNumberNormalizer) {
         this.repository = repository;
         this.novuClient = novuClient;
         this.jdbcTemplate = jdbcTemplate;
         this.readReportingService = readReportingService;
+        this.smsCampaignReadPlatformService = smsCampaignReadPlatformService;
+        this.phoneNumberNormalizer = phoneNumberNormalizer;
     }
 
     public NovuCampaign getCampaign(final Long id) {
-        return find(id);
-    }
-
-    public List<NovuCampaign> findAll() {
-        return repository.findAll();
+        return repository.findById(id).orElseThrow(() -> new PlatformDataIntegrityException("error.msg.novu.campaign.not.found",
+                "Novu campaign with id " + id + " was not found"));
     }
 
     public List<Map<String, Object>> findAllAsMaps() {
-        return findAll().stream().map(this::toApiMap).collect(Collectors.toList());
+        return repository.findAll().stream().map(this::toApiMap).collect(Collectors.toList());
+    }
+
+    public Map<String, Object> catalogue() {
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("loanEvents", LOAN_EVENTS);
+        result.put("triggerTypes", TRIGGER_TYPES);
+        result.put("channels", CHANNELS);
+        result.put("chatProviders", CHAT_PROVIDERS);
+        result.put("recipientTypes", RECIPIENT_TYPES);
+        return result;
+    }
+
+    public Map<String, Object> templateOptions() {
+        final Map<String, Object> result = new LinkedHashMap<>(catalogue());
+        result.put("audienceReports", listAudienceReports());
+        result.put("customEventsSupported", true);
+        result.put("customTriggerEndpoint", "/novu/events/{eventType}/trigger");
+        result.put("templateSyntax", "${variableName}");
+        result.put("eventTemplateVariables", EVENT_TEMPLATE_VARIABLES);
+        result.put("reportTemplateVariables", REPORT_TEMPLATE_VARIABLES);
+        result.put("templateVariables", EVENT_TEMPLATE_VARIABLES);
+        result.put("novuWorkflowBindings", WORKFLOW_BINDINGS);
+        try {
+            result.put("businessRulesAndScheduleOptions", smsCampaignReadPlatformService.retrieveTemplate("SMS"));
+        } catch (final RuntimeException ignored) {
+            result.put("businessRulesAndScheduleOptions", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> listLogs(final Integer requestedLimit, final Integer requestedOffset) {
+        final int limit = Math.max(1, Math.min(requestedLimit == null ? 100 : requestedLimit, 500));
+        final int offset = Math.max(0, requestedOffset == null ? 0 : requestedOffset);
+        final List<Map<String, Object>> logs = jdbcTemplate.queryForList("SELECT l.id, l.campaign_id campaignId, "
+                + "c.campaign_name campaignName, l.event_type eventType, l.workflow_id workflowId, "
+                + "l.subscriber_id subscriberId, l.recipient_type recipientType, l.channel, l.status, "
+                + "l.transaction_id transactionId, l.response_message responseMessage, l.created_on createdOn "
+                + "FROM novu_notification_log l LEFT JOIN novu_campaign c ON c.id = l.campaign_id "
+                + "ORDER BY l.created_on DESC LIMIT ? OFFSET ?", limit, offset);
+        for (final Map<String, Object> log : logs) {
+            final Object createdOn = log.get("createdOn");
+            if (createdOn != null && !(createdOn instanceof String) && !(createdOn instanceof Number)) {
+                log.put("createdOn", createdOn.toString());
+            }
+        }
+        final Map<String, Object> response = new LinkedHashMap<>();
+        response.put("pageItems", logs);
+        response.put("totalFilteredRecords", jdbcTemplate.queryForObject("SELECT COUNT(*) FROM novu_notification_log", Long.class));
+        return response;
     }
 
     public Map<String, Object> toApiMap(final NovuCampaign campaign) {
@@ -157,7 +213,7 @@ public class NovuCampaignService {
 
     @Transactional
     public NovuCampaign update(final Long id, final String json) {
-        final NovuCampaign campaign = find(id);
+        final NovuCampaign campaign = getCampaign(id);
         final CampaignValues values = parse(json);
         campaign.update(values.name, values.workflowId, values.eventType, values.triggerType, values.recipientType, values.channels,
                 values.emailSubject, values.emailBody, values.smsBody, values.inAppBody, values.chatBody, values.reportName,
@@ -169,26 +225,19 @@ public class NovuCampaignService {
 
     @Transactional
     public void delete(final Long id) {
-        final NovuCampaign campaign = find(id);
+        final NovuCampaign campaign = getCampaign(id);
         final String workflowId = campaign.getWorkflowId();
         final boolean unusedWorkflow = StringUtils.isNotBlank(workflowId) && repository.countByWorkflowId(workflowId) <= 1;
         repository.delete(campaign);
         if (unusedWorkflow) {
-            final NovuClient.TriggerResult result = novuClient.deleteWorkflow(workflowId);
-            if (!result.isSuccessful()) {
-                throw new PlatformDataIntegrityException("error.msg.novu.workflow.delete.failed",
-                        "Campaign was removed locally but the Novu workflow could not be deleted: " + result.getMessage());
-            }
+            requireSuccess(novuClient.deleteWorkflow(workflowId), "error.msg.novu.workflow.delete.failed",
+                    "Campaign was removed locally but the Novu workflow could not be deleted: ");
         }
     }
 
     private void ensureWorkflow(final NovuCampaign campaign) {
-        final NovuClient.TriggerResult result = novuClient.ensureWorkflow(campaign.getWorkflowId(), campaign.getCampaignName(),
-                splitChannels(campaign.getChannels()));
-        if (!result.isSuccessful()) {
-            throw new PlatformDataIntegrityException("error.msg.novu.workflow.create.failed",
-                    "Campaign was saved but the Novu workflow could not be created: " + result.getMessage());
-        }
+        requireSuccess(novuClient.ensureWorkflow(campaign.getWorkflowId(), campaign.getCampaignName(), splitChannels(campaign.getChannels())),
+                "error.msg.novu.workflow.create.failed", "Campaign was saved but the Novu workflow could not be created: ");
     }
 
     public void triggerLoanEvent(final String eventType, final Loan loan, final Map<String, Object> additionalPayload) {
@@ -196,11 +245,10 @@ public class NovuCampaignService {
         for (final NovuCampaign campaign : campaigns) {
             final Map<String, Object> payload = loanPayload(loan, eventType);
             payload.putAll(additionalPayload);
-            if (("CLIENT".equals(campaign.getRecipientType()) || "BOTH".equals(campaign.getRecipientType())) && loan.getClient() != null) {
+            if (includesRecipient(campaign, "CLIENT") && loan.getClient() != null) {
                 trigger(campaign, clientSubscriber(loan.getClient()), payload, "CLIENT");
             }
-            if (("STAFF".equals(campaign.getRecipientType()) || "BOTH".equals(campaign.getRecipientType()))
-                    && loan.getLoanOfficer() != null) {
+            if (includesRecipient(campaign, "STAFF") && loan.getLoanOfficer() != null) {
                 trigger(campaign, staffSubscriber(loan.getLoanOfficer()), payload, "STAFF");
             }
         }
@@ -218,7 +266,7 @@ public class NovuCampaignService {
     }
 
     public Map<String, Integer> triggerCampaign(final Long id) {
-        final NovuCampaign campaign = find(id);
+        final NovuCampaign campaign = getCampaign(id);
         if (!"DIRECT".equals(campaign.getTriggerType()) && !"SCHEDULED".equals(campaign.getTriggerType())) {
             throw new PlatformDataIntegrityException("error.msg.novu.campaign.not.direct",
                     "Only direct or scheduled campaigns can be manually sent");
@@ -307,7 +355,8 @@ public class NovuCampaignService {
         putIfPresent(subscriber, "firstName", stringValue(first(row, "firstName", "firstname")));
         putIfPresent(subscriber, "lastName", stringValue(first(row, "lastName", "lastname")));
         putIfPresent(subscriber, "email", stringValue(first(row, "email", "emailAddress", "email_address")));
-        putIfPresent(subscriber, "phone", stringValue(first(row, "phone", "mobileNo", "mobile_no")));
+        putIfPresent(subscriber, "phone", internationalPhone(stringValue(first(row, "phone", "mobileNo", "mobile_no")),
+                stringValue(first(row, "mobileCountryCode", "countryCode", "country_code"))));
         return subscriber;
     }
 
@@ -329,20 +378,13 @@ public class NovuCampaignService {
         int failed = 0;
         final List<Map<String, Object>> subscribers = jdbcTemplate.query(
                 "SELECT CONCAT('client-', id) subscriberId, firstname firstName, lastname lastName, "
-                        + "email_address email, mobile_no phone FROM m_client WHERE status_enum = 300 "
-                        + "UNION ALL SELECT CONCAT('staff-', id), firstname, lastname, email_address, mobile_no "
+                        + "email_address email, mobile_no phone, mobile_country_code countryCode FROM m_client WHERE status_enum = 300 "
+                        + "UNION ALL SELECT CONCAT('staff-', id), firstname, lastname, email_address, mobile_no, NULL "
                         + "FROM m_staff WHERE is_active = 1 "
-                        + "UNION ALL SELECT CONCAT('user-', u.id), u.firstname, u.lastname, u.email, s.mobile_no "
+                        + "UNION ALL SELECT CONCAT('user-', u.id), u.firstname, u.lastname, u.email, s.mobile_no, NULL "
                         + "FROM m_appuser u LEFT JOIN m_staff s ON s.id = u.staff_id WHERE u.is_deleted = false",
-                (rs, rowNum) -> {
-                    final Map<String, Object> subscriber = new LinkedHashMap<>();
-                    subscriber.put("subscriberId", rs.getString("subscriberId"));
-                    putIfPresent(subscriber, "firstName", rs.getString("firstName"));
-                    putIfPresent(subscriber, "lastName", rs.getString("lastName"));
-                    putIfPresent(subscriber, "email", rs.getString("email"));
-                    putIfPresent(subscriber, "phone", rs.getString("phone"));
-                    return subscriber;
-                });
+                (rs, rowNum) -> subscriber(rs.getString("subscriberId"), rs.getString("firstName"), rs.getString("lastName"),
+                        rs.getString("email"), internationalPhone(rs.getString("phone"), rs.getString("countryCode"))));
         for (int start = 0; start < subscribers.size(); start += 500) {
             final NovuClient.BulkSubscriberResult result = novuClient.upsertSubscribers(
                     subscribers.subList(start, Math.min(start + 500, subscribers.size())));
@@ -367,8 +409,8 @@ public class NovuCampaignService {
             jdbcTemplate.update("INSERT INTO novu_notification_log (campaign_id, event_type, workflow_id, subscriber_id, "
                     + "recipient_type, channel, status, transaction_id, response_message, created_on) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     campaign.getId(), campaign.getEventType(), campaign.getWorkflowId(), subscriber.get("subscriberId"), recipientType,
-                    channel, result.isSuccessful() ? "ACCEPTED" : "FAILED", result.getTransactionId(), result.getMessage(),
-                    DateUtils.getLocalDateTimeOfTenant());
+                    channel, result.isSuccessful() ? "ACCEPTED" : "FAILED", result.getTransactionId(),
+                    StringUtils.abbreviate(StringUtils.defaultString(result.getMessage()), 990), DateUtils.getLocalDateTimeOfTenant());
         }
     }
 
@@ -385,14 +427,15 @@ public class NovuCampaignService {
     }
 
     private Map<String, Object> loanPayload(final Loan loan, final String eventType) {
+        final Client client = loan.getClient();
         final Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("eventType", eventType);
         payload.put("loanId", loan.getId());
         payload.put("loanAccountNumber", loan.getAccountNumber());
-        payload.put("clientId", loan.getClient() == null ? null : loan.getClient().getId());
-        payload.put("clientName", loan.getClient() == null ? null : loan.getClient().getDisplayName());
-        payload.put("firstName", loan.getClient() == null ? null : loan.getClient().getFirstname());
-        payload.put("lastName", loan.getClient() == null ? null : loan.getClient().getLastname());
+        payload.put("clientId", client == null ? null : client.getId());
+        payload.put("clientName", client == null ? null : client.getDisplayName());
+        payload.put("firstName", client == null ? null : client.getFirstname());
+        payload.put("lastName", client == null ? null : client.getLastname());
         payload.put("approvedPrincipal", loan.getApprovedPrincipal());
         payload.put("disbursedAmount", loan.getDisbursedAmount());
         payload.put("currency", loan.getCurrencyCode());
@@ -400,21 +443,27 @@ public class NovuCampaignService {
     }
 
     private Map<String, Object> clientSubscriber(final Client client) {
-        final Map<String, Object> subscriber = new LinkedHashMap<>();
-        subscriber.put("subscriberId", "client-" + client.getId());
-        putIfPresent(subscriber, "firstName", client.getFirstname());
-        putIfPresent(subscriber, "lastName", client.getLastname());
-        putIfPresent(subscriber, "email", client.getEmail());
-        putIfPresent(subscriber, "phone", client.getMobileNo());
-        return subscriber;
+        return subscriber("client-" + client.getId(), client.getFirstname(), client.getLastname(), client.getEmail(),
+                internationalPhone(client.mobileNo(), client.getMobileCountryCode()));
     }
 
     private Map<String, Object> staffSubscriber(final Staff staff) {
+        return subscriber("staff-" + staff.getId(), staff.displayName(), null, staff.emailAddress(),
+                internationalPhone(staff.mobileNo(), null));
+    }
+
+    private String internationalPhone(final String phone, final String countryCode) {
+        return phoneNumberNormalizer.normalize(phone, countryCode);
+    }
+
+    private Map<String, Object> subscriber(final String subscriberId, final String firstName, final String lastName, final String email,
+            final String phone) {
         final Map<String, Object> subscriber = new LinkedHashMap<>();
-        subscriber.put("subscriberId", "staff-" + staff.getId());
-        putIfPresent(subscriber, "firstName", staff.displayName());
-        putIfPresent(subscriber, "email", staff.emailAddress());
-        putIfPresent(subscriber, "phone", staff.mobileNo());
+        subscriber.put("subscriberId", subscriberId);
+        putIfPresent(subscriber, "firstName", firstName);
+        putIfPresent(subscriber, "lastName", lastName);
+        putIfPresent(subscriber, "email", email);
+        putIfPresent(subscriber, "phone", phone);
         return subscriber;
     }
 
@@ -424,13 +473,21 @@ public class NovuCampaignService {
         }
     }
 
+    private boolean includesRecipient(final NovuCampaign campaign, final String recipientType) {
+        return recipientType.equals(campaign.getRecipientType()) || "BOTH".equals(campaign.getRecipientType());
+    }
+
     private List<String> splitChannels(final String channels) {
+        if (StringUtils.isBlank(channels)) {
+            return List.of();
+        }
         return Arrays.stream(channels.split(",")).map(String::trim).filter(StringUtils::isNotBlank).collect(Collectors.toList());
     }
 
-    private NovuCampaign find(final Long id) {
-        return repository.findById(id).orElseThrow(() -> new PlatformDataIntegrityException("error.msg.novu.campaign.not.found",
-                "Novu campaign with id " + id + " was not found"));
+    private void requireSuccess(final NovuClient.TriggerResult result, final String code, final String message) {
+        if (!result.isSuccessful()) {
+            throw new PlatformDataIntegrityException(code, message + result.getMessage());
+        }
     }
 
     private CampaignValues parse(final String json) {

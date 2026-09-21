@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -52,83 +53,93 @@ public class NovuClient {
     public TriggerResult trigger(final String workflowId, final Map<String, Object> subscriber, final Map<String, Object> payload,
             final String transactionId) {
         final NovuConfigurationData configuration = configurationService.getConfiguration();
-        if (!configuration.isEnabled()) {
-            return new TriggerResult(false, transactionId, "Novu integration is disabled");
+        final TriggerResult unavailable = unavailable(configuration, transactionId, false);
+        if (unavailable != null) {
+            return unavailable;
         }
-        if (StringUtils.isBlank(configuration.getApiKey())) {
-            return new TriggerResult(false, transactionId, "Novu API key is not configured");
-        }
-
-        final JsonObject body = new JsonObject();
-        body.addProperty("name", workflowId);
-        body.add("to", gson.toJsonTree(subscriber));
-        body.add("payload", gson.toJsonTree(payload));
-        body.addProperty("transactionId", transactionId);
-
-        final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS)
-                .readTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS).build();
-        final Request request = new Request.Builder().url(stripTrailingSlash(configuration.getApiUrl()) + "/v1/events/trigger")
-                .header("Authorization", "ApiKey " + configuration.getApiKey()).header("Idempotency-Key", transactionId)
-                .post(RequestBody.create(gson.toJson(body), JSON)).build();
-        try (Response response = client.newCall(request).execute()) {
-            final String responseBody = response.body() == null ? "" : response.body().string();
-            return new TriggerResult(response.isSuccessful(), transactionId, truncate(responseBody));
-        } catch (final IOException e) {
-            return new TriggerResult(false, transactionId, truncate(e.getMessage()));
-        }
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("name", workflowId);
+        body.put("to", subscriber);
+        body.put("payload", payload);
+        body.put("transactionId", transactionId);
+        return execute(configuration, "POST", "/v1/events/trigger", body, transactionId);
     }
 
     public TriggerResult upsertSubscriber(final Map<String, Object> subscriber) {
         final NovuConfigurationData configuration = configurationService.getConfiguration();
         final String transactionId = "subscriber-" + subscriber.get("subscriberId");
-        if (!configuration.isEnabled() || StringUtils.isBlank(configuration.getApiKey())) {
-            return new TriggerResult(false, transactionId, "Novu is disabled or its API key is missing");
+        final TriggerResult unavailable = unavailable(configuration, transactionId, false);
+        if (unavailable != null) {
+            return unavailable;
         }
-        final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS)
-                .readTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS).build();
-        final Request request = new Request.Builder().url(stripTrailingSlash(configuration.getApiUrl()) + "/v1/subscribers")
-                .header("Authorization", "ApiKey " + configuration.getApiKey())
-                .post(RequestBody.create(gson.toJson(subscriber), JSON)).build();
-        try (Response response = client.newCall(request).execute()) {
-            final String responseBody = response.body() == null ? "" : response.body().string();
-            // Creating an existing subscriber is idempotent for the CBS sync use case.
-            return new TriggerResult(response.isSuccessful() || response.code() == 409, transactionId, truncate(responseBody));
-        } catch (final IOException e) {
-            return new TriggerResult(false, transactionId, truncate(e.getMessage()));
-        }
+        return execute(configuration, "POST", "/v1/subscribers", subscriber, transactionId, 200, 201, 409);
     }
 
     public TriggerResult upsertProviderCredentials(final String subscriberId, final Map<String, Object> credentials) {
         final NovuConfigurationData configuration = configurationService.getConfiguration();
-        final String transactionId = "credentials-" + subscriberId + "-" + java.util.UUID.randomUUID();
-        if (!configuration.isEnabled() || StringUtils.isBlank(configuration.getApiKey())) {
-            return new TriggerResult(false, transactionId, "Novu is disabled or its API key is missing");
+        final String transactionId = "credentials-" + subscriberId + "-" + UUID.randomUUID();
+        final TriggerResult unavailable = unavailable(configuration, transactionId, false);
+        if (unavailable != null) {
+            return unavailable;
         }
-        final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS)
-                .readTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS).build();
-        final Request request = new Request.Builder()
-                .url(stripTrailingSlash(configuration.getApiUrl()) + "/v1/subscribers/" + subscriberId + "/credentials")
-                .header("Authorization", "ApiKey " + configuration.getApiKey()).header("Idempotency-Key", transactionId)
-                .patch(RequestBody.create(gson.toJson(credentials), JSON)).build();
-        try (Response response = client.newCall(request).execute()) {
-            final String responseBody = response.body() == null ? "" : response.body().string();
-            return new TriggerResult(response.isSuccessful(), transactionId, truncate(responseBody));
-        } catch (final IOException e) {
-            return new TriggerResult(false, transactionId, truncate(e.getMessage()));
-        }
+        return execute(configuration, "PATCH", "/v1/subscribers/" + encode(subscriberId) + "/credentials", credentials, transactionId);
     }
 
     public TriggerResult ensureWorkflow(final String workflowId, final String campaignName, final List<String> channels) {
         final NovuConfigurationData configuration = configurationService.getConfiguration();
-        if (!configuration.isEnabled() || StringUtils.isBlank(configuration.getApiKey())) {
+        final TriggerResult unavailable = unavailable(configuration, workflowId, true);
+        if (unavailable != null) {
             return new TriggerResult(true, workflowId, "Novu is disabled; workflow was not created");
         }
         if (StringUtils.isBlank(workflowId)) {
             return new TriggerResult(false, workflowId, "workflowId is required");
         }
-        if (workflowExists(configuration, workflowId)) {
+        if (execute(configuration, "GET", workflowPath(workflowId), null, workflowId, 200).isSuccessful()) {
             return new TriggerResult(true, workflowId, "Workflow already exists");
         }
+        final List<Map<String, Object>> steps = workflowSteps(channels);
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("name", StringUtils.defaultIfBlank(campaignName, workflowId));
+        body.put("workflowId", workflowId);
+        body.put("active", true);
+        body.put("steps", steps);
+        return execute(configuration, "POST", "/v2/workflows", body, workflowId, 201, 200, 409);
+    }
+
+    public TriggerResult deleteWorkflow(final String workflowId) {
+        final NovuConfigurationData configuration = configurationService.getConfiguration();
+        if (StringUtils.isBlank(workflowId)) {
+            return new TriggerResult(true, workflowId, "Workflow delete skipped");
+        }
+        final TriggerResult unavailable = unavailable(configuration, workflowId, true);
+        if (unavailable != null) {
+            return new TriggerResult(true, workflowId, "Workflow delete skipped");
+        }
+        return execute(configuration, "DELETE", workflowPath(workflowId), null, workflowId, 200, 204, 404);
+    }
+
+    public BulkSubscriberResult upsertSubscribers(final List<Map<String, Object>> subscribers) {
+        final NovuConfigurationData configuration = configurationService.getConfiguration();
+        if (unavailable(configuration, UUID.randomUUID().toString(), false) != null) {
+            return new BulkSubscriberResult(0, subscribers.size());
+        }
+        final Map<String, Object> body = Map.of("subscribers", subscribers);
+        final TriggerResult result = execute(configuration, "POST", "/v1/subscribers/bulk", body, UUID.randomUUID().toString());
+        if (!result.isSuccessful() || StringUtils.isBlank(result.getMessage())) {
+            return new BulkSubscriberResult(0, subscribers.size());
+        }
+        try {
+            final JsonObject parsed = JsonParser.parseString(result.getMessage()).getAsJsonObject();
+            final int created = arraySize(parsed, "created");
+            final int updated = arraySize(parsed, "updated");
+            final int failed = arraySize(parsed, "failed");
+            return new BulkSubscriberResult(created + updated, failed);
+        } catch (final RuntimeException e) {
+            return new BulkSubscriberResult(0, subscribers.size());
+        }
+    }
+
+    private List<Map<String, Object>> workflowSteps(final List<String> channels) {
         final List<Map<String, Object>> steps = new ArrayList<>();
         for (final String channel : channels) {
             switch (channel) {
@@ -154,29 +165,7 @@ public class NovuClient {
         if (steps.isEmpty()) {
             steps.add(step("sms", "SMS", Map.of("body", "{{payload.smsBody}}")));
         }
-        final Map<String, Object> body = new LinkedHashMap<>();
-        body.put("name", StringUtils.defaultIfBlank(campaignName, workflowId));
-        body.put("workflowId", workflowId);
-        body.put("active", true);
-        body.put("steps", steps);
-        return execute(configuration, "POST", "/v2/workflows", body, workflowId, 201, 200, 409);
-    }
-
-    public TriggerResult deleteWorkflow(final String workflowId) {
-        final NovuConfigurationData configuration = configurationService.getConfiguration();
-        if (!configuration.isEnabled() || StringUtils.isBlank(configuration.getApiKey()) || StringUtils.isBlank(workflowId)) {
-            return new TriggerResult(true, workflowId, "Workflow delete skipped");
-        }
-        return execute(configuration, "DELETE", workflowPath(workflowId), null, workflowId, 200, 204, 404);
-    }
-
-    private boolean workflowExists(final NovuConfigurationData configuration, final String workflowId) {
-        final TriggerResult result = execute(configuration, "GET", workflowPath(workflowId), null, workflowId, 200);
-        return result.isSuccessful();
-    }
-
-    private String workflowPath(final String workflowId) {
-        return "/v2/workflows/" + URLEncoder.encode(workflowId, StandardCharsets.UTF_8).replace("+", "%20");
+        return steps;
     }
 
     private Map<String, Object> step(final String type, final String name, final Map<String, Object> controlValues) {
@@ -187,69 +176,65 @@ public class NovuClient {
         return step;
     }
 
+    private TriggerResult unavailable(final NovuConfigurationData configuration, final String transactionId, final boolean treatAsSuccess) {
+        if (configuration.isEnabled() && StringUtils.isNotBlank(configuration.getApiKey())) {
+            return null;
+        }
+        final String message = configuration.isEnabled() ? "Novu API key is not configured" : "Novu integration is disabled";
+        return new TriggerResult(treatAsSuccess, transactionId, message);
+    }
+
     private TriggerResult execute(final NovuConfigurationData configuration, final String method, final String path,
-            final Map<String, Object> body, final String transactionId, final int... successCodes) {
+            final Object body, final String transactionId, final int... successCodes) {
         final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS)
                 .readTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS).build();
         final Request.Builder builder = new Request.Builder().url(stripTrailingSlash(configuration.getApiUrl()) + path)
                 .header("Authorization", "ApiKey " + configuration.getApiKey()).header("Idempotency-Key",
-                        StringUtils.defaultIfBlank(transactionId, java.util.UUID.randomUUID().toString()));
+                        StringUtils.defaultIfBlank(transactionId, UUID.randomUUID().toString()));
         final RequestBody requestBody = body == null ? null : RequestBody.create(gson.toJson(body), JSON);
-        if ("POST".equals(method)) {
-            builder.post(requestBody);
-        } else if ("DELETE".equals(method)) {
-            builder.delete();
-        } else {
-            builder.get();
+        switch (method) {
+            case "POST":
+                builder.post(requestBody);
+                break;
+            case "PATCH":
+                builder.patch(requestBody);
+                break;
+            case "DELETE":
+                builder.delete();
+                break;
+            default:
+                builder.get();
+                break;
         }
         try (Response response = client.newCall(builder.build()).execute()) {
             final String responseBody = response.body() == null ? "" : response.body().string();
-            boolean successful = false;
+            boolean successful = successCodes.length == 0 ? response.isSuccessful() : false;
             for (final int code : successCodes) {
                 if (response.code() == code) {
                     successful = true;
                     break;
                 }
             }
-            return new TriggerResult(successful, transactionId, truncate(responseBody));
+            return new TriggerResult(successful, transactionId, responseBody);
         } catch (final IOException e) {
-            return new TriggerResult(false, transactionId, truncate(e.getMessage()));
+            return new TriggerResult(false, transactionId, e.getMessage());
         }
     }
 
-    public BulkSubscriberResult upsertSubscribers(final List<Map<String, Object>> subscribers) {
-        final NovuConfigurationData configuration = configurationService.getConfiguration();
-        if (!configuration.isEnabled() || StringUtils.isBlank(configuration.getApiKey())) {
-            return new BulkSubscriberResult(0, subscribers.size());
-        }
-        final JsonObject body = new JsonObject();
-        body.add("subscribers", gson.toJsonTree(subscribers));
-        final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS)
-                .readTimeout(configuration.getTimeoutSeconds(), TimeUnit.SECONDS).build();
-        final Request request = new Request.Builder().url(stripTrailingSlash(configuration.getApiUrl()) + "/v1/subscribers/bulk")
-                .header("Authorization", "ApiKey " + configuration.getApiKey())
-                .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
-                .post(RequestBody.create(gson.toJson(body), JSON)).build();
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful() || response.body() == null) {
-                return new BulkSubscriberResult(0, subscribers.size());
-            }
-            final JsonObject result = JsonParser.parseString(response.body().string()).getAsJsonObject();
-            final int created = result.has("created") ? result.getAsJsonArray("created").size() : 0;
-            final int updated = result.has("updated") ? result.getAsJsonArray("updated").size() : 0;
-            final int failed = result.has("failed") ? result.getAsJsonArray("failed").size() : 0;
-            return new BulkSubscriberResult(created + updated, failed);
-        } catch (final IOException | RuntimeException e) {
-            return new BulkSubscriberResult(0, subscribers.size());
-        }
+    private String workflowPath(final String workflowId) {
+        return "/v2/workflows/" + encode(workflowId);
+    }
+
+    private String encode(final String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private int arraySize(final JsonObject object, final String field) {
+        return object.has(field) ? object.getAsJsonArray(field).size() : 0;
     }
 
     private String stripTrailingSlash(final String value) {
         return StringUtils.removeEnd(StringUtils.defaultIfBlank(value, "https://api.novu.co"), "/");
-    }
-
-    private String truncate(final String value) {
-        return StringUtils.abbreviate(StringUtils.defaultString(value), 990);
     }
 
     public static final class TriggerResult {
@@ -278,6 +263,7 @@ public class NovuClient {
     }
 
     public static final class BulkSubscriberResult {
+
         private final int synced;
         private final int failed;
 
@@ -286,7 +272,12 @@ public class NovuClient {
             this.failed = failed;
         }
 
-        public int getSynced() { return synced; }
-        public int getFailed() { return failed; }
+        public int getSynced() {
+            return synced;
+        }
+
+        public int getFailed() {
+            return failed;
+        }
     }
 }

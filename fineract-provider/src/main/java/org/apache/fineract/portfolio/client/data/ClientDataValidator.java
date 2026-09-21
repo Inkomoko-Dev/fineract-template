@@ -166,6 +166,13 @@ public final class ClientDataValidator {
                     .notExceedingLengthOf(50).validatePhoneNumber();
         }
 
+        if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.mobileCountryCodeParamName, element)) {
+            final String mobileCountryCode = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.mobileCountryCodeParamName,
+                    element);
+            baseDataValidator.reset().parameter(ClientApiConstants.mobileCountryCodeParamName).value(mobileCountryCode).ignoreIfNull()
+                    .notExceedingLengthOf(8);
+        }
+
         if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.kivaIdParamName, element)) {
             final String kivaId = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.kivaIdParamName, element);
             baseDataValidator.reset().parameter(ClientApiConstants.kivaIdParamName).value(kivaId).ignoreIfNull().notExceedingLengthOf(50);
@@ -467,6 +474,14 @@ public final class ClientDataValidator {
             final String mobileNo = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.mobileNoParamName, element);
             baseDataValidator.reset().parameter(ClientApiConstants.mobileNoParamName).value(mobileNo).notExceedingLengthOf(50)
                     .validatePhoneNumber();
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.mobileCountryCodeParamName, element)) {
+            atLeastOneParameterPassedForUpdate = true;
+            final String mobileCountryCode = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.mobileCountryCodeParamName,
+                    element);
+            baseDataValidator.reset().parameter(ClientApiConstants.mobileCountryCodeParamName).value(mobileCountryCode).ignoreIfNull()
+                    .notExceedingLengthOf(8);
         }
 
         final Boolean active = this.fromApiJsonHelper.extractBooleanNamed(ClientApiConstants.activeParamName, element);
