@@ -1016,6 +1016,13 @@ public class LoanCharge extends AbstractPersistableCustom {
         return this.overdueInstallmentCharge;
     }
 
+    public void updateAmountPaidForDisbursementChargeAdjustment(final BigDecimal amount, final BigDecimal amountPaid) {
+        this.amount = amount;
+        this.amountPaid = amountPaid == null ? BigDecimal.ZERO : amountPaid;
+        this.amountOutstanding = calculateOutstanding();
+        this.paid = BigDecimal.ZERO.compareTo(this.amountOutstanding) == 0;
+    }
+
     public LoanTrancheDisbursementCharge getTrancheDisbursementCharge() {
         return this.loanTrancheDisbursementCharge;
     }

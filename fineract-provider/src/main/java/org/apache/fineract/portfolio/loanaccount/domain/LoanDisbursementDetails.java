@@ -86,6 +86,12 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
         return paymentTo == null ? 1 : paymentTo;
     }
 
+    public void applyMfiCodeIfProvided(final String mfiCode) {
+        if (mfiCode != null && !mfiCode.isBlank()) {
+            this.mfiCode = mfiCode.trim();
+        }
+    }
+
     public void setPaymentTo(Integer paymentTo) {
         if (paymentTo == null || (paymentTo != 1 && paymentTo != 2)) {
             this.paymentTo = 1;

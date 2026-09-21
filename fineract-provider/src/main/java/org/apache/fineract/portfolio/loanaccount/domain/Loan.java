@@ -627,6 +627,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return chargesDue.getAmount();
     }
 
+    public void refreshFeeChargesDueAtDisbursement() {
+        final BigDecimal feesDueAtDisbursement = deriveSumTotalOfChargesDueAtDisbursement();
+        updateSummaryWithTotalFeeChargesDueAtDisbursement(feesDueAtDisbursement);
+        this.netDisbursalAmount = this.approvedPrincipal.subtract(feesDueAtDisbursement);
+    }
+
     private Set<LoanCharge> associateChargesWithThisLoan(final Set<LoanCharge> loanCharges) {
         for (final LoanCharge loanCharge : loanCharges) {
             loanCharge.update(this);
@@ -6134,24 +6140,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public LoanRepaymentScheduleInstallment fetchPrepaymentDetail(final ScheduleGeneratorDTO scheduleGeneratorDTO, final LocalDate onDate) {
-        LoanRepaymentScheduleInstallment installment = null;
-
-        if (this.loanRepaymentScheduleDetail.isInterestRecalculationEnabled()) {
-            final RoundingMode roundingMode = MoneyHelper.getRoundingMode();
-            final MathContext mc = new MathContext(8, roundingMode);
-
-            final InterestMethod interestMethod = this.loanRepaymentScheduleDetail.getInterestMethod();
-            final LoanApplicationTerms loanApplicationTerms = constructLoanApplicationTerms(scheduleGeneratorDTO);
-
-            final LoanScheduleGenerator loanScheduleGenerator = scheduleGeneratorDTO.getLoanScheduleFactory().create(interestMethod);
-            final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
-                    .determineProcessor(this.transactionProcessingStrategy);
-            installment = loanScheduleGenerator.calculatePrepaymentAmount(getCurrency(), onDate, loanApplicationTerms, mc, this,
-                    scheduleGeneratorDTO.getHolidayDetailDTO(), loanRepaymentScheduleTransactionProcessor);
-        } else {
-            installment = this.getTotalOutstandingOnLoan();
-        }
-        return installment;
+        // Use the persisted schedule with pro-rata accrued interest so the prepayment
+        // template matches what is outstanding on the live repayment schedule.
+        return this.getTotalOutstandingOnLoanAsOfDate(onDate);
     }
 
     public LoanApplicationTerms constructLoanApplicationTerms(final ScheduleGeneratorDTO scheduleGeneratorDTO) {
@@ -6229,24 +6220,6 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
         annualNominalInterestRate = constructFloatingInterestRates(annualNominalInterestRate, floatingRateDTO, loanTermVariations);
         return annualNominalInterestRate;
-    }
-
-    private LoanRepaymentScheduleInstallment getTotalOutstandingOnLoan() {
-        Money feeCharges = Money.zero(loanCurrency());
-        Money penaltyCharges = Money.zero(loanCurrency());
-        Money totalPrincipal = Money.zero(loanCurrency());
-        Money totalInterest = Money.zero(loanCurrency());
-        final Set<LoanInterestRecalcualtionAdditionalDetails> compoundingDetails = null;
-        List<LoanRepaymentScheduleInstallment> repaymentSchedule = getRepaymentScheduleInstallments();
-        for (final LoanRepaymentScheduleInstallment scheduledRepayment : repaymentSchedule) {
-            totalPrincipal = totalPrincipal.plus(scheduledRepayment.getPrincipalOutstanding(loanCurrency()));
-            totalInterest = totalInterest.plus(scheduledRepayment.getInterestOutstanding(loanCurrency()));
-            feeCharges = feeCharges.plus(scheduledRepayment.getFeeChargesOutstanding(loanCurrency()));
-            penaltyCharges = penaltyCharges.plus(scheduledRepayment.getPenaltyChargesOutstanding(loanCurrency()));
-        }
-        LocalDate businessDate = DateUtils.getBusinessLocalDate();
-        return new LoanRepaymentScheduleInstallment(null, 0, businessDate, businessDate, totalPrincipal.getAmount(),
-                totalInterest.getAmount(), feeCharges.getAmount(), penaltyCharges.getAmount(), false, compoundingDetails);
     }
 
     /**

@@ -24,6 +24,9 @@ public interface LoanApiConstants {
     String maxOutstandingBalanceParameterName = "maxOutstandingLoanBalance";
     String disbursementDataParameterName = "disbursementData";
     String disbursementDateParameterName = "expectedDisbursementDate";
+    String mfiCodeParameterName = "mfiCode";
+    String BUDGET_LOCATION_PARAM = "budgetLocation";
+    String BUDGET_REVIEW_REQUIRED_PARAM = "budgetReviewRequired";
     String disbursementPrincipalParameterName = "principal";
     String disbursementNetDisbursalAmountParameterName = "netDisbursalAmount";
     String paymentToParameterName = "paymentTo";

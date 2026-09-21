@@ -88,6 +88,13 @@ public class ClientRepositoryWrapper {
         return client;
     }
 
+    public Client findByMobileNo(final String mobileNo) {
+        if (mobileNo == null || mobileNo.isBlank()) {
+            return null;
+        }
+        return this.repository.findByMobileNo(mobileNo.trim());
+    }
+
     public Client getClientByAccountNumber(String accountNumber) {
         Client client = this.repository.getClientByAccountNumber(accountNumber);
         if (client == null) {
