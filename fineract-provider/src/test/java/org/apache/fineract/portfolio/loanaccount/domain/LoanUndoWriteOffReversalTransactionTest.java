@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -48,6 +49,7 @@ import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -274,6 +276,18 @@ class LoanUndoWriteOffReversalTransactionTest {
         assertEquals(1, carried.size(), "the recovery payment must be carried through the reprocess as a replacement transaction");
         assertTrue(carried.get(0).isRecoveryRepayment());
         assertAmount("4000.00", carried.get(0).getAmount(KES).getAmount());
+    }
+
+    @Test
+    void undoingAnAlreadyUndoneWriteOffIsRejectedAndDoesNotAddASecondReversal() {
+        final Loan loan = writtenOffLoan();
+        undoWriteOff(loan);
+        assertEquals(1, writeOffReversalsOf(loan).size());
+
+        assertThrows(PlatformApiDataValidationException.class, () -> undoWriteOff(loan),
+                "undoing an already-undone write-off must be rejected, not recorded again");
+
+        assertEquals(1, writeOffReversalsOf(loan).size(), "a rejected undo must not add a second write-off reversal");
     }
 
     private Loan writtenOffLoan() {
