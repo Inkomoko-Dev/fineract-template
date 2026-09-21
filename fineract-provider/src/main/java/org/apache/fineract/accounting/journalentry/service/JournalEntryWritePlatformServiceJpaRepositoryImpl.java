@@ -143,7 +143,7 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
 
     // transaction types createJournalEntriesForLoan actually posts to Odoo, shared with the real-time notifier below
-    private static final List<Long> ODOO_POSTABLE_TRANSACTION_TYPES = Arrays.asList(1L, 2L, 4L, 5L, 6L, 8L, 9L, 10L, 19L, 26L, 27L);
+    private static final List<Long> ODOO_POSTABLE_TRANSACTION_TYPES = Arrays.asList(1L, 2L, 4L, 5L, 6L, 8L, 9L, 10L, 19L, 26L, 27L, 33L);
 
     @Value("${app.local-ip}")
     private String localIpAddress;

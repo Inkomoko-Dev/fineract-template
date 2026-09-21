@@ -303,6 +303,16 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return reversal;
     }
 
+    public static LoanTransaction writeOffReversal(final LoanTransaction writeOffTransaction, final LocalDate reversalDate) {
+        final LoanTransaction reversal = new LoanTransaction(writeOffTransaction.loan, writeOffTransaction.office,
+                LoanTransactionType.WRITEOFF_REVERSAL.getValue(), reversalDate, writeOffTransaction.amount,
+                writeOffTransaction.principalPortion, writeOffTransaction.interestPortion, writeOffTransaction.feeChargesPortion,
+                writeOffTransaction.penaltyChargesPortion, writeOffTransaction.overPaymentPortion, false, null, null);
+        reversal.originalTxnId = writeOffTransaction.getId();
+        reversal.reversalTransaction = true;
+        return reversal;
+    }
+
     public static LoanTransaction accrueLoanCharge(final Loan loan, final Office office, final Money amount, final LocalDate applyDate,
             final Money feeCharges, final Money penaltyCharges) {
         String externalId = null;
@@ -701,6 +711,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         return getTypeOf().isResidualBalanceAdjustment() && isNotReversed();
     }
 
+    public boolean isWriteOffReversal() {
+        return getTypeOf().isWriteOffReversal() && isNotReversed();
+    }
+
     public boolean isIdentifiedBy(final Long identifier) {
         return getId().equals(identifier);
     }
@@ -847,7 +861,8 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
                 || LoanTransactionType.MARKED_FOR_RESCHEDULING.equals(getTypeOf())
                 || LoanTransactionType.APPROVE_TRANSFER.equals(getTypeOf()) || LoanTransactionType.INITIATE_TRANSFER.equals(getTypeOf())
                 || LoanTransactionType.REJECT_TRANSFER.equals(getTypeOf()) || LoanTransactionType.WITHDRAW_TRANSFER.equals(getTypeOf())
-                || LoanTransactionType.FUTURE_INTEREST_CANCELLATION.equals(getTypeOf()));
+                || LoanTransactionType.FUTURE_INTEREST_CANCELLATION.equals(getTypeOf())
+                || LoanTransactionType.WRITEOFF_REVERSAL.equals(getTypeOf()));
     }
 
     public void updateOutstandingLoanBalance(BigDecimal outstandingLoanBalance) {

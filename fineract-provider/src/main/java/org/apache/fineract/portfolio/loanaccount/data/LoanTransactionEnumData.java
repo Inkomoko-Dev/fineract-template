@@ -54,6 +54,7 @@ public class LoanTransactionEnumData {
     private final boolean futureInterestCancellation;
     private final boolean partialWriteOff;
     private final boolean residualBalanceAdjustment;
+    private final boolean writeOffReversal;
 
     public LoanTransactionEnumData(final Long id, final String code, final String value) {
         this.id = id;
@@ -83,6 +84,7 @@ public class LoanTransactionEnumData {
         this.futureInterestCancellation = Long.valueOf(30).equals(this.id);
         this.partialWriteOff = Long.valueOf(31).equals(this.id);
         this.residualBalanceAdjustment = Long.valueOf(32).equals(this.id);
+        this.writeOffReversal = Long.valueOf(33).equals(this.id);
     }
 
     public Long id() {
@@ -216,5 +218,9 @@ public class LoanTransactionEnumData {
 
     public boolean isResidualBalanceAdjustment() {
         return this.residualBalanceAdjustment;
+    }
+
+    public boolean isWriteOffReversal() {
+        return this.writeOffReversal;
     }
 }
