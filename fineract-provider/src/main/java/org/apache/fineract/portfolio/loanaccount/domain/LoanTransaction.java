@@ -471,6 +471,23 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         this.penaltyChargesPortion = defaultToNullIfZero(getPenaltyChargesPortion(currency).plus(penaltyCharges).getAmount());
     }
 
+    /**
+     * When replaying transactions after a reschedule, fee/penalty portions can exceed what active loan charges can
+     * absorb (e.g. overdue charges were inactivated). Move the unallocated amount to overpayment so accounting charge
+     * splits match {@link LoanChargePaidBy} rows.
+     */
+    public void reduceExcessChargePortionToOverpayment(final MonetaryCurrency currency, final Money excess, final boolean isPenaltyPortion) {
+        if (!excess.isGreaterThanZero()) {
+            return;
+        }
+        if (isPenaltyPortion) {
+            this.penaltyChargesPortion = defaultToNullIfZero(getPenaltyChargesPortion(currency).minus(excess).getAmount());
+        } else {
+            this.feeChargesPortion = defaultToNullIfZero(getFeeChargesPortion(currency).minus(excess).getAmount());
+        }
+        this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(excess).getAmount());
+    }
+
     private void updateChargesComponents(final Money feeCharges, final Money penaltyCharges, final Money unrecognizedCharges) {
         final MonetaryCurrency currency = feeCharges.getCurrency();
         this.feeChargesPortion = defaultToNullIfZero(getFeeChargesPortion(currency).plus(feeCharges).getAmount());
