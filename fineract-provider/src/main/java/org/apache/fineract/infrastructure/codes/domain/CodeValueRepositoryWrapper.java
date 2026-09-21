@@ -56,6 +56,10 @@ public class CodeValueRepositoryWrapper {
         return codeValue;
     }
 
+    public CodeValue findOneByCodeNameAndLabelOptional(final String codeName, final String label) {
+        return this.repository.findByCodeNameAndLabel(codeName, label);
+    }
+
     public CodeValue findOneByCodeNameAndLabelWithNotFoundDetection(final String codeName, final String label) {
         final CodeValue codeValue = this.repository.findByCodeNameAndLabel(codeName, label);
         if (codeValue == null) {

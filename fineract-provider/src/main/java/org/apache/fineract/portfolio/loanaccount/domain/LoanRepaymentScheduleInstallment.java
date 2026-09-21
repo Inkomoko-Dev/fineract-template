@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -252,6 +253,44 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     public Money getInterestCharged(final MonetaryCurrency currency) {
         return Money.of(currency, this.interestCharged);
+    }
+
+    public boolean isFutureInstallment(final LocalDate date) {
+        if (date == null || this.fromDate == null) {
+            return false;
+        }
+        return this.fromDate.isAfter(date) || this.fromDate.isEqual(date);
+    }
+
+    public Money calculateAccruedInterestToDate(final MonetaryCurrency currency, final LocalDate toDate) {
+        if (toDate == null || this.fromDate == null || this.dueDate == null) {
+            return getInterestOutstanding(currency);
+        }
+        if (this.obligationsMet) {
+            return Money.zero(currency);
+        }
+        if (!toDate.isBefore(this.dueDate)) {
+            return getInterestOutstanding(currency);
+        }
+        if (!toDate.isAfter(this.fromDate)) {
+            return Money.zero(currency);
+        }
+        final long totalDaysInPeriod = java.time.temporal.ChronoUnit.DAYS.between(this.fromDate, this.dueDate);
+        if (totalDaysInPeriod <= 0) {
+            return getInterestOutstanding(currency);
+        }
+        final long accruedDays = java.time.temporal.ChronoUnit.DAYS.between(this.fromDate, toDate);
+        final Money totalInterestForPeriod = getInterestCharged(currency);
+        final BigDecimal proRataFraction = BigDecimal.valueOf(accruedDays).divide(BigDecimal.valueOf(totalDaysInPeriod), 10,
+                RoundingMode.HALF_UP);
+        final Money proRataInterest = totalInterestForPeriod.multipliedBy(proRataFraction);
+        final Money interestAccountedFor = getInterestPaid(currency).plus(getInterestWaived(currency)).plus(getInterestWrittenOff(currency));
+        final Money accruedOutstanding = proRataInterest.minus(interestAccountedFor);
+        if (accruedOutstanding.isLessThanZero()) {
+            return Money.zero(currency);
+        }
+        final Money interestOutstanding = getInterestOutstanding(currency);
+        return accruedOutstanding.isGreaterThan(interestOutstanding) ? interestOutstanding : accruedOutstanding;
     }
 
     public Money getInterestPaid(final MonetaryCurrency currency) {

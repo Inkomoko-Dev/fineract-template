@@ -38,6 +38,8 @@ public class JournalData {
     private Boolean isCorrection;
     private String correctionDate;
     private String location;
+    private String department;
+    private Boolean budgetReviewRequired;
     private Long fundSource;
     private String disbursementType;
     private BigDecimal fxRate;

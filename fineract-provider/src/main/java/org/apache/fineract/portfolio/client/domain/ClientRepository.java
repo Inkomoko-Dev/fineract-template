@@ -31,6 +31,8 @@ interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecification
     @Query(FIND_CLIENT_BY_ACCOUNT_NUMBER)
     Client getClientByAccountNumber(@Param("accountNumber") String accountNumber);
 
+    Client findByMobileNo(String mobileNo);
+
     @Query("select client from Client client where client.isOdooCustomerPosted= :isOdooCustomerPosted")
     List<Client> findByIsOdooPosted(@Param("isOdooCustomerPosted") boolean isOdooCustomerPosted);
 

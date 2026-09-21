@@ -189,6 +189,26 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
                 paymentDate, externalId);
     }
 
+    public static LoanTransaction disbursementChargeAdjustment(final Loan loan, final Office office, final Money amount,
+            final LocalDate transactionDate, final boolean isCredit) {
+        final LoanTransaction loanTransaction = new LoanTransaction();
+        loanTransaction.loan = loan;
+        loanTransaction.office = office;
+        loanTransaction.typeOf = LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue();
+        loanTransaction.principalPortion = BigDecimal.ZERO;
+        loanTransaction.interestPortion = BigDecimal.ZERO;
+        loanTransaction.penaltyChargesPortion = BigDecimal.ZERO;
+        loanTransaction.dateOf = transactionDate;
+        loanTransaction.submittedOnDate = DateUtils.getBusinessLocalDate();
+        final BigDecimal adjustmentAmount = amount.getAmount().abs();
+        loanTransaction.amount = adjustmentAmount;
+        loanTransaction.feeChargesPortion = isCredit ? adjustmentAmount.negate() : adjustmentAmount;
+        loanTransaction.reversed = false;
+        loanTransaction.manuallyAdjustedOrReversed = false;
+        loanTransaction.reversalTransaction = false;
+        return loanTransaction;
+    }
+
     public static LoanTransaction waiver(final Office office, final Loan loan, final Money amount, final LocalDate waiveDate,
             final Money waived, final Money unrecognizedPortion, String externalId) {
         LoanTransaction loanTransaction = new LoanTransaction(loan, office, LoanTransactionType.WAIVE_INTEREST, amount.getAmount(),
@@ -558,6 +578,15 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
 
     public boolean isDisbursementChargeAdjustment() {
         return LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.equals(getTypeOf()) && isNotReversed();
+    }
+
+    public void updateRepaymentAtDisbursementComponents(final Money feeCharges, final Money penaltyCharges, final Money overPayment) {
+        this.principalPortion = null;
+        this.interestPortion = null;
+        this.feeChargesPortion = feeCharges.getAmountDefaultedToNullIfZero();
+        this.penaltyChargesPortion = penaltyCharges.getAmountDefaultedToNullIfZero();
+        this.overPaymentPortion = overPayment.getAmountDefaultedToNullIfZero();
+        this.amount = feeCharges.plus(penaltyCharges).plus(overPayment).getAmount();
     }
 
     public boolean isNotRecoveryRepayment() {

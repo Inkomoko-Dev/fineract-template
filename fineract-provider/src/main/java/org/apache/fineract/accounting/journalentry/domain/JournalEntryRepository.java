@@ -61,5 +61,8 @@ public interface JournalEntryRepository
     @Query("select journalEntry from JournalEntry journalEntry where journalEntry.transactionId= :transactionId and journalEntry.reversed=false")
     List<JournalEntry> findJournalEntriesByLoanTransactionId(@Param("transactionId") String transactionId);
 
+    @Query("select journalEntry from JournalEntry journalEntry where journalEntry.loanTransaction.id = :loanTransactionId")
+    List<JournalEntry> findAllByLoanTransactionId(@Param("loanTransactionId") Long loanTransactionId);
+
 
 }
