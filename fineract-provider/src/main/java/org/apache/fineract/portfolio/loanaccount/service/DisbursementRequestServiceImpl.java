@@ -23,6 +23,7 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
@@ -31,7 +32,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
@@ -70,6 +73,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -94,6 +100,8 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
     private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
 
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
+
+    private final PlatformTransactionManager transactionManager;
 
     private OkHttpClient client = new OkHttpClient();
     private Gson gson = new Gson();
@@ -265,24 +273,36 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
                 this.noteRepository.saveAndFlush(responseNote);
             } else {
                 final int responseCode = response.code();
-                final String errorCategory = disbursementFailureCategory(responseCode);
+                final PaymentHubErrorResponse parsedError = parsePaymentHubErrorResponse(responseBody);
+                final String errorCategory = disbursementFailureCategory(responseCode, parsedError);
+                final String userMessage = failureMessage(errorCategory, parsedError);
                 LOG.error("Payment Hub disbursement request rejected loanId={}, requestId={}, httpStatus={}, category={}, responseBody={}",
                         loan.getId(), requestId, responseCode, errorCategory, responseBody);
-                throw new LoanDisbursementRequestException(defaultFailureMessage(errorCategory),
-                        "integration.disbursementRequest." + errorCategory, requestId);
+                saveLoanNoteOutsideCurrentTransaction(loan, paymentHubSubmissionFailureNote(requestId, userMessage));
+                throw new LoanDisbursementRequestException(userMessage, "integration.disbursementRequest." + errorCategory, requestId);
             }
 
         } catch (IOException e) {
             LOG.error("Connection failure while sending Payment Hub disbursement request loanId={}, requestId={}", loan.getId(), requestId,
                     e);
-            throw new LoanDisbursementRequestException(
-                    "There was a connection issue while sending the disbursement to the Payment Hub. Please try again.",
-                    "integration.disbursementRequest.connectionFailed", requestId);
+            final String userMessage = "There was a connection issue while sending the disbursement to the Payment Hub. Please try again.";
+            saveLoanNoteOutsideCurrentTransaction(loan, paymentHubSubmissionFailureNote(requestId, userMessage));
+            throw new LoanDisbursementRequestException(userMessage, "integration.disbursementRequest.connectionFailed", requestId);
         }
         return requestId;
     }
 
     static String disbursementFailureCategory(final int responseCode) {
+        return disbursementFailureCategory(responseCode, null);
+    }
+
+    static String disbursementFailureCategory(final int responseCode, final PaymentHubErrorResponse parsedError) {
+        if (parsedError != null && "VALIDATION_FAILED".equals(parsedError.code)) {
+            return "validationFailed";
+        }
+        if (parsedError != null && "MALFORMED_REQUEST".equals(parsedError.code)) {
+            return "validationFailed";
+        }
         if (responseCode == 408 || responseCode == 504) {
             return "timeout";
         }
@@ -299,6 +319,83 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         return "Disbursement request sent to the Payment Hub successfully. Reference: " + requestId;
     }
 
+    static String paymentHubSubmissionFailureNote(final String requestId, final String userMessage) {
+        final String detail = StringUtils.isBlank(userMessage) ? "The Payment Hub could not accept the disbursement details."
+                : userMessage.trim();
+        if (StringUtils.isBlank(requestId)) {
+            return "Payment Hub rejected this disbursement. " + detail;
+        }
+        return "Payment Hub rejected this disbursement. " + detail + " Reference: " + requestId;
+    }
+
+    private void saveLoanNoteOutsideCurrentTransaction(final Loan loan, final String noteText) {
+        if (loan == null || StringUtils.isBlank(noteText)) {
+            return;
+        }
+        try {
+            final TransactionTemplate template = new TransactionTemplate(this.transactionManager);
+            template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            template.execute(status -> {
+                this.noteRepository.saveAndFlush(Note.loanNote(loan, noteText));
+                return null;
+            });
+        } catch (RuntimeException e) {
+            LOG.warn("Unable to persist Payment Hub disbursement failure note for loanId={}", loan.getId(), e);
+        }
+    }
+
+    static String failureMessage(final String errorCategory, final PaymentHubErrorResponse parsedError) {
+        if (parsedError != null && !parsedError.fieldErrors.isEmpty()) {
+            return String.join("; ", parsedError.fieldErrors);
+        }
+        if (parsedError != null && StringUtils.isNotBlank(parsedError.message) && "validationFailed".equals(errorCategory)) {
+            return parsedError.message;
+        }
+        return defaultFailureMessage(errorCategory);
+    }
+
+    static PaymentHubErrorResponse parsePaymentHubErrorResponse(final String responseBody) {
+        if (StringUtils.isBlank(responseBody)) {
+            return null;
+        }
+        try {
+            final JsonElement element = JsonParser.parseString(responseBody);
+            if (!element.isJsonObject()) {
+                return null;
+            }
+            final JsonObject body = element.getAsJsonObject();
+            final String code = jsonString(body, "code");
+            final String message = jsonString(body, "message");
+            final List<String> fieldErrors = new ArrayList<>();
+            if (body.has("errors") && body.get("errors").isJsonArray()) {
+                for (final JsonElement errorElement : body.getAsJsonArray("errors")) {
+                    if (!errorElement.isJsonObject()) {
+                        continue;
+                    }
+                    final JsonObject error = errorElement.getAsJsonObject();
+                    final String field = jsonString(error, "field");
+                    final String fieldMessage = jsonString(error, "message");
+                    if (StringUtils.isNotBlank(field) && StringUtils.isNotBlank(fieldMessage)) {
+                        fieldErrors.add(field + ": " + fieldMessage);
+                    } else if (StringUtils.isNotBlank(fieldMessage)) {
+                        fieldErrors.add(fieldMessage);
+                    }
+                }
+            }
+            return new PaymentHubErrorResponse(code, message, fieldErrors);
+        } catch (RuntimeException e) {
+            LOG.warn("Unable to parse Payment Hub error response", e);
+            return null;
+        }
+    }
+
+    private static String jsonString(final JsonObject object, final String property) {
+        if (object == null || !object.has(property) || object.get(property).isJsonNull()) {
+            return null;
+        }
+        return object.get(property).getAsString();
+    }
+
     private static String defaultFailureMessage(final String errorCategory) {
         switch (errorCategory) {
             case "timeout":
@@ -310,6 +407,19 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
                 return "Payment Hub rejected this disbursement. Please contact support.";
             default:
                 return "The disbursement could not be sent to the Payment Hub. Please try again later or contact support.";
+        }
+    }
+
+    static final class PaymentHubErrorResponse {
+
+        final String code;
+        final String message;
+        final List<String> fieldErrors;
+
+        PaymentHubErrorResponse(final String code, final String message, final List<String> fieldErrors) {
+            this.code = code;
+            this.message = message;
+            this.fieldErrors = fieldErrors;
         }
     }
 

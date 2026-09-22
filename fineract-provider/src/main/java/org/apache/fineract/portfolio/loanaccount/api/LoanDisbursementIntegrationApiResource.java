@@ -89,6 +89,9 @@ public class LoanDisbursementIntegrationApiResource {
         final String transactionReference = callback.has("transactionRef") && !callback.get("transactionRef").isJsonNull()
                 ? callback.get("transactionRef").getAsString()
                 : null;
+        final String resultMessage = callback.has("resultMessage") && !callback.get("resultMessage").isJsonNull()
+                ? callback.get("resultMessage").getAsString()
+                : null;
 
         LOG.debug("Payment Hub disbursement update loanId={}, payload={}", loanId, apiRequestBodyAsJson);
         LOG.info("Update Disbursement In API: " + loanId + " with Result Code: " + resultCode);
@@ -108,7 +111,7 @@ public class LoanDisbursementIntegrationApiResource {
         final CommandWrapperBuilder resourceDetails = new CommandWrapperBuilder();
         resourceDetails.withLoanId(loanId).withEntityName("LOANNOTE");
         final JsonObject newJsonObject = new JsonObject();
-        newJsonObject.addProperty("note", bankDisbursementResultNote(resultCode, transactionReference));
+        newJsonObject.addProperty("note", bankDisbursementResultNote(resultCode, transactionReference, resultMessage));
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createNote(resourceDetails.build(), "loans", loanId)
                 .withJson(newJsonObject.toString()).build();
         this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
@@ -116,10 +119,26 @@ public class LoanDisbursementIntegrationApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
-    static String bankDisbursementResultNote(final String resultCode, final String transactionReference) {
-        final String message = "200".equals(resultCode) ? "Bank disbursement completed successfully."
-                : "The bank could not complete this disbursement. Please review the payment details or contact support.";
-        return transactionReference == null || transactionReference.isBlank() ? message : message + " Reference: " + transactionReference;
+    static String bankDisbursementResultNote(final String resultCode, final String transactionReference, final String resultMessage) {
+        final boolean success = "200".equals(resultCode);
+        final StringBuilder note = new StringBuilder();
+        if (success) {
+            note.append("Bank disbursement completed successfully.");
+        } else {
+            note.append("The bank could not complete this disbursement.");
+        }
+        if (resultMessage != null && !resultMessage.isBlank()) {
+            note.append(" ").append(resultMessage.trim());
+        } else if (!success) {
+            note.append(" Please review the payment details or contact support.");
+        }
+        if (transactionReference != null && !transactionReference.isBlank()) {
+            if (note.length() > 0 && !".!?".contains(String.valueOf(note.charAt(note.length() - 1)))) {
+                note.append(".");
+            }
+            note.append(" Reference: ").append(transactionReference);
+        }
+        return note.toString();
     }
 
     private String extractJson(JsonElement element, BigDecimal loanPrinciple ) {
@@ -130,6 +149,9 @@ public class LoanDisbursementIntegrationApiResource {
         newJsonObject.add("actualDisbursementDate", originalJsonObject.get("actualDisbursementDate"));
         newJsonObject.add("locale", originalJsonObject.get("locale"));
         newJsonObject.add("resultCode", originalJsonObject.get("resultCode"));
+        if (originalJsonObject.has("resultMessage")) {
+            newJsonObject.add("resultMessage", originalJsonObject.get("resultMessage"));
+        }
         newJsonObject.add("dateFormat", originalJsonObject.get("dateFormat"));
         newJsonObject.add("receiptNumber", originalJsonObject.get("transactionRef"));
         return newJsonObject.toString();
