@@ -24,12 +24,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.domain.EmailDetail;
-import org.apache.fineract.infrastructure.core.service.PlatformEmailService;
+import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.notification.service.NotificationWritePlatformService;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleEmailEvent;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.HtmlUtils;
 
@@ -42,7 +45,7 @@ public class BulkRescheduleAlertService {
     private static final String DEFAULT_UI_ROOT = "https://www.cbs.inkomoko.com/#";
 
     private final NotificationWritePlatformService notificationService;
-    private final PlatformEmailService emailService;
+    private final ApplicationEventPublisher eventPublisher;
     private final AppUserRepository appUserRepository;
 
     @Value("${mifos.system.base-url}")
@@ -143,13 +146,8 @@ public class BulkRescheduleAlertService {
         if (hasEmail(cc) && !StringUtils.equalsIgnoreCase(StringUtils.trim(to.getEmail()), StringUtils.trim(cc.getEmail()))) {
             email.setCc(cc.getEmail().trim());
         }
-        try {
-            emailService.sendDefinedEmail(email);
-            log.info("Bulk reschedule email sent to {} (cc {}) for request {}", to.getEmail(), email.getCc(),
-                    subject);
-        } catch (RuntimeException e) {
-            log.error("Bulk reschedule email could not be sent to {}. Check SMTP configuration.", to.getEmail(), e);
-        }
+        final BulkRescheduleEmailEvent event = new BulkRescheduleEmailEvent(this, email, ThreadLocalContextUtil.getContext());
+        AfterCommitExecutor.execute(() -> eventPublisher.publishEvent(event));
     }
 
     private AppUser loadUser(final AppUser user) {
