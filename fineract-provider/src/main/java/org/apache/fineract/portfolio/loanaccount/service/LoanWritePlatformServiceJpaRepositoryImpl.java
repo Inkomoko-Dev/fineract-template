@@ -5519,17 +5519,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             if (isCredit) {
                 this.journalEntryRepository.save(buildManualJournalEntry(loan, activeCreditEntry.getGlAccount(),
                         JournalEntryType.DEBIT, absDelta, "Insurance charge reduction - adjust income",
-                        adjustmentTransaction, newTransactionDate));
+                        adjustmentTransaction, newTransactionDate, null));
                 this.journalEntryRepository.save(buildManualJournalEntry(loan, loanPortfolioMapping.getGlAccount(),
                         JournalEntryType.CREDIT, absDelta, "Insurance charge reduction - adjust loan portfolio",
-                        adjustmentTransaction, newTransactionDate));
+                        adjustmentTransaction, newTransactionDate, null));
             } else {
                 this.journalEntryRepository.save(buildManualJournalEntry(loan, loanPortfolioMapping.getGlAccount(),
                         JournalEntryType.DEBIT, absDelta, "Insurance charge increase - adjust loan portfolio",
-                        adjustmentTransaction, newTransactionDate));
+                        adjustmentTransaction, newTransactionDate, null));
                 this.journalEntryRepository.save(buildManualJournalEntry(loan, activeCreditEntry.getGlAccount(),
                         JournalEntryType.CREDIT, absDelta, "Insurance charge increase - adjust income",
-                        adjustmentTransaction, newTransactionDate));
+                        adjustmentTransaction, newTransactionDate, null));
             }
 
             changes.put("adjustmentTransactionId", adjustmentTransaction.getId());
