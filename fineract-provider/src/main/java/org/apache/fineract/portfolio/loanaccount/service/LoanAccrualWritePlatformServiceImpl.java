@@ -273,6 +273,40 @@ public class LoanAccrualWritePlatformServiceImpl implements LoanAccrualWritePlat
         }
     }
 
+    private BigDecimal[] reconcileAccrualChargePortionsWithApplicableCharges(final Map<LoanChargeData, BigDecimal> applicableCharges,
+            final BigDecimal interestportion, final BigDecimal feeportion, final BigDecimal penaltyportion) {
+        BigDecimal feeSum = BigDecimal.ZERO;
+        BigDecimal penaltySum = BigDecimal.ZERO;
+        if (applicableCharges != null) {
+            for (final Map.Entry<LoanChargeData, BigDecimal> entry : applicableCharges.entrySet()) {
+                if (entry.getKey().isPenalty()) {
+                    penaltySum = penaltySum.add(entry.getValue());
+                } else {
+                    feeSum = feeSum.add(entry.getValue());
+                }
+            }
+        }
+        BigDecimal reconciledFee = feeportion;
+        if (feeportion != null && feeportion.compareTo(feeSum) != 0) {
+            reconciledFee = feeSum.compareTo(BigDecimal.ZERO) == 0 ? null : feeSum;
+        }
+        BigDecimal reconciledPenalty = penaltyportion;
+        if (penaltyportion != null && penaltyportion.compareTo(penaltySum) != 0) {
+            reconciledPenalty = penaltySum.compareTo(BigDecimal.ZERO) == 0 ? null : penaltySum;
+        }
+        BigDecimal reconciledAmount = BigDecimal.ZERO;
+        if (interestportion != null) {
+            reconciledAmount = reconciledAmount.add(interestportion);
+        }
+        if (reconciledFee != null) {
+            reconciledAmount = reconciledAmount.add(reconciledFee);
+        }
+        if (reconciledPenalty != null) {
+            reconciledAmount = reconciledAmount.add(reconciledPenalty);
+        }
+        return new BigDecimal[] { reconciledAmount, reconciledFee, reconciledPenalty };
+    }
+
     private void addAccrualAccounting(LoanScheduleAccrualData scheduleAccrualData, BigDecimal amount, BigDecimal interestportion,
             BigDecimal totalAccInterest, BigDecimal feeportion, BigDecimal totalAccFee, BigDecimal penaltyportion,
             BigDecimal totalAccPenalty, final LocalDate accruedTill) throws DataAccessException {
@@ -287,6 +321,16 @@ public class LoanAccrualWritePlatformServiceImpl implements LoanAccrualWritePlat
             updateAccrualDerivedFields(scheduleAccrualData, totalAccInterest, totalAccFee, totalAccPenalty, accruedTill);
             return;
         }
+        final Map<LoanChargeData, BigDecimal> applicableCharges = scheduleAccrualData.getApplicableCharges();
+        final BigDecimal[] reconciledPortions = reconcileAccrualChargePortionsWithApplicableCharges(applicableCharges, interestportion,
+                feeportion, penaltyportion);
+        amount = reconciledPortions[0];
+        feeportion = reconciledPortions[1];
+        penaltyportion = reconciledPortions[2];
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            updateAccrualDerivedFields(scheduleAccrualData, totalAccInterest, totalAccFee, totalAccPenalty, accruedTill);
+            return;
+        }
         String transactionSql = "INSERT INTO m_loan_transaction  (loan_id,office_id,is_reversed,transaction_type_enum,transaction_date,amount,interest_portion_derived,"
                 + "fee_charges_portion_derived,penalty_charges_portion_derived, submitted_on_date) VALUES (?, ?, false, ?, ?, ?, ?, ?, ?, ?)";
         this.jdbcTemplate.update(transactionSql, scheduleAccrualData.getLoanId(), scheduleAccrualData.getOfficeId(),
@@ -295,12 +339,13 @@ public class LoanAccrualWritePlatformServiceImpl implements LoanAccrualWritePlat
         @SuppressWarnings("deprecation")
         final Long transactonId = this.jdbcTemplate.queryForObject("SELECT " + sqlGenerator.lastInsertId(), Long.class); // NOSONAR
 
-        Map<LoanChargeData, BigDecimal> applicableCharges = scheduleAccrualData.getApplicableCharges();
         String chargespaidSql = "INSERT INTO m_loan_charge_paid_by (loan_transaction_id, loan_charge_id, amount,installment_number) VALUES (?,?,?,?)";
-        for (Map.Entry<LoanChargeData, BigDecimal> entry : applicableCharges.entrySet()) {
-            LoanChargeData chargeData = entry.getKey();
-            this.jdbcTemplate.update(chargespaidSql, transactonId, chargeData.getId(), entry.getValue(),
-                    scheduleAccrualData.getInstallmentNumber());
+        if (applicableCharges != null) {
+            for (Map.Entry<LoanChargeData, BigDecimal> entry : applicableCharges.entrySet()) {
+                LoanChargeData chargeData = entry.getKey();
+                this.jdbcTemplate.update(chargespaidSql, transactonId, chargeData.getId(), entry.getValue(),
+                        scheduleAccrualData.getInstallmentNumber());
+            }
         }
 
         Map<String, Object> transactionMap = toMapData(transactonId, amount, interestportion, feeportion, penaltyportion,

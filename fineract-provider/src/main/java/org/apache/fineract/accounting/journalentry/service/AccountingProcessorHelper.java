@@ -77,12 +77,16 @@ import org.apache.fineract.portfolio.savings.data.SavingsAccountTransactionEnumD
 import org.apache.fineract.portfolio.savings.domain.SavingsAccountTransaction;
 import org.apache.fineract.portfolio.savings.domain.SavingsAccountTransactionRepository;
 import org.apache.fineract.portfolio.shareaccounts.data.ShareAccountTransactionEnumData;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
 public class AccountingProcessorHelper {
+
+    private static final Logger LOG = LoggerFactory.getLogger(AccountingProcessorHelper.class);
 
     public static final String LOAN_TRANSACTION_IDENTIFIER = "L";
     public static final String SAVINGS_TRANSACTION_IDENTIFIER = "S";
@@ -433,12 +437,7 @@ public class AccountingProcessorHelper {
             }
         }
 
-        if (totalAmount.compareTo(totalCreditedAmount) != 0) {
-            throw new PlatformDataIntegrityException(
-                    "Meltdown in advanced accounting...sum of all charges is not equal to the fee charge for a transaction",
-                    "Meltdown in advanced accounting...sum of all charges is not equal to the fee charge for a transaction",
-                    totalCreditedAmount, totalAmount);
-        }
+        ensureLoanChargePaymentsMatchTransactionPortion(loanId, transactionId, totalAmount, totalCreditedAmount, chargePaymentDTOs);
     }
 
     /**
@@ -734,14 +733,22 @@ public class AccountingProcessorHelper {
             }
         }
 
-        // TODO: Vishwas Temporary validation to be removed before moving to
-        // release branch
-        if (totalAmount.compareTo(totalCreditedAmount) != 0) {
-            throw new PlatformDataIntegrityException(
-                    "Meltdown in advanced accounting...sum of all charges is not equal to the fee charge for a transaction",
-                    "Meltdown in advanced accounting...sum of all charges is not equal to the fee charge for a transaction",
-                    totalCreditedAmount, totalAmount);
+        ensureLoanChargePaymentsMatchTransactionPortion(loanId, transactionId, totalAmount, totalCreditedAmount, chargePaymentDTOs);
+    }
+
+    private void ensureLoanChargePaymentsMatchTransactionPortion(final Long loanId, final String transactionId,
+            final BigDecimal totalAmount, final BigDecimal totalCreditedAmount, final List<ChargePaymentDTO> chargePaymentDTOs) {
+        if (totalAmount.compareTo(totalCreditedAmount) == 0) {
+            return;
         }
+        LOG.error(
+                "Loan {} transaction {} charge accounting mismatch: transaction charge portion {} but charge payment lines total {} ({} line(s))",
+                loanId, transactionId, totalAmount, totalCreditedAmount, chargePaymentDTOs == null ? 0 : chargePaymentDTOs.size());
+        throw new PlatformDataIntegrityException("error.msg.accounting.loan.charge.sum.mismatch",
+                "Meltdown in advanced accounting...sum of all charges is not equal to the fee charge for a transaction. Loan: " + loanId
+                        + ", transaction: " + transactionId + ", expected portion: " + totalAmount + ", charge lines total: "
+                        + totalCreditedAmount,
+                totalCreditedAmount, totalAmount);
     }
 
     /**
