@@ -141,9 +141,7 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
                     + "       ra.physical_address_cell                                                          AS physicalAddressCell, "
                     + "       ra.address_line_1                                                                 AS physicalAddressLine1, "
                     + "       13                                                                                AS nature, "
-                    + "       ")
-                    .append(classificationExpression(daysInArrearsExpression))
-                    .append("                                                                                            AS classification, ");
+                    + "       lc.classification_code AS classification, ");
 
             sql.append("      ''                                                                                AS emailAddress, "
                     + "       'T'                                                                               AS residenceType, "
@@ -154,7 +152,10 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
                     + "       mcnp.incorp_no                                                                    AS companyRegNo, "
                     + "       business_line_cv.external_code                                                       AS industry, "
                     + "       other_info.tax_identification_number                                              AS taxNo "
-                    + " FROM m_loan l " + "         INNER JOIN m_product_loan mpl ON l.product_id = mpl.id "
+                    + " FROM m_loan l "
+                    + "         INNER JOIN m_loan_classification lc ON lc.loan_id = l.id AND IFNULL(lc.excluded_from_downstream, 0) = 0 "
+                    + "           AND lc.classification_code BETWEEN 1 AND 6 "
+                    + "         INNER JOIN m_product_loan mpl ON l.product_id = mpl.id "
                     + "         INNER JOIN m_client mc ON l.client_id = mc.id "
                     + "         INNER JOIN m_client_non_person mcnp on mc.id = mcnp.client_id "
                     + "         LEFT JOIN m_loan_arrears_aging mlaa ON l.id = mlaa.loan_id "
@@ -229,17 +230,6 @@ public class TransUnionCrbPostCorporateCreditReadPlatformServiceImpl implements 
                     + "    WHEN " + daysInArrearsExpression + " > 90 THEN 'D' "
                     + "    ELSE 'C' "
                     + "    END";
-        }
-
-        private String classificationExpression(String daysInArrearsExpression) {
-            return "CASE "
-                    + "           WHEN " + daysInArrearsExpression + " < 30 THEN 1 "
-                    + "           WHEN " + daysInArrearsExpression + " BETWEEN 31 AND 90 THEN 2 "
-                    + "           WHEN " + daysInArrearsExpression + " BETWEEN 91 AND 180 THEN 3 "
-                    + "           WHEN " + daysInArrearsExpression + " BETWEEN 181 AND 365 THEN 4 "
-                    + "           WHEN " + daysInArrearsExpression + " BETWEEN 366 AND 719 THEN 5 "
-                    + "           WHEN " + daysInArrearsExpression + " > 720 THEN 6 "
-                    + "          END";
         }
 
         @Override
