@@ -680,18 +680,21 @@ public class OdooServiceImpl implements OdooService {
             if (odooJournalId != null && odooRequest.has("journalDetails") && odooRequest.get("journalDetails").isJsonArray()) {
                 JsonArray journalDetails = odooRequest.getAsJsonArray("journalDetails");
 
+                final List<Long> echoedIds = new ArrayList<>();
+
                 for (JsonElement element : journalDetails) {
                     JsonObject detail = element.getAsJsonObject();
                     if (!detail.has("id")) continue;
 
                     Long journalEntryId = detail.get("id").getAsLong();
+                    echoedIds.add(journalEntryId);
                     JournalEntry je = journalEntryMap.get(journalEntryId);
+                    String oddAccountGl = detail.has("gl_account") ? detail.get("gl_account").getAsString() : null;
 
                     if (je != null) {
                         BigDecimal credit = detail.has("credit") ? detail.get("credit").getAsBigDecimal() : BigDecimal.ZERO;
                         BigDecimal debit = detail.has("debit") ? detail.get("debit").getAsBigDecimal() : BigDecimal.ZERO;
                         BigDecimal odooAmount = credit.compareTo(BigDecimal.ZERO) > 0 ? credit : debit;
-                        String oddAccountGl = detail.has("gl_account") ? detail.get("gl_account").getAsString() : null;
 
                         if (je.getOdooAccountGl() == null)
                             je.setOdooAccountGl(oddAccountGl);
@@ -703,7 +706,21 @@ public class OdooServiceImpl implements OdooService {
                             je.setOdooResponse(responseCode);
                         je.setOddoPosted(true);
                         toSave.add(je);
+                    } else {
+                        LOG.warn(
+                                "Odoo journalDetails id {} (gl_account={}) for transactionId {} does not match any local unposted "
+                                        + "JournalEntry — expected ids {}. This line will NOT be recorded as posted.",
+                                journalEntryId, oddAccountGl, transactionId, journalEntryMap.keySet());
                     }
+                }
+
+                if (toSave.size() < journalEntries.size()) {
+                    LOG.warn(
+                            "transactionId {}: Odoo response '{}' matched only {} of {} expected local JournalEntry rows. "
+                                    + "Local ids expected: {} — Odoo echoed ids: {}. The unmatched rows stay is_oddo_posted=false "
+                                    + "and will be retried by the daily sweep, but this may indicate the Odoo move is missing lines "
+                                    + "(e.g. an id collision on cbs_journal_entry_id).",
+                            transactionId, responseCode, toSave.size(), journalEntries.size(), journalEntryMap.keySet(), echoedIds);
                 }
             }
 
