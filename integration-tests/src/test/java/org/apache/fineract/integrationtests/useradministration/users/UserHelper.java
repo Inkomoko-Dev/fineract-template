@@ -86,37 +86,38 @@ public final class UserHelper {
         return "{ \"username\": \"" + Utils.randomNameGenerator("User_Name_", 3)
                 + "\", \"firstname\": \"Test\", \"lastname\": \"User\", \"email\": \"whatever@mifos.org\","
                 + " \"officeId\": \"1\", \"staffId\": " + "\"" + staffId + "\",\"roles\": [\"" + roleId
-                + "\"], \"sendPasswordToEmail\": false}";
+                + "\"], \"sendPasswordToEmail\": false, \"notes\": \"Auto-generated test user\"}";
     }
 
     private static String getTestCreateUserAsJSON(int roleId, int staffId, String username) {
         return "{ \"username\": \"" + username + "\", \"firstname\": \"Test\", \"lastname\": \"User\", \"email\": \"whatever@mifos.org\","
                 + " \"officeId\": \"1\", \"staffId\": " + "\"" + staffId + "\",\"roles\": [\"" + roleId
-                + "\"], \"sendPasswordToEmail\": false}";
+                + "\"], \"sendPasswordToEmail\": false, \"notes\": \"Auto-generated test user\"}";
     }
 
     private static String getTestCreateUserAsJSON(int roleId, int staffId, String username, String password) {
         return "{ \"username\": \"" + username + "\", \"firstname\": \"Test\", \"lastname\": \"User\", \"email\": \"whatever@mifos.org\","
                 + " \"officeId\": \"1\", \"staffId\": " + "\"" + staffId + "\",\"roles\": [\"" + roleId
                 + "\"], \"sendPasswordToEmail\": false,     \"password\": \"" + password + "\"," + "    \"repeatPassword\": \"" + password
-                + "\"}";
+                + "\", \"notes\": \"Auto-generated test user\"}";
     }
 
     private static String getTestUpdateUserAsJSON(String username) {
         return "{ \"username\": \"" + username + "\", \"firstname\": \"Test\", \"lastname\": \"User\", \"email\": \"whatever@mifos.org\","
-                + " \"officeId\": \"1\"}";
+                + " \"officeId\": \"1\", \"notes\": \"Auto-generated test update\"}";
     }
 
     public static String getTestCreateUserAsJSONForSelfService(int roleId, int staffId, int clientId) {
         return "{ \"username\": \"" + Utils.randomNameGenerator("User_Name_", 3)
                 + "\", \"firstname\": \"Test\", \"lastname\": \"User\", \"email\": \"whatever@mifos.org\","
                 + " \"officeId\": \"1\", \"staffId\": " + "\"" + staffId + "\",\"roles\": [\"" + roleId
-                + "\"], \"sendPasswordToEmail\": false," + "\"isSelfServiceUser\" : true," + "\"clients\" : [\"" + clientId + "\"]}";
+                + "\"], \"sendPasswordToEmail\": false," + "\"isSelfServiceUser\" : true," + "\"clients\" : [\"" + clientId + "\"], \"notes\": \"Auto-generated test user\"}";
     }
 
     public static Integer deleteUser(final RequestSpecification requestSpec, final ResponseSpecification responseSpec,
             final Integer userId) {
-        return Utils.performServerDelete(requestSpec, responseSpec, createRoleOperationURL(userId), "resourceId");
+        return Utils.performServerDelete(requestSpec, responseSpec, createRoleOperationURL(userId),
+                "{\"notes\": \"Auto-generated test deletion\"}", "resourceId");
     }
 
     public static Object updateUser(final RequestSpecification requestSpec, final ResponseSpecification responseSpec, int userId,
