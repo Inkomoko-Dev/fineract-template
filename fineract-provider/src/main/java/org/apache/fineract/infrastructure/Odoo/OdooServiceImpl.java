@@ -849,6 +849,7 @@ public class OdooServiceImpl implements OdooService {
 
     private JsonObject publishJournalEntryEvent(Long loanTransactionId, String payload) {
         final JournalEntryEventPublisher publisher = journalEntryEventPublisher.getIfAvailable();
+        LOG.info("publisher initialized {} ", publisher);
         if (publisher == null) {
             throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.event.publish.failed",
                     "ASYNC journal posting requires Kafka (set fineract.integrations.kafka.enabled=true)");
