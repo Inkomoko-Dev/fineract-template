@@ -33,6 +33,7 @@ import org.apache.fineract.infrastructure.bulkimport.importhandler.ImportHandler
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.serialization.GoogleGsonSerializerHelper;
 import org.apache.fineract.useradministration.data.AppUserData;
+import org.apache.fineract.useradministration.service.AppUserConstants;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
@@ -120,6 +121,7 @@ public class UserImportHandler implements ImportHandler {
         for (AppUserData user : users) {
             try {
                 JsonObject userJsonob = gsonBuilder.create().toJsonTree(user).getAsJsonObject();
+                userJsonob.addProperty(AppUserConstants.NOTES, "Bulk user import - spreadsheet row " + (user.getRowIndex() + 1));
                 String payload = userJsonob.toString();
                 final CommandWrapper commandRequest = new CommandWrapperBuilder() //
                         .createUser() //

@@ -132,6 +132,8 @@ final class UsersApiResourceSwagger {
         public Boolean sendPasswordToEmail;
         @Schema(example = "true")
         public Boolean isSelfServiceUser;
+        @Schema(example = "CGLT-564 new joiner onboarding")
+        public String notes;
     }
 
     @Schema(description = "PostUsersResponse")
@@ -160,6 +162,19 @@ final class UsersApiResourceSwagger {
         public String password;
         @Schema(example = "window75")
         public String repeatPassword;
+        @Schema(example = "CGLT-564 password reset requested by the user")
+        public String notes;
+    }
+
+    @Schema(description = "DeleteUsersUserIdRequest")
+    public static final class DeleteUsersUserIdRequest {
+
+        private DeleteUsersUserIdRequest() {
+
+        }
+
+        @Schema(example = "CGLT-564 staff member has left the organisation")
+        public String notes;
     }
 
     @Schema(description = "PutUsersUserIdResponse")

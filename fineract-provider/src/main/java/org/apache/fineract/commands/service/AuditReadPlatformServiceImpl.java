@@ -109,7 +109,8 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
                     + "ck.username as checker, aud.checked_on_date as checkedOnDate, ev.enum_message_property as processingResult "
                     + commandAsJsonString + ", "
                     + " o.name as officeName, gl.level_name as groupLevelName, g.display_name as groupName, c.display_name as clientName, "
-                    + " l.account_no as loanAccountNo, s.account_no as savingsAccountNo " + " from m_portfolio_command_source aud "
+                    + " l.account_no as loanAccountNo, s.account_no as savingsAccountNo "
+                    + ", aud.notes as notes " + " from m_portfolio_command_source aud "
                     + " left join m_appuser mk on mk.id = aud.maker_id" + " left join m_appuser ck on ck.id = aud.checker_id"
                     + " left join m_office o on o.id = aud.office_id" + " left join m_group g on g.id = aud.group_id"
                     + " left join m_group_level gl on gl.id = g.level_id" + " left join m_client c on c.id = aud.client_id"
@@ -155,10 +156,11 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
             final String clientName = rs.getString("clientName");
             final String loanAccountNo = rs.getString("loanAccountNo");
             final String savingsAccountNo = rs.getString("savingsAccountNo");
+            final String notes = rs.getString("notes");
 
             return new AuditData(id, actionName, entityName, resourceId, subresourceId, maker, madeOnDate, checker, checkedOnDate,
                     processingResult, commandAsJson, officeName, groupLevelName, groupName, clientName, loanAccountNo, savingsAccountNo,
-                    clientId, loanId, resourceGetUrl);
+                    clientId, loanId, resourceGetUrl, notes);
         }
     }
 
