@@ -63,7 +63,41 @@ public class BulkRescheduleProgressService {
     public boolean renewLease(final Long executionId, final String workerToken) {
         final var leaseExpiresAt = DateUtils.getLocalDateTimeOfSystem().plusMinutes(LEASE_MINUTES);
         return executionRepository.renewLease(executionId, BulkRescheduleExecutionStatus.EXECUTING, workerToken, leaseExpiresAt) == 1
-                || executionRepository.renewLease(executionId, BulkRescheduleExecutionStatus.ROLLING_BACK, workerToken, leaseExpiresAt) == 1;
+                || executionRepository.renewLease(executionId, BulkRescheduleExecutionStatus.ROLLING_BACK, workerToken, leaseExpiresAt) == 1
+                || executionRepository.renewLease(executionId, BulkRescheduleExecutionStatus.PREVIEWING, workerToken, leaseExpiresAt) == 1;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ClaimResult claimPreview(final Long executionId, final String workerToken) {
+        final var now = DateUtils.getLocalDateTimeOfSystem();
+        if (executionRepository.claimPreviewing(executionId, BulkRescheduleExecutionStatus.PREVIEWING, workerToken,
+                now.plusMinutes(LEASE_MINUTES), now) == 1) {
+            return ClaimResult.INITIAL;
+        }
+        return ClaimResult.NONE;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void completePreview(final Long executionId, final String workerToken) {
+        executionRepository.findById(executionId).ifPresent(execution -> {
+            if (!workerToken.equals(execution.getWorkerToken())) {
+                return;
+            }
+            execution.setTotalFailed((int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.FAILED));
+            execution.setTotalExcluded((int) resultRepository.countByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.EXCLUDED));
+            final int remaining = (int) resultRepository.countUnsnapshottedByExecutionId(executionId,
+                    BulkRescheduleResultStatus.PREVIEW_MATCHED);
+            if (remaining > 0) {
+                execution.setExecutionError("Preview still has " + remaining + " loans to check");
+                releaseWorker(execution);
+                executionRepository.save(execution);
+                return;
+            }
+            execution.setStatus(BulkRescheduleExecutionStatus.PREVIEW);
+            execution.setExecutionError(null);
+            releaseWorker(execution);
+            executionRepository.save(execution);
+        });
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

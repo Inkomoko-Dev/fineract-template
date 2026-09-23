@@ -135,6 +135,11 @@ public class BulkRescheduleTemplateService {
                 String.valueOf(LoanStatus.REJECTED.getValue()), "Rejected"));
         filterOptions.setLoanStatuses(loanStatuses);
 
+        List<EnumOptionData> interestMethods = new ArrayList<>();
+        interestMethods.add(new EnumOptionData(1L, "FLAT", "Flat"));
+        interestMethods.add(new EnumOptionData(0L, "DECLINING_BALANCE", "Declining Balance"));
+        filterOptions.setInterestMethods(interestMethods);
+
         // Loan products
         Collection<LoanProductData> loanProductDataCollection = loanProductReadPlatformService.retrieveAllLoanProducts();
         List<LoanProductOptionDto> loanProducts = new ArrayList<>();
@@ -202,6 +207,8 @@ public class BulkRescheduleTemplateService {
         log.debug("Building validation rules");
 
         ValidationRulesDto validationRules = new ValidationRulesDto();
+        validationRules.setCurrentInterestRateRequired(true);
+        validationRules.setInterestMethodRequired(true);
         validationRules.setCurrentInterestRateIsExact(true);
         validationRules.setNewInterestRateIsManualInput(true);
         validationRules.setNewInterestRateMinValue(BigDecimal.ZERO);

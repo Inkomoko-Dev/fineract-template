@@ -44,6 +44,18 @@ public interface BulkRescheduleResultRepository extends JpaRepository<BulkResche
     Page<BulkRescheduleResult> findPageByExecutionIdAndStatus(@Param("executionId") Long executionId,
             @Param("status") BulkRescheduleResultStatus status, Pageable pageable);
 
+    @Query("SELECT r FROM BulkRescheduleResult r WHERE r.execution.id = :executionId "
+            + "AND r.status = :status AND r.nextScheduledInstallment IS NULL ORDER BY r.id")
+    Page<BulkRescheduleResult> findUnsnapshottedByExecutionId(@Param("executionId") Long executionId,
+            @Param("status") BulkRescheduleResultStatus status, Pageable pageable);
+
+    @Query("SELECT COUNT(r) FROM BulkRescheduleResult r WHERE r.execution.id = :executionId "
+            + "AND r.status = :status AND r.nextScheduledInstallment IS NULL")
+    long countUnsnapshottedByExecutionId(@Param("executionId") Long executionId,
+            @Param("status") BulkRescheduleResultStatus status);
+
+    long countByLoanIdAndStatusAndExecution_IdNot(Long loanId, BulkRescheduleResultStatus status, Long executionId);
+
     @Query("SELECT COUNT(r) FROM BulkRescheduleResult r WHERE r.execution.id = :executionId AND r.status = :status")
     long countByExecutionIdAndStatus(@Param("executionId") Long executionId,
             @Param("status") BulkRescheduleResultStatus status);

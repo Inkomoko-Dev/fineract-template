@@ -62,7 +62,7 @@ public class BulkRescheduleLoanWorker {
         if (loanDetails.getRescheduleFromDate() == null) {
             throw new IllegalArgumentException("Loan has no repayment installment available for the selected strategy");
         }
-        final List<String> errors = validationService.validateLoanEligibilityForReschedule(loan);
+        final List<String> errors = validationService.validateLoanEligibilityForReschedule(loan, executionId);
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException(String.join("; ", errors));
         }

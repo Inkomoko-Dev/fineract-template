@@ -110,7 +110,8 @@ public class BulkRescheduleExecutionDto {
             return true;
         }
         return (status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.EXECUTING
-                || status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.ROLLING_BACK)
+                || status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.ROLLING_BACK
+                || status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.PREVIEWING)
                 && (execution.getLeaseExpiresAt() == null
                         || !execution.getLeaseExpiresAt().isAfter(DateUtils.getLocalDateTimeOfSystem()));
     }

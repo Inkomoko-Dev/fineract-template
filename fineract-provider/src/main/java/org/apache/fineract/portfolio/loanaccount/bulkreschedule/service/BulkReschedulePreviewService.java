@@ -20,32 +20,48 @@ package org.apache.fineract.portfolio.loanaccount.bulkreschedule.service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
-
+import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.criteria.CriteriaBuilder;
+import javax.persistence.criteria.CriteriaQuery;
+import javax.persistence.criteria.Root;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.serialization.GoogleGsonSerializerHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleFilterDto;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleLoansApiConstants;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.ReschedulingDetailsDto;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution.BulkRescheduleExecutionStatus;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleResult;
-import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.RescheduleFromDateStrategy;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleResult.BulkRescheduleResultStatus;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleExecutionRepository;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleResultRepository;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.BulkRescheduleProgressService.ClaimResult;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -62,11 +78,30 @@ public class BulkReschedulePreviewService {
     private final BulkRescheduleExecutionRepository executionRepository;
     private final BulkRescheduleResultRepository resultRepository;
     private final OfficeHierarchyService officeHierarchyService;
-    private final BulkRescheduleValidationService validationService;
+    private final BulkReschedulePreviewWorker previewWorker;
+    private final BulkRescheduleProgressService progressService;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private final Gson gson = GoogleGsonSerializerHelper.createGsonBuilder().create();
 
     private static final int PREVIEW_PAGE_SIZE = 250;
+    private static final int LOAN_THREADS = 4;
+    private ExecutorService loanExecutor;
+
+    @PostConstruct
+    void initializeLoanExecutor() {
+        loanExecutor = new ThreadPoolExecutor(LOAN_THREADS, LOAN_THREADS, 60L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(200),
+                new ThreadPoolExecutor.CallerRunsPolicy());
+    }
+
+    @PreDestroy
+    void shutdownLoanExecutor() {
+        if (loanExecutor != null) {
+            loanExecutor.shutdown();
+        }
+    }
 
 
     public CommandProcessingResult performDryRun(final JsonCommand request) {
@@ -115,14 +150,24 @@ public class BulkReschedulePreviewService {
             throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.carry.forward.details.required",
                     "Carry-forward charge and due date are required when carrying charges forward");
         }
+        if (filters.getCurrentInterestRate() == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.current.rate.required",
+                    "Current interest rate is required");
+        }
+        if (filters.getInterestMethod() == null || filters.getInterestMethod().isBlank()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.interest.method.required",
+                    "Interest method is required");
+        }
+        LoanBulkRescheduleSpecification.parseInterestMethod(filters.getInterestMethod());
+        if (filters.getLoanStatus() == null || filters.getLoanStatus().isBlank()) {
+            filters.setLoanStatus(String.valueOf(LoanStatus.ACTIVE.getValue()));
+        }
 
-        // 3. Fetch Loans matching the filters
+        // 3. Persist matching loan IDs only. Row snapshots run in the background.
         final List<Long> officeIds = resolveOfficeIds(user.getOffice().getId(), filters.getOfficeId());
         validateExcludedLoans(filters.getExcludedLoanIds(), officeIds);
 
         final Specification<Loan> specification = LoanBulkRescheduleSpecification.createSpecification(filters, officeIds);
-
-        // 4. Create the first preview, or refresh the preview already created by this UI flow.
 
         final Long previewExecutionId = request.parameterExists("executionId") ? request.longValueOfParameterNamed("executionId") : null;
         final BulkRescheduleExecution execution = resolvePreviewExecution(previewExecutionId, user.getId());
@@ -134,10 +179,13 @@ public class BulkReschedulePreviewService {
             resultRepository.flush();
         }
         execution.setOfficeId(filters.getOfficeId() != null ? filters.getOfficeId() : user.getOffice().getId());
-        execution.setStatus(BulkRescheduleExecution.BulkRescheduleExecutionStatus.PREVIEW);
+        execution.setStatus(BulkRescheduleExecutionStatus.PREVIEWING);
         execution.setMode(BulkRescheduleExecution.BulkRescheduleMode.DRY_RUN);
         execution.setFiltersJson(gson.toJson(filters));
         execution.setReschedulingDetailsJson(gson.toJson(rescheduleDetailElement));
+        execution.setWorkerToken(null);
+        execution.setLeaseExpiresAt(null);
+        execution.setLastHeartbeatAt(null);
         execution.setTotalLoansFound(0);
         execution.setTotalSucceeded(0);
         execution.setTotalFailed(0);
@@ -146,68 +194,155 @@ public class BulkReschedulePreviewService {
         execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
         executionRepository.save(execution);
 
-        // Snapshot current loan data and eligibility only. Creating and rolling back a
-        // real reschedule request per loan made preview take minutes for 100+ loans.
+        final List<Object[]> rows = findMatchingLoanDisplays(specification);
+        execution.setTotalLoansFound(rows.size());
         int totalExcluded = 0;
-        int totalFailed = 0;
-        int pageNumber = 0;
-        Page<Loan> loanPage;
-        do {
-            loanPage = loanRepository.findAll(specification, PageRequest.of(pageNumber, PREVIEW_PAGE_SIZE, Sort.by("id").ascending()));
-            if (pageNumber == 0) {
-                execution.setTotalLoansFound((int) loanPage.getTotalElements());
-                executionRepository.save(execution);
+        final List<BulkRescheduleResult> batch = new ArrayList<>();
+        for (Object[] row : rows) {
+            final Long loanId = (Long) row[0];
+            final boolean excluded = filters.getExcludedLoanIds() != null && filters.getExcludedLoanIds().contains(loanId);
+            final BulkRescheduleResult result = new BulkRescheduleResult();
+            result.setExecution(execution);
+            result.setLoanId(loanId);
+            result.setLoanAccountNumber((String) row[1]);
+            result.setAccountNumber((String) row[1]);
+            result.setClientName((String) row[2]);
+            result.setOfficeId((Long) row[3]);
+            result.setOfficeName((String) row[4]);
+            result.setLoanProductName((String) row[5]);
+            result.setLoanOfficerId((Long) row[6]);
+            result.setLoanOfficerName((String) row[7]);
+            result.setLoanStatus(loanStatusLabel(row[8]));
+            result.setOriginalInterestRate((java.math.BigDecimal) row[9]);
+            result.setInterestRateMethod(row[10] == null ? null : row[10].toString());
+            result.setStatus(excluded ? BulkRescheduleResultStatus.EXCLUDED : BulkRescheduleResultStatus.PREVIEW_MATCHED);
+            result.setNewInterestRate(details.getNewInterestRate());
+            result.setExcludeReason(excluded ? "In manual exclusion list" : null);
+            result.setCreatedAt(DateUtils.getLocalDateTimeOfSystem());
+            if (excluded) {
+                totalExcluded++;
             }
-            final List<BulkRescheduleResult> results = new ArrayList<>();
-            for (Loan loan : loanPage.getContent()) {
-                final boolean excluded = filters.getExcludedLoanIds() != null && filters.getExcludedLoanIds().contains(loan.getId());
-                final BulkRescheduleResult result = new BulkRescheduleResult();
-                result.setExecution(execution);
-                result.setLoanId(loan.getId());
-                result.setStatus(excluded ? BulkRescheduleResult.BulkRescheduleResultStatus.EXCLUDED
-                        : BulkRescheduleResult.BulkRescheduleResultStatus.PREVIEW_MATCHED);
-                result.setOriginalInterestRate(currentInterestRate(loan));
-                result.setNewInterestRate(details.getNewInterestRate());
-                result.setExcludeReason(excluded ? "In manual exclusion list" : null);
-                result.setCreatedAt(DateUtils.getLocalDateTimeOfSystem());
-                populateSnapshot(result, loan, details);
-
-                try {
-                    if (excluded) {
-                        totalExcluded++;
-                        results.add(result);
-                        continue;
-                    }
-                    final List<String> eligibilityErrors = validationService.validateLoanEligibilityForReschedule(loan);
-                    if (!eligibilityErrors.isEmpty()) {
-                        throw new IllegalArgumentException(String.join("; ", eligibilityErrors));
-                    }
-                    final LocalDate rescheduleFromDate = resolveRescheduleFromDate(loan, filters.getRescheduleFromDateStrategy());
-                    if (rescheduleFromDate == null) {
-                        throw new IllegalArgumentException("Loan has no repayment installment available for the selected strategy");
-                    }
-                    details.setRescheduleFromDate(rescheduleFromDate);
-                    validationService.validateRescheduleParameters(details, loan);
-                    populateProposedSnapshot(result, details, rescheduleFromDate);
-                } catch (Exception e) {
-                    result.setStatus(BulkRescheduleResult.BulkRescheduleResultStatus.FAILED);
-                    result.setErrorMessage(e.getMessage() == null ? "Unable to calculate reschedule preview" : e.getMessage());
-                    totalFailed++;
-                }
-                results.add(result);
+            batch.add(result);
+            if (batch.size() == PREVIEW_PAGE_SIZE) {
+                resultRepository.saveAllAndFlush(batch);
+                batch.clear();
             }
-            resultRepository.saveAllAndFlush(results);
-            pageNumber++;
-        } while (loanPage.hasNext());
-
+        }
+        if (!batch.isEmpty()) {
+            resultRepository.saveAllAndFlush(batch);
+        }
         execution.setTotalExcluded(totalExcluded);
-        execution.setTotalFailed(totalFailed);
         execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
         executionRepository.save(execution);
 
         return new CommandProcessingResultBuilder().withCommandId(request.commandId()).withEntityId(execution.getId())
                 .withOfficeId(filters.getOfficeId()).build();
 
+    }
+
+    public void runPreviewEnrichment(final Long executionId) {
+        final String workerToken = UUID.randomUUID().toString();
+        if (progressService.claimPreview(executionId, workerToken) == ClaimResult.NONE) {
+            log.info("Preview {} has an active worker or is not previewing", executionId);
+            return;
+        }
+        final BulkRescheduleExecution execution = executionRepository.findById(executionId).orElseThrow();
+        final BulkRescheduleFilterDto filters = gson.fromJson(execution.getFiltersJson(), BulkRescheduleFilterDto.class);
+        final ReschedulingDetailsDto details = gson.fromJson(execution.getReschedulingDetailsJson(), ReschedulingDetailsDto.class);
+        final FineractContext context = copyContext(ThreadLocalContextUtil.getContext());
+        try {
+            while (true) {
+                final Page<BulkRescheduleResult> page = resultRepository.findUnsnapshottedByExecutionId(executionId,
+                        BulkRescheduleResultStatus.PREVIEW_MATCHED,
+                        PageRequest.of(0, PREVIEW_PAGE_SIZE, Sort.by("id")));
+                if (page.isEmpty()) {
+                    break;
+                }
+                if (!progressService.renewLease(executionId, workerToken)) {
+                    log.warn("Preview {} lost its worker lease; stopping this worker", executionId);
+                    return;
+                }
+                final List<Future<?>> tasks = new ArrayList<>();
+                for (BulkRescheduleResult result : page.getContent()) {
+                    final Long resultId = result.getId();
+                    tasks.add(loanExecutor.submit(() -> enrichResult(resultId, details, filters, context)));
+                }
+                for (Future<?> task : tasks) {
+                    progressService.renewLease(executionId, workerToken);
+                    try {
+                        task.get();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("Bulk reschedule preview was interrupted", e);
+                    } catch (ExecutionException e) {
+                        log.error("Unexpected error while enriching preview {}", executionId, e);
+                    }
+                }
+            }
+            progressService.completePreview(executionId, workerToken);
+        } catch (Exception e) {
+            log.error("Background preview failed for execution {}", executionId, e);
+            throw e;
+        }
+    }
+
+    private void enrichResult(final Long resultId, final ReschedulingDetailsDto details, final BulkRescheduleFilterDto filters,
+            final FineractContext context) {
+        final boolean inheritedContext = ThreadLocalContextUtil.getTenant() != null;
+        try {
+            ThreadLocalContextUtil.init(copyContext(context));
+            previewWorker.enrichResult(resultId, details, filters.getRescheduleFromDateStrategy());
+        } catch (Exception e) {
+            log.error("Error enriching preview result {}: {}", resultId, e.getMessage(), e);
+            try {
+                ThreadLocalContextUtil.init(copyContext(context));
+                previewWorker.markFailed(resultId, e.getMessage());
+            } catch (Exception persistFailure) {
+                log.error("Could not persist preview failure for result {}", resultId, persistFailure);
+            }
+        } finally {
+            if (!inheritedContext) {
+                ThreadLocalContextUtil.clear();
+            } else {
+                ThreadLocalContextUtil.init(copyContext(context));
+            }
+        }
+    }
+
+    private List<Object[]> findMatchingLoanDisplays(final Specification<Loan> specification) {
+        final CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        final CriteriaQuery<Object[]> query = builder.createQuery(Object[].class);
+        final Root<Loan> root = query.from(Loan.class);
+        final var client = root.join("client", javax.persistence.criteria.JoinType.LEFT);
+        final var loanOffice = root.join("office", javax.persistence.criteria.JoinType.LEFT);
+        final var clientOffice = client.join("office", javax.persistence.criteria.JoinType.LEFT);
+        final var product = root.join("loanProduct", javax.persistence.criteria.JoinType.LEFT);
+        final var officer = root.join("loanOfficer", javax.persistence.criteria.JoinType.LEFT);
+        query.multiselect(root.get("id"), root.get("accountNumber"), client.get("displayName"),
+                builder.coalesce(loanOffice.get("id"), clientOffice.get("id")),
+                builder.coalesce(loanOffice.get("name"), clientOffice.get("name")), product.get("shortName"), officer.get("id"),
+                officer.get("displayName"), root.get("loanStatus"),
+                root.get("loanRepaymentScheduleDetail").get("nominalInterestRatePerPeriod"),
+                root.get("loanRepaymentScheduleDetail").get("interestMethod"));
+        query.where(specification.toPredicate(root, query, builder));
+        query.orderBy(builder.asc(root.get("id")));
+        return entityManager.createQuery(query).getResultList();
+    }
+
+    private static String loanStatusLabel(final Object statusValue) {
+        if (statusValue == null) {
+            return null;
+        }
+        if (statusValue instanceof Number) {
+            return LoanStatus.fromInt(((Number) statusValue).intValue()).toString();
+        }
+        return statusValue.toString();
+    }
+
+    private FineractContext copyContext(final FineractContext source) {
+        return new FineractContext(source.getContextHolder(), source.getTenantContext(), source.getAuthTokenContext(),
+                source.getBusinessDateContext() == null ? null : new HashMap<>(source.getBusinessDateContext()),
+                source.getActionContext());
     }
 
     private BulkRescheduleExecution resolvePreviewExecution(final Long executionId, final Long userId) {
@@ -217,7 +352,8 @@ public class BulkReschedulePreviewService {
         final BulkRescheduleExecution execution = executionRepository.findById(executionId)
                 .orElseThrow(() -> new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.preview.not.found",
                         "Bulk reschedule preview not found with ID: " + executionId));
-        if (execution.getStatus() != BulkRescheduleExecution.BulkRescheduleExecutionStatus.PREVIEW) {
+        if (execution.getStatus() != BulkRescheduleExecutionStatus.PREVIEW
+                && execution.getStatus() != BulkRescheduleExecutionStatus.PREVIEWING) {
             throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.preview.cannot.refresh",
                     "Only a request in preview status can be refreshed");
         }
@@ -256,61 +392,5 @@ public class BulkReschedulePreviewService {
             throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.excluded.loan.office.denied",
                     "All excluded loans must belong to the selected office or one of its child offices");
         }
-    }
-
-
-    /**
-     * Derives the reschedule-from date for an individual loan based on the chosen strategy.
-     * FIRST_INSTALLMENT uses the due date of the first installment.
-     * NEXT_UNPAID uses the due date of the first installment that is not yet fully paid.
-     * Falls back to FIRST_INSTALLMENT behaviour when strategy is null or the schedule is empty.
-     */
-    private LocalDate resolveRescheduleFromDate(final Loan loan, final RescheduleFromDateStrategy strategy) {
-        List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
-        if (installments == null || installments.isEmpty()) {
-            return null;
-        }
-        if (strategy == RescheduleFromDateStrategy.NEXT_UNPAID) {
-            return installments.stream()
-                    .filter(i -> !i.isObligationsMet())
-                    .map(LoanRepaymentScheduleInstallment::getDueDate)
-                    .findFirst()
-                    .orElse(null);
-        }
-        // Default: FIRST_INSTALLMENT
-        return installments.get(0).getDueDate();
-    }
-
-    private BigDecimal currentInterestRate(final Loan loan) {
-        if (loan.getLoanProductRelatedDetail() == null) {
-            return null;
-        }
-        return loan.getLoanProductRelatedDetail().getNominalInterestRatePerPeriod();
-    }
-
-    private void populateSnapshot(final BulkRescheduleResult result, final Loan loan, final ReschedulingDetailsDto details) {
-        result.setLoanAccountNumber(loan.getAccountNumber());
-        result.setAccountNumber(loan.getAccountNumber());
-        result.setClientName(loan.getClient() == null ? null : loan.getClient().getDisplayName());
-        result.setOfficeId(loan.getOffice() == null ? null : loan.getOffice().getId());
-        result.setOfficeName(loan.getOffice() == null ? null : loan.getOffice().getName());
-        result.setLoanProductName(loan.getLoanProduct() == null ? null : loan.getLoanProduct().getShortName());
-        result.setLoanOfficerId(loan.getLoanOfficer() == null ? null : loan.getLoanOfficer().getId());
-        result.setLoanOfficerName(loan.getLoanOfficer() == null ? null : loan.getLoanOfficer().displayName());
-        result.setLoanStatus(loan.status() == null ? null : loan.status().toString());
-        result.setInterestRateMethod(loan.getLoanProductRelatedDetail() == null || loan.getLoanProductRelatedDetail().getInterestMethod() == null ? null
-                : loan.getLoanProductRelatedDetail().getInterestMethod().name());
-        result.setTotalOutstanding(loan.getSummary() == null ? null : loan.getSummary().getTotalOutstanding());
-        result.setCurrentTerm(loan.getRepaymentScheduleInstallments() == null ? 0
-                : (int) loan.getRepaymentScheduleInstallments().stream().filter(i -> !i.isObligationsMet()).count());
-        result.setRescheduleReason(details.getRescheduleReasonComment());
-    }
-
-    private void populateProposedSnapshot(final BulkRescheduleResult result, final ReschedulingDetailsDto details,
-            final LocalDate rescheduleFromDate) {
-        final int extraTerms = details.getExtraTerms() == null ? 0 : details.getExtraTerms();
-        result.setNewTerm((result.getCurrentTerm() == null ? 0 : result.getCurrentTerm()) + extraTerms);
-        result.setNextScheduledInstallment(rescheduleFromDate);
-        result.setNewTotalOutstanding(result.getTotalOutstanding());
     }
 }

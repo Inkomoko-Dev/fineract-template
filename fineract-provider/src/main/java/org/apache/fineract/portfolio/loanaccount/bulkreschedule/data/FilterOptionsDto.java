@@ -42,6 +42,9 @@ public class FilterOptionsDto implements Serializable {
     /** Available loan statuses */
     private List<EnumOptionData> loanStatuses;
 
+    /** Available interest methods (Flat / Declining) */
+    private List<EnumOptionData> interestMethods;
+
     /** Available loan products */
     private List<LoanProductOptionDto> loanProducts;
 

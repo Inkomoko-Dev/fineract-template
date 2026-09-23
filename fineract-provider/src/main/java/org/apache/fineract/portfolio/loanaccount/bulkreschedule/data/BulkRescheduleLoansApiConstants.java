@@ -40,6 +40,7 @@ public class BulkRescheduleLoansApiConstants extends RescheduleLoansApiConstants
     public static final String LOAN_OFFICERS_PARAM_NAME = "loanOfficerIds";
     public static final String RESCHEDULE_FROM_DATE_STRATEGY_PARAM_NAME = "rescheduleFromDateStrategy";
     public static final String CURRENT_INTEREST_RATE_PARAM_NAME = "currentInterestRate";
+    public static final String INTEREST_METHOD_PARAM_NAME = "interestMethod";
     public static final String EXCLUDED_LOAN_IDS_PARAM_NAME = "excludedLoanIds";
 
     public static final String EXECUTION_ID_PARAM_NAME = "executionId";
