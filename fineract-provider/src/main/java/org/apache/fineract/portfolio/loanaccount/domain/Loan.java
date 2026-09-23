@@ -1736,11 +1736,16 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         final String thirdPartyDisbursementProviderParamName = LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER;
-        if (command.isChangeInStringParameterNamed(thirdPartyDisbursementProviderParamName, this.thirdPartyDisbursementProvider)) {
+        // Only update if parameter is explicitly passed and is a real change
+        // This prevents setting the provider to null when the parameter is deleted during modification
+        if (command.parameterExists(thirdPartyDisbursementProviderParamName)) {
             final String newValue = ThirdPartyDisbursementProvider
                     .normalize(command.stringValueOfParameterNamedAllowingNull(thirdPartyDisbursementProviderParamName));
-            actualChanges.put(thirdPartyDisbursementProviderParamName, newValue);
-            this.thirdPartyDisbursementProvider = newValue;
+            // Only update if the new value is different from the existing value
+            if (!Objects.equals(this.thirdPartyDisbursementProvider, newValue)) {
+                actualChanges.put(thirdPartyDisbursementProviderParamName, newValue);
+                this.thirdPartyDisbursementProvider = newValue;
+            }
         }
 
         // add clientId, groupId and loanType changes to actual changes
