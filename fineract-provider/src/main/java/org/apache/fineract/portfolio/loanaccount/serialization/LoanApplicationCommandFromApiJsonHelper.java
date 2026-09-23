@@ -624,9 +624,11 @@ public final class LoanApplicationCommandFromApiJsonHelper {
     private void validateThirdPartyDisbursementProvider(final DataValidatorBuilder baseDataValidator, final JsonElement element,
             final LoanProduct loanProduct, final Loan existingLoanApplication) {
         String provider = null;
+        boolean isParameterPassed = false;
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element)) {
             provider = ThirdPartyDisbursementProvider
                     .normalize(this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element));
+            isParameterPassed = true;
             baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).value(provider).ignoreIfNull()
                     .notExceedingLengthOf(ThirdPartyDisbursementProvider.MAX_LENGTH);
         } else if (existingLoanApplication != null) {
@@ -634,15 +636,18 @@ public final class LoanApplicationCommandFromApiJsonHelper {
         }
 
         if (loanProduct != null && loanProduct.isEnableThirdPartyDisbursement()) {
-            baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).value(provider).notBlank()
-                    .notExceedingLengthOf(ThirdPartyDisbursementProvider.MAX_LENGTH);
+            // Only validate notBlank when the parameter is explicitly passed in the request
+            // For modifications, we don't want to fail if the existing loan has a null provider
+            if (isParameterPassed) {
+                baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).value(provider).notBlank()
+                        .notExceedingLengthOf(ThirdPartyDisbursementProvider.MAX_LENGTH);
+            }
             if (provider != null && !this.disbursementProviderReadPlatformService.isActiveProvider(provider)) {
                 baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
                         "not.found.or.inactive",
                         "thirdPartyDisbursementProvider must match an active disbursement provider code in m_disbursement_provider");
             }
-        } else if (provider != null
-                && this.fromApiJsonHelper.parameterExists(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER, element)) {
+        } else if (provider != null && isParameterPassed) {
             baseDataValidator.reset().parameter(LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER).failWithCode(
                     "must.be.blank.when.enableThirdPartyDisbursement.is.false",
                     "thirdPartyDisbursementProvider must be blank when the loan product does not enable third-party disbursement.");

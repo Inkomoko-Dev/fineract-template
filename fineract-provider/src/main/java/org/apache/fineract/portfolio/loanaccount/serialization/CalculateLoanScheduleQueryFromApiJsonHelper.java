@@ -75,7 +75,8 @@ public final class CalculateLoanScheduleQueryFromApiJsonHelper {
             LoanApiConstants.linkVendorAccountIdParamName, LoanApiConstants.isBnplLoanParamName,
             LoanApiConstants.requiresEquityContributionParamName, LoanApiConstants.equityContributionLoanPercentageParamName,
             LoanApiConstants.DEPARTMENT_PARAM, LoanApiConstants.DESCRIPTION_PARAM, LoanApiConstants.KIVA_ID_PARAM,
-            LoanApiConstants.loanWithAnotherInstitution, LoanApiConstants.loanWithAnotherInstitutionAmount));
+            LoanApiConstants.loanWithAnotherInstitution, LoanApiConstants.loanWithAnotherInstitutionAmount,
+            LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER));
 
     private final FromJsonHelper fromApiJsonHelper;
 
