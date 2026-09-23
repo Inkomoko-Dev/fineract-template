@@ -42,6 +42,7 @@ import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
@@ -768,6 +769,63 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             // return an empty command processing result object
             return CommandProcessingResult.empty();
         }
+    }
+
+    @Override
+    @Transactional
+    public CommandProcessingResult undoApproved(final Long rescheduleRequestId, final String noteText) {
+        final LoanRescheduleRequest loanRescheduleRequest = this.loanRescheduleRequestRepository.findById(rescheduleRequestId)
+                .orElseThrow(() -> new LoanRescheduleRequestNotFoundException(rescheduleRequestId));
+        if (LoanStatus.UNDO_LOAN_RESCHEDULE.getValue().equals(loanRescheduleRequest.getStatusEnum())) {
+            return new CommandProcessingResultBuilder().withEntityId(rescheduleRequestId)
+                    .withLoanId(loanRescheduleRequest.getLoan().getId()).build();
+        }
+        if (!LoanStatus.APPROVED.getValue().equals(loanRescheduleRequest.getStatusEnum())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.reschedule.undo.invalid.status",
+                    "Only an approved reschedule request can be rolled back");
+        }
+        Loan loan = this.loanAssembler.assembleFrom(loanRescheduleRequest.getLoan().getId());
+        final List<Long> existingTransactionIds = new ArrayList<>(loan.findExistingTransactionIds());
+        final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
+        if (loanRescheduleRequest.getLoanRescheduleRequestToTermVariationMappings() != null) {
+            for (final LoanRescheduleRequestToTermVariationMapping mapping : loanRescheduleRequest
+                    .getLoanRescheduleRequestToTermVariationMappings()) {
+                mapping.getLoanTermVariations().markAsInactive();
+            }
+        }
+        final List<LoanRepaymentScheduleHistory> archive = this.loanRepaymentScheduleHistoryRepository
+                .findByRescheduleRequestId(rescheduleRequestId);
+        if (archive.isEmpty()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.reschedule.undo.archive.missing",
+                    "The original repayment schedule could not be found for reschedule request " + rescheduleRequestId);
+        }
+        final List<LoanRepaymentScheduleInstallment> restored = new ArrayList<>();
+        for (final LoanRepaymentScheduleHistory history : archive) {
+            restored.add(new LoanRepaymentScheduleInstallment(loan, history.getInstallmentNumber(), history.getFromDate(),
+                    history.getDueDate(), history.getPrincipal(), history.getInterestCharged(), history.getFeeChargesCharged(),
+                    history.getPenaltyCharges(), false, null));
+        }
+        loan.updateLoanSchedule(restored);
+        loan.recalculateAllCharges();
+        final ChangedTransactionDetail changedTransactionDetail = loan.processTransactions();
+        loanRescheduleRequest.undo();
+        loan.updateRescheduledOnDate(null);
+        loan.updateRescheduledByUser(null);
+        loan = this.loanRepositoryWrapper.saveAndFlush(loan);
+        this.loanRescheduleRequestRepository.saveAndFlush(loanRescheduleRequest);
+        if (changedTransactionDetail != null) {
+            for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
+                this.loanTransactionRepository.save(mapEntry.getValue());
+                loan.addLoanTransaction(mapEntry.getValue());
+                this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
+            }
+        }
+        postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+        this.loanAccountDomainService.recalculateAccruals(loan, true);
+        if (noteText != null && !noteText.isBlank()) {
+            this.noteRepository.save(Note.loanNote(loan, noteText));
+        }
+        return new CommandProcessingResultBuilder().withEntityId(rescheduleRequestId).withLoanId(loan.getId()).build();
     }
 
     /**

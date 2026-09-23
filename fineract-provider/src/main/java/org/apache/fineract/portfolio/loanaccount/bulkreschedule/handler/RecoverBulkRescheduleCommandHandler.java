@@ -67,17 +67,35 @@ public class RecoverBulkRescheduleCommandHandler implements NewCommandSourceHand
                     "User does not have access to this bulk reschedule office");
         }
         final var status = execution.getStatus();
+        final boolean rollingBack = status == BulkRescheduleExecutionStatus.ROLLING_BACK;
         final boolean executing = status == BulkRescheduleExecutionStatus.EXECUTING;
         final boolean incomplete = status == BulkRescheduleExecutionStatus.FAILED
                 || status == BulkRescheduleExecutionStatus.PARTIAL_SUCCESS;
-        if (!executing && !incomplete) {
+        if (!executing && !incomplete && !rollingBack) {
             throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.recovery.status.invalid",
                     "Only an interrupted or incomplete execution can be resumed");
         }
-        if (executing && execution.getLeaseExpiresAt() != null
+        if ((executing || rollingBack) && execution.getLeaseExpiresAt() != null
                 && !execution.getLeaseExpiresAt().isBefore(DateUtils.getLocalDateTimeOfSystem())) {
             throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.recovery.worker.active",
                     "The execution worker is still active; wait for its lease to expire before resuming");
+        }
+        if (rollingBack) {
+            final long remainingRollback = resultRepository.countByExecutionIdAndStatus(execution.getId(),
+                    BulkRescheduleResultStatus.SUCCEEDED);
+            if (remainingRollback == 0) {
+                throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.recovery.nothing.pending",
+                        "There are no remaining loans to resume");
+            }
+            execution.setWorkerToken(null);
+            execution.setLeaseExpiresAt(null);
+            execution.setLastHeartbeatAt(null);
+            execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
+            executionRepository.save(execution);
+            final var context = ThreadLocalContextUtil.getContext();
+            AfterCommitExecutor.execute(() -> asyncExecutionService.submitRollback(execution.getId(), context));
+            return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(execution.getId())
+                    .withOfficeId(execution.getOfficeId()).build();
         }
         resultRepository.resetUncommittedFailures(execution.getId(), BulkRescheduleResultStatus.FAILED,
                 BulkRescheduleResultStatus.PREVIEW_MATCHED);

@@ -21,7 +21,15 @@ package org.apache.fineract.portfolio.loanaccount.loanschedule.domain;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
+import java.util.List;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 public interface LoanRepaymentScheduleHistoryRepository
         extends JpaRepository<LoanRepaymentScheduleHistory, Long>, JpaSpecificationExecutor<LoanRepaymentScheduleHistory> {
+
+    @Query("SELECT h FROM LoanRepaymentScheduleHistory h WHERE h.loanRescheduleRequest.id = :requestId "
+            + "ORDER BY h.installmentNumber ASC")
+    List<LoanRepaymentScheduleHistory> findByRescheduleRequestId(@Param("requestId") Long requestId);
 
 }
