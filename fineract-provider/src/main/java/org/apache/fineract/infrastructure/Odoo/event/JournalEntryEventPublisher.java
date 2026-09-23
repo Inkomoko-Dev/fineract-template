@@ -27,15 +27,14 @@ import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRu
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 // partition key is resourceId (loan transaction id) so a create and its reversal stay ordered on one partition
+// no @ConditionalOnBean(KafkaTemplate.class): it's evaluated before KafkaAutoConfiguration runs, so it always failed
 @Service
 @ConditionalOnProperty(name = "fineract.integrations.kafka.enabled", havingValue = "true")
-@ConditionalOnBean(KafkaTemplate.class)
 public class JournalEntryEventPublisher {
 
     private static final Logger LOG = LoggerFactory.getLogger(JournalEntryEventPublisher.class);
