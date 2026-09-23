@@ -37,6 +37,7 @@ import org.springframework.stereotype.Service;
 public class BulkRescheduleAsyncExecutionService {
 
     private final BulkRescheduleExecutionService executionService;
+    private final BulkReschedulePreviewService previewService;
     private ExecutorService executor;
 
     @PostConstruct
@@ -46,36 +47,52 @@ public class BulkRescheduleAsyncExecutionService {
     }
 
     public void submit(final Long executionId, final FineractContext context) {
-        submitTask(executionId, context, false);
+        submitTask(executionId, context, Task.EXECUTE);
     }
 
     public void submitRollback(final Long executionId, final FineractContext context) {
-        submitTask(executionId, context, true);
+        submitTask(executionId, context, Task.ROLLBACK);
     }
 
-    private void submitTask(final Long executionId, final FineractContext context, final boolean rollback) {
+    public void submitPreview(final Long executionId, final FineractContext context) {
+        submitTask(executionId, context, Task.PREVIEW);
+    }
+
+    private void submitTask(final Long executionId, final FineractContext context, final Task task) {
         try {
-            executor.execute(() -> run(executionId, context, rollback));
+            executor.execute(() -> run(executionId, context, task));
         } catch (java.util.concurrent.RejectedExecutionException e) {
             log.error("Bulk reschedule queue is full for execution {}", executionId, e);
             executionService.markExecutionFailed(executionId, e);
         }
     }
 
-    private void run(final Long executionId, final FineractContext context, final boolean rollback) {
+    private void run(final Long executionId, final FineractContext context, final Task task) {
         try {
             ThreadLocalContextUtil.init(context);
-            if (rollback) {
-                executionService.runRollback(executionId);
-            } else {
-                executionService.executeReschedule(executionId);
+            switch (task) {
+                case ROLLBACK:
+                    executionService.runRollback(executionId);
+                    break;
+                case PREVIEW:
+                    previewService.runPreviewEnrichment(executionId);
+                    break;
+                default:
+                    executionService.executeReschedule(executionId);
+                    break;
             }
         } catch (Exception e) {
-            log.error("Background bulk reschedule {} {} failed", executionId, rollback ? "rollback" : "execute", e);
+            log.error("Background bulk reschedule {} {} failed", executionId, task, e);
             executionService.markExecutionFailed(executionId, e);
         } finally {
             ThreadLocalContextUtil.clear();
         }
+    }
+
+    private enum Task {
+        EXECUTE,
+        ROLLBACK,
+        PREVIEW
     }
 
     @PreDestroy

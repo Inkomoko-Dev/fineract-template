@@ -133,7 +133,8 @@ public class BulkRescheduleExecution extends AbstractPersistableCustom {
         REJECTED,
         ROLLING_BACK,
         ROLLED_BACK,
-        FAILED
+        FAILED,
+        PREVIEWING
     }
 
     public enum BulkRescheduleMode {

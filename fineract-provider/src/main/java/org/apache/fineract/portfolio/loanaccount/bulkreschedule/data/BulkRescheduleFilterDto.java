@@ -46,8 +46,11 @@ public class BulkRescheduleFilterDto implements Serializable {
     /** Strategy for deriving rescheduleFromDate per loan: FIRST_INSTALLMENT or NEXT_UNPAID */
     private RescheduleFromDateStrategy rescheduleFromDateStrategy;
 
-    /** Current interest rate to match (exact match, optional) */
+    /** Current interest rate to match (exact match, required) */
     private BigDecimal currentInterestRate;
+
+    /** Interest method to match: FLAT or DECLINING_BALANCE (required) */
+    private String interestMethod;
 
     /** Optional filter: one or more loan product IDs */
     private List<Long> loanProductIds;

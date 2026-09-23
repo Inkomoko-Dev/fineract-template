@@ -28,6 +28,8 @@ import javax.persistence.criteria.Root;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleFilterDto;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
+import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.springframework.data.jpa.domain.Specification;
 
 /**
@@ -116,6 +118,33 @@ public class LoanBulkRescheduleSpecification implements Specification<Loan> {
     }
 
     /**
+     * Specification to filter loans by interest method (flat or declining balance).
+     */
+    public static Specification<Loan> byInterestMethod(final InterestMethod interestMethod) {
+        return (root, query, builder) -> {
+            if (interestMethod == null || interestMethod == InterestMethod.INVALID) {
+                return builder.conjunction();
+            }
+            return builder.equal(root.get("loanRepaymentScheduleDetail").get("interestMethod"), interestMethod);
+        };
+    }
+
+    public static InterestMethod parseInterestMethod(final String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        final String normalized = value.trim().toUpperCase().replace(' ', '_');
+        if ("FLAT".equals(normalized)) {
+            return InterestMethod.FLAT;
+        }
+        if ("DECLINING".equals(normalized) || "DECLINING_BALANCE".equals(normalized)) {
+            return InterestMethod.DECLINING_BALANCE;
+        }
+        throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.invalid.interest.method",
+                "Interest method must be FLAT or DECLINING_BALANCE");
+    }
+
+    /**
      * Creates a combined specification from the given filter DTO, applying all non-null filter
      * criteria with AND logic.
      *
@@ -156,10 +185,10 @@ public class LoanBulkRescheduleSpecification implements Specification<Loan> {
                 throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.invalid.status",
                         "Invalid loan status code: " + filters.getLoanStatus(), e);
             }
+        } else {
+            statusCode = LoanStatus.ACTIVE.getValue();
         }
-        if (statusCode != null) {
-            spec = spec.and(byLoanStatus(statusCode));
-        }
+        spec = spec.and(byLoanStatus(statusCode));
 
         if (filters.getLoanProductIds() != null && !filters.getLoanProductIds().isEmpty()) {
             spec = spec.and(byLoanProducts(filters.getLoanProductIds()));
@@ -167,6 +196,11 @@ public class LoanBulkRescheduleSpecification implements Specification<Loan> {
 
         if (filters.getCurrentInterestRate() != null) {
             spec = spec.and(byNominalInterestRatePerPeriod(filters.getCurrentInterestRate()));
+        }
+
+        final InterestMethod interestMethod = parseInterestMethod(filters.getInterestMethod());
+        if (interestMethod != null) {
+            spec = spec.and(byInterestMethod(interestMethod));
         }
 
         if (filters.getLoanOfficerIds() != null && !filters.getLoanOfficerIds().isEmpty()) {

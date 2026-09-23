@@ -291,7 +291,8 @@ public class BulkRescheduleExecutionService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markExecutionFailed(final Long executionId, final Exception cause) {
         bulkRescheduleExecutionRepository.findById(executionId).ifPresent(execution -> {
-            if (execution.getStatus() == BulkRescheduleExecutionStatus.ROLLING_BACK) {
+            if (execution.getStatus() == BulkRescheduleExecutionStatus.ROLLING_BACK
+                    || execution.getStatus() == BulkRescheduleExecutionStatus.PREVIEWING) {
                 execution.setWorkerToken(null);
                 execution.setLeaseExpiresAt(null);
                 execution.setLastHeartbeatAt(null);
