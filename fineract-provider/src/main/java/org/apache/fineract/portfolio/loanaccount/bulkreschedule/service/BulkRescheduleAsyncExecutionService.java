@@ -46,20 +46,32 @@ public class BulkRescheduleAsyncExecutionService {
     }
 
     public void submit(final Long executionId, final FineractContext context) {
+        submitTask(executionId, context, false);
+    }
+
+    public void submitRollback(final Long executionId, final FineractContext context) {
+        submitTask(executionId, context, true);
+    }
+
+    private void submitTask(final Long executionId, final FineractContext context, final boolean rollback) {
         try {
-            executor.execute(() -> execute(executionId, context));
+            executor.execute(() -> run(executionId, context, rollback));
         } catch (java.util.concurrent.RejectedExecutionException e) {
-            log.error("Bulk reschedule execution queue is full for execution {}", executionId, e);
+            log.error("Bulk reschedule queue is full for execution {}", executionId, e);
             executionService.markExecutionFailed(executionId, e);
         }
     }
 
-    private void execute(final Long executionId, final FineractContext context) {
+    private void run(final Long executionId, final FineractContext context, final boolean rollback) {
         try {
             ThreadLocalContextUtil.init(context);
-            executionService.executeReschedule(executionId);
+            if (rollback) {
+                executionService.runRollback(executionId);
+            } else {
+                executionService.executeReschedule(executionId);
+            }
         } catch (Exception e) {
-            log.error("Background bulk reschedule {} failed", executionId, e);
+            log.error("Background bulk reschedule {} {} failed", executionId, rollback ? "rollback" : "execute", e);
             executionService.markExecutionFailed(executionId, e);
         } finally {
             ThreadLocalContextUtil.clear();

@@ -21,8 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.bulkreschedule.service;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
-import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
-import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleResponseDto;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.TemplateDataDto;
 import org.springframework.stereotype.Service;
 
@@ -59,8 +58,10 @@ public class BulkRescheduleService {
 
     public CommandProcessingResult rollbackExecution(JsonCommand jsonCommand) {
         final String reason = jsonCommand.stringValueOfParameterNamedAllowingNull("rollbackReason");
-        final BulkRescheduleResponseDto response = this.executionService.rollbackExecution(jsonCommand.entityId(), reason);
-        return new CommandProcessingResultBuilder().withCommandId(jsonCommand.commandId())
-                .withEntityId(response.getExecutionId()).build();
+        if (reason == null || reason.isBlank()) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.bulk.reschedule.rollback.reason.required", "A rollback reason is required");
+        }
+        return this.executionService.startRollback(jsonCommand.entityId(), reason);
     }
 }

@@ -88,6 +88,10 @@ public class BulkLoanRescheduleEngine {
             throw new RuntimeException("Approval failed: " + e.getMessage(), e);
         }
     }
+
+    public void undoApprovedReschedule(final Long rescheduleRequestId, final String noteText) {
+        loanRescheduleRequestService.undoApproved(rescheduleRequestId, noteText);
+    }
     /**
      * Converts ReschedulingDetailsDto to JsonCommand for use with the individual service.
      * Maps all DTO fields to the JsonCommand object format expected by the service.

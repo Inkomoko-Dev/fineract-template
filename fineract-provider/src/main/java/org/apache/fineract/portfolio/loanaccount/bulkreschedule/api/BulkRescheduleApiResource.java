@@ -512,6 +512,20 @@ public class BulkRescheduleApiResource {
                 BulkRescheduleResultStatus.SUCCEEDED);
         final int failed = (int) resultRepository.countByExecutionIdAndStatus(executionId,
                 BulkRescheduleResultStatus.FAILED);
+        if ("ROLLING_BACK".equals(response.getStatus())) {
+            final int rolledBack = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.ROLLED_BACK);
+            final int rollbackFailed = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.ROLLBACK_FAILED);
+            response.setTotalSucceeded(succeeded);
+            response.setTotalFailed(rollbackFailed);
+            response.setTotalProcessed(rolledBack + rollbackFailed);
+            response.setTotalRemaining(succeeded);
+            if (Boolean.TRUE.equals(response.getRecoveryAvailable())) {
+                response.setRecoveryAvailable(succeeded > 0);
+            }
+            return;
+        }
         final int remaining = (int) resultRepository.countByExecutionIdAndStatus(executionId,
                 BulkRescheduleResultStatus.PREVIEW_MATCHED);
         response.setTotalSucceeded(succeeded);

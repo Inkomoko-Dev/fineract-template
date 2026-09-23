@@ -99,13 +99,30 @@ public interface BulkRescheduleExecutionRepository
             e.lastHeartbeatAt = CURRENT_TIMESTAMP,
             e.updatedAt = CURRENT_TIMESTAMP
         WHERE e.id = :executionId
-          AND e.status = :executing
+          AND e.status = :status
           AND e.workerToken = :workerToken
         """)
     int renewLease(@Param("executionId") Long executionId,
-            @Param("executing") BulkRescheduleExecutionStatus executing,
+            @Param("status") BulkRescheduleExecutionStatus status,
             @Param("workerToken") String workerToken,
             @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt);
+
+    @Modifying
+    @Query("""
+        UPDATE BulkRescheduleExecution e
+        SET e.workerToken = :workerToken,
+            e.leaseExpiresAt = :leaseExpiresAt,
+            e.lastHeartbeatAt = CURRENT_TIMESTAMP,
+            e.updatedAt = CURRENT_TIMESTAMP
+        WHERE e.id = :executionId
+          AND e.status = :rollingBack
+          AND (e.workerToken IS NULL OR e.leaseExpiresAt IS NULL OR e.leaseExpiresAt < :now)
+        """)
+    int claimRollingBack(@Param("executionId") Long executionId,
+            @Param("rollingBack") BulkRescheduleExecutionStatus rollingBack,
+            @Param("workerToken") String workerToken,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt,
+            @Param("now") LocalDateTime now);
 
     /**
      * Find all executions for a specific user.

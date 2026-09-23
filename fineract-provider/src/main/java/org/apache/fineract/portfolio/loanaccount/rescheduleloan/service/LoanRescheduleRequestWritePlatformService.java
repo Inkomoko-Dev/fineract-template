@@ -31,4 +31,6 @@ public interface LoanRescheduleRequestWritePlatformService {
 
     CommandProcessingResult undo(JsonCommand jsonCommand);
 
+    CommandProcessingResult undoApproved(Long rescheduleRequestId, String noteText);
+
 }

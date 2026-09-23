@@ -61,8 +61,47 @@ public class BulkRescheduleProgressService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean renewLease(final Long executionId, final String workerToken) {
-        return executionRepository.renewLease(executionId, BulkRescheduleExecutionStatus.EXECUTING, workerToken,
-                DateUtils.getLocalDateTimeOfSystem().plusMinutes(LEASE_MINUTES)) == 1;
+        final var leaseExpiresAt = DateUtils.getLocalDateTimeOfSystem().plusMinutes(LEASE_MINUTES);
+        return executionRepository.renewLease(executionId, BulkRescheduleExecutionStatus.EXECUTING, workerToken, leaseExpiresAt) == 1
+                || executionRepository.renewLease(executionId, BulkRescheduleExecutionStatus.ROLLING_BACK, workerToken, leaseExpiresAt) == 1;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ClaimResult claimRollback(final Long executionId, final String workerToken) {
+        final var now = DateUtils.getLocalDateTimeOfSystem();
+        if (executionRepository.claimRollingBack(executionId, BulkRescheduleExecutionStatus.ROLLING_BACK, workerToken,
+                now.plusMinutes(LEASE_MINUTES), now) == 1) {
+            return ClaimResult.INITIAL;
+        }
+        return ClaimResult.NONE;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void completeRollback(final Long executionId, final String workerToken) {
+        executionRepository.findById(executionId).ifPresent(execution -> {
+            if (!workerToken.equals(execution.getWorkerToken())) {
+                return;
+            }
+            final int remaining = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.SUCCEEDED);
+            final int rollbackFailed = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.ROLLBACK_FAILED);
+            if (remaining > 0) {
+                execution.setStatus(BulkRescheduleExecutionStatus.FAILED);
+                execution.setExecutionError("Rollback stopped with " + remaining + " loans still pending");
+            } else {
+                execution.setStatus(rollbackFailed == 0 ? BulkRescheduleExecutionStatus.ROLLED_BACK
+                        : BulkRescheduleExecutionStatus.PARTIAL_SUCCESS);
+                if (rollbackFailed == 0) {
+                    execution.setExecutionError(null);
+                } else {
+                    execution.setExecutionError("Rollback failed for " + rollbackFailed + " loans");
+                }
+            }
+            execution.setExecutionCompletedAt(DateUtils.getLocalDateTimeOfSystem());
+            releaseWorker(execution);
+            executionRepository.save(execution);
+        });
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
