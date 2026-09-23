@@ -512,6 +512,34 @@ public class BulkRescheduleApiResource {
                 BulkRescheduleResultStatus.SUCCEEDED);
         final int failed = (int) resultRepository.countByExecutionIdAndStatus(executionId,
                 BulkRescheduleResultStatus.FAILED);
+        if ("PREVIEWING".equals(response.getStatus())) {
+            final int remaining = (int) resultRepository.countUnsnapshottedByExecutionId(executionId,
+                    BulkRescheduleResultStatus.PREVIEW_MATCHED);
+            final int excluded = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.EXCLUDED);
+            final int found = response.getTotalLoansFound() == null ? remaining + failed + excluded : response.getTotalLoansFound();
+            response.setTotalFailed(failed);
+            response.setTotalRemaining(remaining);
+            response.setTotalProcessed(Math.max(0, found - remaining - excluded));
+            if (Boolean.TRUE.equals(response.getRecoveryAvailable())) {
+                response.setRecoveryAvailable(remaining > 0);
+            }
+            return;
+        }
+        if ("ROLLING_BACK".equals(response.getStatus())) {
+            final int rolledBack = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.ROLLED_BACK);
+            final int rollbackFailed = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                    BulkRescheduleResultStatus.ROLLBACK_FAILED);
+            response.setTotalSucceeded(succeeded);
+            response.setTotalFailed(rollbackFailed);
+            response.setTotalProcessed(rolledBack + rollbackFailed);
+            response.setTotalRemaining(succeeded);
+            if (Boolean.TRUE.equals(response.getRecoveryAvailable())) {
+                response.setRecoveryAvailable(succeeded > 0);
+            }
+            return;
+        }
         final int remaining = (int) resultRepository.countByExecutionIdAndStatus(executionId,
                 BulkRescheduleResultStatus.PREVIEW_MATCHED);
         response.setTotalSucceeded(succeeded);

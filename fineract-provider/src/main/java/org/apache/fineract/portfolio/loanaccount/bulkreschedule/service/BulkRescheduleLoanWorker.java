@@ -62,7 +62,7 @@ public class BulkRescheduleLoanWorker {
         if (loanDetails.getRescheduleFromDate() == null) {
             throw new IllegalArgumentException("Loan has no repayment installment available for the selected strategy");
         }
-        final List<String> errors = validationService.validateLoanEligibilityForReschedule(loan);
+        final List<String> errors = validationService.validateLoanEligibilityForReschedule(loan, executionId);
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException(String.join("; ", errors));
         }
@@ -88,11 +88,19 @@ public class BulkRescheduleLoanWorker {
         return installments.get(0).getDueDate();
     }
 
-    /** Preserves the existing rollback business behavior, but isolates its result mutation. */
+    /** Restores the archived schedule for the approved reschedule request, then marks the result rolled back. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void rollbackLoan(final Long resultId) {
+    public void rollbackLoan(final Long resultId, final String rollbackReason) {
         final BulkRescheduleResult result = resultRepository.findById(resultId).orElseThrow();
-        loanRepository.findById(result.getLoanId()).orElseThrow();
+        if (result.getStatus() == BulkRescheduleResultStatus.ROLLED_BACK) {
+            return;
+        }
+        final Long requestId = result.getOriginalRescheduleRequestId() != null ? result.getOriginalRescheduleRequestId()
+                : result.getRescheduleRequestId();
+        if (requestId == null) {
+            throw new IllegalArgumentException("Loan has no reschedule request to reverse");
+        }
+        rescheduleEngine.undoApprovedReschedule(requestId, null);
         result.setStatus(BulkRescheduleResultStatus.ROLLED_BACK);
         result.setErrorMessage(null);
         resultRepository.save(result);

@@ -35,6 +35,8 @@ import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.serialization.GoogleGsonSerializerHelper;
@@ -55,8 +57,6 @@ import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkR
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleExecutionRepository;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleResultRepository;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.BulkRescheduleProgressService.ClaimResult;
-import org.apache.fineract.portfolio.loanaccount.domain.Loan;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,13 +80,13 @@ import com.google.gson.Gson;
 @RequiredArgsConstructor
 public class BulkRescheduleExecutionService {
 
-    private static final int BATCH_SIZE = 100;
+    public static final String ROLLBACK_REASON_PREFIX = "ROLLBACK:";
     private static final int LOAN_THREADS = 4;
+    private static final int BATCH_SIZE = 100;
 
     private final BulkRescheduleExecutionRepository bulkRescheduleExecutionRepository;
     private final BulkRescheduleResultRepository bulkRescheduleResultRepository;
     private final BulkRescheduleAuditRepository bulkRescheduleAuditRepository;
-    private final LoanRepository loanRepository;
     private final BulkRescheduleLoanWorker loanWorker;
     private final BulkRescheduleFailureService failureService;
     private final PlatformSecurityContext platformSecurityContext;
@@ -291,6 +291,15 @@ public class BulkRescheduleExecutionService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markExecutionFailed(final Long executionId, final Exception cause) {
         bulkRescheduleExecutionRepository.findById(executionId).ifPresent(execution -> {
+            if (execution.getStatus() == BulkRescheduleExecutionStatus.ROLLING_BACK
+                    || execution.getStatus() == BulkRescheduleExecutionStatus.PREVIEWING) {
+                execution.setWorkerToken(null);
+                execution.setLeaseExpiresAt(null);
+                execution.setLastHeartbeatAt(null);
+                execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
+                bulkRescheduleExecutionRepository.save(execution);
+                return;
+            }
             execution.setStatus(BulkRescheduleExecutionStatus.FAILED);
             execution.setExecutionError(cause.getMessage());
             execution.setExecutionCompletedAt(DateUtils.getLocalDateTimeOfSystem());
@@ -307,106 +316,146 @@ public class BulkRescheduleExecutionService {
     }
 
     /**
-     * Rolls back a previously executed bulk reschedule operation.
-     * 
-     * Reverses all successfully rescheduled loans back to their original schedule.
-     * 
-     * @param executionId the execution ID to rollback
-     * @param rollbackReason reason for rollback
-     * @return response with rollback results
-     * @throws GeneralPlatformDomainRuleException if validation fails
+     * Marks the execution as rolling back and returns immediately. The command handler
+     * starts {@link #runRollback(Long)} after commit so the request is not blocked.
      */
     @Transactional
-    public BulkRescheduleResponseDto rollbackExecution(final Long executionId, final String rollbackReason) {
-        log.info("Starting rollback of bulk reschedule execution: {}", executionId);
-
-        int rollbackCount = 0;
-        int rollbackFailCount = 0;
-
-        try {
-            // Fetch and validate execution
-            Optional<BulkRescheduleExecution> executionOptional = bulkRescheduleExecutionRepository.findById(executionId);
-            if (!executionOptional.isPresent()) {
-                throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.execution.not.found",
-                    "Execution not found with ID: " + executionId);
-            }
-
-            BulkRescheduleExecution execution = executionOptional.get();
-
-            // Validate status is COMPLETED
-            if (!execution.getStatus().equals(BulkRescheduleExecutionStatus.COMPLETED)) {
-                throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.execution.invalid.status",
-                    "Only COMPLETED executions can be rolled back. Current status: " + execution.getStatus());
-            }
-
-            // Validate user permissions
-            AppUser currentUser = platformSecurityContext.authenticatedUser();
-            if (!hasExecutionPermission(currentUser, execution)) {
-                throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.execution.permission.denied",
+    public CommandProcessingResult startRollback(final Long executionId, final String rollbackReason) {
+        if (rollbackReason == null || rollbackReason.isBlank()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.rollback.reason.required",
+                    "A rollback reason is required");
+        }
+        final BulkRescheduleExecution execution = bulkRescheduleExecutionRepository.findById(executionId)
+                .orElseThrow(() -> new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.execution.not.found",
+                        "Execution not found with ID: " + executionId));
+        validateRollbackAllowed(execution);
+        final AppUser currentUser = platformSecurityContext.authenticatedUser();
+        if (!hasExecutionPermission(currentUser, execution)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.execution.permission.denied",
                     "User does not have permission to rollback this bulk reschedule");
-            }
+        }
+        execution.setStatus(BulkRescheduleExecutionStatus.ROLLING_BACK);
+        execution.setExecutionError(ROLLBACK_REASON_PREFIX + rollbackReason.trim());
+        execution.setWorkerToken(null);
+        execution.setLeaseExpiresAt(null);
+        execution.setLastHeartbeatAt(null);
+        execution.setExecutionCompletedAt(null);
+        execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
+        bulkRescheduleExecutionRepository.save(execution);
+        logAudit(execution, BulkRescheduleAudit.BulkRescheduleAuditAction.ROLLBACK, currentUser,
+                "Background rollback started. Reason: " + rollbackReason.trim());
+        return new CommandProcessingResultBuilder().withEntityId(execution.getId()).withOfficeId(execution.getOfficeId()).build();
+    }
 
-            // Set status to ROLLING_BACK
-            execution.setStatus(BulkRescheduleExecutionStatus.ROLLING_BACK);
-            execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
-            bulkRescheduleExecutionRepository.save(execution);
-
-            // Fetch all SUCCEEDED results
-            List<BulkRescheduleResult> succeededResults = bulkRescheduleResultRepository
-                .findByExecutionAndStatus(execution, BulkRescheduleResultStatus.SUCCEEDED);
-
-            log.info("Found {} succeeded reschedules to rollback for execution {}", succeededResults.size(), executionId);
-
-            // Process rollback in batches
-            for (BulkRescheduleResult result : succeededResults) {
-                try {
-                    Optional<Loan> loanOptional = loanRepository.findById(result.getLoanId());
-                    if (!loanOptional.isPresent()) {
-                        log.error("Loan {} not found during rollback", result.getLoanId());
-                        result.setStatus(BulkRescheduleResultStatus.ROLLBACK_FAILED);
-                        result.setErrorMessage("Loan not found during rollback");
-                        bulkRescheduleResultRepository.save(result);
-                        rollbackFailCount++;
-                        continue;
-                    }
-
-                    Loan loan = loanOptional.get();
-
-                    // Call engine to reverse reschedule
-
-                    // Update result
-                    result.setStatus(BulkRescheduleResultStatus.ROLLED_BACK);
-                    bulkRescheduleResultRepository.save(result);
-                    rollbackCount++;
-
-                } catch (Exception e) {
-                    log.error("Error rolling back reschedule for loan {} in execution {}: {}",
-                        result.getLoanId(), executionId, e.getMessage(), e);
-                    result.setStatus(BulkRescheduleResultStatus.ROLLBACK_FAILED);
-                    result.setErrorMessage("Rollback failed: " + e.getMessage());
-                    bulkRescheduleResultRepository.save(result);
-                    rollbackFailCount++;
+    public void runRollback(final Long executionId) {
+        log.info("Starting background rollback of bulk reschedule: {}", executionId);
+        final String workerToken = UUID.randomUUID().toString();
+        final ClaimResult claimResult = progressService.claimRollback(executionId, workerToken);
+        if (claimResult == ClaimResult.NONE) {
+            log.info("Rollback {} has an active worker or is not rolling back", executionId);
+            return;
+        }
+        final BulkRescheduleExecution execution = bulkRescheduleExecutionRepository.findById(executionId).orElseThrow();
+        final String rollbackReason = rollbackReason(execution.getExecutionError());
+        final FineractContext context = copyContext(ThreadLocalContextUtil.getContext());
+        try {
+            while (true) {
+                final List<BulkRescheduleResult> batch = bulkRescheduleResultRepository
+                        .findPageByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.SUCCEEDED,
+                                org.springframework.data.domain.PageRequest.of(0, BATCH_SIZE, org.springframework.data.domain.Sort.by("id")))
+                        .getContent();
+                if (batch.isEmpty()) {
+                    break;
                 }
+                if (!progressService.renewLease(executionId, workerToken)) {
+                    log.warn("Rollback {} lost its worker lease; stopping this worker", executionId);
+                    return;
+                }
+                final List<Future<?>> tasks = new ArrayList<>();
+                for (BulkRescheduleResult result : batch) {
+                    final Long resultId = result.getId();
+                    final Long loanId = result.getLoanId();
+                    tasks.add(loanExecutor.submit(() -> processRollbackResult(resultId, loanId, rollbackReason, context)));
+                }
+                for (Future<?> task : tasks) {
+                    progressService.renewLease(executionId, workerToken);
+                    try {
+                        task.get();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("Bulk reschedule rollback was interrupted", e);
+                    } catch (ExecutionException e) {
+                        log.error("Unexpected error while rolling back a loan in execution {}", executionId, e);
+                    }
+                }
+                progressService.refreshCounts(executionId, workerToken);
             }
-
-            // Update execution with ROLLED_BACK status
-            execution.setStatus(BulkRescheduleExecutionStatus.ROLLED_BACK);
-            execution.setUpdatedAt(DateUtils.getLocalDateTimeOfSystem());
-            bulkRescheduleExecutionRepository.save(execution);
-
-            // Log audit entry
-            logAudit(execution, BulkRescheduleAudit.BulkRescheduleAuditAction.ROLLBACK, currentUser,
-                String.format("Rollback completed. Reversed: %d, Failed: %d. Reason: %s",
-                    rollbackCount, rollbackFailCount, rollbackReason));
-
-            log.info("Rollback completed for execution {}: {} reversed, {} failed",
-                executionId, rollbackCount, rollbackFailCount);
-
-            return buildExecutionResponse(execution, true);
-
+            progressService.completeRollback(executionId, workerToken);
+            log.info("Background rollback completed for execution {}", executionId);
         } catch (Exception e) {
-            log.error("Error rolling back bulk reschedule {}: {}", executionId, e.getMessage(), e);
+            log.error("Background rollback failed for execution {}", executionId, e);
             throw e;
+        }
+    }
+
+    private void processRollbackResult(final Long resultId, final Long loanId, final String rollbackReason,
+            final FineractContext context) {
+        final boolean inheritedContext = ThreadLocalContextUtil.getTenant() != null;
+        try {
+            ThreadLocalContextUtil.init(copyContext(context));
+            loanWorker.rollbackLoan(resultId, rollbackReason);
+        } catch (Exception e) {
+            log.error("Error rolling back loan {} (result {}): {}", loanId, resultId, e.getMessage(), e);
+            try {
+                if (ThreadLocalContextUtil.getTenant() == null) {
+                    ThreadLocalContextUtil.init(copyContext(context));
+                }
+                markRollbackFailed(resultId, e);
+            } catch (Exception persistFailure) {
+                log.error("Could not persist rollback failure for loan {}", loanId, persistFailure);
+            }
+        } finally {
+            if (!inheritedContext) {
+                ThreadLocalContextUtil.clear();
+            } else {
+                ThreadLocalContextUtil.init(copyContext(context));
+            }
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markRollbackFailed(final Long resultId, final Exception cause) {
+        bulkRescheduleResultRepository.findById(resultId).ifPresent(result -> {
+            if (result.getStatus() == BulkRescheduleResultStatus.ROLLED_BACK) {
+                return;
+            }
+            result.setStatus(BulkRescheduleResultStatus.ROLLBACK_FAILED);
+            result.setErrorMessage("Rollback failed: " + cause.getMessage());
+            bulkRescheduleResultRepository.save(result);
+        });
+    }
+
+    private static String rollbackReason(final String executionError) {
+        if (executionError != null && executionError.startsWith(ROLLBACK_REASON_PREFIX)) {
+            return executionError.substring(ROLLBACK_REASON_PREFIX.length());
+        }
+        return "Bulk reschedule rollback";
+    }
+
+    private void validateRollbackAllowed(final BulkRescheduleExecution execution) {
+        final BulkRescheduleExecutionStatus status = execution.getStatus();
+        if (status == BulkRescheduleExecutionStatus.ROLLED_BACK || status == BulkRescheduleExecutionStatus.ROLLING_BACK) {
+            throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.execution.already.rolled.back",
+                    "This execution has already been rolled back");
+        }
+        final long remaining = bulkRescheduleResultRepository.countByExecutionIdAndStatus(execution.getId(),
+                BulkRescheduleResultStatus.PREVIEW_MATCHED);
+        final boolean completed = status == BulkRescheduleExecutionStatus.COMPLETED;
+        final boolean partialWithNoWorkLeft = status == BulkRescheduleExecutionStatus.PARTIAL_SUCCESS && remaining == 0;
+        if (!completed && !partialWithNoWorkLeft) {
+            throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.execution.invalid.status",
+                    "Only a completed execution, or a partial success with no remaining loans, can be rolled back. Current status: "
+                            + status);
         }
     }
 

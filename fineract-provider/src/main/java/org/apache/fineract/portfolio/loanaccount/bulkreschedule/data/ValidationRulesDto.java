@@ -36,6 +36,12 @@ public class ValidationRulesDto implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    /** Whether current interest rate must be supplied on preview */
+    private Boolean currentInterestRateRequired;
+
+    /** Whether interest method (FLAT / DECLINING) must be supplied on preview */
+    private Boolean interestMethodRequired;
+
     /** Whether the current interest rate in filter must be an exact match */
     private Boolean currentInterestRateIsExact;
 

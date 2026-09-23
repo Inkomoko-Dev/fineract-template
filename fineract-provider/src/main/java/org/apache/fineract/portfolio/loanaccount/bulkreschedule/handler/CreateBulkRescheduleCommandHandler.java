@@ -24,6 +24,9 @@ import org.apache.fineract.commands.annotation.CommandType;
 import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.BulkRescheduleAsyncExecutionService;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.BulkRescheduleService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,11 +38,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class CreateBulkRescheduleCommandHandler implements NewCommandSourceHandler {
 
     private final BulkRescheduleService bulkRescheduleService;
-
+    private final BulkRescheduleAsyncExecutionService asyncExecutionService;
 
     @Transactional
     @Override
     public CommandProcessingResult processCommand(final JsonCommand jsonCommand) {
-        return this.bulkRescheduleService.performDryRun(jsonCommand);
+        final CommandProcessingResult result = this.bulkRescheduleService.performDryRun(jsonCommand);
+        final var context = ThreadLocalContextUtil.getContext();
+        AfterCommitExecutor.execute(() -> asyncExecutionService.submitPreview(result.getEntityId(), context));
+        return result;
     }
 }

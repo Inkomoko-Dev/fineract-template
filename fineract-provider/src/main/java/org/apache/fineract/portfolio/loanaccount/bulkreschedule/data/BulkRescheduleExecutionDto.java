@@ -56,6 +56,7 @@ public class BulkRescheduleExecutionDto {
     private Integer totalRemaining;
     private String recoveryAvailableAt;
     private Boolean recoveryAvailable;
+    private Boolean rollbackAvailable;
     private String createdAt;
     private String updatedAt;
 
@@ -96,6 +97,7 @@ public class BulkRescheduleExecutionDto {
                         - value(execution.getTotalFailed()) - value(execution.getTotalSucceeded())))
                 .recoveryAvailableAt(isoDateTime(execution.getLeaseExpiresAt()))
                 .recoveryAvailable(isRecoveryAvailable(execution))
+                .rollbackAvailable(isRollbackAvailable(execution))
                 .createdAt(isoDateTime(execution.getCreatedAt()))
                 .updatedAt(isoDateTime(execution.getUpdatedAt()))
                 .build();
@@ -107,9 +109,21 @@ public class BulkRescheduleExecutionDto {
                 || status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.PARTIAL_SUCCESS) {
             return true;
         }
-        return status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.EXECUTING
+        return (status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.EXECUTING
+                || status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.ROLLING_BACK
+                || status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.PREVIEWING)
                 && (execution.getLeaseExpiresAt() == null
                         || !execution.getLeaseExpiresAt().isAfter(DateUtils.getLocalDateTimeOfSystem()));
+    }
+
+    private static boolean isRollbackAvailable(final BulkRescheduleExecution execution) {
+        final var status = execution.getStatus();
+        if (status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.COMPLETED) {
+            return true;
+        }
+        return status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.PARTIAL_SUCCESS
+                && Math.max(0, value(execution.getTotalLoansFound()) - value(execution.getTotalExcluded())
+                        - value(execution.getTotalFailed()) - value(execution.getTotalSucceeded())) == 0;
     }
 
     private static int value(final Integer number) {
