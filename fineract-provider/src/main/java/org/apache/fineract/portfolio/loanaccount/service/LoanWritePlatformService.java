@@ -101,7 +101,7 @@ public interface LoanWritePlatformService {
 
     void transferFeeCharges() throws JobExecutionException;
 
-    CommandProcessingResult undoWriteOff(Long loanId);
+    CommandProcessingResult undoWriteOff(Long loanId, JsonCommand command);
 
     CommandProcessingResult updateDisbursementDateAndAmountForTranche(Long loanId, Long disbursementId, JsonCommand command);
 

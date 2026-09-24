@@ -4219,6 +4219,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             // find write off transaction and reverse it
             final LoanTransaction writeOffTransaction = findWriteOffTransaction();
             writeOffTransaction.reverse();
+            addLoanTransaction(LoanTransaction.writeOffReversal(writeOffTransaction, DateUtils.getBusinessLocalDate()));
         }
 
         if (isClosedObligationsMet() || isClosedWrittenOff() || isClosedWithOutsandingAmountMarkedForReschedule()) {
@@ -4241,6 +4242,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         existingReversedTransactionIds.addAll(findExistingReversedTransactionIds());
         final LoanTransaction writeOffTransaction = findWriteOffTransaction();
         writeOffTransaction.reverse();
+        addLoanTransaction(LoanTransaction.writeOffReversal(writeOffTransaction, DateUtils.getBusinessLocalDate()));
         this.loanStatus = LoanStatus.ACTIVE.getValue();
         final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
                 .determineProcessor(this.transactionProcessingStrategy);
@@ -4267,6 +4269,20 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         return writeOff;
+    }
+
+    public LoanTransaction findWriteOffReversalOf(final LoanTransaction writeOffTransaction) {
+        if (writeOffTransaction == null) {
+            return null;
+        }
+        LoanTransaction writeOffReversal = null;
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isWriteOffReversal() && transaction.isReversalTransaction()
+                    && Objects.equals(writeOffTransaction.getId(), transaction.getOriginalTransactionId())) {
+                writeOffReversal = transaction;
+            }
+        }
+        return writeOffReversal;
     }
 
     private boolean isOverPaid() {
@@ -5718,7 +5734,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     public LocalDate getLastUserTransactionDate() {
         LocalDate currentTransactionDate = getDisbursementDate();
         for (final LoanTransaction previousTransaction : this.loanTransactions) {
-            if (!(previousTransaction.isReversed() || previousTransaction.isAccrual() || previousTransaction.isIncomePosting())) {
+            if (!(previousTransaction.isReversed() || previousTransaction.isAccrual() || previousTransaction.isIncomePosting()
+                    || previousTransaction.isWriteOffReversal())) {
                 if (currentTransactionDate.isBefore(previousTransaction.getTransactionDate())) {
                     currentTransactionDate = previousTransaction.getTransactionDate();
                 }
