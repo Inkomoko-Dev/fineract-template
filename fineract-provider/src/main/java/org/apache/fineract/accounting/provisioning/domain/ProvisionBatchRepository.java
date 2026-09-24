@@ -19,6 +19,8 @@
 package org.apache.fineract.accounting.provisioning.domain;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
 import java.util.Optional;
@@ -35,4 +37,18 @@ public interface ProvisionBatchRepository extends JpaRepository<ProvisionBatch, 
      * every new provisioning history supersedes the one before it.
      */
     Optional<ProvisionBatch> findFirstByStatusNotOrderByAccountingPeriodDesc(ProvisionBatchStatus status);
+
+    /**
+     * Latest batch that actually reached Odoo and has not been marked reversed.
+     * Prefer this when building mirrored reversal journals for the next period.
+     */
+    Optional<ProvisionBatch> findFirstByStatusOrderByAccountingPeriodDesc(ProvisionBatchStatus status);
+
+    @Query("""
+            select distinct b from ProvisionBatch b
+            left join fetch b.journals j
+            left join fetch j.journalLines
+            where b.id = :id
+            """)
+    Optional<ProvisionBatch> findByIdWithJournals(@Param("id") Long id);
 }
