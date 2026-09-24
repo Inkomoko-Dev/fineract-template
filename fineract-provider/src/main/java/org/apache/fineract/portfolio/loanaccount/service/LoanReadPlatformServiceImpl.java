@@ -475,8 +475,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         if (activeOnly) {
             fromWhere.append(" and l.loan_status_id = 300");
         } else if (isExtendLoanLifeCycleConfig) {
-            fromWhere.append(
-                    " and (ds.next_loan_ic_review_decision_state = 1900 and l.loan_decision_state = 1900 or l.loan_decision_state is null) ");
+            fromWhere.append(" and (l.loan_decision_state = 1900 or l.loan_decision_state is null) ");
         }
 
         appendLoanListSearchCriteria(fromWhere, criteria, searchParameters);
