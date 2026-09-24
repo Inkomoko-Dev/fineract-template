@@ -38,6 +38,6 @@ public class UndoWriteOffLoanCommandHandler implements NewCommandSourceHandler {
     @Override
     public CommandProcessingResult processCommand(final JsonCommand command) {
 
-        return this.writePlatformService.undoWriteOff(command.getLoanId());
+        return this.writePlatformService.undoWriteOff(command.getLoanId(), command);
     }
 }

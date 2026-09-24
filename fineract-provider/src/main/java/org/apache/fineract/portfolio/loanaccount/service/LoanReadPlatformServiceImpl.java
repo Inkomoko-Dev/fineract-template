@@ -4420,7 +4420,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     "WHERE gl.is_oddo_posted = false " +
                     "AND mc.is_odoo_customer_posted = true " +
                     "AND odoo_customer_id IS NOT NULL " +
-                    "AND mlt.transaction_type_enum IN (1,2,4,5,6,8,9,10,19,26,27) " +
+                    "AND mlt.transaction_type_enum IN (1,2,4,5,6,8,9,10,19,26,27,33) " +
                     "AND ml.currency_code NOT IN ('ETB') " ;
 
         }

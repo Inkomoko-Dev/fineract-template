@@ -62,8 +62,8 @@ public enum LoanTransactionType {
     DEPOSIT_REDRAW(27, "loanTransactionType.depositRedraw"), PAY_OFF(28, "loanTransactionType.payOff"),
     DISBURSEMENT_CHARGE_ADJUSTMENT(29, "loanTransactionType.disbursementChargeAdjustment"),
     INSURANCE_CHARGE_ADJUSTMENT(30, "loanTransactionType.insuranceChargeAdjustment"),
+    WRITEOFF_REVERSAL(33, "loanTransactionType.writeOffReversal"),
     FUTURE_INTEREST_CANCELLATION(34, "loanTransactionType.futureInterestCancellation");
-
 
     private final Integer value;
     private final String code;
@@ -176,6 +176,9 @@ public enum LoanTransactionType {
             case 30:
                 loanTransactionType = LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT;
                 break;
+            case 33:
+                loanTransactionType = LoanTransactionType.WRITEOFF_REVERSAL;
+                break;
             case 34:
                 loanTransactionType = LoanTransactionType.FUTURE_INTEREST_CANCELLATION;
                 break;
@@ -232,6 +235,10 @@ public enum LoanTransactionType {
 
     public boolean isWriteOff() {
         return this.value.equals(LoanTransactionType.WRITEOFF.getValue());
+    }
+
+    public boolean isWriteOffReversal() {
+        return this.value.equals(LoanTransactionType.WRITEOFF_REVERSAL.getValue());
     }
 
     public boolean isChargePayment() {

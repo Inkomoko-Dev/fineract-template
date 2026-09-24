@@ -372,6 +372,10 @@ public final class LoanEnumerations {
                 optionData = new LoanTransactionEnumData(LoanTransactionType.WRITEOFF.getValue().longValue(),
                         LoanTransactionType.WRITEOFF.getCode(), "Close (as written-off)");
             break;
+            case WRITEOFF_REVERSAL:
+                optionData = new LoanTransactionEnumData(LoanTransactionType.WRITEOFF_REVERSAL.getValue().longValue(),
+                        LoanTransactionType.WRITEOFF_REVERSAL.getCode(), "Write-off Reversal");
+            break;
             case RECOVERY_REPAYMENT:
                 optionData = new LoanTransactionEnumData(LoanTransactionType.RECOVERY_REPAYMENT.getValue().longValue(),
                         LoanTransactionType.RECOVERY_REPAYMENT.getCode(), "Repayment (after write-off)");
