@@ -96,7 +96,10 @@ public class Template extends AbstractPersistableCustom {
 
     public LinkedHashMap<String, String> getMappersAsMap() {
         final LinkedHashMap<String, String> map = new LinkedHashMap<>();
-        for (final TemplateMapper mapper : getMappers()) {
+        if (this.mappers == null) {
+            return map;
+        }
+        for (final TemplateMapper mapper : this.mappers) {
             map.put(mapper.getMapperkey(), mapper.getMappervalue());
         }
         return map;
