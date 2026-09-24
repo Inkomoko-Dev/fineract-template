@@ -436,8 +436,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         sqlBuilder.append(" where ( o.hierarchy like ? or transferToOffice.hierarchy like ?)");
 
         if (isExtendLoanLifeCycleConfig) {
-            sqlBuilder.append(
-                    " and (ds.next_loan_ic_review_decision_state = 1900 and l.loan_decision_state = 1900 or l.loan_decision_state is null)  ");
+            sqlBuilder.append(" and (l.loan_decision_state = 1900 or l.loan_decision_state is null) ");
         }
 
         int arrayPos = 2;
