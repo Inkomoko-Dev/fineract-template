@@ -21,6 +21,7 @@ package org.apache.fineract.accounting.provisioning.service;
 import com.google.gson.JsonObject;
 import org.apache.fineract.accounting.journalentry.data.JournalEntryData;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryReadPlatformService;
+import org.apache.fineract.accounting.provisioning.data.ProvisionBatchJournalData;
 import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryData;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatch;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchEntry;
@@ -92,6 +93,8 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
     @CronTarget(jobName = JobName.PROCESS_AND_POST_PROVISION_JOURNAL_ENTRY)
     public void generateAndPostProvisionEntriesToOdoo() {
         generateProvisionBatch();
+        // Post outside the generate transaction so a Celery/Odoo failure cannot
+        // roll back already-persisted batch rows, and so retries remain idempotent.
         postPendingProvisionJournals();
     }
 
@@ -103,7 +106,7 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
                 provisioningEntriesReadPlatformService.findLatestProvisioningHistory();
 
         if (latestHistory.isEmpty()) {
-            LOG.info("No m_provisioning_history rows found - nothing to process.");
+            LOG.info("No m_provisioning_history rows with journal entries found - nothing to process.");
             return;
         }
 
@@ -136,18 +139,17 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         int entryCount = 0;
 
         // ------------------------------------------------------------------
-        // 1. Reverse only the previous batch's ORIGINAL office journals.
-        //    Reversal journals from that batch must not be reversed again, or
-        //    older periods would be re-posted to Odoo.
+        // 1. Reverse the latest POSTED prior batch's ORIGINAL office journals.
+        //    Reversal journals from that batch must not be reversed again.
         // ------------------------------------------------------------------
-        final Optional<ProvisionBatch> previousBatch =
-                provisionBatchRepository.findFirstByStatusNotOrderByAccountingPeriodDesc(ProvisionBatchStatus.REVERSED);
+        final Optional<ProvisionBatch> previousBatch = findPreviousBatchToReverse(accountingPeriod);
 
         if (previousBatch.isPresent()) {
             final ProvisionBatch reversed = previousBatch.get();
             LOG.info("Reversing original journals of provision batch '{}' (accounting period {}) into new batch '{}'.",
                     reversed.getBatchReference(), reversed.getAccountingPeriod(), batchReference);
 
+            int reversedPostedCount = 0;
             for (final ProvisionBatchJournal originalJournal : reversed.getJournals()) {
                 if (originalJournal.isReversal()) {
                     continue;
@@ -165,12 +167,15 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
                 batch.addJournal(reversalJournal);
                 journalCount++;
                 entryCount += reversalJournal.getEntryCount();
+                reversedPostedCount++;
             }
 
             batch.setReversalOfBatch(reversed);
             reversed.setStatus(ProvisionBatchStatus.REVERSED);
             reversed.setReversedAt(LocalDateTime.now(ZoneId.systemDefault()));
             provisionBatchRepository.saveAndFlush(reversed);
+            LOG.info("Marked provision batch '{}' as REVERSED after mirroring {} posted original journal(s).",
+                    reversed.getBatchReference(), reversedPostedCount);
         }
 
         // ------------------------------------------------------------------
@@ -265,6 +270,26 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
                 byOfficeAndCurrency.size(), history.getId());
     }
 
+    /**
+     * Prefer the latest POSTED batch (with journals eagerly loaded). Fall back to
+     * any non-REVERSED prior batch so FAILED/CREATED predecessors are still closed
+     * out and cannot be picked again next month.
+     */
+    private Optional<ProvisionBatch> findPreviousBatchToReverse(final LocalDate currentAccountingPeriod) {
+        Optional<ProvisionBatch> posted = provisionBatchRepository
+                .findFirstByStatusOrderByAccountingPeriodDesc(ProvisionBatchStatus.POSTED);
+        if (posted.isPresent() && !posted.get().getAccountingPeriod().isEqual(currentAccountingPeriod)) {
+            return provisionBatchRepository.findByIdWithJournals(posted.get().getId());
+        }
+
+        final Optional<ProvisionBatch> anyActive = provisionBatchRepository
+                .findFirstByStatusNotOrderByAccountingPeriodDesc(ProvisionBatchStatus.REVERSED);
+        if (anyActive.isPresent() && !anyActive.get().getAccountingPeriod().isEqual(currentAccountingPeriod)) {
+            return provisionBatchRepository.findByIdWithJournals(anyActive.get().getId());
+        }
+        return Optional.empty();
+    }
+
     @Override
     @Transactional
     public void postPendingProvisionJournals() {
@@ -285,12 +310,26 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
 
         for (final ProvisionBatchJournal journal : pending) {
             final ProvisionBatch parentBatch = journal.getBatch();
-            if (parentBatch != null && ProvisionBatchStatus.REVERSED.equals(parentBatch.getStatus())) {
-                LOG.info("Skipping journal '{}' because its batch '{}' is already REVERSED.",
+            // Journals belonging to a REVERSED batch that are themselves still
+            // CREATED/FAILED are abandoned originals; do not post them. Reversal
+            // journals live on the *new* batch and are posted normally.
+            if (parentBatch != null && ProvisionBatchStatus.REVERSED.equals(parentBatch.getStatus())
+                    && !journal.isReversal()) {
+                LOG.info("Skipping abandoned journal '{}' because its batch '{}' is already REVERSED.",
                         journal.getJournalReference(), parentBatch.getBatchReference());
                 continue;
             }
             if (ProvisionBatchStatus.POSTED.name().equals(journal.getStatus())) {
+                continue;
+            }
+            // Idempotency: never re-post a journal that already has an Odoo move id.
+            if (journal.getOdooJournalId() != null && !journal.getOdooJournalId().isBlank()) {
+                journal.setStatus(ProvisionBatchStatus.POSTED);
+                if (journal.getPostedAt() == null) {
+                    journal.setPostedAt(LocalDateTime.now(ZoneId.systemDefault()));
+                }
+                journal.setFailureReason(null);
+                provisionBatchJournalRepository.saveAndFlush(journal);
                 continue;
             }
 
@@ -471,6 +510,32 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         }
         final String responseCode = odooService.getStringField(response, "responseCode");
         return "POSTED".equals(responseCode) || "EXISTING".equals(responseCode) || "REVERSED".equals(responseCode);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProvisionBatchJournalData> retrieveProvisionBatchJournals(final String status, final Boolean reversal) {
+        final List<ProvisionBatchJournal> journals;
+        if (status != null && !status.isBlank()) {
+            journals = provisionBatchJournalRepository.findByStatus(status.trim().toUpperCase());
+        } else {
+            journals = provisionBatchJournalRepository.findAll();
+        }
+
+        return journals.stream()
+                .filter(j -> reversal == null || j.isReversal() == reversal)
+                .map(this::toJournalData)
+                .collect(Collectors.toList());
+    }
+
+    private ProvisionBatchJournalData toJournalData(final ProvisionBatchJournal journal) {
+        final ProvisionBatch batch = journal.getBatch();
+        return new ProvisionBatchJournalData(journal.getId(), batch != null ? batch.getId() : null,
+                batch != null ? batch.getBatchReference() : null, journal.getJournalReference(), journal.getReference(),
+                journal.getEntryDate(), journal.getCurrencyCode(), journal.getOfficeId(), journal.getOfficeName(),
+                journal.isReversal(), journal.getStatus(), journal.getOdooJournalId(), journal.getTotalDebit(),
+                journal.getTotalCredit(), journal.getProvisioningHistoryId(), journal.getReversedJournalId(),
+                journal.getFailureReason(), journal.getPostedAt(), journal.getCreatedAt());
     }
 
 }

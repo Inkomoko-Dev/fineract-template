@@ -467,9 +467,13 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
 
     @Override
     public Optional<ProvisioningEntryData> findLatestProvisioningHistory() {
+        // Only histories that already have CBS journal entries are eligible for
+        // Odoo batching. A newer history without journals must not skip reversal
+        // of the prior posted provision batch.
         String sql = """
             SELECT *
             FROM m_provisioning_history
+            WHERE journal_entry_created = true OR journal_entry_created = 1
             ORDER BY created_date DESC
             """;
 
