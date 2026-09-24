@@ -107,9 +107,8 @@ public class TwilioHookProcessor implements HookProcessor {
             final Client client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(clientId);
             final String mobileNo = client.mobileNo();
             if (mobileNo != null && !mobileNo.isEmpty()) {
-                this.templateMergeService.setAuthToken(authToken);
-                final String compiledMessage = this.templateMergeService.compile(hook.getUgdTemplate(), map).replace("<p>", "")
-                        .replace("</p>", "");
+                final String compiledMessage = this.templateMergeService.compile(hook.getUgdTemplate(), map, "Basic " + authToken)
+                        .replace("<p>", "").replace("</p>", "");
                 final Map<String, String> jsonMap = new HashMap<>();
                 jsonMap.put("mobileNo", mobileNo);
                 jsonMap.put("message", compiledMessage);

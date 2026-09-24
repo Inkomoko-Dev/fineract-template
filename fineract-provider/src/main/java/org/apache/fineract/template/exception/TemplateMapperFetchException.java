@@ -20,9 +20,10 @@ package org.apache.fineract.template.exception;
 
 import org.apache.fineract.infrastructure.core.exception.AbstractPlatformDomainRuleException;
 
-public class TemplateForbiddenException extends AbstractPlatformDomainRuleException {
+public class TemplateMapperFetchException extends AbstractPlatformDomainRuleException {
 
-    public TemplateForbiddenException(final String url) {
-        super("error.msg.template.url.forbidden", "Template with url " + url + " not allowed");
+    public TemplateMapperFetchException(final String mapperKey, final Throwable cause) {
+        super("error.msg.template.mapper.fetch.failed",
+                "Could not load the data for `" + mapperKey + "` used by this template: " + cause.getMessage(), mapperKey);
     }
 }
