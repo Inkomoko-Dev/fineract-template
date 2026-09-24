@@ -34,6 +34,7 @@ import org.apache.fineract.infrastructure.core.exception.InvalidJsonException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.template.domain.TemplateEntity;
+import org.apache.fineract.template.domain.TemplateSyntax;
 import org.apache.fineract.template.domain.TemplateType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -84,6 +85,9 @@ public final class TemplateCommandFromApiJsonDeserializer {
 
         final String text = this.fromApiJsonHelper.extractStringNamed(TEXT, element);
         baseDataValidator.reset().parameter(TEXT).value(text).notBlank();
+        if (StringUtils.isNotBlank(text)) {
+            dataValidationErrors.addAll(TemplateSyntax.validate(text));
+        }
 
         final Integer entityId = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ENTITY, element);
         baseDataValidator.reset().parameter(ENTITY).value(entityId).notNull();
