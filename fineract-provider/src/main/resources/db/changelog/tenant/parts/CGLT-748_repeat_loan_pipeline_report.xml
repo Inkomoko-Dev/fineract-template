@@ -1,0 +1,568 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-748-1-parameter-regionIdSelectAll" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'regionIdSelectAll'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="regionIdSelectAll"/>
+            <column name="parameter_variable" value="regionId"/>
+            <column name="parameter_label" value="Region"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="-1"/>
+            <column name="selectAll" value="Y"/>
+            <column name="parameter_sql"><![CDATA[(select distinct a.state_province_id as id, cv.code_value as name from m_address a join m_code_value cv on cv.id = a.state_province_id) union all (select -10, '-') order by 2]]></column>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-2-parameter-latestLoanStatusSelectAll" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'latestLoanStatusSelectAll'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="latestLoanStatusSelectAll"/>
+            <column name="parameter_variable" value="latestLoanStatusId"/>
+            <column name="parameter_label" value="Most Recent Loan Status"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="-1"/>
+            <column name="selectAll" value="Y"/>
+            <column name="parameter_sql"><![CDATA[(select 600 as id, 'Closed (obligations met)' as name) union all (select 700 as id, 'Overpaid' as name)]]></column>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-3-parameter-paidOffBandSelectAll" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'paidOffBandSelectAll'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="paidOffBandSelectAll"/>
+            <column name="parameter_variable" value="paidOffBandId"/>
+            <column name="parameter_label" value="Paid-Off Performance Band"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="-1"/>
+            <column name="selectAll" value="Y"/>
+            <column name="parameter_sql"><![CDATA[(select 1 as id, 'ONTIME' as name) union all (select 2, 'SLOW') union all (select 3, 'MODLATE') union all (select 4, 'OVERLATE')]]></column>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-4-parameter-minLoanCycle" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'minLoanCycle'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="minLoanCycle"/>
+            <column name="parameter_variable" value="minLoanCycle"/>
+            <column name="parameter_label" value="Minimum Completed Loan Cycle"/>
+            <column name="parameter_displayType" value="text"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="2"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-5-parameter-excludeActiveLoansSelect" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'excludeActiveLoansSelect'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="excludeActiveLoansSelect"/>
+            <column name="parameter_variable" value="excludeActiveLoans"/>
+            <column name="parameter_label" value="Exclude Clients With Active Loans"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="1"/>
+            <column name="selectAll" value="N"/>
+            <column name="parameter_sql"><![CDATA[(select 1 as id, 'Yes' as name) union all (select 0 as id, 'No' as name)]]></column>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-6-parameter-excludePendingApplicationsSelect" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'excludePendingApplicationsSelect'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="excludePendingApplicationsSelect"/>
+            <column name="parameter_variable" value="excludePendingApplications"/>
+            <column name="parameter_label" value="Exclude Clients With Pending Applications"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="1"/>
+            <column name="selectAll" value="N"/>
+            <column name="parameter_sql"><![CDATA[(select 1 as id, 'Yes' as name) union all (select 0 as id, 'No' as name)]]></column>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-7-parameter-payOffStartDateSelect" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'payOffStartDateSelect'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="payOffStartDateSelect"/>
+            <column name="parameter_variable" value="startDate"/>
+            <column name="parameter_label" value="Pay-Off Date From"/>
+            <column name="parameter_displayType" value="date"/>
+            <column name="parameter_FormatType" value="date"/>
+            <column name="parameter_default" value="2015-01-01"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-8-parameter-payOffEndDateSelect" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'payOffEndDateSelect'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="payOffEndDateSelect"/>
+            <column name="parameter_variable" value="endDate"/>
+            <column name="parameter_label" value="Pay-Off Date To"/>
+            <column name="parameter_displayType" value="date"/>
+            <column name="parameter_FormatType" value="date"/>
+            <column name="parameter_default" value="today"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-9-report" author="willy" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Repeat Loan Pipeline Eligibility'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report">
+            <column name="report_name" value="Repeat Loan Pipeline Eligibility"/>
+            <column name="report_type" value="Table"/>
+            <column name="report_subtype"/>
+            <column name="report_category" value="Loan"/>
+            <column name="report_sql"><![CDATA[WITH scope AS (
+    SELECT ounder.id AS office_id
+    FROM m_office o
+    JOIN m_office ounder ON ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    WHERE o.id = ${officeId}
+      AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+),
+latest AS (
+    SELECT h.* FROM (
+        SELECT l.id, l.client_id, l.office_id, l.account_no, l.product_id, l.loan_officer_id,
+               l.loan_status_id, l.generic_loan_counter, l.approvedon_date, l.disbursedon_date,
+               l.closedon_date, l.term_frequency, l.term_period_frequency_enum,
+               ROW_NUMBER() OVER (PARTITION BY l.client_id
+                                  ORDER BY l.disbursedon_date DESC, l.id DESC) AS rn
+        FROM m_loan l
+        WHERE l.client_id IS NOT NULL
+          AND l.disbursedon_date IS NOT NULL
+          AND l.loan_status_id NOT IN (100, 200, 400, 500)
+    ) h
+    WHERE h.rn = 1
+),
+elig AS (
+    SELECT lt.*
+    FROM latest lt
+    JOIN m_client c ON c.id = lt.client_id
+    WHERE lt.loan_status_id IN (600, 700)
+      AND ('${latestLoanStatusId}' = '-1' OR lt.loan_status_id = '${latestLoanStatusId}')
+      AND IFNULL(lt.generic_loan_counter, 0) >= CAST('${minLoanCycle}' AS SIGNED)
+      AND c.status_enum IN (300, 303, 304)
+      AND COALESCE(lt.office_id, c.office_id) IN (SELECT office_id FROM scope)
+      AND ('${loanOfficerId}' = '-1' OR IFNULL(lt.loan_officer_id, -10) = '${loanOfficerId}')
+      AND ('${loanProductId}' = '-1' OR lt.product_id = '${loanProductId}')
+      AND ('${excludeActiveLoans}' <> '1' OR NOT EXISTS (
+              SELECT 1 FROM m_loan a
+              WHERE a.client_id = lt.client_id AND a.loan_status_id IN (300, 303, 304)))
+      AND ('${excludePendingApplications}' <> '1' OR NOT EXISTS (
+              SELECT 1 FROM m_loan a
+              WHERE a.client_id = lt.client_id AND a.loan_status_id IN (100, 200)))
+),
+po AS (
+    SELECT t.loan_id, MAX(t.transaction_date) AS last_paid_on
+    FROM m_loan_transaction t
+    JOIN elig e ON e.id = t.loan_id
+    WHERE t.is_reversed = 0
+      AND t.transaction_type_enum IN (2, 5, 6, 8, 28)
+      AND COALESCE(t.principal_portion_derived, 0) + COALESCE(t.interest_portion_derived, 0)
+        + COALESCE(t.fee_charges_portion_derived, 0) + COALESCE(t.penalty_charges_portion_derived, 0) > 0
+    GROUP BY t.loan_id
+),
+dated AS (
+    SELECT e.*,
+           COALESCE(po.last_paid_on, e.closedon_date) AS payoff_date,
+           CASE e.term_period_frequency_enum
+                WHEN 0 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency DAY)
+                WHEN 1 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency WEEK)
+                WHEN 2 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency MONTH)
+                WHEN 3 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency YEAR)
+                WHEN 6 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency * 28 DAY)
+           END AS term_end
+    FROM elig e
+    LEFT JOIN po ON po.loan_id = e.id
+),
+aged AS (
+    SELECT d.*,
+           CASE WHEN d.term_period_frequency_enum = 2 THEN d.term_frequency
+                ELSE TIMESTAMPDIFF(MONTH, d.disbursedon_date, d.term_end)
+                   + (DATE_ADD(d.disbursedon_date, INTERVAL TIMESTAMPDIFF(MONTH, d.disbursedon_date, d.term_end) MONTH) < d.term_end)
+           END AS term_months,
+           TIMESTAMPDIFF(MONTH, d.disbursedon_date, d.payoff_date)
+           + (DATE_ADD(d.disbursedon_date, INTERVAL TIMESTAMPDIFF(MONTH, d.disbursedon_date, d.payoff_date) MONTH) < d.payoff_date)
+             AS age_months
+    FROM dated d
+),
+banded AS (
+    SELECT DISTINCT a.*,
+           a.age_months - a.term_months AS months_late,
+           CASE WHEN a.age_months - a.term_months IS NULL THEN NULL
+                WHEN a.age_months - a.term_months <= 0 THEN 1
+                WHEN a.age_months - a.term_months <= 3 THEN 2
+                WHEN a.age_months - a.term_months <= 6 THEN 3
+                ELSE 4 END AS band_id
+    FROM aged a
+),
+adr AS (
+    SELECT z.client_id, z.country_id, z.state_province_id FROM (
+        SELECT ca.client_id, ad.country_id, ad.state_province_id,
+               ROW_NUMBER() OVER (PARTITION BY ca.client_id ORDER BY ca.is_active DESC, ad.id DESC) AS rn
+        FROM m_client_address ca
+        JOIN m_address ad ON ad.id = ca.address_id
+        JOIN banded b ON b.client_id = ca.client_id
+    ) z WHERE z.rn = 1
+),
+coi AS (
+    SELECT z.client_id, z.strata_cv_id, z.telephone_no FROM (
+        SELECT x.client_id, x.strata_cv_id, x.telephone_no,
+               ROW_NUMBER() OVER (PARTITION BY x.client_id ORDER BY x.id DESC) AS rn
+        FROM m_client_other_info x
+        JOIN banded b ON b.client_id = x.client_id
+    ) z WHERE z.rn = 1
+),
+crs AS (
+    SELECT z.client_id, z.survey_location_cv_id FROM (
+        SELECT x.client_id, x.survey_location_cv_id,
+               ROW_NUMBER() OVER (PARTITION BY x.client_id ORDER BY x.id DESC) AS rn
+        FROM m_client_recruitment_survey x
+        JOIN banded b ON b.client_id = x.client_id
+    ) z WHERE z.rn = 1
+),
+done AS (
+    SELECT l.client_id, COUNT(*) AS completed_loans
+    FROM m_loan l
+    JOIN banded b ON b.client_id = l.client_id
+    WHERE l.disbursedon_date IS NOT NULL
+      AND l.loan_status_id IN (600, 601, 700)
+    GROUP BY l.client_id
+)
+SELECT
+    c.id                                                AS 'Client ID',
+    st.display_name                                     AS 'Loan Officer',
+    cvco.code_value                                     AS 'Country',
+    cvrg.code_value                                     AS 'Region',
+    cvst.code_value                                     AS 'Strata',
+    cvlo.code_value                                     AS 'Location',
+    c.display_name                                      AS 'Client Name',
+    COALESCE(NULLIF(TRIM(coi.telephone_no), ''), NULLIF(TRIM(c.mobile_no), '')) AS 'Client Contact Phone Number',
+    b.id                                                AS 'Most Recent Loan ID',
+    b.account_no                                        AS 'Most Recent Loan Number',
+    p.name                                              AS 'Most Recent Loan Product',
+    b.disbursedon_date                                  AS 'Most Recent Loan Start Date',
+    b.approvedon_date                                   AS 'Most Recent Loan Approval Date',
+    b.disbursedon_date                                  AS 'Most Recent Loan Disbursement Date',
+    b.payoff_date                                       AS 'Most Recent Loan Pay-Off Date',
+    CASE b.loan_status_id WHEN 600 THEN 'Closed (obligations met)'
+                          WHEN 700 THEN 'Overpaid' END  AS 'Most Recent Loan Status',
+    b.generic_loan_counter                              AS 'Most Recent Loan Cycle',
+    IFNULL(done.completed_loans, 0)                     AS 'Completed Loans to Date',
+    b.term_months                                       AS 'Approved Loan Term (Months)',
+    b.age_months                                        AS 'Actual Loan Age at Pay-Off (Months)',
+    b.months_late                                       AS 'Months Early/Late',
+    CASE b.band_id WHEN 1 THEN 'ONTIME' WHEN 2 THEN 'SLOW'
+                   WHEN 3 THEN 'MODLATE' WHEN 4 THEN 'OVERLATE' END AS 'Paid-Off Performance Band'
+FROM banded b
+JOIN m_client c ON c.id = b.client_id
+LEFT JOIN adr ON adr.client_id = b.client_id
+LEFT JOIN coi ON coi.client_id = b.client_id
+LEFT JOIN crs ON crs.client_id = b.client_id
+LEFT JOIN done ON done.client_id = b.client_id
+LEFT JOIN m_product_loan p ON p.id = b.product_id
+LEFT JOIN m_staff st ON st.id = b.loan_officer_id
+LEFT JOIN m_code_value cvco ON cvco.id = adr.country_id
+LEFT JOIN m_code_value cvrg ON cvrg.id = adr.state_province_id
+LEFT JOIN m_code_value cvst ON cvst.id = coi.strata_cv_id
+LEFT JOIN m_code_value cvlo ON cvlo.id = crs.survey_location_cv_id
+WHERE ('${countryId}' = '-1' OR IFNULL(adr.country_id, -10) = '${countryId}')
+  AND ('${regionId}' = '-1' OR IFNULL(adr.state_province_id, -10) = '${regionId}')
+  AND ('${strataId}' = '-1' OR IFNULL(coi.strata_cv_id, -10) = '${strataId}')
+  AND ('${locationId}' = '-1' OR IFNULL(crs.survey_location_cv_id, -10) = '${locationId}')
+  AND ('${paidOffBandId}' = '-1' OR b.band_id = '${paidOffBandId}')
+  AND b.payoff_date >= '${startDate}'
+  AND b.payoff_date <= '${endDate}'
+ORDER BY c.id
+LIMIT ${limit} OFFSET ${offset}]]></column>
+            <column name="report_count_sql"><![CDATA[WITH scope AS (
+    SELECT ounder.id AS office_id
+    FROM m_office o
+    JOIN m_office ounder ON ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    WHERE o.id = ${officeId}
+      AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+),
+latest AS (
+    SELECT h.* FROM (
+        SELECT l.id, l.client_id, l.office_id, l.account_no, l.product_id, l.loan_officer_id,
+               l.loan_status_id, l.generic_loan_counter, l.approvedon_date, l.disbursedon_date,
+               l.closedon_date, l.term_frequency, l.term_period_frequency_enum,
+               ROW_NUMBER() OVER (PARTITION BY l.client_id
+                                  ORDER BY l.disbursedon_date DESC, l.id DESC) AS rn
+        FROM m_loan l
+        WHERE l.client_id IS NOT NULL
+          AND l.disbursedon_date IS NOT NULL
+          AND l.loan_status_id NOT IN (100, 200, 400, 500)
+    ) h
+    WHERE h.rn = 1
+),
+elig AS (
+    SELECT lt.*
+    FROM latest lt
+    JOIN m_client c ON c.id = lt.client_id
+    WHERE lt.loan_status_id IN (600, 700)
+      AND ('${latestLoanStatusId}' = '-1' OR lt.loan_status_id = '${latestLoanStatusId}')
+      AND IFNULL(lt.generic_loan_counter, 0) >= CAST('${minLoanCycle}' AS SIGNED)
+      AND c.status_enum IN (300, 303, 304)
+      AND COALESCE(lt.office_id, c.office_id) IN (SELECT office_id FROM scope)
+      AND ('${loanOfficerId}' = '-1' OR IFNULL(lt.loan_officer_id, -10) = '${loanOfficerId}')
+      AND ('${loanProductId}' = '-1' OR lt.product_id = '${loanProductId}')
+      AND ('${excludeActiveLoans}' <> '1' OR NOT EXISTS (
+              SELECT 1 FROM m_loan a
+              WHERE a.client_id = lt.client_id AND a.loan_status_id IN (300, 303, 304)))
+      AND ('${excludePendingApplications}' <> '1' OR NOT EXISTS (
+              SELECT 1 FROM m_loan a
+              WHERE a.client_id = lt.client_id AND a.loan_status_id IN (100, 200)))
+),
+po AS (
+    SELECT t.loan_id, MAX(t.transaction_date) AS last_paid_on
+    FROM m_loan_transaction t
+    JOIN elig e ON e.id = t.loan_id
+    WHERE t.is_reversed = 0
+      AND t.transaction_type_enum IN (2, 5, 6, 8, 28)
+      AND COALESCE(t.principal_portion_derived, 0) + COALESCE(t.interest_portion_derived, 0)
+        + COALESCE(t.fee_charges_portion_derived, 0) + COALESCE(t.penalty_charges_portion_derived, 0) > 0
+    GROUP BY t.loan_id
+),
+dated AS (
+    SELECT e.*,
+           COALESCE(po.last_paid_on, e.closedon_date) AS payoff_date,
+           CASE e.term_period_frequency_enum
+                WHEN 0 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency DAY)
+                WHEN 1 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency WEEK)
+                WHEN 2 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency MONTH)
+                WHEN 3 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency YEAR)
+                WHEN 6 THEN DATE_ADD(e.disbursedon_date, INTERVAL e.term_frequency * 28 DAY)
+           END AS term_end
+    FROM elig e
+    LEFT JOIN po ON po.loan_id = e.id
+),
+aged AS (
+    SELECT d.*,
+           CASE WHEN d.term_period_frequency_enum = 2 THEN d.term_frequency
+                ELSE TIMESTAMPDIFF(MONTH, d.disbursedon_date, d.term_end)
+                   + (DATE_ADD(d.disbursedon_date, INTERVAL TIMESTAMPDIFF(MONTH, d.disbursedon_date, d.term_end) MONTH) < d.term_end)
+           END AS term_months,
+           TIMESTAMPDIFF(MONTH, d.disbursedon_date, d.payoff_date)
+           + (DATE_ADD(d.disbursedon_date, INTERVAL TIMESTAMPDIFF(MONTH, d.disbursedon_date, d.payoff_date) MONTH) < d.payoff_date)
+             AS age_months
+    FROM dated d
+),
+banded AS (
+    SELECT DISTINCT a.*,
+           a.age_months - a.term_months AS months_late,
+           CASE WHEN a.age_months - a.term_months IS NULL THEN NULL
+                WHEN a.age_months - a.term_months <= 0 THEN 1
+                WHEN a.age_months - a.term_months <= 3 THEN 2
+                WHEN a.age_months - a.term_months <= 6 THEN 3
+                ELSE 4 END AS band_id
+    FROM aged a
+),
+adr AS (
+    SELECT z.client_id, z.country_id, z.state_province_id FROM (
+        SELECT ca.client_id, ad.country_id, ad.state_province_id,
+               ROW_NUMBER() OVER (PARTITION BY ca.client_id ORDER BY ca.is_active DESC, ad.id DESC) AS rn
+        FROM m_client_address ca
+        JOIN m_address ad ON ad.id = ca.address_id
+        JOIN banded b ON b.client_id = ca.client_id
+    ) z WHERE z.rn = 1
+),
+coi AS (
+    SELECT z.client_id, z.strata_cv_id, z.telephone_no FROM (
+        SELECT x.client_id, x.strata_cv_id, x.telephone_no,
+               ROW_NUMBER() OVER (PARTITION BY x.client_id ORDER BY x.id DESC) AS rn
+        FROM m_client_other_info x
+        JOIN banded b ON b.client_id = x.client_id
+    ) z WHERE z.rn = 1
+),
+crs AS (
+    SELECT z.client_id, z.survey_location_cv_id FROM (
+        SELECT x.client_id, x.survey_location_cv_id,
+               ROW_NUMBER() OVER (PARTITION BY x.client_id ORDER BY x.id DESC) AS rn
+        FROM m_client_recruitment_survey x
+        JOIN banded b ON b.client_id = x.client_id
+    ) z WHERE z.rn = 1
+),
+done AS (
+    SELECT l.client_id, COUNT(*) AS completed_loans
+    FROM m_loan l
+    JOIN banded b ON b.client_id = l.client_id
+    WHERE l.disbursedon_date IS NOT NULL
+      AND l.loan_status_id IN (600, 601, 700)
+    GROUP BY l.client_id
+)
+SELECT COUNT(*) AS the_count
+FROM banded b
+JOIN m_client c ON c.id = b.client_id
+LEFT JOIN adr ON adr.client_id = b.client_id
+LEFT JOIN coi ON coi.client_id = b.client_id
+LEFT JOIN crs ON crs.client_id = b.client_id
+WHERE ('${countryId}' = '-1' OR IFNULL(adr.country_id, -10) = '${countryId}')
+  AND ('${regionId}' = '-1' OR IFNULL(adr.state_province_id, -10) = '${regionId}')
+  AND ('${strataId}' = '-1' OR IFNULL(coi.strata_cv_id, -10) = '${strataId}')
+  AND ('${locationId}' = '-1' OR IFNULL(crs.survey_location_cv_id, -10) = '${locationId}')
+  AND ('${paidOffBandId}' = '-1' OR b.band_id = '${paidOffBandId}')
+  AND b.payoff_date >= '${startDate}'
+  AND b.payoff_date <= '${endDate}']]></column>
+            <column name="description" value="Clients whose most recent loan is closed or overpaid, with no active loan or pending application, at or above a minimum loan cycle, with pay-off performance bands."/>
+            <column name="core_report" valueBoolean="false"/>
+            <column name="use_report" valueBoolean="true"/>
+            <column name="self_service_user_report" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-10-report-parameters" author="willy" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'OfficeIdSelectOne')"/>
+            <column name="report_parameter_name" value="officeId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'CountryIdSelectAll')"/>
+            <column name="report_parameter_name" value="countryId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'regionIdSelectAll')"/>
+            <column name="report_parameter_name" value="regionId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'locationIdSelectAll')"/>
+            <column name="report_parameter_name" value="locationId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'strataIdSelectAll')"/>
+            <column name="report_parameter_name" value="strataId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'loanOfficerIdSelectAll')"/>
+            <column name="report_parameter_name" value="loanOfficerId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'loanProductIdSelectAllWithoutCurrency')"/>
+            <column name="report_parameter_name" value="loanProductId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'latestLoanStatusSelectAll')"/>
+            <column name="report_parameter_name" value="latestLoanStatusId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'paidOffBandSelectAll')"/>
+            <column name="report_parameter_name" value="paidOffBandId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'minLoanCycle')"/>
+            <column name="report_parameter_name" value="minLoanCycle"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'excludeActiveLoansSelect')"/>
+            <column name="report_parameter_name" value="excludeActiveLoans"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'excludePendingApplicationsSelect')"/>
+            <column name="report_parameter_name" value="excludePendingApplications"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'payOffStartDateSelect')"/>
+            <column name="report_parameter_name" value="startDate"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Repeat Loan Pipeline Eligibility')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'payOffEndDateSelect')"/>
+            <column name="report_parameter_name" value="endDate"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-748-11-report-permission" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(1) FROM m_permission WHERE code = 'READ_Repeat Loan Pipeline Eligibility'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="report"/>
+            <column name="code" value="READ_Repeat Loan Pipeline Eligibility"/>
+            <column name="entity_name" value="Repeat Loan Pipeline Eligibility"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
