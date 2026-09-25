@@ -21,10 +21,13 @@ package org.apache.fineract.portfolio.loanaccount.api;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
@@ -35,7 +38,9 @@ import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSer
 import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanApiConstants;
+import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanByClientData;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanData;
+import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementRepaymentData;
 import org.apache.fineract.portfolio.loanaccount.service.ThirdPartyDisbursementLoanReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementPartnerAccessService;
@@ -81,14 +86,7 @@ public class ThirdPartyDisbursementLoansApiResource {
         final AppUser user = this.context.authenticatedUser();
         user.validateHasPermissionTo(ThirdPartyDisbursementLoanApiConstants.PERMISSION_CODE);
 
-        final String boundProvider = this.disbursementPartnerAccessService.resolveProviderCodeForUser(user).orElse(null);
-        if (StringUtils.isBlank(boundProvider)) {
-            throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.partnerBinding.required",
-                    "Authenticated user is not bound to a disbursement provider.",
-                    List.of(ApiParameterError.generalError("validation.msg.thirdPartyDisbursementLoan.partnerBinding.required",
-                            "Authenticated user is not bound to a disbursement provider. "
-                                    + "Seed m_disbursement_provider_appuser_mapping for this app user.")));
-        }
+        final String boundProvider = requireBoundProvider(user);
 
         final String requestedProvider = ThirdPartyDisbursementProvider.normalize(provider);
         if (requestedProvider != null && !requestedProvider.equals(boundProvider)) {
@@ -102,5 +100,70 @@ public class ThirdPartyDisbursementLoansApiResource {
         final Page<ThirdPartyDisbursementLoanData> loans = this.readPlatformService.retrieveAll(boundProvider, status,
                 readyForInstruction, loanAccountNo, externalId, offset, limit);
         return this.toApiJsonSerializer.serialize(loans);
+    }
+
+    @GET
+    @Path("/by-client")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "List a partner client's third-party disbursement loans",
+            description = "Returns loans and currency-grouped totals for exactly one client lookup key. "
+                    + "The authenticated partner binding determines the visible provider.")
+    public String retrieveByClient(@QueryParam(ThirdPartyDisbursementLoanApiConstants.STATUS) final String status,
+            @QueryParam(ThirdPartyDisbursementLoanApiConstants.CLIENT_ID) final Long clientId,
+            @QueryParam(ThirdPartyDisbursementLoanApiConstants.CLIENT_ACCOUNT_NO) final String clientAccountNo,
+            @QueryParam(ThirdPartyDisbursementLoanApiConstants.CLIENT_EXTERNAL_ID) final String clientExternalId,
+            @QueryParam(ThirdPartyDisbursementLoanApiConstants.PHONE) final String phone,
+            @QueryParam(ThirdPartyDisbursementLoanApiConstants.OFFSET) final Integer offset,
+            @QueryParam(ThirdPartyDisbursementLoanApiConstants.LIMIT) final Integer limit) {
+        final AppUser user = this.context.authenticatedUser();
+        user.validateHasPermissionTo(ThirdPartyDisbursementLoanApiConstants.PERMISSION_CODE);
+        final String boundProvider = requireBoundProvider(user);
+        final ThirdPartyDisbursementLoanByClientData loans = this.readPlatformService.retrieveByClient(boundProvider, status, clientId,
+                clientAccountNo, clientExternalId, phone, offset, limit);
+        return this.toApiJsonSerializer.serialize(loans);
+    }
+
+    @GET
+    @Path("/{loanId}/transactions")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "List third-party loan repayments",
+            description = "Returns ordinary repayment transactions for a loan owned by the authenticated partner.")
+    public String retrieveRepayments(@PathParam("loanId") final Long loanId, @QueryParam("fromDate") final String fromDate,
+            @QueryParam("toDate") final String toDate, @QueryParam("includeReversed") final Boolean includeReversed,
+            @QueryParam(ThirdPartyDisbursementLoanApiConstants.OFFSET) final Integer offset,
+            @QueryParam(ThirdPartyDisbursementLoanApiConstants.LIMIT) final Integer limit) {
+        final AppUser user = this.context.authenticatedUser();
+        user.validateHasPermissionTo(ThirdPartyDisbursementLoanApiConstants.PERMISSION_CODE);
+        final Page<ThirdPartyDisbursementRepaymentData> transactions = this.readPlatformService.retrieveRepayments(requireBoundProvider(user),
+                loanId, parseDate("fromDate", fromDate), parseDate("toDate", toDate), Boolean.TRUE.equals(includeReversed), offset, limit);
+        return this.toApiJsonSerializer.serialize(transactions);
+    }
+
+    private static LocalDate parseDate(final String parameterName, final String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException e) {
+            throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.date.invalid",
+                    parameterName + " must be an ISO date (YYYY-MM-DD).", List.of(ApiParameterError.parameterErrorWithValue(
+                            "validation.msg.thirdPartyDisbursementLoan.date.invalid", parameterName + " must be an ISO date (YYYY-MM-DD).",
+                            parameterName, value)));
+        }
+    }
+
+    private String requireBoundProvider(final AppUser user) {
+        final String boundProvider = this.disbursementPartnerAccessService.resolveProviderCodeForUser(user).orElse(null);
+        if (StringUtils.isBlank(boundProvider)) {
+            throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.partnerBinding.required",
+                    "Authenticated user is not bound to a disbursement provider.",
+                    List.of(ApiParameterError.generalError("validation.msg.thirdPartyDisbursementLoan.partnerBinding.required",
+                            "Authenticated user is not bound to a disbursement provider. "
+                                    + "Seed m_disbursement_provider_appuser_mapping for this app user.")));
+        }
+        return boundProvider;
     }
 }
