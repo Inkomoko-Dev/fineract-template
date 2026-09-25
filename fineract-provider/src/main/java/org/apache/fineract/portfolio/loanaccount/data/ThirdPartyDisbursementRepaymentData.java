@@ -18,21 +18,25 @@
  */
 package org.apache.fineract.portfolio.loanaccount.data;
 
-public final class ThirdPartyDisbursementLoanApiConstants {
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 
-    private ThirdPartyDisbursementLoanApiConstants() {}
+@Getter
+@AllArgsConstructor
+public class ThirdPartyDisbursementRepaymentData {
 
-    public static final String PERMISSION_CODE = "READ_THIRDPARTYDISBURSEMENTLOAN_LOAN";
-
-    public static final String PROVIDER = "provider";
-    public static final String STATUS = "status";
-    public static final String READY_FOR_INSTRUCTION = "readyForInstruction";
-    public static final String LOAN_ACCOUNT_NO = "loanAccountNo";
-    public static final String EXTERNAL_ID = "externalId";
-    public static final String CLIENT_ID = "clientId";
-    public static final String CLIENT_ACCOUNT_NO = "clientAccountNo";
-    public static final String CLIENT_EXTERNAL_ID = "clientExternalId";
-    public static final String PHONE = "phone";
-    public static final String OFFSET = "offset";
-    public static final String LIMIT = "limit";
+    private final Long transactionId;
+    private final Long originalTransactionId;
+    private final LocalDate transactionDate;
+    private final BigDecimal amount;
+    private final BigDecimal principalPortion;
+    private final BigDecimal interestPortion;
+    private final BigDecimal feePortion;
+    private final BigDecimal penaltyPortion;
+    private final BigDecimal outstandingBalance;
+    private final String currencyCode;
+    private final boolean reversed;
+    private final boolean reversalTransaction;
 }

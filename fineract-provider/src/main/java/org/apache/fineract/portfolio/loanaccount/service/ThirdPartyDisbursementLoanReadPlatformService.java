@@ -18,11 +18,20 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.time.LocalDate;
 import org.apache.fineract.infrastructure.core.service.Page;
+import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanByClientData;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanData;
+import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementRepaymentData;
 
 public interface ThirdPartyDisbursementLoanReadPlatformService {
 
     Page<ThirdPartyDisbursementLoanData> retrieveAll(String provider, String status, Boolean readyForInstruction, String loanAccountNo,
             String externalId, Integer offset, Integer limit);
+
+    ThirdPartyDisbursementLoanByClientData retrieveByClient(String provider, String status, Long clientId, String clientAccountNo,
+            String clientExternalId, String phone, Integer offset, Integer limit);
+
+    Page<ThirdPartyDisbursementRepaymentData> retrieveRepayments(String provider, Long loanId, LocalDate fromDate, LocalDate toDate,
+            boolean includeReversed, Integer offset, Integer limit);
 }

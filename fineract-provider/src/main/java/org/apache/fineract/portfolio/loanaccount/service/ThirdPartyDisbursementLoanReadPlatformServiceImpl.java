@@ -36,8 +36,11 @@ import org.apache.fineract.infrastructure.core.service.PaginationHelper;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.portfolio.loanaccount.data.LoanStatusEnumData;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanApiConstants;
+import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanByClientData;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanData;
+import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementRepaymentData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSubStatus;
 import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
@@ -105,6 +108,146 @@ public class ThirdPartyDisbursementLoanReadPlatformServiceImpl implements ThirdP
 
         return this.paginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(), params.toArray(), new ThirdPartyDisbursementLoanMapper());
     }
+
+    @Override
+    public ThirdPartyDisbursementLoanByClientData retrieveByClient(final String provider, final String status, final Long clientId,
+            final String clientAccountNo, final String clientExternalId, final String phone, final Integer offset, final Integer limit) {
+        final String normalizedProvider = requireProvider(provider);
+        final Integer parsedStatusId = "ALL".equalsIgnoreCase(StringUtils.trimToEmpty(status)) ? null : parseStatusId(status);
+        final Integer statusId = "ALL".equalsIgnoreCase(StringUtils.trimToEmpty(status)) ? null
+                : (parsedStatusId == null ? LoanStatus.APPROVED.getValue() : parsedStatusId);
+        final int safeOffset = offset == null || offset < 0 ? 0 : offset;
+        final int safeLimit = limit == null || limit <= 0 ? 15 : Math.min(limit, 200);
+        final ClientLookup lookup = resolveClientLookup(clientId, clientAccountNo, clientExternalId, phone);
+
+        final List<Object> params = new ArrayList<>();
+        final String fromWhere = buildProviderClientFromWhere(normalizedProvider, statusId, lookup, params);
+        final String loanSql = "select " + buildSelectColumns() + fromWhere
+                + " order by l.approvedon_date desc, l.id desc " + this.sqlGenerator.limit(safeLimit, safeOffset);
+        final List<ThirdPartyDisbursementLoanData> loans = this.jdbcTemplate.query(loanSql, new ThirdPartyDisbursementLoanMapper(),
+                params.toArray());
+
+        final String totalsSql = "select l.currency_code as currencyCode, coalesce(sum(l.approved_principal), 0) as totalApprovedPrincipal, "
+                + "coalesce(sum(l.total_outstanding_derived), 0) as totalOutstanding" + fromWhere
+                + " group by l.currency_code order by l.currency_code";
+        final List<ThirdPartyDisbursementLoanByClientData.CurrencyTotal> totals = this.jdbcTemplate.query(totalsSql,
+                (rs, rowNum) -> new ThirdPartyDisbursementLoanByClientData.CurrencyTotal(rs.getString("currencyCode"),
+                        rs.getBigDecimal("totalApprovedPrincipal"), rs.getBigDecimal("totalOutstanding")),
+                params.toArray());
+        return new ThirdPartyDisbursementLoanByClientData(loans, totals);
+    }
+
+    @Override
+    public Page<ThirdPartyDisbursementRepaymentData> retrieveRepayments(final String provider, final Long loanId,
+            final LocalDate fromDate, final LocalDate toDate, final boolean includeReversed, final Integer offset, final Integer limit) {
+        final String normalizedProvider = requireProvider(provider);
+        if (loanId == null || loanId <= 0) {
+            throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.loanId.invalid",
+                    "loanId must be a positive number.",
+                    List.of(ApiParameterError.parameterErrorWithValue("validation.msg.thirdPartyDisbursementLoan.loanId.invalid",
+                            "loanId must be a positive number.", "loanId", String.valueOf(loanId))));
+        }
+        if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
+            throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.transactionDate.invalid",
+                    "fromDate must not be after toDate.", List.of(ApiParameterError.generalError(
+                            "validation.msg.thirdPartyDisbursementLoan.transactionDate.invalid", "fromDate must not be after toDate.")));
+        }
+        final int safeOffset = offset == null || offset < 0 ? 0 : offset;
+        final int safeLimit = limit == null || limit <= 0 ? 15 : Math.min(limit, 200);
+        final List<Object> params = new ArrayList<>();
+        final StringBuilder sql = new StringBuilder("select ").append(this.sqlGenerator.calcFoundRows()).append(" ")
+                .append("tr.id as transactionId, tr.original_transaction_id as originalTransactionId, tr.transaction_date as transactionDate, ")
+                .append("tr.amount as amount, tr.principal_portion_derived as principalPortion, ")
+                .append("tr.interest_portion_derived as interestPortion, tr.fee_charges_portion_derived as feePortion, ")
+                .append("tr.penalty_charges_portion_derived as penaltyPortion, tr.outstanding_loan_balance_derived as outstandingBalance, ")
+                .append("l.currency_code as currencyCode, tr.is_reversed as reversed, tr.is_reversal as reversalTransaction ")
+                .append("from m_loan_transaction tr join m_loan l on l.id = tr.loan_id ")
+                .append("join m_product_loan lp on lp.id = l.product_id where l.id = ? ")
+                .append("and lp.enable_third_party_disbursement = true ")
+                .append("and upper(trim(l.third_party_disbursement_provider)) = ? ")
+                .append("and tr.transaction_type_enum = ? ");
+        params.add(loanId);
+        params.add(normalizedProvider);
+        params.add(LoanTransactionType.REPAYMENT.getValue());
+        if (fromDate != null) {
+            sql.append("and tr.transaction_date >= ? ");
+            params.add(fromDate);
+        }
+        if (toDate != null) {
+            sql.append("and tr.transaction_date <= ? ");
+            params.add(toDate);
+        }
+        if (!includeReversed) {
+            sql.append("and tr.is_reversed = false and tr.is_reversal = false ");
+        }
+        sql.append("order by tr.transaction_date asc, tr.created_on_utc asc, tr.id asc ");
+        sql.append(this.sqlGenerator.limit(safeLimit, safeOffset));
+        return this.paginationHelper.fetchPage(this.jdbcTemplate, sql.toString(), params.toArray(), (rs, rowNum) ->
+                new ThirdPartyDisbursementRepaymentData(rs.getLong("transactionId"), JdbcSupport.getLong(rs, "originalTransactionId"),
+                        JdbcSupport.getLocalDate(rs, "transactionDate"), rs.getBigDecimal("amount"),
+                        rs.getBigDecimal("principalPortion"), rs.getBigDecimal("interestPortion"), rs.getBigDecimal("feePortion"),
+                        rs.getBigDecimal("penaltyPortion"), rs.getBigDecimal("outstandingBalance"), rs.getString("currencyCode"),
+                        rs.getBoolean("reversed"), rs.getBoolean("reversalTransaction")));
+    }
+
+    private String requireProvider(final String provider) {
+        final String normalizedProvider = ThirdPartyDisbursementProvider.normalize(provider);
+        if (StringUtils.isBlank(normalizedProvider)) {
+            throw new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.provider.required",
+                    "Disbursement provider query parameter is required.",
+                    List.of(ApiParameterError.parameterError("validation.msg.thirdPartyDisbursementLoan.provider.required",
+                            "Disbursement provider query parameter is required.", ThirdPartyDisbursementLoanApiConstants.PROVIDER,
+                            provider)));
+        }
+        return normalizedProvider;
+    }
+
+    private static ClientLookup resolveClientLookup(final Long clientId, final String clientAccountNo, final String clientExternalId,
+            final String phone) {
+        final List<ClientLookup> lookups = new ArrayList<>();
+        if (clientId != null) {
+            if (clientId <= 0) {
+                throw invalidClientLookup("clientId must be a positive number.");
+            }
+            lookups.add(new ClientLookup("c.id", clientId));
+        }
+        addStringLookup(lookups, "c.account_no", clientAccountNo);
+        addStringLookup(lookups, "c.external_id", clientExternalId);
+        addStringLookup(lookups, "c.mobile_no", phone);
+        if (lookups.size() != 1) {
+            throw invalidClientLookup("Exactly one of clientId, clientAccountNo, clientExternalId, or phone is required.");
+        }
+        return lookups.get(0);
+    }
+
+    private static void addStringLookup(final List<ClientLookup> lookups, final String column, final String value) {
+        if (StringUtils.isNotBlank(value)) {
+            lookups.add(new ClientLookup(column, value.trim()));
+        }
+    }
+
+    private static PlatformApiDataValidationException invalidClientLookup(final String message) {
+        return new PlatformApiDataValidationException("validation.msg.thirdPartyDisbursementLoan.clientLookup.invalid", message,
+                List.of(ApiParameterError.generalError("validation.msg.thirdPartyDisbursementLoan.clientLookup.invalid", message)));
+    }
+
+    private static String buildProviderClientFromWhere(final String provider, final Integer statusId, final ClientLookup lookup,
+            final List<Object> params) {
+        final StringBuilder sql = new StringBuilder(" from m_loan l join m_product_loan lp on lp.id = l.product_id ");
+        sql.append(" join m_client c on c.id = l.client_id where lp.enable_third_party_disbursement = true ");
+        sql.append(" and l.third_party_disbursement_provider is not null ");
+        sql.append(" and upper(trim(l.third_party_disbursement_provider)) = ? ");
+        params.add(provider);
+        if (statusId != null) {
+            sql.append(" and l.loan_status_id = ? ");
+            params.add(statusId);
+        }
+        sql.append(" and ").append(lookup.column()).append(" = ? ");
+        params.add(lookup.value());
+        return sql.toString();
+    }
+
+    private record ClientLookup(String column, Object value) {}
 
     static Integer parseStatusId(final String status) {
         if (StringUtils.isBlank(status)) {

@@ -107,6 +107,33 @@ public class DisbursementPartnerWebhookPublisher {
         }
     }
 
+    /**
+     * Delivers a pre-built partner event. Callers that need retries persist the payload and event id before invoking
+     * this method; product events retain their existing best-effort behaviour above.
+     */
+    public boolean publishRaw(final String partnerCode, final String eventId, final String payload) {
+        final PartnerWebhookConfig config = getPartnerConfig(partnerCode);
+        if (config == null || !config.isEnabled() || config.getUrl() == null || config.getUrl().isBlank()) {
+            return false;
+        }
+        final HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        if (config.getApiKey() != null && !config.getApiKey().isBlank()) {
+            headers.set("X-API-Key", config.getApiKey());
+        }
+        headers.set("X-Event-Id", eventId);
+        if (config.getHeaders() != null) {
+            config.getHeaders().forEach(headers::set);
+        }
+        try {
+            this.restTemplate.exchange(config.getUrl(), HttpMethod.POST, new HttpEntity<>(payload, headers), String.class);
+            return true;
+        } catch (Exception e) {
+            log.warn("Unable to deliver partner event {}: {}", eventId, e.getMessage());
+            return false;
+        }
+    }
+
     private PartnerWebhookConfig getPartnerConfig(final String partnerCode) {
         // First try generic partner configuration
         final GlobalConfigurationPropertyData partnerConfig = this.configurationReadPlatformService.retrieveGlobalConfiguration(PARTNER_WEBHOOK_CONFIG);

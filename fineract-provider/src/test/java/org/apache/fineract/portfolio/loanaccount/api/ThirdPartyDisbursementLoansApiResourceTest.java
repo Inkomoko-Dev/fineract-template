@@ -32,6 +32,7 @@ import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSer
 import org.apache.fineract.infrastructure.security.exception.NoAuthorizationException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanApiConstants;
+import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanByClientData;
 import org.apache.fineract.portfolio.loanaccount.data.ThirdPartyDisbursementLoanData;
 import org.apache.fineract.portfolio.loanaccount.service.ThirdPartyDisbursementLoanReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementPartnerAccessService;
@@ -84,6 +85,19 @@ class ThirdPartyDisbursementLoansApiResourceTest {
         assertThat(response).contains("totalFilteredRecords");
         verify(this.appUser).validateHasPermissionTo(ThirdPartyDisbursementLoanApiConstants.PERMISSION_CODE);
         verify(this.readPlatformService).retrieveAll("KIFIYA", null, true, null, null, 0, 15);
+    }
+
+    @Test
+    void retrievesCustomerLoansUsingBoundProvider() {
+        final ThirdPartyDisbursementLoanByClientData result = new ThirdPartyDisbursementLoanByClientData(Collections.emptyList(),
+                Collections.emptyList());
+        given(this.readPlatformService.retrieveByClient("KIFIYA", null, 878103L, null, null, null, 0, 15)).willReturn(result);
+        given(this.toApiJsonSerializer.serialize(result)).willReturn("{\"loans\":[],\"totals\":[]}");
+
+        final String response = this.underTest.retrieveByClient(null, 878103L, null, null, null, 0, 15);
+
+        assertThat(response).contains("loans");
+        verify(this.readPlatformService).retrieveByClient("KIFIYA", null, 878103L, null, null, null, 0, 15);
     }
 
     @Test
