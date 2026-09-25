@@ -167,5 +167,4 @@
     <include file="parts/042_add_notes_to_command_source.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-753_add_migrated_flag_to_client.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-618_loan_classification.xml" relativeToChangelogFile="true"/>
-    <include file="parts/CGLT-748_repeat_loan_pipeline_report.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

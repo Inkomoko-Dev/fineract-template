@@ -23,6 +23,17 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
+    <changeSet id="CGLT-748-0-report-count-sql-column" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="stretchy_report" columnName="report_count_sql"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="stretchy_report">
+            <column name="report_count_sql" type="TEXT"/>
+        </addColumn>
+    </changeSet>
+
     <changeSet id="CGLT-748-1-parameter-regionIdSelectAll" author="willy">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
