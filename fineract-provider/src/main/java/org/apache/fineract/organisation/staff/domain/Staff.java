@@ -53,6 +53,9 @@ public class Staff extends AbstractPersistableCustom {
     @Column(name = "mobile_no", length = 50, nullable = false, unique = true)
     private String mobileNo;
 
+    @Column(name = "mobile_country_code", length = 8)
+    private String mobileCountryCode;
+
     @Column(name = "external_id", length = 100, nullable = true, unique = true)
     private String externalId;
 
@@ -96,6 +99,7 @@ public class Staff extends AbstractPersistableCustom {
 
         final String mobileNoParamName = "mobileNo";
         final String mobileNo = command.stringValueOfParameterNamedAllowingNull(mobileNoParamName);
+        final String mobileCountryCode = command.stringValueOfParameterNamedAllowingNull("mobileCountryCode");
 
         final String isLoanOfficerParamName = "isLoanOfficer";
         final boolean isLoanOfficer = command.booleanPrimitiveValueOfParameterNamed(isLoanOfficerParamName);
@@ -110,7 +114,9 @@ public class Staff extends AbstractPersistableCustom {
             joiningDate = command.localDateValueOfParameterNamed(joiningDateParamName);
         }
 
-        return new Staff(staffOffice, firstname, lastname, externalId, mobileNo, isLoanOfficer, isActive, joiningDate);
+        final Staff staff = new Staff(staffOffice, firstname, lastname, externalId, mobileNo, isLoanOfficer, isActive, joiningDate);
+        staff.setMobileCountryCode(mobileCountryCode);
+        return staff;
     }
 
     protected Staff() {
@@ -188,6 +194,13 @@ public class Staff extends AbstractPersistableCustom {
             this.mobileNo = StringUtils.defaultIfEmpty(newValue, null);
         }
 
+        final String mobileCountryCodeParamName = "mobileCountryCode";
+        if (command.isChangeInStringParameterNamed(mobileCountryCodeParamName, this.mobileCountryCode)) {
+            final String newValue = command.stringValueOfParameterNamed(mobileCountryCodeParamName);
+            actualChanges.put(mobileCountryCodeParamName, newValue);
+            setMobileCountryCode(newValue);
+        }
+
         final String isLoanOfficerParamName = "isLoanOfficer";
         if (command.isChangeInBooleanParameterNamed(isLoanOfficerParamName, this.loanOfficer)) {
             final boolean newValue = command.booleanPrimitiveValueOfParameterNamed(isLoanOfficerParamName);
@@ -254,6 +267,14 @@ public class Staff extends AbstractPersistableCustom {
 
     public String mobileNo() {
         return this.mobileNo;
+    }
+
+    public String getMobileCountryCode() {
+        return this.mobileCountryCode;
+    }
+
+    public void setMobileCountryCode(final String mobileCountryCode) {
+        this.mobileCountryCode = StringUtils.defaultIfEmpty(StringUtils.trimToNull(mobileCountryCode), null);
     }
 
     public Office office() {

@@ -181,7 +181,7 @@ public class AfricasTalkingWhatsAppService {
                 throw AfricasTalkingValidation.parameterError("validation.msg.communication.staff.mobile.missing",
                         "Staff does not have a mobile number", "staffId");
             }
-            return phoneNumberNormalizer.normalize(staff.mobileNo());
+            return phoneNumberNormalizer.normalize(staff.mobileNo(), staff.getMobileCountryCode());
         }
         throw AfricasTalkingValidation.parameterError("validation.msg.communication.recipient.missing",
                 "Provide phoneNumber, clientId, or staffId", "phoneNumber");

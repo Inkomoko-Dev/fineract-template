@@ -34,6 +34,7 @@ public final class StaffData implements Serializable {
     private final String lastname;
     private final String displayName;
     private final String mobileNo;
+    private String mobileCountryCode;
     private final Long officeId;
     private final String officeName;
     private final Boolean isLoanOfficer;
@@ -80,8 +81,10 @@ public final class StaffData implements Serializable {
     private final Collection<OfficeData> allowedOffices;
 
     public static StaffData templateData(final StaffData staff, final Collection<OfficeData> allowedOffices) {
-        return new StaffData(staff.id, staff.firstname, staff.lastname, staff.displayName, staff.officeId, staff.officeName,
+        final StaffData data = new StaffData(staff.id, staff.firstname, staff.lastname, staff.displayName, staff.officeId, staff.officeName,
                 staff.isLoanOfficer, staff.externalId, staff.mobileNo, allowedOffices, staff.isActive, staff.joiningDate);
+        data.mobileCountryCode = staff.mobileCountryCode;
+        return data;
     }
 
     public static StaffData lookup(final Long id, final String displayName) {
@@ -138,5 +141,13 @@ public final class StaffData implements Serializable {
 
     public Long getOfficeId() {
         return this.officeId;
+    }
+
+    public String getMobileCountryCode() {
+        return this.mobileCountryCode;
+    }
+
+    public void setMobileCountryCode(final String mobileCountryCode) {
+        this.mobileCountryCode = mobileCountryCode;
     }
 }

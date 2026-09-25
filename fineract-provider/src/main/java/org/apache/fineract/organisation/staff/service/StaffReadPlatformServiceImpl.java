@@ -63,7 +63,8 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
         public String schema() {
             return " s.id as id,s.office_id as officeId, o.name as officeName, s.firstname as firstname, s.lastname as lastname,"
                     + " s.display_name as displayName, s.is_loan_officer as isLoanOfficer, s.external_id as externalId, s.mobile_no as mobileNo,"
-                    + " s.is_active as isActive, s.joining_date as joiningDate from m_staff s " + " join m_office o on o.id = s.office_id";
+                    + " s.mobile_country_code as mobileCountryCode, s.is_active as isActive, s.joining_date as joiningDate from m_staff s "
+                    + " join m_office o on o.id = s.office_id";
         }
 
         @Override
@@ -81,8 +82,10 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
             final boolean isActive = rs.getBoolean("isActive");
             final LocalDate joiningDate = JdbcSupport.getLocalDate(rs, "joiningDate");
 
-            return StaffData.instance(id, firstname, lastname, displayName, officeId, officeName, isLoanOfficer, externalId, mobileNo,
-                    isActive, joiningDate);
+            final StaffData staff = StaffData.instance(id, firstname, lastname, displayName, officeId, officeName, isLoanOfficer,
+                    externalId, mobileNo, isActive, joiningDate);
+            staff.setMobileCountryCode(rs.getString("mobileCountryCode"));
+            return staff;
         }
     }
 
@@ -95,7 +98,7 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
             sqlBuilder.append("s.id as id, s.office_id as officeId, ohierarchy.name as officeName,");
             sqlBuilder.append("s.firstname as firstname, s.lastname as lastname,");
             sqlBuilder.append("s.display_name as displayName, s.is_loan_officer as isLoanOfficer, s.external_id as externalId, ");
-            sqlBuilder.append("s.mobile_no as mobileNo, s.is_active as isActive, s.joining_date as joiningDate ");
+            sqlBuilder.append("s.mobile_no as mobileNo, s.mobile_country_code as mobileCountryCode, s.is_active as isActive, s.joining_date as joiningDate ");
             sqlBuilder.append("from m_office o ");
             sqlBuilder.append("join m_office ohierarchy on o.hierarchy like concat(ohierarchy.hierarchy, '%') ");
             sqlBuilder.append("join m_staff s on s.office_id = ohierarchy.id and s.is_active=true ");
@@ -124,8 +127,10 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
             final boolean isActive = rs.getBoolean("isActive");
             final LocalDate joiningDate = JdbcSupport.getLocalDate(rs, "joiningDate");
 
-            return StaffData.instance(id, firstname, lastname, displayName, officeId, officeName, isLoanOfficer, externalId, mobileNo,
-                    isActive, joiningDate);
+            final StaffData staff = StaffData.instance(id, firstname, lastname, displayName, officeId, officeName, isLoanOfficer,
+                    externalId, mobileNo, isActive, joiningDate);
+            staff.setMobileCountryCode(rs.getString("mobileCountryCode"));
+            return staff;
         }
     }
 

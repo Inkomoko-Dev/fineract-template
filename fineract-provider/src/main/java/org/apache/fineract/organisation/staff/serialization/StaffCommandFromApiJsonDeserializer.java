@@ -46,7 +46,7 @@ public final class StaffCommandFromApiJsonDeserializer {
      * The parameters supported for this command.
      */
     private final Set<String> supportedParameters = new HashSet<>(Arrays.asList("firstname", "lastname", "officeId", "externalId",
-            "mobileNo", "isLoanOfficer", "isActive", "joiningDate", "dateFormat", "locale", "forceStatus"));
+            "mobileNo", "mobileCountryCode", "isLoanOfficer", "isActive", "joiningDate", "dateFormat", "locale", "forceStatus"));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -86,6 +86,8 @@ public final class StaffCommandFromApiJsonDeserializer {
             baseDataValidator.reset().parameter(ClientApiConstants.mobileNoParamName).value(mobileNo).ignoreIfNull()
                     .notExceedingLengthOf(50);
         }
+
+        validateMobileCountryCode(element, baseDataValidator);
 
         if (this.fromApiJsonHelper.parameterExists("isLoanOfficer", element)) {
             final String loanOfficerFlag = this.fromApiJsonHelper.extractStringNamed("isLoanOfficer", element);
@@ -154,6 +156,8 @@ public final class StaffCommandFromApiJsonDeserializer {
             baseDataValidator.reset().parameter(ClientApiConstants.mobileNoParamName).value(mobileNo).notExceedingLengthOf(50);
         }
 
+        validateMobileCountryCode(element, baseDataValidator);
+
         if (this.fromApiJsonHelper.parameterExists("isLoanOfficer", element)) {
             final String loanOfficerFlag = this.fromApiJsonHelper.extractStringNamed("isLoanOfficer", element);
             baseDataValidator.reset().parameter("isLoanOfficer").trueOrFalseRequired(loanOfficerFlag);
@@ -201,6 +205,15 @@ public final class StaffCommandFromApiJsonDeserializer {
         }
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    private void validateMobileCountryCode(final JsonElement element, final DataValidatorBuilder baseDataValidator) {
+        if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.mobileCountryCodeParamName, element)) {
+            final String mobileCountryCode = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.mobileCountryCodeParamName,
+                    element);
+            baseDataValidator.reset().parameter(ClientApiConstants.mobileCountryCodeParamName).value(mobileCountryCode).ignoreIfNull()
+                    .notExceedingLengthOf(8);
+        }
     }
 
     private void throwExceptionIfValidationWarningsExist(final List<ApiParameterError> dataValidationErrors) {

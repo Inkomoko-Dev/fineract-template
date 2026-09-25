@@ -379,9 +379,9 @@ public class NovuCampaignService {
         final List<Map<String, Object>> subscribers = jdbcTemplate.query(
                 "SELECT CONCAT('client-', id) subscriberId, firstname firstName, lastname lastName, "
                         + "email_address email, mobile_no phone, mobile_country_code countryCode FROM m_client WHERE status_enum = 300 "
-                        + "UNION ALL SELECT CONCAT('staff-', id), firstname, lastname, email_address, mobile_no, NULL "
+                        + "UNION ALL SELECT CONCAT('staff-', id), firstname, lastname, email_address, mobile_no, mobile_country_code "
                         + "FROM m_staff WHERE is_active = 1 "
-                        + "UNION ALL SELECT CONCAT('user-', u.id), u.firstname, u.lastname, u.email, s.mobile_no, NULL "
+                        + "UNION ALL SELECT CONCAT('user-', u.id), u.firstname, u.lastname, u.email, s.mobile_no, s.mobile_country_code "
                         + "FROM m_appuser u LEFT JOIN m_staff s ON s.id = u.staff_id WHERE u.is_deleted = false",
                 (rs, rowNum) -> subscriber(rs.getString("subscriberId"), rs.getString("firstName"), rs.getString("lastName"),
                         rs.getString("email"), internationalPhone(rs.getString("phone"), rs.getString("countryCode"))));
@@ -449,7 +449,7 @@ public class NovuCampaignService {
 
     private Map<String, Object> staffSubscriber(final Staff staff) {
         return subscriber("staff-" + staff.getId(), staff.displayName(), null, staff.emailAddress(),
-                internationalPhone(staff.mobileNo(), null));
+                internationalPhone(staff.mobileNo(), staff.getMobileCountryCode()));
     }
 
     private String internationalPhone(final String phone, final String countryCode) {
