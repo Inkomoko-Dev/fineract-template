@@ -685,4 +685,37 @@ ORDER BY country, office, loan_product, classification',
         ]]></sql>
     </changeSet>
 
+    <changeSet id="CGLT-618-16-seed-ethiopia-country-bands" author="Felix Mutua">
+        <comment>Seed default arrears bands for Ethiopia in tenants that already applied CGLT-618</comment>
+        <sql><![CDATA[
+            INSERT INTO m_loan_classification_country_config (country_cv_id, created_on_utc)
+            SELECT cv.id, NOW()
+            FROM m_code_value cv
+            INNER JOIN m_code c ON c.id = cv.code_id AND c.code_name = 'COUNTRY'
+            WHERE cv.code_value = 'Ethiopia'
+              AND NOT EXISTS (
+                  SELECT 1 FROM m_loan_classification_country_config cfg WHERE cfg.country_cv_id = cv.id
+              );
+        ]]></sql>
+        <sql><![CDATA[
+            INSERT INTO m_loan_classification_threshold (country_config_id, classification_code, min_days_in_arrears, max_days_in_arrears)
+            SELECT cfg.id, bands.code, bands.min_days, bands.max_days
+            FROM m_loan_classification_country_config cfg
+            INNER JOIN m_code_value cv ON cv.id = cfg.country_cv_id
+            INNER JOIN m_code c ON c.id = cv.code_id AND c.code_name = 'COUNTRY'
+            INNER JOIN (
+                SELECT 1 AS code, 0 AS min_days, 30 AS max_days
+                UNION ALL SELECT 2, 31, 90
+                UNION ALL SELECT 3, 91, 180
+                UNION ALL SELECT 4, 181, 360
+                UNION ALL SELECT 5, 361, NULL
+            ) bands
+            WHERE cv.code_value = 'Ethiopia'
+              AND NOT EXISTS (
+                  SELECT 1 FROM m_loan_classification_threshold t
+                  WHERE t.country_config_id = cfg.id AND t.classification_code = bands.code
+              );
+        ]]></sql>
+    </changeSet>
+
 </databaseChangeLog>
