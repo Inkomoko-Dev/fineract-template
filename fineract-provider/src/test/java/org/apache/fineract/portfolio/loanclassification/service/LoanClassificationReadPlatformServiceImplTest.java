@@ -63,7 +63,7 @@ class LoanClassificationReadPlatformServiceImplTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void summaryIsCurrentSnapshotAndIncludesLoansWithoutClassificationRows() {
+    void summaryIsCurrentSnapshotForConfiguredCountriesAndIncludesLoansWithoutClassificationRows() {
         mockEmptySummary();
 
         readPlatformService.retrieveSummary(null, null, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
@@ -72,9 +72,11 @@ class LoanClassificationReadPlatformServiceImplTest {
         assertTrue(sql.contains("FROM m_loan l"));
         assertTrue(sql.contains("LEFT JOIN m_loan_classification lc ON lc.loan_id = l.id"));
         assertTrue(sql.contains("l.loan_status_id IN (300, 601)"));
-        assertTrue(sql.contains("Invalid/Missing"));
+        assertTrue(sql.contains("INNER JOIN m_loan_classification_country_config cfg ON cfg.country_cv_id = "));
+        assertTrue(sql.contains("Unclassified"));
         assertTrue(sql.contains("m_client_address"));
         assertTrue(sql.contains("m_loan_due_diligence_info"));
+        assertFalse(sql.contains("Invalid/Missing"));
         assertFalse(sql.contains("classified_on_utc"));
         assertFalse(sql.contains("INNER JOIN m_loan_classification"));
         assertFalse(sql.contains("FROM m_loan_classification lc INNER JOIN m_loan"));
