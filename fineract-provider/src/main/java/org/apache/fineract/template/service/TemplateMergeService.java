@@ -19,34 +19,43 @@
 package org.apache.fineract.template.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
-import com.github.mustachejava.MustacheFactory;
+import com.github.mustachejava.MustacheException;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.StringReader;
 import java.io.StringWriter;
-import java.net.Authenticator;
 import java.net.HttpURLConnection;
-import java.net.PasswordAuthentication;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.time.DateTimeException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.template.domain.Template;
 import org.apache.fineract.template.domain.TemplateFunctions;
+import org.apache.fineract.template.domain.TemplateSyntax;
 import org.apache.fineract.template.exception.TemplateForbiddenException;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.apache.fineract.template.exception.TemplateMapperFetchException;
+import org.springframework.boot.autoconfigure.web.ServerProperties;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -54,119 +63,159 @@ import org.springframework.stereotype.Service;
 @Service
 public class TemplateMergeService {
 
+    private static final String API_PATH = "/api/v1/";
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMMM yyyy", Locale.ENGLISH);
+
     private final FineractProperties fineractProperties;
-
-    private Map<String, Object> scopes;
-    private String authToken;
-
-    public void setAuthToken(final String authToken) {
-        this.authToken = authToken;
-    }
+    private final ServerProperties serverProperties;
 
     public String compile(final Template template, final Map<String, Object> scopes) throws IOException {
-        this.scopes = scopes;
-        this.scopes.put("static", new TemplateFunctions());
+        final String authToken = ThreadLocalContextUtil.getAuthToken();
+        return compile(template, scopes, authToken == null ? null : "Basic " + authToken);
+    }
 
-        final MustacheFactory mf = new DefaultMustacheFactory();
-        final Mustache mustache = mf.compile(new StringReader(template.getText()), template.getName());
+    public String compile(final Template template, final Map<String, Object> scopes, final String authorization) throws IOException {
+        final Map<String, Object> mergeScopes = new HashMap<>(scopes);
+        mergeScopes.put("static", new TemplateFunctions());
 
-        final Map<String, Object> mappers = getCompiledMapFromMappers(template.getMappersAsMap());
-        this.scopes.putAll(mappers);
+        final Mustache mustache = TemplateSyntax.compile(template.getText(), template.getName());
 
-        expandMapArrays(scopes);
+        for (final Map.Entry<String, String> mapper : template.getMappersAsMap().entrySet()) {
+            final String url = resolveMapperUrl(mapper.getValue(), mergeScopes);
+            try {
+                final Map<String, Object> data = getMapFromUrl(url, authorization);
+                formatDates(data);
+                mergeScopes.put(mapper.getKey(), data);
+            } catch (final IOException e) {
+                log.warn("Template mapper {} could not be loaded from {}", mapper.getKey(), url, e);
+                throw new TemplateMapperFetchException(mapper.getKey(), e);
+            }
+        }
+
+        expandMapArrays(mergeScopes);
 
         final StringWriter stringWriter = new StringWriter();
-        mustache.execute(stringWriter, this.scopes);
-
+        try {
+            mustache.execute(stringWriter, mergeScopes);
+        } catch (final MustacheException e) {
+            final ApiParameterError error = ApiParameterError.parameterError("validation.msg.template.text.invalid.syntax",
+                    "Template could not be rendered: " + e.getMessage(), "text", e.getMessage());
+            throw new PlatformApiDataValidationException(List.of(error), e);
+        }
         return stringWriter.toString();
     }
 
-    private Map<String, Object> getCompiledMapFromMappers(final Map<String, String> data) {
-        final MustacheFactory mf = new DefaultMustacheFactory();
+    private String resolveMapperUrl(final String mapperValue, final Map<String, Object> scopes) {
+        final StringWriter stringWriter = new StringWriter();
+        TemplateSyntax.compile(mapperValue, "mapper").execute(stringWriter, scopes);
+        final String url = stringWriter.toString().trim();
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            assertWhitelisted(url);
+            return url;
+        }
+        return localApiBase() + StringUtils.removeStart(url, "/");
+    }
 
-        if (data != null) {
-            for (final Map.Entry<String, String> entry : data.entrySet()) {
-                final Mustache mappersMustache = mf.compile(new StringReader(entry.getValue()), "");
-                final StringWriter stringWriter = new StringWriter();
+    private String localApiBase() {
+        final boolean ssl = this.serverProperties.getSsl() != null && this.serverProperties.getSsl().isEnabled();
+        final InetAddress address = this.serverProperties.getAddress();
+        String host = "localhost";
+        if (address != null && !address.isAnyLocalAddress()) {
+            host = address instanceof Inet6Address ? "[" + address.getHostAddress() + "]" : address.getHostAddress();
+        }
+        final int port = this.serverProperties.getPort() == null ? 8080 : this.serverProperties.getPort();
+        final String configuredPath = StringUtils.defaultString(this.serverProperties.getServlet().getContextPath());
+        final String contextPath = StringUtils.removeEnd(configuredPath, "/");
+        return (ssl ? "https" : "http") + "://" + host + ":" + port + contextPath + API_PATH;
+    }
 
-                mappersMustache.execute(stringWriter, this.scopes);
-                String url = stringWriter.toString();
-                if (!url.startsWith("http")) {
-                    url = this.scopes.get("BASE_URI") + url;
-                }
-                try {
-                    this.scopes.put(entry.getKey(), getMapFromUrl(url));
-                } catch (final IOException e) {
-                    log.error("getCompiledMapFromMappers() failed", e);
+    private void assertWhitelisted(final String url) {
+        final FineractProperties.FineractTemplateProperties properties = this.fineractProperties.getTemplate();
+        if (properties == null || !properties.isRegexWhitelistEnabled()) {
+            return;
+        }
+        final List<String> whitelist = properties.getRegexWhitelist();
+        if (whitelist != null) {
+            for (final String urlPattern : whitelist) {
+                if (Pattern.compile(urlPattern).matcher(url).matches()) {
+                    return;
                 }
             }
         }
-        return this.scopes;
+        throw new TemplateForbiddenException(url);
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> getMapFromUrl(final String url) throws IOException {
-        final HttpURLConnection connection = getConnection(url);
-
-        final String response = getStringFromInputStream(connection.getInputStream());
-        HashMap<String, Object> result = new HashMap<>();
-        if (connection.getContentType().equals("text/plain")) {
-            result.put("src", response);
-        } else {
-            result = new ObjectMapper().readValue(response, HashMap.class);
+    private Map<String, Object> getMapFromUrl(final String url, final String authorization) throws IOException {
+        final HttpURLConnection connection = openConnection(url, authorization);
+        try {
+            final int status = connection.getResponseCode();
+            if (status >= HttpURLConnection.HTTP_BAD_REQUEST) {
+                throw new IOException("HTTP " + status + " from " + url);
+            }
+            final String response = getStringFromInputStream(connection.getInputStream());
+            HashMap<String, Object> result = new HashMap<>();
+            if ("text/plain".equals(connection.getContentType())) {
+                result.put("src", response);
+            } else {
+                result = new ObjectMapper().readValue(response, HashMap.class);
+            }
+            return result;
+        } finally {
+            connection.disconnect();
         }
-        return result;
     }
 
-    private HttpURLConnection getConnection(final String url) {
-        if (fineractProperties.getTemplate() != null && fineractProperties.getTemplate().isRegexWhitelistEnabled()) {
-            boolean whitelisted = false;
-
-            if (fineractProperties.getTemplate().getRegexWhitelist() != null
-                    && !fineractProperties.getTemplate().getRegexWhitelist().isEmpty()) {
-                for (String urlPattern : fineractProperties.getTemplate().getRegexWhitelist()) {
-                    Pattern pattern = Pattern.compile(urlPattern);
-                    Matcher matcher = pattern.matcher(url);
-                    if (matcher.matches()) {
-                        whitelisted = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!whitelisted) {
-                throw new TemplateForbiddenException(url);
-            }
-        }
-
-        if (this.authToken == null) {
-            final String name = SecurityContextHolder.getContext().getAuthentication().getName();
-            final String password = SecurityContextHolder.getContext().getAuthentication().getCredentials().toString();
-
-            Authenticator.setDefault(new Authenticator() {
-
-                @Override
-                protected PasswordAuthentication getPasswordAuthentication() {
-                    return new PasswordAuthentication(name, password.toCharArray());
-                }
-            });
-        }
-
-        HttpURLConnection connection = null;
+    private HttpURLConnection openConnection(final String url, final String authorization) throws IOException {
+        final HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         try {
-            connection = (HttpURLConnection) new URL(url).openConnection();
-            if (this.authToken != null) {
-                connection.setRequestProperty("Authorization", "Basic " + this.authToken);// NOSONAR
-            }
             TrustModifier.relaxHostChecking(connection);
-
-            connection.setDoInput(true);
-
-        } catch (IOException | KeyManagementException | NoSuchAlgorithmException | KeyStoreException e) {
-            log.error("getConnection() failed, return null", e);
+        } catch (KeyManagementException | NoSuchAlgorithmException | KeyStoreException e) {
+            throw new IOException("Could not prepare the connection to " + url, e);
         }
-
+        if (authorization != null) {
+            connection.setRequestProperty("Authorization", authorization);
+        }
+        final FineractPlatformTenant tenant = ThreadLocalContextUtil.getTenant();
+        if (tenant != null) {
+            connection.setRequestProperty("Fineract-Platform-TenantId", tenant.getTenantIdentifier());
+        }
+        connection.setRequestProperty("Accept", "application/json");
+        connection.setDoInput(true);
         return connection;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void formatDates(final Object value) {
+        if (value instanceof Map) {
+            for (final Map.Entry<String, Object> entry : ((Map<String, Object>) value).entrySet()) {
+                final LocalDate date = entry.getKey().endsWith("Date") ? asDate(entry.getValue()) : null;
+                if (date != null) {
+                    entry.setValue(date.format(DATE_FORMAT));
+                } else {
+                    formatDates(entry.getValue());
+                }
+            }
+        } else if (value instanceof Iterable) {
+            for (final Object item : (Iterable<Object>) value) {
+                formatDates(item);
+            }
+        }
+    }
+
+    private static LocalDate asDate(final Object value) {
+        if (!(value instanceof List) || ((List<?>) value).size() != 3) {
+            return null;
+        }
+        final List<?> parts = (List<?>) value;
+        if (!(parts.get(0) instanceof Integer && parts.get(1) instanceof Integer && parts.get(2) instanceof Integer)) {
+            return null;
+        }
+        try {
+            return LocalDate.of((Integer) parts.get(0), (Integer) parts.get(1), (Integer) parts.get(2));
+        } catch (DateTimeException e) {
+            return null;
+        }
     }
 
     // TODO Replace this with appropriate alternative available in Guava

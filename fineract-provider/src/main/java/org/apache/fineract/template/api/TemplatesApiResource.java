@@ -40,6 +40,7 @@ import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -47,6 +48,7 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.UriInfo;
@@ -240,7 +242,8 @@ public class TemplatesApiResource {
     @Path("{templateId}")
     @Produces({ MediaType.TEXT_HTML })
     public String mergeTemplate(@PathParam("templateId") final Long templateId, @Context final UriInfo uriInfo,
-            final String apiRequestBodyAsJson) throws MalformedURLException, IOException {
+            @HeaderParam(HttpHeaders.AUTHORIZATION) final String authorization, final String apiRequestBodyAsJson)
+            throws MalformedURLException, IOException {
 
         final Template template = this.templateService.findOneById(templateId);
 
@@ -260,6 +263,6 @@ public class TemplatesApiResource {
 
         parametersMap.put("BASE_URI", uriInfo.getBaseUri());
         parametersMap.putAll(result);
-        return this.templateMergeService.compile(template, parametersMap);
+        return this.templateMergeService.compile(template, parametersMap, authorization);
     }
 }

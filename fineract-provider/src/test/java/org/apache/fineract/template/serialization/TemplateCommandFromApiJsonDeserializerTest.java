@@ -124,6 +124,23 @@ public class TemplateCommandFromApiJsonDeserializerTest {
     }
 
     @Test
+    public void unclosedSectionIsRejectedOnText() {
+        final List<ApiParameterError> errors = errorsFrom(json("\"Contract\"", "\"{{#loan}}Loan {{loan.accountNo}}\"", "1", "0"));
+        assertTrue(hasErrorFor(errors, "text"));
+    }
+
+    @Test
+    public void mismatchedSectionIsRejectedOnText() {
+        final List<ApiParameterError> errors = errorsFrom(json("\"Contract\"", "\"{{#loan}}x{{/client}}\"", "1", "0"));
+        assertTrue(hasErrorFor(errors, "text"));
+    }
+
+    @Test
+    public void loanVariablesAndSectionsAreAccepted() {
+        this.deserializer.validateForCreate(json("\"Contract\"", "\"{{#loan}}{{accountNo}}{{/loan}} {{loan.loanProductName}}\"", "1", "0"));
+    }
+
+    @Test
     public void everyMissingFieldIsReportedTogether() {
         final List<ApiParameterError> errors = errorsFrom("{\"mappers\":[]}");
         assertEquals(4, errors.size());
