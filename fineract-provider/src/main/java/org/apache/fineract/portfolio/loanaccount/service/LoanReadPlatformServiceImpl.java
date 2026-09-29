@@ -128,6 +128,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrix;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanApprovalMatrixRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevel;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevelRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
@@ -223,6 +225,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
     private final LoanApprovalMatrixRepository loanApprovalMatrixRepository;
     private final LoanDecisionRepository loanDecisionRepository;
+    private final LoanDecisionLevelRepository loanDecisionLevelRepository;
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
     private final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService;
 
@@ -249,6 +252,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             AppUserReadPlatformService appUserReadPlatformService, final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper,
             @Lazy final LoanDecisionStateUtilService loanDecisionStateUtilService,
             final LoanApprovalMatrixRepository loanApprovalMatrixRepository, final LoanDecisionRepository loanDecisionRepository,
+            final LoanDecisionLevelRepository loanDecisionLevelRepository,
             final EntityDisbursementDefaultsService entityDisbursementDefaultsService,
             final DisbursementProviderReadPlatformService disbursementProviderReadPlatformService) {
         this.context = context;
@@ -289,6 +293,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         this.loanDecisionStateUtilService = loanDecisionStateUtilService;
         this.loanApprovalMatrixRepository = loanApprovalMatrixRepository;
         this.loanDecisionRepository = loanDecisionRepository;
+        this.loanDecisionLevelRepository = loanDecisionLevelRepository;
         this.entityDisbursementDefaultsService = entityDisbursementDefaultsService;
         this.disbursementProviderReadPlatformService = disbursementProviderReadPlatformService;
     }
@@ -906,9 +911,127 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             if (!Boolean.TRUE.equals(loanDecisionEntity.getIdeaClient())) {
                 template.setMaxRecommendedAmount(loanDecisionStateUtilService.getMaxLoanAmountFromCashFlow(loan));
             }
+
+            // CGLT-772: default the recommended amount from the latest completed (signed and not
+            // rejected) IC review level below the level being approved, instead of always reverting to
+            // the Due Diligence recommendation. The UI falls back to Due Diligence when this is null.
+            final PreviousSignedIcReviewLevel previousSignedLevel = findPreviousSignedIcReviewLevel(loan.getId(),
+                    loanDecisionEntity, approvingLevelNumber);
+            if (previousSignedLevel != null) {
+                template.setPreviousIcReviewRecommendedAmount(previousSignedLevel.getRecommendedAmount());
+                template.setPreviousIcReviewLevelNumber(previousSignedLevel.getLevelNumber());
+            }
         }
 
         return template;
+    }
+
+    /**
+     * Identifies the highest completed IC review level strictly below the given approving level and returns its
+     * level number and recommended amount. A completed level is one that is signed and not rejected. Preference is
+     * given to the dynamic decision level rows (written only for levels accepted via the dynamic IC review
+     * endpoints; legacy endpoints acceptIcReviewDecisionLevelOne..Five persist solely to the legacy columns);
+     * levels accepted via the legacy endpoints fall back to the legacy level columns on {@code m_loan_decision},
+     * guarded by their signed/rejected flags.
+     *
+     * @param loanId
+     *            the loan identifier
+     * @param decision
+     *            the loan decision entity for the loan
+     * @param approvingLevelNumber
+     *            the IC review level about to be approved (may be null)
+     * @return the latest valid prior level, or null when there is none
+     */
+    private PreviousSignedIcReviewLevel findPreviousSignedIcReviewLevel(final Long loanId, final LoanDecision decision,
+            final Integer approvingLevelNumber) {
+        if (approvingLevelNumber == null || approvingLevelNumber <= 1) {
+            return null;
+        }
+
+        // Preferred source: dynamic decision level rows (written by the dynamic accept endpoints only).
+        final List<LoanDecisionLevel> signedLevels = this.loanDecisionLevelRepository
+                .findSignedLevelsByLoanIdOrderByLevelNumberDesc(loanId);
+        for (final LoanDecisionLevel level : signedLevels) {
+            if (level.getLevelNumber() < approvingLevelNumber && !Boolean.TRUE.equals(level.getIsRejected())
+                    && level.getRecommendedAmount() != null) {
+                return new PreviousSignedIcReviewLevel(level.getLevelNumber(), level.getRecommendedAmount());
+            }
+        }
+
+        // Fallback for levels accepted via the legacy endpoints: legacy columns guarded by flags.
+        for (int levelNumber = approvingLevelNumber - 1; levelNumber >= 1; levelNumber--) {
+            final BigDecimal legacyAmount = getLegacySignedLevelRecommendedAmount(decision, levelNumber);
+            if (legacyAmount != null) {
+                return new PreviousSignedIcReviewLevel(levelNumber, legacyAmount);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Reads the legacy (pre-dynamic) recommended amount column for levels 1-5, only when that level is signed and
+     * not rejected. Returns null for any other case.
+     */
+    private BigDecimal getLegacySignedLevelRecommendedAmount(final LoanDecision decision, final int levelNumber) {
+        final BigDecimal amount;
+        final Boolean signed;
+        final Boolean rejected;
+        switch (levelNumber) {
+            case 1:
+                amount = decision.getIcReviewDecisionLevelOneRecommendedAmount();
+                signed = decision.getIcReviewDecisionLevelOneSigned();
+                rejected = decision.getRejectIcReviewDecisionLevelOneSigned();
+            break;
+            case 2:
+                amount = decision.getIcReviewDecisionLevelTwoRecommendedAmount();
+                signed = decision.getIcReviewDecisionLevelTwoSigned();
+                rejected = decision.getRejectIcReviewDecisionLevelTwoSigned();
+            break;
+            case 3:
+                amount = decision.getIcReviewDecisionLevelThreeRecommendedAmount();
+                signed = decision.getIcReviewDecisionLevelThreeSigned();
+                rejected = decision.getRejectIcReviewDecisionLevelThreeSigned();
+            break;
+            case 4:
+                amount = decision.getIcReviewDecisionLevelFourRecommendedAmount();
+                signed = decision.getIcReviewDecisionLevelFourSigned();
+                rejected = decision.getRejectIcReviewDecisionLevelFourSigned();
+            break;
+            case 5:
+                amount = decision.getIcReviewDecisionLevelFiveRecommendedAmount();
+                signed = decision.getIcReviewDecisionLevelFiveSigned();
+                rejected = decision.getRejectIcReviewDecisionLevelFiveSigned();
+            break;
+            default:
+                return null;
+        }
+        if (amount != null && Boolean.TRUE.equals(signed) && !Boolean.TRUE.equals(rejected)) {
+            return amount;
+        }
+        return null;
+    }
+
+    /**
+     * Value holder for the latest completed IC review level below the level being approved, pairing its level number
+     * with its recommended amount so both are resolved from a single lookup.
+     */
+    private static final class PreviousSignedIcReviewLevel {
+
+        private final Integer levelNumber;
+        private final BigDecimal recommendedAmount;
+
+        PreviousSignedIcReviewLevel(final Integer levelNumber, final BigDecimal recommendedAmount) {
+            this.levelNumber = levelNumber;
+            this.recommendedAmount = recommendedAmount;
+        }
+
+        Integer getLevelNumber() {
+            return this.levelNumber;
+        }
+
+        BigDecimal getRecommendedAmount() {
+            return this.recommendedAmount;
+        }
     }
 
     /**
