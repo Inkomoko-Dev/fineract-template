@@ -114,8 +114,10 @@ public class JournalEntryReadPlatformServiceImpl implements JournalEntryReadPlat
                 sb.append(" ,pd.receipt_number as receiptNumber, ").append(" pd.check_number as checkNumber, ")
                         .append(" pd.account_number as accountNumber, ").append(" pt.value as paymentTypeName, ")
                         .append(" pd.payment_type_id as paymentTypeId,").append(" pd.bank_number as bankNumber, ")
-                        .append(" pd.routing_code as routingCode, ").append(" note.id as noteId, ")
-                        .append(" note.note as transactionNote, ").append(" lt.transaction_type_enum as loanTransactionType, ")
+                        .append(" pd.routing_code as routingCode, ")
+                        .append(" coalesce(loanNote.id, savingsNote.id) as noteId, ")
+                        .append(" coalesce(loanNote.note, savingsNote.note) as transactionNote, ")
+                        .append(" lt.transaction_type_enum as loanTransactionType, ")
                         .append(" st.transaction_type_enum as savingsTransactionType ");
             }
             sb.append(" from acc_gl_journal_entry as journalEntry ")
@@ -126,9 +128,13 @@ public class JournalEntryReadPlatformServiceImpl implements JournalEntryReadPlat
             if (associationParametersData.isTransactionDetailsRequired()) {
                 sb.append(" left join m_loan_transaction as lt on journalEntry.loan_transaction_id = lt.id ")
                         .append(" left join m_savings_account_transaction as st on journalEntry.savings_transaction_id = st.id ")
-                        .append(" left join m_payment_detail as pd on lt.payment_detail_id = pd.id or st.payment_detail_id = pd.id or journalEntry.payment_details_id = pd.id")
+                        // CGLT-779: single-equality joins so each lookup uses an index; the previous OR conditions made
+                        // the database scan m_payment_detail and m_note for every journal entry row.
+                        .append(" left join m_payment_detail as pd")
+                        .append(" on pd.id = coalesce(lt.payment_detail_id, st.payment_detail_id, journalEntry.payment_details_id) ")
                         .append(" left join m_payment_type as pt on pt.id = pd.payment_type_id ")
-                        .append(" left join m_note as note on lt.id = note.loan_transaction_id or st.id = note.savings_account_transaction_id ");
+                        .append(" left join m_note as loanNote on loanNote.loan_transaction_id = lt.id ")
+                        .append(" left join m_note as savingsNote on savingsNote.savings_account_transaction_id = st.id ");
             }
             return sb.toString();
 
