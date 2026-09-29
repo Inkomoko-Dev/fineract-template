@@ -168,5 +168,4 @@
     <include file="parts/CGLT-317_write_off_reversal_transaction_type.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-753_add_migrated_flag_to_client.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-618_loan_classification.xml" relativeToChangelogFile="true"/>
-    <include file="parts/CGLT-779_journal_entry_lookup_indexes.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
