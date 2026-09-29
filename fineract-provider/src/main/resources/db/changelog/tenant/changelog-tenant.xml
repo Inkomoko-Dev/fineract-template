@@ -158,4 +158,5 @@
     <include file="parts/CGLT-541_harmonize_country_code_values.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-527_standardize_bank_name_in_reports.xml" relativeToChangelogFile="true"/>
     <include file="parts/042_add_notes_to_command_source.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-779_add_journal_entry_transaction_id_index.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
