@@ -18,9 +18,20 @@
  */
 package org.apache.fineract.organisation.office.domain;
 
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface OfficeRepository extends JpaRepository<Office, Long>, JpaSpecificationExecutor<Office> {
-    // no added behaviour
+
+    @Query("SELECT o FROM Office o WHERE o.hierarchy LIKE CONCAT(:hierarchy, '%')")
+    List<Office> findByHierarchyStartingWith(
+            @Param("hierarchy") String hierarchy);
+
+    @Query("SELECT o.id FROM Office o, Office root WHERE root.id = :officeId "
+            + "AND o.hierarchy LIKE CONCAT(root.hierarchy, '%')")
+    List<Long> findOfficeAndDescendantIds(@Param("officeId") Long officeId);
+
 }

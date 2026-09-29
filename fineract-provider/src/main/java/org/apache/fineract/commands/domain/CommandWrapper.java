@@ -329,6 +329,14 @@ public class CommandWrapper {
         return this.entityName.equalsIgnoreCase("DISBURSEMENTDETAIL");
     }
 
+    public boolean isBulkRescheduleResource() {
+        return this.href != null && this.href.startsWith("/bulk-reschedule");
+    }
+
+    public boolean isSubmitBulkRescheduleForApproval() {
+        return this.href != null && this.href.endsWith("/submit-for-approval");
+    }
+
     public boolean isUpdateDisbursementDate() {
         return this.actionName.equalsIgnoreCase("UPDATE") && this.entityName.equalsIgnoreCase("DISBURSEMENTDETAIL")
                 && this.entityId != null;

@@ -73,6 +73,15 @@ public final class ThreadLocalContextUtil {
         authTokenContext.set(authToken);
     }
 
+    public static void clear() {
+        contextHolder.remove();
+        tenantContext.remove();
+        authTokenContext.remove();
+        businessDateContext.remove();
+        actionContext.remove();
+        jobParams.remove();
+    }
+
     private static final ThreadLocal<Map<String, Object>> jobParams = new ThreadLocal<>();
 
     // Map is not serializable, but Hashmap is

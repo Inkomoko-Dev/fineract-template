@@ -171,6 +171,15 @@ public final class DateUtils {
         return date.toInstant().atZone(getDateTimeZoneOfTenant()).toLocalDateTime();
     }
 
+    public static String convertLocalDateToString(LocalDate localDate, String pattern) {
+        if (localDate == null) {
+            return "";
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(pattern);
+        String formattedDate = localDate.format(formatter);
+        return formattedDate;
+    }
+
     public static String convertLocalDateToLong(LocalDate localDate) {
         if (localDate == null) {
             return "";

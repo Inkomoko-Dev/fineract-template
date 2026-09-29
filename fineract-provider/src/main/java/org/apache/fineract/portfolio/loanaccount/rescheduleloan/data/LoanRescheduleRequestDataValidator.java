@@ -90,10 +90,12 @@ public class LoanRescheduleRequestDataValidator {
      **/
     public void validateForCreateAction(final JsonCommand jsonCommand, final Loan loan) {
 
-        final String jsonString = jsonCommand.json();
+        String jsonString = jsonCommand.json();
 
         if (StringUtils.isBlank(jsonString)) {
-            throw new InvalidJsonException();
+            jsonString = fromJsonHelper.toJson(jsonCommand.parsedJson());
+            if (StringUtils.isBlank(jsonString))
+                throw new InvalidJsonException();
         }
 
         final Type typeToken = new TypeToken<Map<String, Object>>() {}.getType();

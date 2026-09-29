@@ -4535,7 +4535,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + "INNER JOIN m_client_address mca on ml.client_id = mca.client_id "
                     + "INNER JOIN m_address ma on mca.address_id  = ma.id " + "WHERE gl.is_oddo_posted = false "
                     + "AND mc.is_odoo_customer_posted = true " + "AND odoo_customer_id IS NOT NULL "
-                    + "AND mlt.transaction_type_enum IN (1,2,4,5,6,8,9,10,19,26,27,32) " + "AND ml.currency_code NOT IN ('ETB') ";
+                    + "AND mlt.transaction_type_enum IN (1,2,4,5,6,8,9,10,19,26,27,32,33) " + "AND ml.currency_code NOT IN ('ETB') ";
 
         }
 
