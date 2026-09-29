@@ -162,4 +162,6 @@
     <include file="parts/042_add_notes_to_command_source.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-753_add_migrated_flag_to_client.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-317_write_off_reversal_transaction_type.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-749_add_report_count_sql_to_stretchy_report.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-752_portfolio_management_report_indexes.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

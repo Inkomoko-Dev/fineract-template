@@ -237,6 +237,24 @@ public final class ClientDataValidator {
             baseDataValidator.reset().parameter(ClientApiConstants.address).value(address).notNull().jsonArrayNotEmpty();
         }
 
+        final boolean migrated = this.fromApiJsonHelper.parameterExists(ClientApiConstants.migratedParamName, element)
+                && Boolean.TRUE.equals(this.fromApiJsonHelper.extractBooleanNamed(ClientApiConstants.migratedParamName, element));
+
+        final LocalDate migratedOnDate = this.fromApiJsonHelper.extractLocalDateNamed(ClientApiConstants.migratedOnDateParamName, element);
+        final Long migratedFromOfficeId = this.fromApiJsonHelper.extractLongNamed(ClientApiConstants.migratedFromOfficeIdParamName, element);
+
+        if (migrated) {
+            baseDataValidator.reset().parameter(ClientApiConstants.migratedOnDateParamName).value(migratedOnDate).notNull()
+                    .validateDateBeforeOrEqual(DateUtils.getBusinessLocalDate());
+            baseDataValidator.reset().parameter(ClientApiConstants.migratedFromOfficeIdParamName).value(migratedFromOfficeId).notNull()
+                    .integerGreaterThanZero();
+        } else {
+            baseDataValidator.reset().parameter(ClientApiConstants.migratedOnDateParamName).value(migratedOnDate).mustBeBlankWhenParameterProvidedIs(
+                    ClientApiConstants.migratedParamName, Boolean.FALSE);
+            baseDataValidator.reset().parameter(ClientApiConstants.migratedFromOfficeIdParamName).value(migratedFromOfficeId)
+                    .mustBeBlankWhenParameterProvidedIs(ClientApiConstants.migratedParamName, Boolean.FALSE);
+        }
+
         List<ApiParameterError> dataValidationErrorsForClientNonPerson = getDataValidationErrorsForCreateOnClientNonPerson(
                 element.getAsJsonObject().get(ClientApiConstants.clientNonPersonDetailsParamName));
         dataValidationErrors.addAll(dataValidationErrorsForClientNonPerson);
