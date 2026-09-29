@@ -19,9 +19,8 @@
 package org.apache.fineract.portfolio.collateralmanagement.service;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.collateralmanagement.data.LoanCollateralResponseData;
 import org.apache.fineract.portfolio.collateralmanagement.domain.CollateralManagementDomain;
@@ -32,6 +31,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,15 +40,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoanCollateralManagementReadPlatformServiceImpl implements LoanCollateralManagementReadPlatformService {
 
     private final PlatformSecurityContext context;
-    private LoanCollateralManagementRepository loanCollateralManagementRepository;
-    private LoanRepository loanRepository;
+    private final LoanCollateralManagementRepository loanCollateralManagementRepository;
+    private final LoanRepository loanRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     @Autowired
     public LoanCollateralManagementReadPlatformServiceImpl(final PlatformSecurityContext context,
-            final LoanCollateralManagementRepository loanCollateralManagementRepository, final LoanRepository loanRepository) {
+            final LoanCollateralManagementRepository loanCollateralManagementRepository, final LoanRepository loanRepository,
+            final JdbcTemplate jdbcTemplate) {
         this.context = context;
         this.loanCollateralManagementRepository = loanCollateralManagementRepository;
         this.loanRepository = loanRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Override
@@ -74,19 +77,24 @@ public class LoanCollateralManagementReadPlatformServiceImpl implements LoanColl
     @Override
     public List<LoanCollateralResponseData> getLoanCollateralResponseDataList(Long loanId) {
         this.context.authenticatedUser();
-        Loan loan = this.loanRepository.findById(loanId).orElseThrow(() -> new LoanNotFoundException(loanId));
-        List<LoanCollateralResponseData> loanCollateralResponseDataCollection = new ArrayList<>();
-        Set<LoanCollateralManagement> loanCollateralManagements = loan.getLoanCollateralManagements();
-        for (LoanCollateralManagement loanCollateralManagement : loanCollateralManagements) {
-            final CollateralManagementDomain collateralManagementDomain = loanCollateralManagement.getClientCollateralManagement()
-                    .getCollaterals();
-            BigDecimal quantity = loanCollateralManagement.getQuantity();
-            BigDecimal total = quantity.multiply(collateralManagementDomain.getBasePrice());
-            BigDecimal totalCollateral = total.multiply(collateralManagementDomain.getPctToBase()).divide(BigDecimal.valueOf(100));
-            loanCollateralResponseDataCollection
-                    .add(LoanCollateralResponseData.instanceOf(loanCollateralManagement, total, totalCollateral));
+        if (!this.loanRepository.existsById(loanId)) {
+            throw new LoanNotFoundException(loanId);
         }
-        return loanCollateralResponseDataCollection;
+        final String sql = "select lcm.id as collateralId, lcm.quantity as quantity, ccm.id as clientCollateralId, "
+                + "cm.base_price as basePrice, cm.pct_to_base as pctToBase "
+                + "from m_loan_collateral_management lcm "
+                + "join m_client_collateral_management ccm on ccm.id = lcm.client_collateral_id "
+                + "join m_collateral_management cm on cm.id = ccm.collateral_id " + "where lcm.loan_id = ?";
+        return this.jdbcTemplate.query(sql, (rs, rowNum) -> {
+            final Long collateralId = rs.getLong("collateralId");
+            final BigDecimal quantity = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "quantity");
+            final Long clientCollateralId = rs.getLong("clientCollateralId");
+            final BigDecimal basePrice = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "basePrice");
+            final BigDecimal pctToBase = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "pctToBase");
+            final BigDecimal total = quantity.multiply(basePrice);
+            final BigDecimal totalCollateral = total.multiply(pctToBase).divide(BigDecimal.valueOf(100));
+            return LoanCollateralResponseData.instance(collateralId, quantity, total, totalCollateral, clientCollateralId);
+        }, loanId);
     }
 
 }

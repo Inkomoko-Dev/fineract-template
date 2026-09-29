@@ -30,8 +30,6 @@ import org.apache.fineract.infrastructure.creditbureau.domain.TransUnionCreditRe
 import org.apache.fineract.infrastructure.creditbureau.service.CreditBureauReadPlatformService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.CRBPostingLoggerData;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -62,7 +60,6 @@ public class CRBPostingAPIResource {
     private final ToApiJsonSerializer<CRBPostingLoggerData> toApiJsonSerializer;
     private final ApiRequestParameterHelper apiRequestParameterHelper;
     private final CreditBureauReadPlatformService crbReadPlatformService;
-    private static final Logger LOG = LoggerFactory.getLogger(CRBPostingAPIResource.class);
 
     private final Set<String> responseDataParameters = new HashSet<>(Arrays.asList(
             "id",
@@ -136,7 +133,7 @@ public class CRBPostingAPIResource {
     public String markLogHasFixed(@PathParam("loanId") final Integer loanId, @Context final UriInfo uriInfo){
         String resourceNameForPermissions = "VIEW_CRB_LOGGER";
         this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
-        log.info("Marking CRB posting log as fixed for loanId {}",loanId);
+        log.debug("Marking CRB posting log as fixed for loanId {}", loanId);
 
         crbReadPlatformService.markCRBLogAsFixed(loanId.toString());
 
@@ -156,7 +153,7 @@ public class CRBPostingAPIResource {
 
         this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
 
-        log.info("Exporting CRB posting logs to CSV with query parameters {}", uriInfo.getQueryParameters());
+        log.debug("Exporting CRB posting logs to CSV");
 
         TransUnionCreditReportCsvData fileData = this.crbReadPlatformService.generateCsvReport(uriInfo.getQueryParameters());
 
