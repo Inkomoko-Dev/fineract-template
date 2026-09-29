@@ -265,6 +265,8 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
                     sqlBuilder.append(' ').append(searchParameters.getSortOrder());
                     this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getSortOrder());
                 }
+            } else {
+                sqlBuilder.append(" order by c.id");
             }
 
             if (searchParameters.isLimited()) {
@@ -381,7 +383,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
         }
 
         if (searchParameters.isOrphansOnly()) {
-            extraCriteria += " and c.id NOT IN (select client_id from m_group_client) ";
+            extraCriteria += " and not exists (select 1 from m_group_client gc where gc.client_id = c.id) ";
         }
 
         if (StringUtils.isNotBlank(extraCriteria)) {

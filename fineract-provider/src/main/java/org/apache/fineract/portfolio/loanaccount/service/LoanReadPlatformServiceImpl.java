@@ -424,7 +424,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loanMapper.loanSchema());
+        sqlBuilder.append(this.loanMapper.loanListSchema());
 
         // TODO - for time being this will data scope list of loans returned to
         // only loans that have a client associated.
@@ -480,6 +480,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     sqlBuilder.append(' ').append(searchParameters.getSortOrder());
                     this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getSortOrder());
                 }
+            } else {
+                sqlBuilder.append(" order by l.id");
             }
 
             if (searchParameters.isLimited()) {
@@ -506,7 +508,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(this.loanMapper.loanSchema());
+        sqlBuilder.append(this.loanMapper.loanListSchema());
 
         // TODO - for time being this will data scope list of loans returned to
         // only loans that have a client associated.
@@ -557,6 +559,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     sqlBuilder.append(' ').append(searchParameters.getSortOrder());
                     this.columnValidator.validateSqlInjection(sqlBuilder.toString(), searchParameters.getSortOrder());
                 }
+            } else {
+                sqlBuilder.append(" order by l.id");
             }
 
             if (searchParameters.isLimited()) {
@@ -1032,6 +1036,22 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         public String loanSchema() {
+            return buildLoanSchema(false);
+        }
+
+        /**
+         * List projection: same response columns as {@link #loanSchema()} but reads the center name through a join
+         * instead of a correlated subquery per row.
+         */
+        public String loanListSchema() {
+            return buildLoanSchema(true);
+        }
+
+        private String buildLoanSchema(final boolean forList) {
+            final String centerNameSelect = forList ? " center.display_name as centerName, "
+                    : " (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, ";
+            final String listJoins = forList ? " left join m_group center on center.id = g.parent_id" : "";
+
             return "l.id as id, l.account_no as accountNo, l.external_id as externalId, l.fund_id as fundId, f.name as fundName,"
                     + " l.loan_type_enum as loanType, l.loanpurpose_cv_id as loanPurposeId, cv.code_value as loanPurposeName,"
                     + " lp.id as loanProductId, lp.name as loanProductName, lp.description as loanProductDescription,"
@@ -1041,7 +1061,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " lp.can_define_fixed_emi_amount as canDefineInstallmentAmount,"
                     + " c.id as clientId, c.account_no as clientAccountNo, c.display_name as clientName, c.office_id as clientOfficeId,"
                     + " g.id as groupId, g.account_no as groupAccountNo, g.display_name as groupName,"
-                    + " g.office_id as groupOfficeId, g.staff_id As groupStaffId , g.parent_id as groupParentId, (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, "
+                    + " g.office_id as groupOfficeId, g.staff_id As groupStaffId , g.parent_id as groupParentId, "
+                    + centerNameSelect
                     + " g.hierarchy As groupHierarchy , g.level_id as groupLevel, g.external_id As groupExternalId, "
                     + " g.status_enum as statusEnum, g.activation_date as activationDate,l.application_date as applicationDate, "
                     + " l.submittedon_date as submittedOnDate, sbu.username as submittedByUsername, sbu.firstname as submittedByFirstname, sbu.lastname as submittedByLastname,"
@@ -1154,7 +1175,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " order by case when lds2.disbursedon_date is null then 0 else 1 end,"
                     + " case when lds2.disbursedon_date is null then lds2.expected_disburse_date end asc,"
                     + " case when lds2.disbursedon_date is not null then lds2.disbursedon_date end desc, lds2.id desc limit 1)"
-                    + " left join m_payment_type pt_lds on pt_lds.id = lds.payment_type_id";
+                    + " left join m_payment_type pt_lds on pt_lds.id = lds.payment_type_id"
+                    + listJoins;
 
         }
 
