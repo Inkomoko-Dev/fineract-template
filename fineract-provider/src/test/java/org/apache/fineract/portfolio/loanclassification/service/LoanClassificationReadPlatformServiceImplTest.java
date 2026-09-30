@@ -88,6 +88,15 @@ class LoanClassificationReadPlatformServiceImplTest {
     }
 
     @Test
+    void officeCountryExpressionUsesAliasCaseMatchingTheSummaryOfficeJoin() {
+        final String expression = LoanClassificationReadPlatformServiceImpl.OFFICE_COUNTRY_CV_ID;
+        assertTrue(expression.contains("o.hierarchy"),
+                "office hierarchy must use lowercase o to match the summary query's INNER JOIN m_office o alias");
+        assertFalse(expression.contains("CONCAT(O.hierarchy"),
+                "O.hierarchy does not exist: the office alias is lowercase o");
+    }
+
+    @Test
     void summaryCountryFilterIncludesUnclassifiedLoansForThatCountry() {
         mockEmptySummary();
 

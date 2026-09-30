@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanclassification.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,6 +38,18 @@ class LoanClassificationCandidateAssemblerTest {
         final int addrPos = sql.indexOf("FROM m_client_address");
         assertTrue(officePos >= 0, "baseSql must resolve country from the loan office hierarchy");
         assertTrue(addrPos > officePos, "office country must take precedence over the client address country");
+    }
+
+    @Test
+    void candidateSqlJoinsOfficeAndUsesMatchingAliasCase() throws Exception {
+        final Method baseSql = LoanClassificationCandidateAssembler.class.getDeclaredMethod("baseSql");
+        baseSql.setAccessible(true);
+        final String sql = (String) baseSql.invoke(new LoanClassificationCandidateAssembler(null));
+        assertTrue(sql.contains("INNER JOIN m_office o ON o.id = l.office_id"),
+                "baseSql must join the loan office so the hierarchy lookup has a table to read");
+        assertFalse(sql.contains("CONCAT(O.hierarchy"),
+                "office alias is lowercase o; O.hierarchy is a non-existent column");
+        assertTrue(sql.contains("CONCAT(o.hierarchy"), "office hierarchy must be referenced with the declared alias o");
     }
 
     @Test
