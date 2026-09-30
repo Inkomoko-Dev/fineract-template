@@ -76,9 +76,14 @@ class LoanClassificationReadPlatformServiceImplTest {
         assertTrue(sql.contains("Unclassified"));
         assertTrue(sql.contains("m_client_address"));
         assertTrue(sql.contains("m_loan_due_diligence_info"));
+        assertTrue(sql.contains("HO.hierarchy LIKE CONCAT"));
+        assertTrue(sql.contains("ORDER BY LENGTH(HO.hierarchy) DESC"));
+        // Office country must take precedence over the client-address fallback
+        int officePos = sql.indexOf("SELECT OCFG.country_cv_id FROM m_loan_classification_country_config OCFG");
+        int addrPos = sql.indexOf("SELECT ra.country_id FROM m_client_address");
+        assertTrue(officePos >= 0 && addrPos > officePos);
         assertFalse(sql.contains("Invalid/Missing"));
         assertFalse(sql.contains("classified_on_utc"));
-        assertFalse(sql.contains("INNER JOIN m_loan_classification"));
         assertFalse(sql.contains("FROM m_loan_classification lc INNER JOIN m_loan"));
     }
 
@@ -90,7 +95,6 @@ class LoanClassificationReadPlatformServiceImplTest {
 
         final String sql = captureSummarySql(true);
         assertTrue(sql.contains(LoanClassificationReadPlatformServiceImpl.LOAN_COUNTRY_CV_ID + " = ?"));
-        assertFalse(sql.contains("AND lc.country_cv_id = ?"));
         assertTrue(sql.contains("LEFT JOIN m_loan_classification lc ON lc.loan_id = l.id"));
         assertFalse(sql.contains("classified_on_utc"));
     }

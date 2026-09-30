@@ -59,7 +59,14 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
     private final AuditMapper auditMapper = new AuditMapper();
     private final SummaryMapper summaryMapper = new SummaryMapper();
 
-    static final String LOAN_COUNTRY_CV_ID = "COALESCE(lc.country_cv_id, ("
+    static final String OFFICE_COUNTRY_CV_ID = "("
+            + "SELECT OCFG.country_cv_id FROM m_loan_classification_country_config OCFG "
+            + "INNER JOIN m_code_value OCV ON OCV.id = OCFG.country_cv_id "
+            + "INNER JOIN m_office HO ON HO.name LIKE CONCAT('%', OCV.code_value, '%') "
+            + "WHERE HO.hierarchy LIKE CONCAT(O.hierarchy, '%') "
+            + "ORDER BY LENGTH(HO.hierarchy) DESC, OCFG.id ASC LIMIT 1)";
+
+    static final String LOAN_COUNTRY_CV_ID = "COALESCE(" + OFFICE_COUNTRY_CV_ID + ", lc.country_cv_id, ("
             + "SELECT ra.country_id FROM m_client_address ca INNER JOIN m_address ra ON ra.id = ca.address_id "
             + "WHERE ca.client_id = l.client_id ORDER BY ca.is_active DESC, ca.id DESC LIMIT 1), ("
             + "SELECT dd.country_cv_id FROM m_loan_due_diligence_info dd WHERE dd.loan_id = l.id LIMIT 1))";

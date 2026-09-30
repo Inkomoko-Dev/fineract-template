@@ -20,11 +20,24 @@ package org.apache.fineract.portfolio.loanclassification.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 
 class LoanClassificationCandidateAssemblerTest {
+
+    @Test
+    void candidateSqlResolvesCountryFromOfficeBeforeClientAddress() throws Exception {
+        final Method baseSql = LoanClassificationCandidateAssembler.class.getDeclaredMethod("baseSql");
+        baseSql.setAccessible(true);
+        final String sql = (String) baseSql.invoke(new LoanClassificationCandidateAssembler(null));
+        final int officePos = sql.indexOf("FROM m_loan_classification_country_config OCFG");
+        final int addrPos = sql.indexOf("FROM m_client_address");
+        assertTrue(officePos >= 0, "baseSql must resolve country from the loan office hierarchy");
+        assertTrue(addrPos > officePos, "office country must take precedence over the client address country");
+    }
 
     @Test
     void noAgingRowMeansCurrentLoanIsZeroDaysNotNull() {
