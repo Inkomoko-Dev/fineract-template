@@ -76,7 +76,7 @@ class LoanClassificationReadPlatformServiceImplTest {
         assertTrue(sql.contains("Unclassified"));
         assertTrue(sql.contains("m_client_address"));
         assertTrue(sql.contains("m_loan_due_diligence_info"));
-        assertTrue(sql.contains("o.hierarchy LIKE CONCAT(HO.hierarchy"));
+        assertTrue(sql.contains("COALESCE(o.hierarchy, co.hierarchy) LIKE CONCAT(HO.hierarchy"));
         assertTrue(sql.contains("ORDER BY LENGTH(HO.hierarchy) DESC"));
         // Office country must take precedence over the client-address fallback
         int officePos = sql.indexOf("SELECT OCFG.country_cv_id FROM m_loan_classification_country_config OCFG");
@@ -104,10 +104,29 @@ class LoanClassificationReadPlatformServiceImplTest {
         // office hierarchy: o.hierarchy LIKE CONCAT(HO.hierarchy, '%'). The inverted form
         // (HO.hierarchy LIKE CONCAT(o.hierarchy, '%')) only self-matches offices whose own name
         // contains the country and never resolves child offices.
-        assertTrue(expression.contains("o.hierarchy LIKE CONCAT(HO.hierarchy, '%')"),
+        assertTrue(expression.contains("COALESCE(o.hierarchy, co.hierarchy) LIKE CONCAT(HO.hierarchy, '%')"),
                 "country resolution must walk UP the hierarchy to the country-named ancestor");
         assertFalse(expression.contains("HO.hierarchy LIKE CONCAT(o.hierarchy, '%')"),
                 "the inverted hierarchy match never finds the country ancestor of child offices");
+    }
+
+    @Test
+    void summaryIncludesLoansWithoutALoanOfficeViaTheClientOffice() {
+        mockEmptySummary();
+
+        readPlatformService.retrieveSummary(null, null, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
+
+        final String sql = captureSummarySql(false);
+        assertTrue(sql.contains("LEFT JOIN m_office o ON o.id = l.office_id"),
+                "imported loans with NULL office must still appear in the summary");
+        assertTrue(sql.contains("LEFT JOIN m_client c ON c.id = l.client_id"),
+                "the client join feeds the client-office fallback hierarchy");
+        assertTrue(sql.contains("LEFT JOIN m_office co ON co.id = c.office_id"),
+                "the client office is the fallback hierarchy source");
+        assertTrue(sql.contains("COALESCE(o.hierarchy, co.hierarchy)"),
+                "country resolution must prefer the loan office and fall back to the client office");
+        assertTrue(sql.contains("COALESCE(o.name, co.name)"),
+                "the office column must show the client office for loans without a loan office");
     }
 
     @Test

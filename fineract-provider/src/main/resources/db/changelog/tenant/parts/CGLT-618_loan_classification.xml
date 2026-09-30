@@ -807,4 +807,32 @@ ORDER BY country, office, loan_product, classification',
         ]]></sql>
     </changeSet>
 
+    <changeSet id="CGLT-618-19-client-office-fallback" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan Classification Summary'
+            </sqlCheck>
+        </preConditions>
+        <comment>Loans bulk-imported with a NULL office_id inherit the client office for country resolution and office display; keeps the loan office first via COALESCE(o.hierarchy, co.hierarchy)</comment>
+        <sql><![CDATA[
+            UPDATE stretchy_report
+            SET report_sql = REPLACE(report_sql,
+                'INNER JOIN m_office o ON o.id = l.office_id',
+                'LEFT JOIN m_office o ON o.id = l.office_id
+LEFT JOIN m_client c ON c.id = l.client_id
+LEFT JOIN m_office co ON co.id = c.office_id'),
+                report_sql = REPLACE(report_sql,
+                'o.name AS office',
+                'COALESCE(o.name, co.name) AS office'),
+                report_sql = REPLACE(report_sql,
+                'WHERE o.hierarchy LIKE CONCAT(HO.hierarchy, ''%'')',
+                'WHERE COALESCE(o.hierarchy, co.hierarchy) LIKE CONCAT(HO.hierarchy, ''%'')'),
+                report_sql = REPLACE(report_sql,
+                'o.hierarchy LIKE CONCAT((SELECT hierarchy FROM m_office WHERE id = ${officeId}), ''%'')',
+                'COALESCE(o.hierarchy, co.hierarchy) LIKE CONCAT((SELECT hierarchy FROM m_office WHERE id = ${officeId}), ''%'')'),
+                description = 'Current distribution of loan classifications, resolving each loan to the country of its office hierarchy (loan office first, client office fallback), with client address and due-diligence country as final fallbacks.'
+            WHERE report_name = 'Loan Classification Summary';
+        ]]></sql>
+    </changeSet>
+
 </databaseChangeLog>
