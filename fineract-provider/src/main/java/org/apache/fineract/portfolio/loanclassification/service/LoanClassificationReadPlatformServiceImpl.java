@@ -63,7 +63,7 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
             + "SELECT OCFG.country_cv_id FROM m_loan_classification_country_config OCFG "
             + "INNER JOIN m_code_value OCV ON OCV.id = OCFG.country_cv_id "
             + "INNER JOIN m_office HO ON HO.name LIKE CONCAT('%', OCV.code_value, '%') "
-            + "WHERE HO.hierarchy LIKE CONCAT(o.hierarchy, '%') "
+            + "WHERE o.hierarchy LIKE CONCAT(HO.hierarchy, '%') "
             + "ORDER BY LENGTH(HO.hierarchy) DESC, OCFG.id ASC LIMIT 1)";
 
     static final String LOAN_COUNTRY_CV_ID = "COALESCE(" + OFFICE_COUNTRY_CV_ID + ", lc.country_cv_id, ("

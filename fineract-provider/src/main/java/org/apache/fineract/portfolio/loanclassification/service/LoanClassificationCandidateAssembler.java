@@ -62,7 +62,7 @@ public class LoanClassificationCandidateAssembler {
                 + "SELECT OCFG.country_cv_id FROM m_loan_classification_country_config OCFG "
                 + "INNER JOIN m_code_value OCV ON OCV.id = OCFG.country_cv_id "
                 + "INNER JOIN m_office HO ON HO.name LIKE CONCAT('%', OCV.code_value, '%') "
-                + "WHERE HO.hierarchy LIKE CONCAT(o.hierarchy, '%') "
+                + "WHERE o.hierarchy LIKE CONCAT(HO.hierarchy, '%') "
                 + "ORDER BY LENGTH(HO.hierarchy) DESC, OCFG.id ASC LIMIT 1), ("
                 + "SELECT ra.country_id FROM m_client_address ca INNER JOIN m_address ra ON ra.id = ca.address_id "
                 + "WHERE ca.client_id = l.client_id ORDER BY ca.is_active DESC, ca.id DESC LIMIT 1), ("

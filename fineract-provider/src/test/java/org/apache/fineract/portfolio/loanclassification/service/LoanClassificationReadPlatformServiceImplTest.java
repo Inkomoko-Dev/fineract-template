@@ -76,7 +76,7 @@ class LoanClassificationReadPlatformServiceImplTest {
         assertTrue(sql.contains("Unclassified"));
         assertTrue(sql.contains("m_client_address"));
         assertTrue(sql.contains("m_loan_due_diligence_info"));
-        assertTrue(sql.contains("HO.hierarchy LIKE CONCAT"));
+        assertTrue(sql.contains("o.hierarchy LIKE CONCAT(HO.hierarchy"));
         assertTrue(sql.contains("ORDER BY LENGTH(HO.hierarchy) DESC"));
         // Office country must take precedence over the client-address fallback
         int officePos = sql.indexOf("SELECT OCFG.country_cv_id FROM m_loan_classification_country_config OCFG");
@@ -94,6 +94,20 @@ class LoanClassificationReadPlatformServiceImplTest {
                 "office hierarchy must use lowercase o to match the summary query's INNER JOIN m_office o alias");
         assertFalse(expression.contains("CONCAT(O.hierarchy"),
                 "O.hierarchy does not exist: the office alias is lowercase o");
+    }
+
+    @Test
+    void officeCountryExpressionWalksTheHierarchyUpwardToTheCountryAncestor() {
+        final String expression = LoanClassificationReadPlatformServiceImpl.OFFICE_COUNTRY_CV_ID;
+        // The country office is an ANCESTOR of the loan office (e.g. Garissa .121.3.78. under
+        // Inkomoko - Kenya .121.3.), so the loan office hierarchy must start with the country
+        // office hierarchy: o.hierarchy LIKE CONCAT(HO.hierarchy, '%'). The inverted form
+        // (HO.hierarchy LIKE CONCAT(o.hierarchy, '%')) only self-matches offices whose own name
+        // contains the country and never resolves child offices.
+        assertTrue(expression.contains("o.hierarchy LIKE CONCAT(HO.hierarchy, '%')"),
+                "country resolution must walk UP the hierarchy to the country-named ancestor");
+        assertFalse(expression.contains("HO.hierarchy LIKE CONCAT(o.hierarchy, '%')"),
+                "the inverted hierarchy match never finds the country ancestor of child offices");
     }
 
     @Test

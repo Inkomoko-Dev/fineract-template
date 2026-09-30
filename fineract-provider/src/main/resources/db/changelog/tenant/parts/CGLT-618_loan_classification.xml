@@ -791,4 +791,20 @@ ORDER BY country, office, loan_product, classification',
         ]]></sql>
     </changeSet>
 
+    <changeSet id="CGLT-618-18-office-country-ancestor-direction" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan Classification Summary'
+            </sqlCheck>
+        </preConditions>
+        <comment>Walk UP the office hierarchy to the country-named ancestor (o.hierarchy LIKE CONCAT(HO.hierarchy, '%')); the previous descendant match only resolved offices whose own name contains the country</comment>
+        <sql><![CDATA[
+            UPDATE stretchy_report
+            SET report_sql = REPLACE(report_sql,
+                'WHERE HO.hierarchy LIKE CONCAT(o.hierarchy, ''%'')',
+                'WHERE o.hierarchy LIKE CONCAT(HO.hierarchy, ''%'')')
+            WHERE report_name = 'Loan Classification Summary';
+        ]]></sql>
+    </changeSet>
+
 </databaseChangeLog>

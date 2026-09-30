@@ -49,7 +49,25 @@ class LoanClassificationCandidateAssemblerTest {
                 "baseSql must join the loan office so the hierarchy lookup has a table to read");
         assertFalse(sql.contains("CONCAT(O.hierarchy"),
                 "office alias is lowercase o; O.hierarchy is a non-existent column");
-        assertTrue(sql.contains("CONCAT(o.hierarchy"), "office hierarchy must be referenced with the declared alias o");
+        assertTrue(sql.contains("o.hierarchy LIKE CONCAT(HO.hierarchy"),
+                "the loan office hierarchy must be matched against the country office ancestor");
+    }
+
+    @Test
+    void candidateSqlWalksTheHierarchyUpwardToTheCountryAncestor() throws Exception {
+        final Method baseSql = LoanClassificationCandidateAssembler.class.getDeclaredMethod("baseSql");
+        baseSql.setAccessible(true);
+        final String sql = (String) baseSql.invoke(new LoanClassificationCandidateAssembler(null));
+        // The country office is an ANCESTOR of the loan office (e.g. Garissa .121.3.78. under
+        // Inkomoko - Kenya .121.3.), so the loan office hierarchy must start with the country
+        // office hierarchy: o.hierarchy LIKE CONCAT(HO.hierarchy, '%'). The inverted form
+        // (HO.hierarchy LIKE CONCAT(o.hierarchy, '%')) only self-matches offices whose own name
+        // contains the country and never resolves child offices, silently falling back to the
+        // client address country.
+        assertTrue(sql.contains("o.hierarchy LIKE CONCAT(HO.hierarchy, '%')"),
+                "country resolution must walk UP the hierarchy to the country-named ancestor");
+        assertFalse(sql.contains("HO.hierarchy LIKE CONCAT(o.hierarchy, '%')"),
+                "the inverted hierarchy match never finds the country ancestor of child offices");
     }
 
     @Test
