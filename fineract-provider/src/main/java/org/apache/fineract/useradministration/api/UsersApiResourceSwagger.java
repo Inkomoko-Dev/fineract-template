@@ -88,6 +88,9 @@ final class UsersApiResourceSwagger {
         public StaffData staff;
         public Collection<RoleData> availableRoles;
         public Collection<RoleData> selectedRoles;
+        @Schema(description = "Offices assigned to this user besides their own", example = "[5,6]")
+        public List<Long> officeIds;
+        public Collection<OfficeData> assignedOffices;
 
     }
 
@@ -134,6 +137,8 @@ final class UsersApiResourceSwagger {
         public Boolean isSelfServiceUser;
         @Schema(example = "CGLT-564 new joiner onboarding")
         public String notes;
+        @Schema(description = "Offices assigned to this user besides their own", example = "[5,6]")
+        public List<Long> officeIds;
     }
 
     @Schema(description = "PostUsersResponse")
@@ -164,6 +169,8 @@ final class UsersApiResourceSwagger {
         public String repeatPassword;
         @Schema(example = "CGLT-564 password reset requested by the user")
         public String notes;
+        @Schema(description = "Replaces the offices assigned to this user besides their own; an empty array clears them", example = "[5,6]")
+        public List<Long> officeIds;
     }
 
     @Schema(description = "DeleteUsersUserIdRequest")

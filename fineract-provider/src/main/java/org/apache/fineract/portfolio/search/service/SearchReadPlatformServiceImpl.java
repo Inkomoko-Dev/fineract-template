@@ -40,6 +40,7 @@ import org.apache.fineract.infrastructure.core.filters.FilterType;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.organisation.office.data.OfficeData;
+import org.apache.fineract.organisation.office.domain.NamedOfficeAccessPredicate;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.teller.util.DateRange;
 import org.apache.fineract.portfolio.client.domain.ClientEnumerations;
@@ -56,7 +57,6 @@ import org.apache.fineract.portfolio.search.data.AdHocQuerySearchConditions;
 import org.apache.fineract.portfolio.search.data.AdHocSearchQueryData;
 import org.apache.fineract.portfolio.search.data.SearchConditions;
 import org.apache.fineract.portfolio.search.data.SearchData;
-import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -83,8 +83,8 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
 
     @Override
     public Collection<SearchData> retriveMatchingData(final SearchConditions searchConditions) {
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
+        this.context.authenticatedUser();
+        final NamedOfficeAccessPredicate officeAccess = this.context.officeAccessScope().namedPredicate("officeHierarchy", "o.hierarchy");
 
         // Match the historical case-insensitive contract: lower-case the query and compare with lower(column).
         // Identity vs name predicates are still split into separate UNION branches so a leading-wildcard name
@@ -93,7 +93,7 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
         final SearchMapper rm = new SearchMapper();
 
         final MapSqlParameterSource params = new MapSqlParameterSource();
-        params.addValue("hierarchy", hierarchy + "%");
+        params.addValues(officeAccess.getParameters());
         if (Boolean.TRUE.equals(searchConditions.getExactMatch())) {
             params.addValue("searchExact", rawQuery);
         } else {
@@ -101,7 +101,7 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
             params.addValue("searchPrefix", rawQuery + "%");
             params.addValue("searchContains", "%" + rawQuery + "%");
         }
-        return this.namedParameterJdbcTemplate.query(rm.searchSchema(searchConditions), params, rm);
+        return this.namedParameterJdbcTemplate.query(rm.searchSchema(searchConditions, officeAccess.getSql()), params, rm);
     }
 
     private static final class SearchMapper implements RowMapper<SearchData> {
@@ -114,14 +114,14 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
             return "lower(" + column + ") like :" + param;
         }
 
-        public String searchSchema(final SearchConditions searchConditions) {
+        public String searchSchema(final SearchConditions searchConditions, final String officeAccess) {
 
             final boolean exact = Boolean.TRUE.equals(searchConditions.getExactMatch());
             final String unionAll = " union all ";
 
             final String clientSelect = "select 'CLIENT' as entityType, c.id as entityId, c.display_name as entityName, c.external_id as entityExternalId, c.account_no as entityAccountNo "
                     + " , c.office_id as parentId, o.name as parentName, c.mobile_no as entityMobileNo,c.status_enum as entityStatusEnum, null as subEntityType, null as parentType "
-                    + " from m_client c join m_office o on o.id = c.office_id where o.hierarchy like :hierarchy and ";
+                    + " from m_client c join m_office o on o.id = c.office_id where " + officeAccess + " and ";
 
             // Exact: single predicate set. Non-exact: identity (prefix) UNION name (contains) so leading-wildcard
             // does not prevent the optimizer from treating identity lookups separately from name scans.
@@ -139,7 +139,7 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
                     + " , coalesce(c.id,g.id) as parentId, coalesce(c.display_name,g.display_name) as parentName, null as entityMobileNo, l.loan_status_id as entityStatusEnum, CAST(NULL as DECIMAL) as subEntityType, CASE WHEN g.id is null THEN 'client' ELSE 'group' END as parentType "
                     + " from m_loan l left join m_client c on l.client_id = c.id left join m_group g ON l.group_id = g.id "
                     + " left join m_office o on o.id = coalesce(c.office_id, g.office_id) left join m_product_loan pl on pl.id=l.product_id "
-                    + " where o.hierarchy like :hierarchy and ("
+                    + " where " + officeAccess + " and ("
                     + (exact ? eq("l.account_no", "searchExact") + " or " + eq("l.external_id", "searchExact")
                             : like("l.account_no", "searchPrefix") + " or " + like("l.external_id", "searchPrefix"))
                     + ")) ";
@@ -148,7 +148,7 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
                     + " , coalesce(c.id,g.id) as parentId, coalesce(c.display_name,g.display_name) as parentName, null as entityMobileNo, s.status_enum as entityStatusEnum, s.deposit_type_enum as subEntityType, CASE WHEN g.id is null THEN 'client' ELSE 'group' END as parentType "
                     + " from m_savings_account s left join m_client c on s.client_id = c.id left join m_group g ON s.group_id = g.id "
                     + " left join m_office o on o.id = coalesce(c.office_id, g.office_id) left join m_savings_product sp on sp.id=s.product_id "
-                    + " where o.hierarchy like :hierarchy and ("
+                    + " where " + officeAccess + " and ("
                     + (exact ? eq("s.account_no", "searchExact") + " or " + eq("s.external_id", "searchExact")
                             : like("s.account_no", "searchPrefix") + " or " + like("s.external_id", "searchPrefix"))
                     + ")) ";
@@ -156,7 +156,7 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
             final String shareMatchSql = " (select 'SHARE' as entityType, s.id as entityId, sp.name as entityName, s.external_id as entityExternalId, s.account_no as entityAccountNo "
                     + " , c.id as parentId, c.display_name as parentName, null as entityMobileNo, s.status_enum as entityStatusEnum, null as subEntityType, 'client' as parentType "
                     + " from m_share_account s left join m_client c on s.client_id = c.id left join m_office o on o.id = c.office_id left join m_share_product sp on sp.id=s.product_id "
-                    + " where o.hierarchy like :hierarchy and ("
+                    + " where " + officeAccess + " and ("
                     + (exact ? eq("s.account_no", "searchExact") + " or " + eq("s.external_id", "searchExact")
                             : like("s.account_no", "searchPrefix") + " or " + like("s.external_id", "searchPrefix"))
                     + ")) ";
@@ -165,12 +165,12 @@ public class SearchReadPlatformServiceImpl implements SearchReadPlatformService 
             final String clientIdentifierMatchSql = " (select 'CLIENTIDENTIFIER' as entityType, ci.id as entityId, ci.document_key as entityName, "
                     + " null as entityExternalId, null as entityAccountNo, c.id as parentId, c.display_name as parentName,null as entityMobileNo, c.status_enum as entityStatusEnum, null as subEntityType, null as parentType "
                     + " from m_client_identifier ci join m_client c on ci.client_id=c.id join m_office o on o.id = c.office_id "
-                    + " where o.hierarchy like :hierarchy and ("
+                    + " where " + officeAccess + " and ("
                     + (exact ? eq("ci.document_key", "searchExact") : like("ci.document_key", "searchPrefix")) + ")) ";
 
             final String groupSelect = "select CASE WHEN g.level_id=1 THEN 'CENTER' ELSE 'GROUP' END as entityType, g.id as entityId, g.display_name as entityName, g.external_id as entityExternalId, g.account_no as entityAccountNo "
                     + " , g.office_id as parentId, o.name as parentName, null as entityMobileNo, g.status_enum as entityStatusEnum, null as subEntityType, null as parentType "
-                    + " from m_group g join m_office o on o.id = g.office_id where o.hierarchy like :hierarchy and ";
+                    + " from m_group g join m_office o on o.id = g.office_id where " + officeAccess + " and ";
 
             final String groupMatchSql;
             if (exact) {

@@ -68,6 +68,8 @@ import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.organisation.monetary.service.CurrencyReadPlatformService;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
 import org.apache.fineract.portfolio.account.PortfolioAccountType;
@@ -297,9 +299,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     public LoanAccountData retrieveOne(final Long loanId) {
 
         try {
-            final AppUser currentUser = this.context.authenticatedUser();
-            final String hierarchy = currentUser.getOffice().getHierarchy();
-            final String hierarchySearchString = hierarchy + "%";
+            final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy",
+                    "transferToOffice.hierarchy");
 
             final LoanMapper rm = new LoanMapper(sqlGenerator);
 
@@ -308,10 +309,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(rm.loanSchema());
             sqlBuilder.append(" join m_office o on (o.id = c.office_id or o.id = g.office_id) ");
             sqlBuilder.append(" left join m_office transferToOffice on transferToOffice.id = c.transfer_to_office_id ");
-            sqlBuilder.append(" where l.id=? and ( o.hierarchy like ? or transferToOffice.hierarchy like ?)");
+            sqlBuilder.append(" where l.id=? and ").append(officeAccess.getSql());
 
-            final LoanAccountData loanAccountData = this.jdbcTemplate.queryForObject(sqlBuilder.toString(), rm, loanId,
-                    hierarchySearchString, hierarchySearchString);
+            final LoanAccountData loanAccountData = this.jdbcTemplate.queryForObject(sqlBuilder.toString(), rm,
+                    officeAccess.argumentsPrecededBy(loanId));
             return enrichThirdPartyDisbursementFlag(loanAccountData);
         } catch (final EmptyResultDataAccessException e) {
             throw new LoanNotFoundException(loanId, e);
@@ -452,8 +453,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final boolean isExtendLoanLifeCycleConfig = this.configurationReadPlatformService
                 .retrieveGlobalConfiguration("Add-More-Stages-To-A-Loan-Life-Cycle").isEnabled();
 
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final StringBuilder fromWhere = new StringBuilder(320);
         fromWhere.append(" from m_loan l ");
@@ -463,14 +463,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             fromWhere.append(" left join m_loan_decision ds on ds.loan_id = l.id ");
         }
         // Prefer IN-subquery office scoping (index-friendly) over JOIN … OR (full scan).
-        fromWhere.append(" where (c.office_id in (select o.id from m_office o where o.hierarchy like ?)");
-        fromWhere.append(" or g.office_id in (select o.id from m_office o where o.hierarchy like ?)");
-        fromWhere.append(" or c.transfer_to_office_id in (select o.id from m_office o where o.hierarchy like ?))");
+        final String officesInScope = "(select o.id from m_office o where " + officeAccess.getSql() + ")";
+        fromWhere.append(" where (c.office_id in ").append(officesInScope);
+        fromWhere.append(" or g.office_id in ").append(officesInScope);
+        fromWhere.append(" or c.transfer_to_office_id in ").append(officesInScope).append(')');
 
         final List<Object> criteria = new ArrayList<>();
-        criteria.add(hierarchySearchString);
-        criteria.add(hierarchySearchString);
-        criteria.add(hierarchySearchString);
+        criteria.addAll(officeAccess.getParameters());
+        criteria.addAll(officeAccess.getParameters());
+        criteria.addAll(officeAccess.getParameters());
 
         if (activeOnly) {
             fromWhere.append(" and l.loan_status_id = 300");
@@ -3992,14 +3993,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public Collection<LoanAccountData> getAllLoansPendingDecisionEngine(Integer loanDecisionState) {
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
+        final OfficeAccessScope officeAccessScope = this.context.officeAccessScope();
+        final OfficeAccessPredicate officeAccess = officeAccessScope.predicate("o2.hierarchy");
+        final boolean wholeTree = officeAccessScope.isIncludeDescendants() && officeAccessScope.getHierarchies().equals(List.of("."));
+        final List<Object> arguments = new ArrayList<>();
         final LoanMapper rm = new LoanMapper(sqlGenerator);
         final StringBuilder sqlBuilder = new StringBuilder(200);
 
         String sql = "select " + rm.loanSchema();
-        if (!hierarchy.equals(".")) {
-            sql += " join m_office o2 on o2.id = c.office_id and o2.hierarchy like '" + hierarchy + "%' ";
+        if (!wholeTree) {
+            sql += " join m_office o2 on o2.id = c.office_id and " + officeAccess.getSql() + " ";
+            arguments.addAll(officeAccess.getParameters());
         }
         sqlBuilder.append(sql);
         sqlBuilder.append(" where l.loan_status_id=100  ");
@@ -4018,11 +4022,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
         sqlBuilder.append(" order by l.id ASC ");
 
-        if (loanDecisionState == 100) {
-            return this.jdbcTemplate.query(sqlBuilder.toString(), rm); // NOSONAR
-        } else {
-            return this.jdbcTemplate.query(sqlBuilder.toString(), rm, loanDecisionState); // NOSONAR
+        if (loanDecisionState != 100) {
+            arguments.add(loanDecisionState);
         }
+        return this.jdbcTemplate.query(sqlBuilder.toString(), rm, arguments.toArray()); // NOSONAR
 
     }
 

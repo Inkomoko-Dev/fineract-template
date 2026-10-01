@@ -101,6 +101,25 @@ public class SQLBuilder {
         args.add(argument);
     }
 
+    public void addPredicate(final String predicate, final List<Object> arguments) {
+        if (predicate == null || predicate.isBlank()) {
+            throw new IllegalArgumentException("predicate cannot be blank");
+        }
+        final long placeholders = predicate.chars().filter(character -> character == '?').count();
+        if (arguments == null || placeholders != arguments.size()) {
+            throw new IllegalArgumentException("predicate has " + placeholders + " placeholders but "
+                    + (arguments == null ? 0 : arguments.size()) + " arguments: " + predicate);
+        }
+        if (sb.length() > 0) {
+            sb.append("  AND  ");
+        }
+        sb.append(predicate.trim());
+        for (final Object argument : arguments) {
+            crts.add(predicate.trim());
+            args.add(argument);
+        }
+    }
+
     public void addORCriteria(String criteria, Object argument) {
         var trimmedCriteria = criteria.trim();
         if (sb.length() > 0) {
