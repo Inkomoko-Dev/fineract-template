@@ -73,6 +73,7 @@ public class ExcessRefundApiResource {
     @Path("export")
     @Produces({ "text/csv" })
     public Response export(@QueryParam("status") final Integer status) {
+        this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
         final String csv = this.readPlatformService.exportCsv(status);
         return Response.ok(csv).header("Content-Disposition", "attachment; filename=excess-refunds.csv").build();
     }

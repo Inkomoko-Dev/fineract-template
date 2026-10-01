@@ -22,6 +22,7 @@ import static org.apache.fineract.portfolio.loanaccount.excessrefund.data.Excess
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundApiConstants.NOTE_PARAM;
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundApiConstants.OFFICE_ID_PARAM;
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundBatch.STATUS_APPROVED;
+import static org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundBatch.STATUS_PARTIALLY_COMPLETED;
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundBatch.STATUS_PENDING_APPROVAL;
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundBatch.STATUS_REJECTED;
 
@@ -196,7 +197,7 @@ public class ExcessRefundBatchService {
         final int finalFailed = failed;
         requiresNew.execute(status -> {
             final LoanExcessRefundBatch managed = this.batchRepository.findById(batch.getId()).orElseThrow();
-            managed.setStatusEnum(STATUS_APPROVED);
+            managed.setStatusEnum(finalFailed > 0 && finalApproved > 0 ? STATUS_PARTIALLY_COMPLETED : STATUS_APPROVED);
             managed.setApprover(user);
             managed.setApprovedAt(DateUtils.getLocalDateTimeOfTenant());
             String note = command.stringValueOfParameterNamedAllowingNull(NOTE_PARAM);

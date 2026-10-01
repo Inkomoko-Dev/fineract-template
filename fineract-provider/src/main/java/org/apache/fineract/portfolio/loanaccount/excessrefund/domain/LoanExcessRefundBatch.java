@@ -40,6 +40,7 @@ public class LoanExcessRefundBatch extends AbstractPersistableCustom {
 
     public static final int STATUS_PENDING_APPROVAL = 100;
     public static final int STATUS_APPROVED = 200;
+    public static final int STATUS_PARTIALLY_COMPLETED = 550;
     public static final int STATUS_COMPLETED = 500;
     public static final int STATUS_REJECTED = 600;
     public static final int STATUS_CANCELLED = 700;
