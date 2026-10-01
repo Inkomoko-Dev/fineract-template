@@ -49,6 +49,9 @@ public final class UserDataValidator {
             "repeatPassword", "email", "officeId", "notSelectedRoles", "roles", "sendPasswordToEmail", "staffId", "passwordNeverExpires",
             AppUserConstants.IS_SELF_SERVICE_USER, AppUserConstants.CLIENTS, AppUserConstants.NOTES));
 
+    private final Set<String> ownPasswordChangeParameters = new HashSet<>(
+            Arrays.asList("password", "repeatPassword", AppUserConstants.NOTES));
+
     private final FromJsonHelper fromApiJsonHelper;
 
     private final PasswordValidationPolicyRepository passwordValidationPolicy;
@@ -155,6 +158,10 @@ public final class UserDataValidator {
     }
 
     public void validateForUpdate(final String json) {
+        validateForUpdate(json, false);
+    }
+
+    public void validateForUpdate(final String json, final boolean updatingOwnAccount) {
         if (StringUtils.isBlank(json)) {
             throw new InvalidJsonException();
         }
@@ -245,9 +252,18 @@ public final class UserDataValidator {
         }
 
         final String notes = this.fromApiJsonHelper.extractStringNamed(AppUserConstants.NOTES, element);
-        baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).notBlank().notExceedingLengthOf(500);
+        if (updatingOwnAccount && isPasswordChangeOnly(element)) {
+            baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).ignoreIfNull().notExceedingLengthOf(500);
+        } else {
+            baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).notBlank().notExceedingLengthOf(500);
+        }
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    private boolean isPasswordChangeOnly(final JsonElement element) {
+        return element.isJsonObject() && element.getAsJsonObject().has("password")
+                && this.ownPasswordChangeParameters.containsAll(element.getAsJsonObject().keySet());
     }
 
     public void validateForDelete(final String json) {

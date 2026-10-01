@@ -176,6 +176,53 @@ class UserDataValidatorTest {
         }
     }
 
+
+
+
+    @Nested
+    @DisplayName("validateForUpdate — own password change")
+    class OwnPasswordChangeValidation {
+
+        private static final String PASSWORD_ONLY = "\"password\": \"Password1\", \"repeatPassword\": \"Password1\"";
+
+        @Test
+        @DisplayName("a user changing their own password needs no notes")
+        void ownPasswordChangeWithoutNotes_shouldPass() {
+            assertDoesNotThrow(() -> validator.validateForUpdate("{" + PASSWORD_ONLY + "}", true));
+        }
+
+        @Test
+        @DisplayName("a user changing their own password may still send notes")
+        void ownPasswordChangeWithNotes_shouldPass() {
+            assertDoesNotThrow(() -> validator.validateForUpdate("{" + PASSWORD_ONLY + ", \"notes\": \"expired\"}", true));
+        }
+
+        @Test
+        @DisplayName("notes sent on an own password change are still capped at 500 characters")
+        void ownPasswordChangeWithOversizedNotes_shouldFail() {
+            String json = "{" + PASSWORD_ONLY + ", \"notes\": \"" + "A".repeat(501) + "\"}";
+            PlatformApiDataValidationException ex = assertThrows(PlatformApiDataValidationException.class,
+                () -> validator.validateForUpdate(json, true));
+            assertTrue(hasNotesError(ex));
+        }
+
+        @Test
+        @DisplayName("an admin changing another user's password still needs notes")
+        void otherUsersPasswordChangeWithoutNotes_shouldFail() {
+            PlatformApiDataValidationException ex = assertThrows(PlatformApiDataValidationException.class,
+                () -> validator.validateForUpdate("{" + PASSWORD_ONLY + "}", false));
+            assertTrue(hasNotesError(ex));
+        }
+
+        @Test
+        @DisplayName("editing more than the password on one's own account still needs notes")
+        void ownProfileEditWithoutNotes_shouldFail() {
+            PlatformApiDataValidationException ex = assertThrows(PlatformApiDataValidationException.class,
+                () -> validator.validateForUpdate("{" + PASSWORD_ONLY + ", \"firstname\": \"Jane\"}", true));
+            assertTrue(hasNotesError(ex));
+        }
+    }
+
     // ─── Delete User: Notes Validation ────────────────────────────────
 
     @Nested
