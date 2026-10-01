@@ -77,6 +77,7 @@ import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -128,6 +129,9 @@ public class ExcessRefundWritePlatformService {
         } catch (DataIntegrityViolationException ex) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.already.open",
                     "An open excess refund already exists for loan " + loanId);
+        } catch (ObjectOptimisticLockingFailureException ex) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.concurrent.update",
+                    "Excess refund was updated by another user. Refresh and try again.");
         }
 
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " initiated for " + refund.getAmount());
@@ -149,7 +153,7 @@ public class ExcessRefundWritePlatformService {
         refund.setApprovedBy(user);
         refund.setApprovedAt(now);
         refund.setUpdatedAt(now);
-        this.refundRepository.saveAndFlush(refund);
+        saveRefund(refund);
 
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " approved by " + user.getUsername());
         return result(refund, loan);
@@ -171,7 +175,7 @@ public class ExcessRefundWritePlatformService {
         refund.setRejectedAt(now);
         refund.setRejectionNote(command.stringValueOfParameterNamedAllowingNull(NOTE_PARAM));
         refund.setUpdatedAt(now);
-        this.refundRepository.saveAndFlush(refund);
+        saveRefund(refund);
 
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " rejected: " + StringUtils.defaultString(refund.getRejectionNote()));
         return result(refund, loan);
@@ -187,7 +191,7 @@ public class ExcessRefundWritePlatformService {
         }
         refund.setStatus(CANCELLED);
         refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-        this.refundRepository.saveAndFlush(refund);
+        saveRefund(refund);
         final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " cancelled");
         return result(refund, loan);
@@ -213,7 +217,7 @@ public class ExcessRefundWritePlatformService {
         refund.setPaymentMode(LoanExcessRefundPaymentMode.MANUAL);
         refund.setFailureReason(null);
         refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-        this.refundRepository.saveAndFlush(refund);
+        saveRefund(refund);
         final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " marked paid (manual ref " + paymentRef + ")");
         return result(refund, loan);
@@ -234,7 +238,7 @@ public class ExcessRefundWritePlatformService {
         refund.setPaymentMode(LoanExcessRefundPaymentMode.PAYMENT_HUB);
         refund.setFailureReason(null);
         refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-        this.refundRepository.saveAndFlush(refund);
+        saveRefund(refund);
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " sent to Payment Hub requestId=" + requestId);
         return result(refund, loan);
     }
@@ -262,7 +266,7 @@ public class ExcessRefundWritePlatformService {
             refund.setFailureReason(StringUtils.abbreviate(message, 500));
         }
         refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-        this.refundRepository.saveAndFlush(refund);
+        saveRefund(refund);
         final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         saveLoanNote(loan, success ? "Excess refund #" + refund.getId() + " Payment Hub success ref=" + transactionRef
                 : "Excess refund #" + refund.getId() + " Payment Hub failed: " + message);
@@ -293,7 +297,7 @@ public class ExcessRefundWritePlatformService {
             refund.setPostedTransactionId(transactionId);
             refund.setStatus(POSTED);
             refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-            this.refundRepository.saveAndFlush(refund);
+            saveRefund(refund);
             saveLoanNote(loan, note + " transactionId=" + transactionId);
             return result(refund, loan);
         } catch (RuntimeException ex) {
@@ -398,6 +402,15 @@ public class ExcessRefundWritePlatformService {
     private LoanExcessRefund findRefund(final Long id) {
         return this.refundRepository.findById(id).orElseThrow(
                 () -> new GeneralPlatformDomainRuleException("error.msg.excess.refund.not.found", "Excess refund not found: " + id));
+    }
+
+    private void saveRefund(final LoanExcessRefund refund) {
+        try {
+            this.refundRepository.saveAndFlush(refund);
+        } catch (ObjectOptimisticLockingFailureException ex) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.concurrent.update",
+                    "Excess refund was updated by another user. Refresh and try again.");
+        }
     }
 
     private void saveLoanNote(final Loan loan, final String text) {

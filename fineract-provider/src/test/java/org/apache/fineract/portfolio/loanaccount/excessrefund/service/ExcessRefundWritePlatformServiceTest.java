@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.excessrefund.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -74,7 +75,7 @@ class ExcessRefundWritePlatformServiceTest {
     @BeforeEach
     void setUp() {
         when(this.context.authenticatedUser()).thenReturn(this.checker);
-        when(this.checker.getId()).thenReturn(2L);
+        lenient().when(this.checker.getId()).thenReturn(2L);
     }
 
     @Test
@@ -92,6 +93,38 @@ class ExcessRefundWritePlatformServiceTest {
 
         assertThatThrownBy(() -> this.service.approve(command)).isInstanceOf(GeneralPlatformDomainRuleException.class)
                 .hasMessageContaining("Maker and checker");
+        verify(this.refundRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void postRejectsWhenNotPaid() throws Exception {
+        final LoanExcessRefund refund = new LoanExcessRefund();
+        setEntityId(refund, 11L);
+        refund.setLoanId(5L);
+        refund.setStatus(LoanExcessRefundStatus.APPROVED);
+        when(this.refundRepository.findById(11L)).thenReturn(java.util.Optional.of(refund));
+
+        final JsonCommand command = JsonCommand.fromExistingCommand(1L, "{}", JsonParser.parseString("{}"), this.fromJsonHelper,
+                "EXCESS_REFUND", 11L, null, null, null, null, null, null, null, null, null, null);
+
+        assertThatThrownBy(() -> this.service.post(command)).isInstanceOf(GeneralPlatformDomainRuleException.class)
+                .hasMessageContaining("invalid status");
+        verify(this.glPoster, never()).post(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void approveRejectsWhenAlreadyPaid() throws Exception {
+        final LoanExcessRefund refund = new LoanExcessRefund();
+        setEntityId(refund, 12L);
+        refund.setLoanId(5L);
+        refund.setStatus(LoanExcessRefundStatus.PAID);
+        when(this.refundRepository.findById(12L)).thenReturn(java.util.Optional.of(refund));
+
+        final JsonCommand command = JsonCommand.fromExistingCommand(1L, "{}", JsonParser.parseString("{}"), this.fromJsonHelper,
+                "EXCESS_REFUND", 12L, null, null, null, null, null, null, null, null, null, null);
+
+        assertThatThrownBy(() -> this.service.approve(command)).isInstanceOf(GeneralPlatformDomainRuleException.class)
+                .hasMessageContaining("invalid status");
         verify(this.refundRepository, never()).saveAndFlush(any());
     }
 
