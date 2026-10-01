@@ -292,11 +292,11 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         return requestId;
     }
 
-    static String disbursementFailureCategory(final int responseCode) {
+    public static String disbursementFailureCategory(final int responseCode) {
         return disbursementFailureCategory(responseCode, null);
     }
 
-    static String disbursementFailureCategory(final int responseCode, final PaymentHubErrorResponse parsedError) {
+    public static String disbursementFailureCategory(final int responseCode, final PaymentHubErrorResponse parsedError) {
         if (parsedError != null && "VALIDATION_FAILED".equals(parsedError.code)) {
             return "validationFailed";
         }
@@ -344,7 +344,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         }
     }
 
-    static String failureMessage(final String errorCategory, final PaymentHubErrorResponse parsedError) {
+    public static String failureMessage(final String errorCategory, final PaymentHubErrorResponse parsedError) {
         if (parsedError != null && !parsedError.fieldErrors.isEmpty()) {
             return String.join("; ", parsedError.fieldErrors);
         }
@@ -354,7 +354,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         return defaultFailureMessage(errorCategory);
     }
 
-    static PaymentHubErrorResponse parsePaymentHubErrorResponse(final String responseBody) {
+    public static PaymentHubErrorResponse parsePaymentHubErrorResponse(final String responseBody) {
         if (StringUtils.isBlank(responseBody)) {
             return null;
         }
@@ -410,13 +410,13 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         }
     }
 
-    static final class PaymentHubErrorResponse {
+    public static final class PaymentHubErrorResponse {
 
-        final String code;
-        final String message;
-        final List<String> fieldErrors;
+        public final String code;
+        public final String message;
+        public final List<String> fieldErrors;
 
-        PaymentHubErrorResponse(final String code, final String message, final List<String> fieldErrors) {
+        public PaymentHubErrorResponse(final String code, final String message, final List<String> fieldErrors) {
             this.code = code;
             this.message = message;
             this.fieldErrors = fieldErrors;
