@@ -93,6 +93,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
     private static final Long PRODUCT_ID = 9L;
     private static final Long OFFICE_ID = 3L;
     private static final Long APPROVER_ID = 55L;
+    private static final Long SUBMITTER_ID = 12L;
     private static final OffsetDateTime SUBMITTED_ON = OffsetDateTime.parse("2026-08-04T09:15:00Z");
 
     static {
@@ -222,7 +223,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         this.fixture.requiresApproval(true);
         this.fixture.approverHoldsThePermission(true);
 
-        this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"), APPROVER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4));
+        this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"), SUBMITTER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4));
 
         verify(this.fixture.loan, never()).waiveLoanChargeHistorically(any(), any(), anyList(), anyList(), any(), any(), any(), any());
         verifyNoInteractions(this.fixture.loanTransactionRepository);
@@ -315,7 +316,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         this.fixture.approverHoldsThePermission(false);
 
         assertThrows(PlatformApiDataValidationException.class, () -> this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"),
-                APPROVER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4)));
+                SUBMITTER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4)));
     }
 
     @Test
@@ -372,11 +373,32 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
                 () -> this.fixture.service().approve(4321L, APPROVER_ID, SUBMITTED_ON));
     }
 
+    @Test
+    public void theSubmitterMayNotNameThemselvesAsTheApprover() {
+        this.fixture.requiresApproval(true);
+        this.fixture.approverHoldsThePermission(true);
+
+        assertThrows(PlatformApiDataValidationException.class, () -> this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"),
+                APPROVER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4)));
+        verify(this.fixture.loan, never()).waiveLoanChargeHistorically(any(), any(), anyList(), anyList(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void theSubmitterMayNotApproveTheirOwnRequest() {
+        final LoanHistoricalPenaltyWaiver request = pendingRequest();
+        when(this.fixture.waiverRepository.findById(4321L)).thenReturn(Optional.of(request));
+        this.fixture.approverHoldsThePermission(true);
+        ReflectionTestUtils.setField(request, "submittedById", APPROVER_ID);
+
+        assertThrows(PlatformApiDataValidationException.class, () -> this.fixture.service().approve(4321L, APPROVER_ID, SUBMITTED_ON));
+        assertEquals(HistoricalPenaltyWaiverStatus.PENDING_APPROVAL, request.getStatus());
+    }
+
     private LoanHistoricalPenaltyWaiver pendingRequest() {
         final LoanHistoricalPenaltyWaiver waiver = LoanHistoricalPenaltyWaiver.submit(LOAN_ID, 1200L, PRODUCT_ID, OFFICE_ID, CHARGE_ID, 8L,
                 "Late repayment penalty", CHARGE_DUE_DATE, 201, null, new BigDecimal("5000.00"), new BigDecimal("5000.00"), BigDecimal.ZERO,
                 BigDecimal.ZERO, new BigDecimal("5000.00"), false, EFFECTIVE_DATE, "Penalty charged in error", true,
-                HistoricalPenaltyWaiverApprovalRequirement.TRIGGER_AGE, APPROVER_ID, 12L, SUBMITTED_ON);
+                HistoricalPenaltyWaiverApprovalRequirement.TRIGGER_AGE, APPROVER_ID, SUBMITTER_ID, SUBMITTED_ON);
         ReflectionTestUtils.setField(waiver, "id", 4321L);
         return waiver;
     }

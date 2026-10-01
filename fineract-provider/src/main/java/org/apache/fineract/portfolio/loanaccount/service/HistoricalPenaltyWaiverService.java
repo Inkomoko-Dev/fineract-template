@@ -138,7 +138,7 @@ public class HistoricalPenaltyWaiverService {
         Long nextApproverId = null;
         if (requirement.isRequired()) {
             nextApproverId = request.getNextApproverUserId();
-            validateApprover(loan.getOfficeId(), nextApproverId);
+            validateApprover(loan.getOfficeId(), nextApproverId, submittedByUserId);
         }
 
         final LoanHistoricalPenaltyWaiver waiver = LoanHistoricalPenaltyWaiver.submit(loanId, loan.getClientId(), loan.productId(),
@@ -163,7 +163,7 @@ public class HistoricalPenaltyWaiverService {
 
         final LoanHistoricalPenaltyWaiver waiver = retrieveWaiverBy(waiverId);
         requirePendingApproval(waiver);
-        validateApprover(waiver.getOfficeId(), approvedByUserId);
+        validateApprover(waiver.getOfficeId(), approvedByUserId, waiver.getSubmittedById());
 
         waiver.markApproved(approvedByUserId, approvedOn);
 
@@ -273,12 +273,17 @@ public class HistoricalPenaltyWaiverService {
         }
     }
 
-    private void validateApprover(final Long officeId, final Long approverUserId) {
+    private void validateApprover(final Long officeId, final Long approverUserId, final Long submittedByUserId) {
 
         if (approverUserId == null) {
             throw validationError("validation.msg.loan.charge.historical.waiver.approver.required",
                     "This waiver crosses an approval threshold, so an approver must be named.",
                     LoanApiConstants.nextApproverUserIdParamName, null);
+        }
+        if (approverUserId.equals(submittedByUserId)) {
+            throw validationError("validation.msg.loan.charge.historical.waiver.approver.self",
+                    "The user who submitted a historical penalty waiver may not approve it.",
+                    LoanApiConstants.nextApproverUserIdParamName, approverUserId);
         }
         final boolean permitted = this.appUserReadPlatformService
                 .retrieveUsersByOfficeAndPermission(officeId, HistoricalPenaltyWaiverReadPlatformServiceImpl.APPROVE_PERMISSION).stream()
