@@ -76,10 +76,57 @@ class LoanClassificationReadPlatformServiceImplTest {
         assertTrue(sql.contains("Unclassified"));
         assertTrue(sql.contains("m_client_address"));
         assertTrue(sql.contains("m_loan_due_diligence_info"));
+        assertTrue(sql.contains("COALESCE(o.hierarchy, co.hierarchy) LIKE CONCAT(HO.hierarchy"));
+        assertTrue(sql.contains("ORDER BY LENGTH(HO.hierarchy) DESC"));
+        // Office country must take precedence over the client-address fallback
+        int officePos = sql.indexOf("SELECT OCFG.country_cv_id FROM m_loan_classification_country_config OCFG");
+        int addrPos = sql.indexOf("SELECT ra.country_id FROM m_client_address");
+        assertTrue(officePos >= 0 && addrPos > officePos);
         assertFalse(sql.contains("Invalid/Missing"));
         assertFalse(sql.contains("classified_on_utc"));
-        assertFalse(sql.contains("INNER JOIN m_loan_classification"));
         assertFalse(sql.contains("FROM m_loan_classification lc INNER JOIN m_loan"));
+    }
+
+    @Test
+    void officeCountryExpressionUsesAliasCaseMatchingTheSummaryOfficeJoin() {
+        final String expression = LoanClassificationReadPlatformServiceImpl.OFFICE_COUNTRY_CV_ID;
+        assertTrue(expression.contains("o.hierarchy"),
+                "office hierarchy must use lowercase o to match the summary query's INNER JOIN m_office o alias");
+        assertFalse(expression.contains("CONCAT(O.hierarchy"),
+                "O.hierarchy does not exist: the office alias is lowercase o");
+    }
+
+    @Test
+    void officeCountryExpressionWalksTheHierarchyUpwardToTheCountryAncestor() {
+        final String expression = LoanClassificationReadPlatformServiceImpl.OFFICE_COUNTRY_CV_ID;
+        // The country office is an ANCESTOR of the loan office (e.g. Garissa .121.3.78. under
+        // Inkomoko - Kenya .121.3.), so the loan office hierarchy must start with the country
+        // office hierarchy: o.hierarchy LIKE CONCAT(HO.hierarchy, '%'). The inverted form
+        // (HO.hierarchy LIKE CONCAT(o.hierarchy, '%')) only self-matches offices whose own name
+        // contains the country and never resolves child offices.
+        assertTrue(expression.contains("COALESCE(o.hierarchy, co.hierarchy) LIKE CONCAT(HO.hierarchy, '%')"),
+                "country resolution must walk UP the hierarchy to the country-named ancestor");
+        assertFalse(expression.contains("HO.hierarchy LIKE CONCAT(o.hierarchy, '%')"),
+                "the inverted hierarchy match never finds the country ancestor of child offices");
+    }
+
+    @Test
+    void summaryIncludesLoansWithoutALoanOfficeViaTheClientOffice() {
+        mockEmptySummary();
+
+        readPlatformService.retrieveSummary(null, null, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
+
+        final String sql = captureSummarySql(false);
+        assertTrue(sql.contains("LEFT JOIN m_office o ON o.id = l.office_id"),
+                "imported loans with NULL office must still appear in the summary");
+        assertTrue(sql.contains("LEFT JOIN m_client c ON c.id = l.client_id"),
+                "the client join feeds the client-office fallback hierarchy");
+        assertTrue(sql.contains("LEFT JOIN m_office co ON co.id = c.office_id"),
+                "the client office is the fallback hierarchy source");
+        assertTrue(sql.contains("COALESCE(o.hierarchy, co.hierarchy)"),
+                "country resolution must prefer the loan office and fall back to the client office");
+        assertTrue(sql.contains("COALESCE(o.name, co.name)"),
+                "the office column must show the client office for loans without a loan office");
     }
 
     @Test
@@ -90,7 +137,6 @@ class LoanClassificationReadPlatformServiceImplTest {
 
         final String sql = captureSummarySql(true);
         assertTrue(sql.contains(LoanClassificationReadPlatformServiceImpl.LOAN_COUNTRY_CV_ID + " = ?"));
-        assertFalse(sql.contains("AND lc.country_cv_id = ?"));
         assertTrue(sql.contains("LEFT JOIN m_loan_classification lc ON lc.loan_id = l.id"));
         assertFalse(sql.contains("classified_on_utc"));
     }

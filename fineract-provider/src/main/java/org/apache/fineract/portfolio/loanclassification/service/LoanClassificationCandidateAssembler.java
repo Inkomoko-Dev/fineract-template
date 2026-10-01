@@ -59,10 +59,18 @@ public class LoanClassificationCandidateAssembler {
     private String baseSql() {
         return "SELECT l.id AS loanId, l.loan_status_id AS loanStatusId, mlaa.loan_id AS agingLoanId, "
                 + "mlaa.overdue_since_date_derived AS overdueSince, mlaa.total_overdue_derived AS totalOverdue, COALESCE(("
+                + "SELECT OCFG.country_cv_id FROM m_loan_classification_country_config OCFG "
+                + "INNER JOIN m_code_value OCV ON OCV.id = OCFG.country_cv_id "
+                + "INNER JOIN m_office HO ON HO.name LIKE CONCAT('%', OCV.code_value, '%') "
+                + "WHERE COALESCE(o.hierarchy, co.hierarchy) LIKE CONCAT(HO.hierarchy, '%') "
+                + "ORDER BY LENGTH(HO.hierarchy) DESC, OCFG.id ASC LIMIT 1), ("
                 + "SELECT ra.country_id FROM m_client_address ca INNER JOIN m_address ra ON ra.id = ca.address_id "
                 + "WHERE ca.client_id = l.client_id ORDER BY ca.is_active DESC, ca.id DESC LIMIT 1), ("
                 + "SELECT dd.country_cv_id FROM m_loan_due_diligence_info dd WHERE dd.loan_id = l.id LIMIT 1)) AS countryCvId "
-                + "FROM m_loan l LEFT JOIN m_loan_arrears_aging mlaa ON mlaa.loan_id = l.id";
+                + "FROM m_loan l LEFT JOIN m_loan_arrears_aging mlaa ON mlaa.loan_id = l.id "
+                + "LEFT JOIN m_office o ON o.id = l.office_id "
+                + "LEFT JOIN m_client c ON c.id = l.client_id "
+                + "LEFT JOIN m_office co ON co.id = c.office_id";
     }
 
     public static final class Candidate {

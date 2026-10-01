@@ -59,7 +59,14 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
     private final AuditMapper auditMapper = new AuditMapper();
     private final SummaryMapper summaryMapper = new SummaryMapper();
 
-    static final String LOAN_COUNTRY_CV_ID = "COALESCE(lc.country_cv_id, ("
+    static final String OFFICE_COUNTRY_CV_ID = "("
+            + "SELECT OCFG.country_cv_id FROM m_loan_classification_country_config OCFG "
+            + "INNER JOIN m_code_value OCV ON OCV.id = OCFG.country_cv_id "
+            + "INNER JOIN m_office HO ON HO.name LIKE CONCAT('%', OCV.code_value, '%') "
+            + "WHERE COALESCE(o.hierarchy, co.hierarchy) LIKE CONCAT(HO.hierarchy, '%') "
+            + "ORDER BY LENGTH(HO.hierarchy) DESC, OCFG.id ASC LIMIT 1)";
+
+    static final String LOAN_COUNTRY_CV_ID = "COALESCE(" + OFFICE_COUNTRY_CV_ID + ", lc.country_cv_id, ("
             + "SELECT ra.country_id FROM m_client_address ca INNER JOIN m_address ra ON ra.id = ca.address_id "
             + "WHERE ca.client_id = l.client_id ORDER BY ca.is_active DESC, ca.id DESC LIMIT 1), ("
             + "SELECT dd.country_cv_id FROM m_loan_due_diligence_info dd WHERE dd.loan_id = l.id LIMIT 1))";
@@ -126,12 +133,15 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
     public Collection<LoanClassificationSummaryRowData> retrieveSummary(final Long countryId, final Long officeId, final Long loanProductId,
             final LocalDate fromDate, final LocalDate toDate) {
         final StringBuilder sql = new StringBuilder();
-        sql.append("SELECT cv.code_value AS country_name, o.name AS office_name, lp.name AS loan_product_name, ");
+        sql.append("SELECT cv.code_value AS country_name, COALESCE(o.name, co.name) AS office_name, lp.name AS loan_product_name, ");
         sql.append("lc.classification_code, COALESCE(code.label, 'Unclassified') AS classification_label, COUNT(*) AS loan_count, ");
         sql.append("SUM(CASE WHEN IFNULL(lc.excluded_from_downstream, 0) = 1 THEN 1 ELSE 0 END) AS excluded_count, ");
         sql.append("SUM(CASE WHEN IFNULL(lc.override_active, 0) = 1 THEN 1 ELSE 0 END) AS override_count ");
         sql.append("FROM m_loan l ");
-        sql.append("INNER JOIN m_office o ON o.id = l.office_id INNER JOIN m_product_loan lp ON lp.id = l.product_id ");
+        sql.append("LEFT JOIN m_office o ON o.id = l.office_id ");
+        sql.append("LEFT JOIN m_client c ON c.id = l.client_id ");
+        sql.append("LEFT JOIN m_office co ON co.id = c.office_id ");
+        sql.append("INNER JOIN m_product_loan lp ON lp.id = l.product_id ");
         sql.append("LEFT JOIN m_loan_classification lc ON lc.loan_id = l.id ");
         sql.append("INNER JOIN m_loan_classification_country_config cfg ON cfg.country_cv_id = ").append(LOAN_COUNTRY_CV_ID).append(" ");
         sql.append("INNER JOIN m_code_value cv ON cv.id = cfg.country_cv_id ");
@@ -143,7 +153,7 @@ public class LoanClassificationReadPlatformServiceImpl implements LoanClassifica
             params.add(countryId);
         }
         if (officeId != null && officeId > 0) {
-            sql.append("AND (l.office_id = ? OR o.hierarchy LIKE CONCAT((SELECT hierarchy FROM m_office WHERE id = ?), '%')) ");
+            sql.append("AND (l.office_id = ? OR COALESCE(o.hierarchy, co.hierarchy) LIKE CONCAT((SELECT hierarchy FROM m_office WHERE id = ?), '%')) ");
             params.add(officeId);
             params.add(officeId);
         }
