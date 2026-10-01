@@ -58,6 +58,8 @@ public class LoanApprovalData {
     private Integer dueDiligenceTermFrequency;
     private Integer dueDiligenceTermFrequencyType;
     private Boolean ideaClient;
+    private Integer previousIcReviewLevelNumber;
+    private BigDecimal previousIcReviewRecommendedAmount;
 
     public static LoanApprovalData importInstance(LocalDate approvedOnDate, Integer rowIndex, String locale, String dateFormat) {
         return new LoanApprovalData(approvedOnDate, rowIndex, locale, dateFormat);
@@ -205,6 +207,22 @@ public class LoanApprovalData {
 
     public void setIdeaClient(Boolean ideaClient) {
         this.ideaClient = ideaClient;
+    }
+
+    public Integer getPreviousIcReviewLevelNumber() {
+        return this.previousIcReviewLevelNumber;
+    }
+
+    public void setPreviousIcReviewLevelNumber(Integer previousIcReviewLevelNumber) {
+        this.previousIcReviewLevelNumber = previousIcReviewLevelNumber;
+    }
+
+    public BigDecimal getPreviousIcReviewRecommendedAmount() {
+        return this.previousIcReviewRecommendedAmount;
+    }
+
+    public void setPreviousIcReviewRecommendedAmount(BigDecimal previousIcReviewRecommendedAmount) {
+        this.previousIcReviewRecommendedAmount = previousIcReviewRecommendedAmount;
     }
 
 }
