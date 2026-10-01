@@ -66,6 +66,7 @@ import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRu
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.OfficeHierarchyService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefund;
@@ -75,6 +76,7 @@ import org.apache.fineract.portfolio.loanaccount.excessrefund.repository.LoanExc
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -92,6 +94,7 @@ public class ExcessRefundWritePlatformService {
     private final FromJsonHelper fromJsonHelper;
     private final ExcessRefundGlPoster glPoster;
     private final ExcessRefundPaymentHubService paymentHubService;
+    private final OfficeHierarchyService officeHierarchyService;
 
     @Transactional
     public CommandProcessingResult create(final JsonCommand command) {
@@ -120,7 +123,12 @@ public class ExcessRefundWritePlatformService {
         refund.setSubmittedAt(now);
         refund.setCreatedAt(now);
         refund.setUpdatedAt(now);
-        this.refundRepository.saveAndFlush(refund);
+        try {
+            this.refundRepository.saveAndFlush(refund);
+        } catch (DataIntegrityViolationException ex) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.already.open",
+                    "An open excess refund already exists for loan " + loanId);
+        }
 
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " initiated for " + refund.getAmount());
         return result(refund, loan);
@@ -133,6 +141,8 @@ public class ExcessRefundWritePlatformService {
         final LoanExcessRefund refund = findRefund(command.entityId());
         assertStatus(refund, PENDING_APPROVAL);
         assertMakerChecker(refund, user);
+        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        assertOfficeAccess(user, loan);
 
         final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
         refund.setStatus(APPROVED);
@@ -141,7 +151,6 @@ public class ExcessRefundWritePlatformService {
         refund.setUpdatedAt(now);
         this.refundRepository.saveAndFlush(refund);
 
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " approved by " + user.getUsername());
         return result(refund, loan);
     }
@@ -153,6 +162,8 @@ public class ExcessRefundWritePlatformService {
         final LoanExcessRefund refund = findRefund(command.entityId());
         assertStatus(refund, PENDING_APPROVAL);
         assertMakerChecker(refund, user);
+        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        assertOfficeAccess(user, loan);
 
         final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
         refund.setStatus(REJECTED);
@@ -162,7 +173,6 @@ public class ExcessRefundWritePlatformService {
         refund.setUpdatedAt(now);
         this.refundRepository.saveAndFlush(refund);
 
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " rejected: " + StringUtils.defaultString(refund.getRejectionNote()));
         return result(refund, loan);
     }
@@ -360,6 +370,17 @@ public class ExcessRefundWritePlatformService {
         if (refund.getSubmittedBy() != null && refund.getSubmittedBy().getId().equals(user.getId())) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.approver.same.as.maker",
                     "Maker and checker must be different users.");
+        }
+    }
+
+    private void assertOfficeAccess(final AppUser user, final Loan loan) {
+        Long officeId = loan.getOfficeId();
+        if (officeId == null && loan.getClient() != null) {
+            officeId = loan.getClient().getOffice() == null ? null : loan.getClient().getOffice().getId();
+        }
+        if (officeId == null || !this.officeHierarchyService.validateUserAccessToOffice(user, officeId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.office.denied",
+                    "User does not have access to the loan office for this excess refund.");
         }
     }
 

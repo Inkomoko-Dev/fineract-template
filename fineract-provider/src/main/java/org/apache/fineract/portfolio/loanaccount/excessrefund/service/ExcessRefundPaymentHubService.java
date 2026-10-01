@@ -22,8 +22,6 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import okhttp3.Credentials;
@@ -34,16 +32,20 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.portfolio.loanaccount.data.DisbursementRequestData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefund;
 import org.apache.fineract.portfolio.loanaccount.service.DisbursementRequestServiceImpl;
+import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
+import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatformService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 /**
- * Submits excess refund payouts to Payment Hub. Auth and error categorization mirror disbursement flow.
+ * Submits excess refund payouts to Payment Hub. Auth and payload shape mirror disbursement flow
+ * ({@link DisbursementRequestServiceImpl}) with {@code transactionType=REFUND}.
  */
 @Service
 @RequiredArgsConstructor
@@ -53,13 +55,14 @@ public class ExcessRefundPaymentHubService {
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     private final Environment environment;
+    private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
     private final OkHttpClient client = new OkHttpClient();
     private final Gson gson = new Gson();
 
     public String submitRefund(final Loan loan, final LoanExcessRefund refund) {
         final String requestId = "cbs_refund_" + refund.getId() + "_" + UUID.randomUUID().toString().substring(0, 8);
         final String token = authenticate();
-        final Map<String, Object> payload = buildPayload(loan, refund, requestId);
+        final DisbursementRequestData payload = buildPayload(loan, refund, requestId);
         final String requestJson = this.gson.toJson(payload);
         final String url = getConfigProperty("fineract.integrations.inkomoko.rest.initiate.refund");
         if (StringUtils.isBlank(url)) {
@@ -89,28 +92,51 @@ public class ExcessRefundPaymentHubService {
         }
     }
 
-    private Map<String, Object> buildPayload(final Loan loan, final LoanExcessRefund refund, final String requestId) {
-        final Map<String, Object> payload = new HashMap<>();
-        payload.put("requestId", requestId);
-        payload.put("loanId", loan.getId());
-        payload.put("accountNo", loan.getAccountNumber());
-        payload.put("amount", refund.getAmount());
-        payload.put("currency", refund.getCurrencyCode());
-        payload.put("transactionType", "REFUND");
-        payload.put("paymentTypeId", refund.getPaymentTypeId());
-        payload.put("source", "CBS");
+    DisbursementRequestData buildPayload(final Loan loan, final LoanExcessRefund refund, final String requestId) {
+        String paymentMethod = "UNKNOWN";
+        Long paymentMethodId = refund.getPaymentTypeId() == null ? 0L : refund.getPaymentTypeId();
+        if (refund.getPaymentTypeId() != null) {
+            try {
+                final PaymentTypeData paymentType = this.paymentTypeReadPlatformService.retrieveOne(refund.getPaymentTypeId());
+                if (paymentType != null && StringUtils.isNotBlank(paymentType.getName())) {
+                    paymentMethod = paymentType.getName();
+                }
+            } catch (RuntimeException ex) {
+                LOG.warn("Unable to resolve payment type {} for excess refund {}", refund.getPaymentTypeId(), refund.getId());
+            }
+        }
+
+        String phone = null;
+        String accountNumber = null;
+        String bankName = null;
+        String beneficiaryName = null;
         if (StringUtils.isNotBlank(refund.getBeneficiaryJson())) {
             final JsonObject beneficiary = JsonParser.parseString(refund.getBeneficiaryJson()).getAsJsonObject();
-            payload.put("beneficiary", beneficiary);
+            phone = jsonString(beneficiary, "msisdn");
+            accountNumber = jsonString(beneficiary, "accountNumber");
+            bankName = firstNonBlank(jsonString(beneficiary, "bankName"), jsonString(beneficiary, "bankCode"));
+            beneficiaryName = jsonString(beneficiary, "beneficiaryName");
+            if (StringUtils.isBlank(phone) && StringUtils.isNotBlank(accountNumber)) {
+                phone = accountNumber;
+            }
         }
+
+        final DisbursementRequestData payload = new DisbursementRequestData(requestId, loan.getAccountNumber(), refund.getAmount(),
+                refund.getCurrencyCode(), paymentMethod, paymentMethodId, StringUtils.defaultIfBlank(phone, "0000000000"), accountNumber,
+                bankName, "CBS", paymentMethodId);
+        payload.setLoanId(loan.getId());
+        payload.setTransactionType("REFUND");
+        payload.setBeneficiaryName(beneficiaryName);
+        payload.setNarration("Excess refund #" + refund.getId() + " for loan " + loan.getAccountNumber());
         return payload;
     }
 
     private String authenticate() {
         final String credential = Credentials.basic(getConfigProperty("fineract.integrations.inkomoko.rest.username"),
                 getConfigProperty("fineract.integrations.inkomoko.rest.password"));
+        // Mirror DisbursementRequestServiceImpl: default GET with basic auth header.
         final Request request = new Request.Builder().url(getConfigProperty("fineract.integrations.inkomoko.rest.authenticationUrl"))
-                .header("Authorization", credential).post(RequestBody.create(new byte[0], null)).build();
+                .header("Authorization", credential).build();
         try (Response response = this.client.newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
                 throw new GeneralPlatformDomainRuleException("integration.excessRefund.authFailed",
@@ -129,6 +155,20 @@ public class ExcessRefundPaymentHubService {
             throw new GeneralPlatformDomainRuleException("integration.excessRefund.authFailed",
                     "Unable to authenticate with Payment Hub for excess refund.");
         }
+    }
+
+    private static String jsonString(final JsonObject object, final String member) {
+        if (object == null || !object.has(member) || object.get(member).isJsonNull()) {
+            return null;
+        }
+        return object.get(member).getAsString();
+    }
+
+    private static String firstNonBlank(final String first, final String second) {
+        if (StringUtils.isNotBlank(first)) {
+            return first;
+        }
+        return second;
     }
 
     private String getConfigProperty(final String propertyName) {

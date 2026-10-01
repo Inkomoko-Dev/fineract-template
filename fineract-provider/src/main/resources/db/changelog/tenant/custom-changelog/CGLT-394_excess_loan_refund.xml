@@ -291,4 +291,22 @@
         </insert>
     </changeSet>
 
+    <!-- Partial unique: at most one open refund per loan (terminal statuses store NULL in open_loan_key). -->
+    <changeSet id="CGLT-394-open-refund-unique-per-loan" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_loan_excess_refund"/>
+            <not>
+                <columnExists tableName="m_loan_excess_refund" columnName="open_loan_key"/>
+            </not>
+        </preConditions>
+        <sql>
+            ALTER TABLE m_loan_excess_refund
+                ADD COLUMN open_loan_key BIGINT GENERATED ALWAYS AS (
+                    CASE WHEN status_enum IN (100, 200, 300, 400, 450) THEN loan_id ELSE NULL END
+                ) STORED;
+        </sql>
+        <addUniqueConstraint tableName="m_loan_excess_refund" columnNames="open_loan_key"
+                             constraintName="uk_excess_refund_open_loan"/>
+    </changeSet>
+
 </databaseChangeLog>
