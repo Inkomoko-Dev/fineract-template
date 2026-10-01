@@ -436,8 +436,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         sqlBuilder.append(" where ( o.hierarchy like ? or transferToOffice.hierarchy like ?)");
 
         if (isExtendLoanLifeCycleConfig) {
-            sqlBuilder.append(
-                    " and (ds.next_loan_ic_review_decision_state = 1900 and l.loan_decision_state = 1900 or l.loan_decision_state is null)  ");
+            sqlBuilder.append(" and (l.loan_decision_state = ").append(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())
+                    .append(" or l.loan_decision_state is null) ");
         }
 
         int arrayPos = 2;
@@ -3898,10 +3898,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(" and l.loan_decision_state is null and ds.next_loan_ic_review_decision_state is null ");
         } else if (loanDecisionState == 1000 || loanDecisionState == 1200 || loanDecisionState == 1300) {
             sqlBuilder.append(" and l.loan_decision_state is not null and l.loan_decision_state = ? ");
-        } else if (loanDecisionState == 1900) {
+        } else if (LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue().equals(loanDecisionState)) {
             // Return Loan Accounts that are prepare and sign Contract stage only
             sqlBuilder.append(
-                    " and l.loan_decision_state is not null and ds.next_loan_ic_review_decision_state = ? and l.loan_decision_state != 1900 ");
+                    " and l.loan_decision_state is not null and ds.next_loan_ic_review_decision_state = ? and l.loan_decision_state != ")
+                    .append(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue()).append(' ');
         } else {
             // when loan is in IC Review
             sqlBuilder.append(" and l.loan_decision_state is not null and ds.next_loan_ic_review_decision_state = ?");
