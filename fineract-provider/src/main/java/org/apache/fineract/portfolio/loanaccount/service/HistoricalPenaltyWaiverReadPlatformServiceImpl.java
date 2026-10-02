@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.HistoricalPenaltyWaiverData;
 import org.apache.fineract.portfolio.loanaccount.data.HistoricalPenaltyWaiverTxnData;
 import org.apache.fineract.portfolio.loanaccount.domain.HistoricalPenaltyWaiverStatus;
@@ -49,6 +50,7 @@ public class HistoricalPenaltyWaiverReadPlatformServiceImpl implements Historica
     private final LoanHistoricalPenaltyWaiverTxnRepository waiverTxnRepository;
     private final AppUserReadPlatformService appUserReadPlatformService;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
+    private final PlatformSecurityContext context;
 
     @Override
     public HistoricalPenaltyWaiverData retrieveOne(final Long waiverId) {
@@ -77,7 +79,9 @@ public class HistoricalPenaltyWaiverReadPlatformServiceImpl implements Historica
 
         // The office-hierarchy clause already returns users at or above the loan's office, which is what makes
         // "escalate to a higher user" fall out without a second query.
-        return this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(), APPROVE_PERMISSION);
+        final Long currentUserId = this.context.authenticatedUser().getId();
+        return this.appUserReadPlatformService.retrieveUsersByOfficeAndPermission(loan.getOfficeId(), APPROVE_PERMISSION).stream()
+                .filter(user -> !user.hasIdentifyOf(currentUserId)).collect(Collectors.toList());
     }
 
     private LoanHistoricalPenaltyWaiver retrieveWaiverBy(final Long waiverId) {

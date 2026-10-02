@@ -145,4 +145,17 @@ public class HistoricalPenaltyWaiverApprovalPolicyTest {
     public void aChargeWithNoDueDateCannotBreachTheAgeTrigger() {
         assertFalse(determine("100", null).isRequired());
     }
+
+    @Test
+    public void exposesTheConfiguredLimitsSoTheScreenCanQuoteThem() {
+        assertEquals(90L, this.policy.ageThresholdDays());
+        assertEquals(50000L, this.policy.amountThreshold());
+    }
+
+    @Test
+    public void aDisabledLimitIsReportedAsAbsent() {
+        when(this.configurationDomainService.retrieveHistoricalPenaltyWaiverApprovalAgeDays()).thenReturn(null);
+
+        assertNull(this.policy.ageThresholdDays());
+    }
 }
