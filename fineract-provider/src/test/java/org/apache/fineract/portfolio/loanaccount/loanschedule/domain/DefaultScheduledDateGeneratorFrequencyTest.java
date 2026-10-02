@@ -72,4 +72,29 @@ class DefaultScheduledDateGeneratorFrequencyTest {
         final LocalDate secondDueDate = generator.getRepaymentPeriodDate(PeriodFrequencyType.MONTHS, 6, firstDueDate);
         assertEquals(LocalDate.of(2026, 8, 1), secondDueDate);
     }
+
+    @Test
+    void quarterlyStepsPreserveDayOfMonthWhenPossible() {
+        final LocalDate firstDueDate = LocalDate.of(2026, 1, 15);
+        final LocalDate second = generator.getRepaymentPeriodDate(PeriodFrequencyType.MONTHS, 3, firstDueDate);
+        assertEquals(LocalDate.of(2026, 4, 15), second);
+        assertEquals(15, second.getDayOfMonth());
+    }
+
+    @Test
+    void quarterlyStepsClampMonthEndDatesTheSameWayAsMonthly() {
+        final LocalDate endOfJanuary = LocalDate.of(2026, 1, 31);
+        final LocalDate afterThreeMonths = generator.getRepaymentPeriodDate(PeriodFrequencyType.MONTHS, 3, endOfJanuary);
+        assertEquals(LocalDate.of(2026, 4, 30), afterThreeMonths);
+
+        final LocalDate afterOneMonth = generator.getRepaymentPeriodDate(PeriodFrequencyType.MONTHS, 1, endOfJanuary);
+        assertEquals(LocalDate.of(2026, 2, 28), afterOneMonth);
+    }
+
+    @Test
+    void semiAnnualStepsClampMonthEndDatesTheSameWayAsMonthly() {
+        final LocalDate endOfAugust = LocalDate.of(2026, 8, 31);
+        final LocalDate afterSixMonths = generator.getRepaymentPeriodDate(PeriodFrequencyType.MONTHS, 6, endOfAugust);
+        assertEquals(LocalDate.of(2027, 2, 28), afterSixMonths);
+    }
 }

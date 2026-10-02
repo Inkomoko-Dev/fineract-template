@@ -20,12 +20,14 @@ package org.apache.fineract.portfolio.loanaccount.loanschedule.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
+import org.apache.fineract.portfolio.loanaccount.exception.IncompatibleLoanTermException;
 import org.junit.jupiter.api.Test;
 
 class LoanRepaymentFrequencyTest {
@@ -100,5 +102,40 @@ class LoanRepaymentFrequencyTest {
         assertEquals(2, LoanRepaymentFrequency.installmentCount(12, 6));
         assertEquals(12, LoanRepaymentFrequency.installmentCount(12, 1));
         assertEquals(null, LoanRepaymentFrequency.installmentCount(10, 3));
+    }
+
+    @Test
+    void assertCompatibleTermRejectsQuarterlyWhenTermIsShorterThanThreeMonths() {
+        final IncompatibleLoanTermException thrown = assertThrows(IncompatibleLoanTermException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleTerm(2, 3, MONTHS));
+        assertTrue(thrown.getDefaultUserMessage().contains("at least 3 months"));
+    }
+
+    @Test
+    void assertCompatibleTermRejectsSemiAnnualWhenTermIsShorterThanSixMonths() {
+        final IncompatibleLoanTermException thrown = assertThrows(IncompatibleLoanTermException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleTerm(5, 6, MONTHS));
+        assertTrue(thrown.getDefaultUserMessage().contains("at least 6 months"));
+    }
+
+    @Test
+    void assertCompatibleTermRejectsNonMultipleOfInterval() {
+        final IncompatibleLoanTermException thrown = assertThrows(IncompatibleLoanTermException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleTerm(10, 3, MONTHS));
+        assertTrue(thrown.getDefaultUserMessage().contains("multiple of 3 months"));
+    }
+
+    @Test
+    void assertCompatibleTermAcceptsValidQuarterlyAndSemiAnnualTerms() {
+        LoanRepaymentFrequency.assertCompatibleTerm(12, 3, MONTHS);
+        LoanRepaymentFrequency.assertCompatibleTerm(12, 6, MONTHS);
+        LoanRepaymentFrequency.assertCompatibleTerm(12, 1, MONTHS);
+    }
+
+    @Test
+    void assertCompatibleProductTermsRejectsZeroInstallments() {
+        final IncompatibleLoanTermException thrown = assertThrows(IncompatibleLoanTermException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleProductTerms(0, 3, MONTHS));
+        assertTrue(thrown.getDefaultUserMessage().contains("at least 1"));
     }
 }

@@ -157,6 +157,7 @@ import org.apache.fineract.portfolio.loanaccount.exception.LoanApplicationNotInS
 import org.apache.fineract.portfolio.loanaccount.exception.LoanApplicationNotInSubmittedAndPendingApprovalStateCannotBeModified;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleAssembler;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleCalculationPlatformService;
@@ -366,6 +367,10 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                     newLoanApplication.getTermPeriodFrequencyType(), productRelatedDetail.getNumberOfRepayments(),
                     productRelatedDetail.getRepayEvery(), productRelatedDetail.getRepaymentPeriodFrequencyType().getValue(),
                     newLoanApplication, numberOfRepaymentsToCarryForward);
+            LoanRepaymentFrequency.assertCompatibleTerm(
+                    LoanRepaymentFrequency.termInMonths(newLoanApplication.getTermFrequency(),
+                            newLoanApplication.getTermPeriodFrequencyType()),
+                    productRelatedDetail.getRepayEvery(), productRelatedDetail.getRepaymentPeriodFrequencyType().getValue());
 
             if (loanProduct.canUseForTopup() && clientId != null) {
 
@@ -1152,6 +1157,10 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                     existingLoanApplication.getTermPeriodFrequencyType(), productRelatedDetail.getNumberOfRepayments(),
                     productRelatedDetail.getRepayEvery(), productRelatedDetail.getRepaymentPeriodFrequencyType().getValue(),
                     existingLoanApplication, numberOfRepaymentsToCarryForward);
+            LoanRepaymentFrequency.assertCompatibleTerm(
+                    LoanRepaymentFrequency.termInMonths(existingLoanApplication.getTermFrequency(),
+                            existingLoanApplication.getTermPeriodFrequencyType()),
+                    productRelatedDetail.getRepayEvery(), productRelatedDetail.getRepaymentPeriodFrequencyType().getValue());
 
             saveAndFlushLoanWithDataIntegrityViolationChecks(existingLoanApplication);
 
