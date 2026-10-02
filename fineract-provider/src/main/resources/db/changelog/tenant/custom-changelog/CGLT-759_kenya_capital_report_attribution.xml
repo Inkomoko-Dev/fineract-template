@@ -1,0 +1,1046 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-759-0-view-loan-entity-office" author="willy" runOnChange="true">
+        <preConditions onFail="CONTINUE">
+            <columnExists tableName="m_loan" columnName="is_migrated"/>
+            <columnExists tableName="m_loan" columnName="migrated_on_date"/>
+            <columnExists tableName="m_loan" columnName="migrated_from_office_id"/>
+            <columnExists tableName="m_client" columnName="is_migrated"/>
+            <columnExists tableName="m_client" columnName="migrated_on_date"/>
+            <columnExists tableName="m_client" columnName="migrated_from_office_id"/>
+        </preConditions>
+        <createView viewName="v_loan_entity_office" replaceIfExists="true"><![CDATA[WITH base AS (
+    SELECT l.id AS loan_id,
+           COALESCE(l.office_id, c.office_id, g.office_id) AS current_office_id,
+           CASE WHEN l.is_migrated = TRUE AND l.migrated_on_date IS NOT NULL AND l.migrated_from_office_id IS NOT NULL THEN l.migrated_on_date
+                WHEN c.is_migrated = TRUE AND c.migrated_on_date IS NOT NULL AND c.migrated_from_office_id IS NOT NULL THEN c.migrated_on_date
+           END AS migrated_on_date,
+           CASE WHEN l.is_migrated = TRUE AND l.migrated_on_date IS NOT NULL AND l.migrated_from_office_id IS NOT NULL THEN l.migrated_from_office_id
+                WHEN c.is_migrated = TRUE AND c.migrated_on_date IS NOT NULL AND c.migrated_from_office_id IS NOT NULL THEN c.migrated_from_office_id
+           END AS migrated_from_office_id
+    FROM m_loan l
+    LEFT JOIN m_client c ON c.id = l.client_id
+    LEFT JOIN m_group g ON g.id = l.group_id
+),
+period AS (
+    SELECT loan_id, migrated_from_office_id AS office_id, DATE '1900-01-01' AS valid_from, migrated_on_date AS valid_to
+    FROM base
+    WHERE migrated_on_date IS NOT NULL
+    UNION ALL
+    SELECT loan_id, current_office_id, COALESCE(migrated_on_date, DATE '1900-01-01'), DATE '9999-12-31'
+    FROM base
+),
+kc_map AS (
+    SELECT kc.id AS kc_office_id, COALESCE(ke.id, ker.id) AS ke_office_id
+    FROM m_office kcr
+    JOIN m_office kc ON kc.hierarchy LIKE CONCAT(kcr.hierarchy, '%')
+    JOIN m_office ker ON ker.name = 'Inkomoko - Kenya'
+    LEFT JOIN m_office ke ON ke.hierarchy LIKE CONCAT(ker.hierarchy, '_%') AND ke.name = TRIM(SUBSTRING(kc.name, 4))
+    WHERE kcr.name = 'Inkomoko - Capital Kenya Limited'
+)
+SELECT p.loan_id, p.office_id, p.valid_from, p.valid_to
+FROM period p
+LEFT JOIN kc_map k ON k.kc_office_id = p.office_id
+WHERE k.kc_office_id IS NULL
+UNION ALL
+SELECT p.loan_id, k.ke_office_id, p.valid_from, LEAST(p.valid_to, DATE '2026-06-01')
+FROM period p
+JOIN kc_map k ON k.kc_office_id = p.office_id
+WHERE p.valid_from < DATE '2026-06-01'
+UNION ALL
+SELECT p.loan_id, p.office_id, GREATEST(p.valid_from, DATE '2026-06-01'), p.valid_to
+FROM period p
+JOIN kc_map k ON k.kc_office_id = p.office_id
+WHERE p.valid_to > DATE '2026-06-01']]></createView>
+    </changeSet>
+
+    <changeSet id="CGLT-759-1-active-loans-details" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Active Loans - Details'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[select concat(repeat("..",   
+   ((LENGTH(ounder.`hierarchy`) - LENGTH(REPLACE(ounder.`hierarchy`, '.', '')) - 1))), ounder.`name`) as "Office/Branch",
+ifnull(cur.display_symbol, l.currency_code) as Currency,
+lo.display_name as "Loan Officer", 
+c.display_name as "Client", l.account_no as "Loan Account No.", pl.`name` as "Product", 
+f.`name` as Fund,  
+l.principal_amount as "Loan Amount", 
+l.annual_nominal_interest_rate as " Annual Nominal Interest Rate", 
+date(l.disbursedon_date) as "Disbursed Date", 
+date(l.expected_maturedon_date) as "Expected Matured On",
+
+l.principal_repaid_derived as "Principal Repaid",
+l.principal_outstanding_derived as "Principal Outstanding",
+laa.principal_overdue_derived as "Principal Overdue",
+
+l.interest_repaid_derived as "Interest Repaid",
+l.interest_outstanding_derived as "Interest Outstanding",
+laa.interest_overdue_derived as "Interest Overdue",
+
+l.fee_charges_repaid_derived as "Fees Repaid",
+l.fee_charges_outstanding_derived  as "Fees Outstanding",
+laa.fee_charges_overdue_derived as "Fees Overdue",
+
+l.penalty_charges_repaid_derived as "Penalties Repaid",
+l.penalty_charges_outstanding_derived as "Penalties Outstanding",
+penalty_charges_overdue_derived as "Penalties Overdue"
+
+from m_loan l
+join m_client c on c.id = l.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND CURDATE() >= eo.valid_from AND CURDATE() < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+join m_product_loan pl on pl.id = l.product_id
+left join m_staff lo on lo.id = l.loan_officer_id
+left join m_currency cur on cur.code = l.currency_code
+left join m_fund f on f.id = l.fund_id
+left join m_loan_arrears_aging laa on laa.loan_id = l.id
+where 1 = 1
+and (l.currency_code = "${currencyId}" or "-1" = "${currencyId}")
+and (l.product_id = "${loanProductId}" or "-1" = "${loanProductId}")
+and (ifnull(l.loan_officer_id, -10) = "${loanOfficerId}" or "-1" = "${loanOfficerId}")
+and (ifnull(l.fund_id, -10) = ${fundId} or -1 = ${fundId})
+and (ifnull(l.loanpurpose_cv_id, -10) = ${loanPurposeId} or -1 = ${loanPurposeId})
+and l.loan_status_id = 300
+group by l.id, ounder.id, ounder.hierarchy, ounder.`name`
+order by ounder.hierarchy, l.currency_code, c.account_no, l.account_no]]></column>
+            <where>report_name = 'Active Loans - Details'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-2-obligation-met-loans-details" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Obligation Met Loans Details'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[select concat(repeat('..',  ((LENGTH(ounder.hierarchy) - LENGTH(REPLACE(ounder.hierarchy, '.', '')) - 1))), ounder.name) as 'Office/Branch',
+ifnull(cur.display_symbol, l.currency_code) as 'Currency',
+c.account_no as 'Client Account No.',
+c.display_name as 'Client',
+l.account_no as 'Loan Account No.',
+pl.name as 'Product',
+f.name as 'Fund',
+l.principal_amount as 'Loan Amount',
+l.total_repayment_derived  as 'Total Repaid',
+l.annual_nominal_interest_rate as 'Annual Nominal Interest Rate',
+date(l.disbursedon_date) as 'Disbursed',
+date(l.closedon_date) as 'Closed',
+l.principal_repaid_derived as 'Principal Repaid',
+l.interest_repaid_derived as 'Interest Repaid',
+l.fee_charges_repaid_derived as 'Fees Repaid',
+l.penalty_charges_repaid_derived as 'Penalties Repaid',
+lo.display_name as 'Loan Officer',
+cvl.code_value     as 'Location',
+l.generic_loan_counter     as 'Cycle'
+from m_loan l
+join m_client c on c.id = l.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND l.closedon_date >= eo.valid_from AND l.closedon_date < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+join m_product_loan pl on pl.id = l.product_id
+left join m_staff lo on lo.id = l.loan_officer_id
+left join m_currency cur on cur.code = l.currency_code
+left join m_fund f on f.id = l.fund_id
+left join m_client_recruitment_survey crs on crs.client_id = c.id
+left join m_code_value cvl on cvl.id = crs.survey_location_cv_id
+where 1 = 1
+and (l.currency_code = '${currencyId}' or '-1' = '${currencyId}')
+and (l.product_id = '${loanProductId}' or '-1' = '${loanProductId}')
+and (ifnull(l.loan_officer_id, -10) = '${loanOfficerId}' or '-1' = '${loanOfficerId}')
+and (ifnull(l.fund_id, -10) = ${fundId} or -1 = ${fundId})
+and (ifnull(l.loanpurpose_cv_id, -10) = ${loanPurposeId} or -1 = ${loanPurposeId})
+and (case when ${obligDateType} = 1 then    l.closedon_date between '${startDate}' and '${endDate}' when ${obligDateType} = 2 then    l.disbursedon_date between '${startDate}' and '${endDate}' else 1 = 1 end)
+and l.loan_status_id = 600
+group by l.id, ounder.id, ounder.name, ounder.hierarchy, l.currency_code, c.account_no, l.account_no,cvl.code_value
+order by ounder.hierarchy, l.currency_code, c.account_no, l.account_no]]></column>
+            <where>report_name = 'Obligation Met Loans Details'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-3-portfolio-at-risk" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Portfolio at Risk'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[select x.Currency, x.`Principal Outstanding`, x.`Principal Overdue`, x.`Interest Outstanding`, x.`Interest Overdue`, 
+x.`Fees Outstanding`, x.`Fees Overdue`, x.`Penalties Outstanding`, x.`Penalties Overdue`,
+
+	(case
+	when ${parType} = 1 then
+    cast(round((x.`Principal Overdue` * 100) / x.`Principal Outstanding`, 2) as char)
+	when ${parType} = 2 then
+    cast(round(((x.`Principal Overdue` + x.`Interest Overdue`) * 100) / (x.`Principal Outstanding` + x.`Interest Outstanding`), 2) as char)
+	when ${parType} = 3 then
+    cast(round(((x.`Principal Overdue` + x.`Interest Overdue` + x.`Fees Overdue`) * 100) / (x.`Principal Outstanding` + x.`Interest Outstanding` + x.`Fees Outstanding`), 2) as char)
+	when ${parType} = 4 then
+    cast(round(((x.`Principal Overdue` + x.`Interest Overdue` + x.`Fees Overdue` + x.`Penalties Overdue`) * 100) / (x.`Principal Outstanding` + x.`Interest Outstanding` + x.`Fees Outstanding` + x.`Penalties Overdue`), 2) as char)
+	else "invalid PAR Type"
+	end) as "Portfolio at Risk %"
+ from 
+(select  ifnull(cur.display_symbol, l.currency_code) as Currency,  
+sum(l.principal_outstanding_derived) as "Principal Outstanding",
+sum(laa.principal_overdue_derived) as "Principal Overdue",
+
+sum(l.interest_outstanding_derived) as "Interest Outstanding",
+sum(laa.interest_overdue_derived) as "Interest Overdue",
+
+sum(l.fee_charges_outstanding_derived)  as "Fees Outstanding",
+sum(laa.fee_charges_overdue_derived) as "Fees Overdue",
+
+sum(penalty_charges_outstanding_derived) as "Penalties Outstanding",
+sum(laa.penalty_charges_overdue_derived) as "Penalties Overdue"
+
+from m_loan l
+join m_client c on c.id = l.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND CURDATE() >= eo.valid_from AND CURDATE() < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+left join m_staff lo on lo.id = l.loan_officer_id
+left join m_currency cur on cur.code = l.currency_code
+left join m_fund f on f.id = l.fund_id
+left join m_code_value purp on purp.id = l.loanpurpose_cv_id
+left join m_product_loan p on p.id = l.product_id
+left join m_loan_arrears_aging laa on laa.loan_id = l.id
+where 1 = 1
+and (l.currency_code = "${currencyId}" or "-1" = "${currencyId}")
+and (l.product_id = "${loanProductId}" or "-1" = "${loanProductId}")
+and (ifnull(l.loan_officer_id, -10) = "${loanOfficerId}" or "-1" = "${loanOfficerId}")
+and (ifnull(l.fund_id, -10) = ${fundId} or -1 = ${fundId})
+and (ifnull(l.loanpurpose_cv_id, -10) = ${loanPurposeId} or -1 = ${loanPurposeId})
+and l.loan_status_id = 300
+group by l.currency_code
+order by l.currency_code) x]]></column>
+            <where>report_name = 'Portfolio at Risk'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-4-portfolio-at-risk-by-branch" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Portfolio at Risk by Branch'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[select concat(repeat("..",   
+   ((LENGTH(mo.`hierarchy`) - LENGTH(REPLACE(mo.`hierarchy`, '.', '')) - 1))), mo.`name`) as "Office/Branch",
+x.Currency, x.`Principal Outstanding`, x.`Principal Overdue`, x.`Interest Outstanding`, x.`Interest Overdue`, 
+x.`Fees Outstanding`, x.`Fees Overdue`, x.`Penalties Outstanding`, x.`Penalties Overdue`,
+
+	(case
+	when ${parType} = 1 then
+    cast(round((x.`Principal Overdue` * 100) / x.`Principal Outstanding`, 2) as char)
+	when ${parType} = 2 then
+    cast(round(((x.`Principal Overdue` + x.`Interest Overdue`) * 100) / (x.`Principal Outstanding` + x.`Interest Outstanding`), 2) as char)
+	when ${parType} = 3 then
+    cast(round(((x.`Principal Overdue` + x.`Interest Overdue` + x.`Fees Overdue`) * 100) / (x.`Principal Outstanding` + x.`Interest Outstanding` + x.`Fees Outstanding`), 2) as char)
+	when ${parType} = 4 then
+    cast(round(((x.`Principal Overdue` + x.`Interest Overdue` + x.`Fees Overdue` + x.`Penalties Overdue`) * 100) / (x.`Principal Outstanding` + x.`Interest Outstanding` + x.`Fees Outstanding` + x.`Penalties Overdue`), 2) as char)
+	else "invalid PAR Type"
+	end) as "Portfolio at Risk %"
+ from m_office mo
+join 
+(select  ounder.id as "branch", ifnull(cur.display_symbol, l.currency_code) as Currency,  
+
+sum(l.principal_outstanding_derived) as "Principal Outstanding",
+sum(laa.principal_overdue_derived) as "Principal Overdue",
+
+sum(l.interest_outstanding_derived) as "Interest Outstanding",
+sum(laa.interest_overdue_derived) as "Interest Overdue",
+
+sum(l.fee_charges_outstanding_derived)  as "Fees Outstanding",
+sum(laa.fee_charges_overdue_derived) as "Fees Overdue",
+
+sum(penalty_charges_outstanding_derived) as "Penalties Outstanding",
+sum(laa.penalty_charges_overdue_derived) as "Penalties Overdue"
+
+from m_loan l
+join m_client c on c.id = l.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND CURDATE() >= eo.valid_from AND CURDATE() < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+left join m_staff lo on lo.id = l.loan_officer_id
+left join m_currency cur on cur.code = l.currency_code
+left join m_fund f on f.id = l.fund_id
+left join m_code_value purp on purp.id = l.loanpurpose_cv_id
+left join m_product_loan p on p.id = l.product_id
+left join m_loan_arrears_aging laa on laa.loan_id = l.id
+where 1 = 1
+and (l.currency_code = "${currencyId}" or "-1" = "${currencyId}")
+and (l.product_id = "${loanProductId}" or "-1" = "${loanProductId}")
+and (ifnull(l.loan_officer_id, -10) = "${loanOfficerId}" or "-1" = "${loanOfficerId}")
+and (ifnull(l.fund_id, -10) = ${fundId} or -1 = ${fundId})
+and (ifnull(l.loanpurpose_cv_id, -10) = ${loanPurposeId} or -1 = ${loanPurposeId})
+and l.loan_status_id = 300
+group by ounder.id, l.currency_code) x on x.branch = mo.id
+order by mo.hierarchy, x.Currency]]></column>
+            <where>report_name = 'Portfolio at Risk by Branch'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-5-funds-disbursed-between-dates-summary-by-office" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Funds Disbursed Between Dates Summary by Office'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[select 
+concat(repeat("..",   
+   ((LENGTH(ounder.`hierarchy`) - LENGTH(REPLACE(ounder.`hierarchy`, '.', '')) - 1))), ounder.`name`) as "Office/Branch",
+ 
+
+ifnull(f.`name`, '-') as Fund,  ifnull(cur.display_symbol, l.currency_code) as Currency, round(sum(l.principal_amount), 4) as disbursed_amount
+from m_loan l
+join m_client c on c.id = l.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND l.disbursedon_date >= eo.valid_from AND l.disbursedon_date < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+join m_currency cur on cur.`code` = l.currency_code
+left join m_fund f on f.id = l.fund_id
+
+
+where disbursedon_date between '${startDate}' and '${endDate}'
+and (ifnull(l.fund_id, -10) = ${fundId} or -1 = ${fundId})
+and 
+
+(l.currency_code = '${currencyId}' or '-1' = '${currencyId}')
+group by ounder.id, ounder.hierarchy, ounder.`name`,  ifnull(f.`name`, '-') , ifnull(cur.display_symbol, 
+
+l.currency_code)
+order by ounder.`name`,  ifnull(f.`name`, '-') , ifnull(cur.display_symbol, l.currency_code)]]></column>
+            <where>report_name = 'Funds Disbursed Between Dates Summary by Office'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-6-written-off-loans" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Written-Off Loans'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[SELECT concat(repeat('..', ((LENGTH(ounder.`hierarchy`) - LENGTH(REPLACE(ounder.`hierarchy`, '.', '')) - 1))), ounder.`name`) as 'Office/Branch',
+ifnull(cur.display_symbol, ml.currency_code) as Currency,
+c.account_no as 'Client Account No.',
+c.display_name AS 'Client Name',
+ml.account_no AS 'Loan Account No.',
+mpl.name AS 'Product Name',
+ml.disbursedon_date AS 'Disbursed Date',
+lt.transaction_date AS 'Written Off date',
+ml.principal_amount as 'Loan Amount',
+ifnull(lt.principal_portion_derived, 0) AS 'Written-Off Principal',
+ifnull(lt.interest_portion_derived, 0) AS 'Written-Off Interest',
+ifnull(lt.fee_charges_portion_derived,0) AS 'Written-Off Fees',
+ifnull(lt.penalty_charges_portion_derived,0) AS 'Written-Off Penalties',
+n.note AS 'Reason For Write-Off',
+IFNULL(ms.display_name,'-') AS 'Loan Officer Name',
+year(now()) - YEAR(c.date_of_birth) as 'Age', c.external_id as 'Client UID', cdg.code_value as 'Gender',
+cvc.code_value as 'Cohort', ml.loan_counter as 'Cycle', cvn.code_value as 'Nationality', cvl.code_value as 'Location',
+cvs.code_value as 'Strata'
+FROM m_loan_transaction lt
+JOIN m_loan ml ON ml.id = lt.loan_id
+JOIN m_client c ON c.id = ml.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = ml.id AND lt.transaction_date >= eo.valid_from AND lt.transaction_date < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy like concat(o.hierarchy, '%')
+    AND ounder.hierarchy like CONCAT('${currentUserHierarchy}', '%')
+JOIN m_product_loan mpl ON mpl.id=ml.product_id
+LEFT JOIN m_staff ms ON ms.id=ml.loan_officer_id
+LEFT JOIN m_note n ON n.loan_transaction_id = lt.id
+LEFT JOIN m_currency cur on cur.code = ml.currency_code
+left join m_client_other_info coi on coi.client_id = c.id
+left join m_code_value cdg on cdg.id = c.gender_cv_id
+left join m_client_recruitment_survey crs on crs.client_id = c.id
+left join m_code_value cvc on cvc.id = crs.cohort_cv_id
+left join m_code_value cvn on cvn.id = coi.nationality_cv_id
+left join m_code_value cvl on cvl.id = crs.survey_location_cv_id
+left join m_code_value cvs on cvs.id = coi.strata_cv_id
+WHERE lt.transaction_type_enum = 6
+AND lt.is_reversed is false
+AND ml.loan_status_id=601
+AND (mpl.id=${loanProductId} OR ${loanProductId}=-1)
+AND lt.transaction_date BETWEEN '${startDate}' AND '${endDate}'
+AND (ml.currency_code = '${currencyId}' or '-1' = '${currencyId}')
+ORDER BY ounder.hierarchy, ifnull(cur.display_symbol, ml.currency_code), ml.account_no]]></column>
+            <where>report_name = 'Written-Off Loans'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-7-active-loans-passed-final-maturity" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Active Loans Passed Final Maturity'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[select concat(repeat("..",   
+   ((LENGTH(ounder.`hierarchy`) - LENGTH(REPLACE(ounder.`hierarchy`, '.', '')) - 1))), ounder.`name`) as "Office/Branch",
+ifnull(cur.display_symbol, l.currency_code) as Currency,
+lo.display_name as "Loan Officer", 
+c.display_name as "Client", l.account_no as "Loan Account No.", pl.`name` as "Product", 
+f.`name` as Fund,  
+l.principal_amount as "Loan Amount", 
+l.annual_nominal_interest_rate as " Annual Nominal Interest Rate", 
+date(l.disbursedon_date) as "Disbursed Date", 
+date(l.expected_maturedon_date) as "Expected Matured On",
+
+l.principal_repaid_derived as "Principal Repaid",
+l.principal_outstanding_derived as "Principal Outstanding",
+laa.principal_overdue_derived as "Principal Overdue",
+
+l.interest_repaid_derived as "Interest Repaid",
+l.interest_outstanding_derived as "Interest Outstanding",
+laa.interest_overdue_derived as "Interest Overdue",
+
+l.fee_charges_repaid_derived as "Fees Repaid",
+l.fee_charges_outstanding_derived  as "Fees Outstanding",
+laa.fee_charges_overdue_derived as "Fees Overdue",
+
+l.penalty_charges_repaid_derived as "Penalties Repaid",
+l.penalty_charges_outstanding_derived as "Penalties Outstanding",
+laa.penalty_charges_overdue_derived as "Penalties Overdue"
+
+from m_loan l
+join m_client c on c.id = l.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND CURDATE() >= eo.valid_from AND CURDATE() < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+join m_product_loan pl on pl.id = l.product_id
+left join m_staff lo on lo.id = l.loan_officer_id
+left join m_currency cur on cur.code = l.currency_code
+left join m_fund f on f.id = l.fund_id
+left join m_loan_arrears_aging laa on laa.loan_id = l.id
+where 1 = 1
+and (l.currency_code = "${currencyId}" or "-1" = "${currencyId}")
+and (l.product_id = "${loanProductId}" or "-1" = "${loanProductId}")
+and (ifnull(l.loan_officer_id, -10) = "${loanOfficerId}" or "-1" = "${loanOfficerId}")
+and (ifnull(l.fund_id, -10) = ${fundId} or -1 = ${fundId})
+and (ifnull(l.loanpurpose_cv_id, -10) = ${loanPurposeId} or -1 = ${loanPurposeId})
+and l.loan_status_id = 300
+and l.expected_maturedon_date < curdate()
+group by l.id, ounder.id, ounder.hierarchy, ounder.`name`
+order by ounder.hierarchy, l.currency_code, c.account_no, l.account_no]]></column>
+            <where>report_name = 'Active Loans Passed Final Maturity'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-8-active-loans-in-last-installment" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Active Loans in last installment'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[select concat(repeat("..",   
+   ((LENGTH(lastInstallment.`hierarchy`) - LENGTH(REPLACE(lastInstallment.`hierarchy`, '.', '')) - 1))), lastInstallment.branch) as "Office/Branch",
+lastInstallment.Currency,
+lastInstallment.`Loan Officer`, 
+lastInstallment.`Client Account No`, lastInstallment.`Client`, 
+lastInstallment.`Loan Account No`, lastInstallment.`Product`, 
+lastInstallment.`Fund`,  lastInstallment.`Loan Amount`, 
+lastInstallment.`Annual Nominal Interest Rate`, 
+lastInstallment.`Disbursed`, lastInstallment.`Expected Matured On` ,
+
+l.principal_repaid_derived as "Principal Repaid",
+l.principal_outstanding_derived as "Principal Outstanding",
+laa.principal_overdue_derived as "Principal Overdue",
+
+l.interest_repaid_derived as "Interest Repaid",
+l.interest_outstanding_derived as "Interest Outstanding",
+laa.interest_overdue_derived as "Interest Overdue",
+
+l.fee_charges_repaid_derived as "Fees Repaid",
+l.fee_charges_outstanding_derived  as "Fees Outstanding",
+laa.fee_charges_overdue_derived as "Fees Overdue",
+
+l.penalty_charges_repaid_derived as "Penalties Repaid",
+l.penalty_charges_outstanding_derived as "Penalties Outstanding",
+laa.penalty_charges_overdue_derived as "Penalties Overdue"
+
+from 
+(select l.id as loanId, l.number_of_repayments, min(r.installment), 
+ounder.id, ounder.hierarchy, ounder.`name` as branch, 
+ifnull(cur.display_symbol, l.currency_code) as Currency,
+lo.display_name as "Loan Officer", c.account_no as "Client Account No",
+c.display_name as "Client", l.account_no as "Loan Account No", pl.`name` as "Product", 
+f.`name` as Fund,  l.principal_amount as "Loan Amount", 
+l.annual_nominal_interest_rate as "Annual Nominal Interest Rate", 
+date(l.disbursedon_date) as "Disbursed", date(l.expected_maturedon_date) as "Expected Matured On"
+from m_loan l
+join m_client c on c.id = l.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND CURDATE() >= eo.valid_from AND CURDATE() < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+join m_product_loan pl on pl.id = l.product_id
+left join m_staff lo on lo.id = l.loan_officer_id
+left join m_currency cur on cur.code = l.currency_code
+left join m_fund f on f.id = l.fund_id
+left join m_loan_repayment_schedule r on r.loan_id = l.id
+where 1 = 1
+and (l.currency_code = "${currencyId}" or "-1" = "${currencyId}")
+and (l.product_id = "${loanProductId}" or "-1" = "${loanProductId}")
+and (ifnull(l.loan_officer_id, -10) = "${loanOfficerId}" or "-1" = "${loanOfficerId}")
+and (ifnull(l.fund_id, -10) = ${fundId} or -1 = ${fundId})
+and (ifnull(l.loanpurpose_cv_id, -10) = ${loanPurposeId} or -1 = ${loanPurposeId})
+and l.loan_status_id = 300
+and r.completed_derived is false
+and r.duedate >= curdate()
+group by l.id, ounder.id, ounder.hierarchy, ounder.`name`
+having l.number_of_repayments = min(r.installment)) lastInstallment
+join m_loan l on l.id = lastInstallment.loanId
+left join m_loan_arrears_aging laa on laa.loan_id = l.id
+order by lastInstallment.hierarchy, lastInstallment.Currency, lastInstallment.`Client Account No`, lastInstallment.`Loan Account No`]]></column>
+            <where>report_name = 'Active Loans in last installment'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-9-active-loans-by-disbursal-period" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Active Loans by Disbursal Period'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[select concat(repeat("..",   
+   ((LENGTH(ounder.`hierarchy`) - LENGTH(REPLACE(ounder.`hierarchy`, '.', '')) - 1))), ounder.`name`) as "Office/Branch",
+ifnull(cur.display_symbol, l.currency_code) as Currency,
+c.account_no as "Client Account No", c.display_name as "Client", l.account_no as "Loan Account No", pl.`name` as "Product", 
+f.`name` as Fund,  
+l.principal_amount as "Loan Principal Amount", 
+l.annual_nominal_interest_rate as " Annual Nominal Interest Rate", 
+date(l.disbursedon_date) as "Disbursed Date", 
+
+l.total_expected_repayment_derived as "Total Loan (P+I+F+Pen)",
+l.total_repayment_derived as "Total Repaid (P+I+F+Pen)",
+lo.display_name as "Loan Officer"
+
+from m_loan l
+join m_client c on c.id = l.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND l.disbursedon_date >= eo.valid_from AND l.disbursedon_date < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+join m_product_loan pl on pl.id = l.product_id
+left join m_staff lo on lo.id = l.loan_officer_id
+left join m_currency cur on cur.code = l.currency_code
+left join m_fund f on f.id = l.fund_id
+left join m_loan_arrears_aging laa on laa.loan_id = l.id
+where 1 = 1
+and (l.currency_code = "${currencyId}" or "-1" = "${currencyId}")
+and (l.product_id = "${loanProductId}" or "-1" = "${loanProductId}")
+and (ifnull(l.loan_officer_id, -10) = "${loanOfficerId}" or "-1" = "${loanOfficerId}")
+and (ifnull(l.fund_id, -10) = ${fundId} or -1 = ${fundId})
+and (ifnull(l.loanpurpose_cv_id, -10) = ${loanPurposeId} or -1 = ${loanPurposeId})
+and l.disbursedon_date between '${startDate}' and '${endDate}'
+and l.loan_status_id = 300
+group by l.id, ounder.id, ounder.hierarchy, ounder.`name`
+order by ounder.hierarchy, l.currency_code, c.account_no, l.account_no]]></column>
+            <where>report_name = 'Active Loans by Disbursal Period'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-10-disbursal-report" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Disbursal Report'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_type" value="Table"/>
+            <column name="report_sql"><![CDATA[select concat(repeat('..', ((LENGTH(ounder.hierarchy) - LENGTH(REPLACE(ounder.hierarchy, '.', '')) - 1))), ounder.name) as 'Office/Branch',
+ifnull(cur.display_symbol, l.currency_code) as 'Currency',
+c.account_no as 'Client Account No.',
+c.display_name as 'Client',
+l.account_no as 'Loan Account No.',
+pl.name as 'Product',
+ifnull(f.name, '-') as 'Fund',
+ifnull(lo.display_name, '-') as 'Loan Officer',
+l.principal_amount as 'Loan Amount',
+dt.transaction_date as 'Disbursement Date',
+dt.amount as 'Disbursed Amount',
+rev.enum_message_property as 'Loan Status',
+dt.id as 'Transaction ID'
+from m_loan_transaction dt
+join m_loan l on l.id = dt.loan_id
+join m_client c on c.id = l.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND dt.transaction_date >= eo.valid_from AND dt.transaction_date < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+join m_product_loan pl on pl.id = l.product_id
+left join m_fund f on f.id = l.fund_id
+left join m_staff lo on lo.id = l.loan_officer_id
+left join m_currency cur on cur.code = l.currency_code
+left join r_enum_value rev on rev.enum_name = 'loan_status_id' and rev.enum_id = l.loan_status_id
+where dt.transaction_type_enum = 1
+and dt.is_reversed = 0
+and dt.transaction_date between '${startDate}' and '${endDate}'
+order by ounder.hierarchy, l.currency_code, dt.transaction_date, l.account_no]]></column>
+            <where>report_name = 'Disbursal Report'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-11-loan-payments-received-overdue-loans" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan payments received (Overdue Loans)'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[SELECT 
+ml.id AS "loanId", 
+mc.id AS "id", 
+mc.firstname AS "firstName",
+mc.middlename AS "middleName",
+mc.lastname AS "lastName",
+mc.display_name AS "fullName",
+mc.mobile_no AS "mobileNo", 
+ml.principal_amount AS "loanAmount", 
+(IFNULL(ml.principal_outstanding_derived, 0) + IFNULL(ml.interest_outstanding_derived, 0) + IFNULL(ml.fee_charges_outstanding_derived, 0) + IFNULL(ml.penalty_charges_outstanding_derived, 0)) AS "loanOutstanding",
+ounder.id AS "officeNumber", 
+ml.account_no AS "loanAccountNumber",
+SUM(lt.amount) AS "repaymentAmount"
+FROM m_loan ml
+INNER JOIN m_client mc ON mc.id = ml.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = ml.id AND CURDATE() >= eo.valid_from AND CURDATE() < eo.valid_to)
+JOIN m_office mo ON mo.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(mo.hierarchy, '%')
+INNER JOIN r_enum_value rev ON rev.enum_id=ml.loan_status_id AND rev.enum_name = 'loan_status_id'
+INNER JOIN m_loan_arrears_aging laa ON laa.loan_id=ml.id
+INNER JOIN m_loan_transaction lt ON lt.loan_id = ml.id
+INNER JOIN m_appuser au ON au.id = lt.created_by
+LEFT JOIN m_payment_detail mpd ON mpd.id=lt.payment_detail_id
+LEFT JOIN m_currency cur ON cur.code = ml.currency_code
+LEFT JOIN m_group_client gc ON gc.client_id = mc.id
+LEFT JOIN m_group g ON g.id = gc.group_id
+LEFT JOIN m_staff lo ON lo.id = ml.loan_officer_id
+LEFT JOIN m_guarantor gua ON gua.loan_id = ml.id
+WHERE ml.loan_status_id=300 AND (IFNULL(ml.loan_officer_id, -10) = ${loanOfficerId} OR "-1" = ${loanOfficerId}) AND (DATEDIFF(CURDATE(), lt.transaction_date) BETWEEN ${fromX} AND ${toY}) AND (DATEDIFF(CURDATE(), laa.overdue_since_date_derived) BETWEEN ${overdueX} AND ${overdueY}) AND lt.is_reversed=0 AND lt.transaction_type_enum=2
+GROUP BY ml.id, ounder.id, ounder.hierarchy
+ORDER BY ounder.hierarchy, ml.currency_code, mc.account_no, ml.account_no]]></column>
+            <where>report_name = 'Loan payments received (Overdue Loans)'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-12-loan-in-arrears-table" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan in arrears Table'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[select mc.id   AS 'ID',
+mc.firstname   AS 'First Name',
+mc.middlename    AS 'Middle Name',
+mc.lastname    AS 'Last Name',
+mc.display_name   AS 'Full Name',
+mc.mobile_no    AS 'Mobile No',
+ml.principal_amount    AS 'Loan Amount',
+(IFNULL(ml.principal_outstanding_derived, 0) + IFNULL(ml.interest_outstanding_derived, 0) + IFNULL(ml.fee_charges_outstanding_derived, 0) + IFNULL(ml.penalty_charges_outstanding_derived, 0))    AS 'Loan Outstanding',
+ml.principal_disbursed_derived    AS 'Loan Disbursed',
+laa.overdue_since_date_derived     AS 'Payment Due Date',
+IFNULL(laa.total_overdue_derived, 0)    AS 'Total Due',
+ounder.id    AS 'Office Number',
+ml.account_no    AS 'Account Number',
+gua.lastname     AS 'Guarantor Last Name',
+COUNT(gua.id)   AS 'Number Of Guarantors',
+g.display_name   AS 'Group Name',
+year(now()) - YEAR(mc.date_of_birth)    as 'Age',
+mc.external_id  as 'Client UID',
+cdg.code_value   as 'Gender',
+cvc.code_value   as 'Cohort',
+ml.generic_loan_counter   as 'Cycle',
+cvn.code_value    as 'Nationality',
+cvl.code_value   as 'Location',
+cvs.code_value   as 'Strata'
+FROM m_loan ml
+INNER JOIN m_client mc ON mc.id = ml.client_id
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = ml.id AND DATE('${endDate}') >= eo.valid_from AND DATE('${endDate}') < eo.valid_to)
+JOIN m_office mo ON mo.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(mo.hierarchy, '%')
+INNER JOIN r_enum_value rev ON rev.enum_id = ml.loan_status_id AND rev.enum_name = 'loan_status_id'
+INNER JOIN m_loan_arrears_aging laa ON laa.loan_id = ml.id
+LEFT JOIN m_currency cur ON cur.code = ml.currency_code
+LEFT JOIN m_group_client gc ON gc.client_id = mc.id
+LEFT JOIN m_group g ON g.id = gc.group_id
+LEFT JOIN m_staff lo ON lo.id = ml.loan_officer_id
+LEFT JOIN m_guarantor gua ON gua.loan_id = ml.id
+left join m_client_other_info coi on coi.client_id = mc.id
+left join m_code_value cdg on cdg.id = mc.gender_cv_id
+left join m_client_recruitment_survey crs on crs.client_id = mc.id
+left join m_code_value cvc on cvc.id = crs.cohort_cv_id
+left join m_code_value cvn on cvn.id = coi.nationality_cv_id
+left join m_code_value cvl on cvl.id = crs.survey_location_cv_id
+left join m_code_value cvs on cvs.id = coi.strata_cv_id
+WHERE ml.loan_status_id = 300
+AND (IFNULL(ml.loan_officer_id, -10) = ${loanOfficerId} OR '-1' = '${loanOfficerId}')
+AND date(laa.overdue_since_date_derived) between date('${startDate}') and date('${endDate}')
+GROUP BY ml.id, ounder.id, ounder.hierarchy, ml.currency_code, mc.account_no, ml.account_no, gua.lastname, g.display_name,
+cvc.code_value, cvn.code_value, cvl.code_value, cvs.code_value
+ORDER BY ounder.hierarchy, ml.currency_code, mc.account_no, ml.account_no]]></column>
+            <where>report_name = 'Loan in arrears Table'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-13-loan-payment-details-report" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan Payment Details Report'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[SELECT
+    ml.account_no AS 'Account Number/Loan ID',
+    mc.display_name AS 'Client Name',
+    mc.id AS 'Client ID',
+    mo.name AS 'Office',
+    lp.name AS 'Loan Product',
+    pt.value AS 'Payment Type',
+    ml.currency_code AS 'Currency',
+    mlt.id AS 'Transaction ID',
+    mlt.transaction_date AS 'Transaction Date',
+    mlt.amount AS 'Total Amount Paid',
+    COALESCE(mlt.principal_portion_derived,0) AS 'Principal Paid',
+    COALESCE(mlt.interest_portion_derived,0) AS 'Interest Paid',
+    (
+        COALESCE(mlt.fee_charges_portion_derived,0) +
+        COALESCE(mlt.penalty_charges_portion_derived,0) +
+        COALESCE(mlt.overpayment_portion_derived,0) +
+        COALESCE(mlt.unrecognized_income_portion,0)
+    ) AS 'Charges & Others Paid',
+    cvp.code_value AS 'Province',
+    adr.physical_address_sector AS 'Sector',
+    adr.physical_address_cell AS 'Cell',
+    adr.physical_address_district AS 'District',
+    mpd.receipt_number AS 'Reference Number',
+    mpd.routing_code AS 'Payment Hub Transaction ID',
+    MIN(creator.username) AS 'Created By',
+    MIN(gl.created_date) AS 'Created On',
+    CASE WHEN mlt.is_reversed = 1 THEN 'Yes' ELSE 'No' END AS 'Is Reversed',
+    CASE WHEN mlt.is_reversed = 1 THEN MAX(rev_by.username) ELSE NULL END AS 'Reversed By',
+    CASE WHEN mlt.is_reversed = 1 THEN MAX(gl.created_date) ELSE NULL END AS 'Reversed On'
+FROM m_loan ml
+JOIN m_client mc ON ml.client_id = mc.id
+JOIN m_product_loan lp ON ml.product_id = lp.id
+JOIN m_loan_transaction mlt ON ml.id = mlt.loan_id
+JOIN m_office mo ON mo.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = ml.id AND mlt.transaction_date >= eo.valid_from AND mlt.transaction_date < eo.valid_to)
+JOIN m_payment_detail mpd ON mlt.payment_detail_id = mpd.id
+LEFT JOIN m_payment_type pt ON mpd.payment_type_id = pt.id
+LEFT JOIN acc_gl_journal_entry gl ON gl.loan_transaction_id = mlt.id
+LEFT JOIN m_appuser creator
+    ON gl.created_date = (
+        SELECT MIN(gl2.created_date)
+        FROM acc_gl_journal_entry gl2
+        WHERE gl2.loan_transaction_id = mlt.id
+    )
+    AND gl.createdby_id = creator.id
+LEFT JOIN m_appuser rev_by
+    ON gl.created_date = (
+        SELECT MAX(gl3.created_date)
+        FROM acc_gl_journal_entry gl3
+        WHERE gl3.loan_transaction_id = mlt.id
+    )
+    AND gl.createdby_id = rev_by.id
+LEFT JOIN (
+    SELECT
+        cdr.client_id,
+        MIN(addr.physical_address_sector) AS physical_address_sector,
+        MIN(addr.physical_address_district) AS physical_address_district,
+        MIN(addr.physical_address_cell) AS physical_address_cell,
+        MIN(addr.state_province_id) AS state_province_id
+    FROM m_client_address cdr
+    JOIN m_address addr ON addr.id = cdr.address_id
+    GROUP BY cdr.client_id
+) adr ON mc.id = adr.client_id
+LEFT JOIN m_code_value cvp ON cvp.id = adr.state_province_id
+WHERE
+    (mlt.transaction_type_enum = 2 OR mlt.transaction_type_enum = 8)
+    AND ('${startDate}' IS NULL OR mlt.transaction_date >= '${startDate}')
+    AND ('${endDate}' IS NULL OR mlt.transaction_date <= '${endDate}')
+    AND (
+        ${officeId} = -1
+        OR mo.hierarchy LIKE CONCAT(
+            IFNULL((SELECT hierarchy FROM m_office WHERE id = ${officeId}), ''),
+            '%'
+        )
+    )
+    AND (${paymentTypeId} = -1 OR pt.id = ${paymentTypeId})
+    AND ('${currencyId}' IN ('-1', '0') OR ml.currency_code = '${currencyId}')
+GROUP BY
+    ml.account_no,
+    mc.id,
+    mo.id,
+    mo.name,
+    lp.name,
+    pt.value,
+    ml.currency_code,
+    mlt.id,
+    mlt.transaction_date,
+    mlt.amount,
+    mpd.receipt_number,
+    mpd.routing_code,
+    mlt.is_reversed
+ORDER BY
+    mlt.transaction_date DESC]]></column>
+            <where>report_name = 'Loan Payment Details Report'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-759-14-write-off-and-recovery-report" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Write off and Recovery Report'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[SELECT DISTINCT
+    l.account_no                          AS 'Loan Number',
+
+    CASE
+        WHEN c.legal_form_enum = 1 THEN CONCAT(c.firstname, ' ', c.lastname)
+        WHEN c.legal_form_enum = 2 THEN c.display_name
+    END                                   AS 'Client Name',
+
+    st.display_name                       AS 'Loan Officer',
+    p.name                                AS 'Loan Product',
+    f.name                                AS 'Funder',
+    cvs.code_value                        AS 'Strata',
+
+    loancountTbl.incremental_count        AS 'Loan Cycle',
+
+    CASE
+        WHEN c.legal_form_enum = 1 THEN cvg.code_value
+        WHEN c.legal_form_enum = 2 THEN cvbog.code_value
+    END                                   AS 'Gender',
+
+    c.date_of_birth                       AS 'Date of Birth',
+    coi.telephone_no                      AS 'Telephone',
+
+    cvp.code_value                        AS 'Province',
+    adr.physical_address_district         AS 'District',
+
+    currency.name                         AS 'Currency Type',
+    l.disbursedon_date                    AS 'Disbursement Date',
+    l.principal_disbursed_derived         AS 'Disbursed Amount',
+
+    COALESCE(l.maturedon_date, l.expected_maturedon_date)
+                                         AS 'Matures on',
+
+    woAgg.written_off_date                AS 'Written off date',
+    IFNULL(woAgg.total_written_off, 0)    AS 'Written of amount (Total)',
+    IFNULL(woAgg.wo_principal, 0)         AS 'Written off principal',
+    IFNULL(woAgg.wo_interest, 0)          AS 'Written off interest',
+    IFNULL(woAgg.wo_penalties, 0)         AS 'Written off penalties',
+    IFNULL(woAgg.wo_fees, 0)              AS 'Written off fees',
+
+    IFNULL(recAgg.recovered_amount, 0)    AS 'Recovered amount',
+    GREATEST(
+        IFNULL(woAgg.total_written_off, 0) -
+        IFNULL(recAgg.recovered_amount, 0),
+        0
+    )                                     AS 'Written off balance',
+    recAgg.last_recovery_date             AS 'Last Recovery Date',
+
+    n.note                                AS 'Reason for write off',
+
+    COALESCE(TRIM(CONCAT(maker.firstname, ' ', maker.lastname)), '-')     AS 'Written of By (Initiator)',
+    COALESCE(TRIM(CONCAT(checker.firstname, ' ', checker.lastname)), '-') AS 'Written of By (Approver)'
+
+FROM m_loan l
+JOIN m_client c
+    ON c.id = l.client_id
+
+JOIN (
+    SELECT
+        lt.loan_id,
+        MAX(lt.transaction_date) AS written_off_date,
+        SUM(IFNULL(lt.principal_portion_derived, 0))       AS wo_principal,
+        SUM(IFNULL(lt.interest_portion_derived, 0))        AS wo_interest,
+        SUM(IFNULL(lt.fee_charges_portion_derived, 0))     AS wo_fees,
+        SUM(IFNULL(lt.penalty_charges_portion_derived, 0)) AS wo_penalties,
+        SUM(IFNULL(lt.amount, 0))                          AS total_written_off
+    FROM m_loan_transaction lt
+    WHERE lt.transaction_type_enum = 6
+      AND lt.is_reversed = b'0'
+    GROUP BY lt.loan_id
+) woAgg
+    ON woAgg.loan_id = l.id
+
+JOIN m_office ounder ON ounder.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = l.id AND woAgg.written_off_date >= eo.valid_from AND woAgg.written_off_date < eo.valid_to)
+JOIN m_office o ON o.id = ${officeId}
+    AND ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+    AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+
+JOIN m_product_loan p
+    ON p.id = l.product_id
+
+LEFT JOIN m_staff st
+    ON st.id = l.loan_officer_id
+
+LEFT JOIN m_fund f
+    ON f.id = l.fund_id
+
+LEFT JOIN m_currency currency
+    ON currency.code = p.currency_code
+
+LEFT JOIN m_client_other_info coi
+    ON coi.client_id = c.id
+
+LEFT JOIN m_code_value cvs
+    ON cvs.id = coi.strata_cv_id
+
+LEFT JOIN m_code_value cvg
+    ON cvg.id = c.gender_cv_id
+
+LEFT JOIN `Business Owner Information` boi
+    ON boi.client_id = c.id
+LEFT JOIN m_code_value cvbog
+    ON cvbog.id = boi.`Gender_cd_Gender`
+
+LEFT JOIN (
+    SELECT
+        cdr.client_id,
+        MIN(addr.physical_address_district) AS physical_address_district,
+        MIN(addr.state_province_id)         AS state_province_id
+    FROM m_client_address cdr
+    JOIN m_address addr ON addr.id = cdr.address_id
+    GROUP BY cdr.client_id
+) adr
+    ON adr.client_id = c.id
+
+LEFT JOIN m_code_value cvp
+    ON cvp.id = adr.state_province_id
+
+LEFT JOIN (
+    SELECT
+        client_id,
+        id AS loan_id,
+        CAST(
+            ROW_NUMBER() OVER (
+                PARTITION BY client_id
+                ORDER BY submittedon_date
+            ) AS SIGNED
+        ) AS incremental_count
+    FROM m_loan
+    WHERE loan_status_id NOT IN (100, 400, 500)
+) loancountTbl
+    ON loancountTbl.client_id = l.client_id
+   AND loancountTbl.loan_id  = l.id
+
+
+LEFT JOIN (
+    SELECT
+        loan_id,
+        id AS writeoff_txn_id
+    FROM (
+        SELECT
+            lt.loan_id,
+            lt.id,
+            ROW_NUMBER() OVER (
+                PARTITION BY lt.loan_id
+                ORDER BY lt.transaction_date DESC, lt.id DESC
+            ) AS rn
+        FROM m_loan_transaction lt
+        WHERE lt.transaction_type_enum = 6
+          AND lt.is_reversed = b'0'
+    ) x
+    WHERE x.rn = 1
+) woLastTxn
+    ON woLastTxn.loan_id = l.id
+
+LEFT JOIN m_note n
+    ON n.loan_transaction_id = woLastTxn.writeoff_txn_id
+
+LEFT JOIN (
+    SELECT
+        t.loan_id,
+        SUM(IFNULL(t.overpayment_portion_derived, 0)) AS recovered_amount,
+        MAX(t.transaction_date)                       AS last_recovery_date
+    FROM m_loan_transaction t
+    WHERE t.transaction_type_enum = 8
+      AND t.is_reversed = b'0'
+    GROUP BY t.loan_id
+) recAgg
+    ON recAgg.loan_id = l.id
+
+LEFT JOIN (
+    SELECT
+        pcs.loan_id,
+        pcs.client_id,
+        pcs.maker_id,
+        pcs.checker_id
+    FROM (
+        SELECT
+            pcs.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY pcs.loan_id
+                ORDER BY pcs.made_on_date DESC, pcs.id DESC
+            ) AS rn
+        FROM m_portfolio_command_source pcs
+        WHERE pcs.action_name = 'WRITEOFF'
+    ) pcs
+    WHERE pcs.rn = 1
+) pcsLast
+    ON pcsLast.loan_id = l.id
+   AND pcsLast.client_id = c.id
+
+LEFT JOIN m_appuser maker
+    ON maker.id = pcsLast.maker_id
+
+LEFT JOIN m_appuser checker
+    ON checker.id = pcsLast.checker_id
+
+WHERE
+    1 = 1
+    AND (l.currency_code = '${currencyId}' OR '${currencyId}' = '-1')
+    AND (IFNULL(l.fund_id, -1) = ${fundId} OR ${fundId} = -1)
+    AND (l.product_id = '${loanProductId}' OR '${loanProductId}' = '-1')
+    AND (IFNULL(l.loan_officer_id, -1) = '${loanOfficerId}' OR '${loanOfficerId}' = '-1')
+    AND woAgg.written_off_date BETWEEN DATE('${startDate}') AND DATE('${endDate}')
+    AND l.loan_status_id = 601
+
+ORDER BY
+    woAgg.written_off_date DESC,
+    l.account_no]]></column>
+            <where>report_name = 'Write off and Recovery Report'</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>
