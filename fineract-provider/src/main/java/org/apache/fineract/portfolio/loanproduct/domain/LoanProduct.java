@@ -1334,6 +1334,12 @@ public class LoanProduct extends AbstractPersistableCustom {
             actualChanges.put(LoanProductConstants.residualClosureThresholdParamName, newValue);
             this.residualClosureThreshold = newValue;
         }
+        if (!this.residualAutoCloseEnabled
+                && actualChanges.containsKey(LoanProductConstants.residualAutoCloseEnabledParamName)
+                && this.residualClosureThreshold != null) {
+            actualChanges.put(LoanProductConstants.residualClosureThresholdParamName, null);
+            this.residualClosureThreshold = null;
+        }
 
         if (command.isChangeInBooleanParameterNamed(LoanProductConstants.requiresEquityContributionParamName,
                 this.requiresEquityContribution)) {

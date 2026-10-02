@@ -1678,8 +1678,12 @@ public final class LoanProductDataValidator {
                     .zeroOrPositiveAmount();
         }
         if (update && loanProduct != null) {
-            enabled = enabled == null ? loanProduct.isResidualAutoCloseEnabled() : enabled;
-            threshold = threshold == null ? loanProduct.getResidualClosureThreshold() : threshold;
+            if (enabled == null) {
+                enabled = loanProduct.isResidualAutoCloseEnabled();
+            }
+            if (threshold == null && Boolean.TRUE.equals(enabled)) {
+                threshold = loanProduct.getResidualClosureThreshold();
+            }
         }
         if (Boolean.TRUE.equals(enabled)) {
             baseDataValidator.reset().parameter(LoanProductConstants.residualClosureThresholdParamName).value(threshold).notNull()
