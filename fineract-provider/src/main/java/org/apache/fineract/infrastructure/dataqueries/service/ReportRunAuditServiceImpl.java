@@ -47,6 +47,7 @@ public class ReportRunAuditServiceImpl implements ReportRunAuditService {
     private static final int HREF_MAX_LENGTH = 100;
     private static final String OUTPUT_TYPE_PARAMETER = "output-type";
     private static final String TENANT_PARAMETER = "tenantIdentifier";
+    private static final String DENIED_NOTE = " - not authorised";
 
     private final PlatformSecurityContext context;
     private final CommandSourceRepository commandSourceRepository;
@@ -54,6 +55,16 @@ public class ReportRunAuditServiceImpl implements ReportRunAuditService {
     @Override
     @Transactional
     public void recordReportRun(final String reportName, final MultivaluedMap<String, String> queryParams) {
+        record(reportName, queryParams, false);
+    }
+
+    @Override
+    @Transactional
+    public void recordDeniedReportRun(final String reportName, final MultivaluedMap<String, String> queryParams) {
+        record(reportName, queryParams, true);
+    }
+
+    private void record(final String reportName, final MultivaluedMap<String, String> queryParams, final boolean denied) {
         if (!isAuditable(queryParams)) {
             return;
         }
@@ -61,7 +72,11 @@ public class ReportRunAuditServiceImpl implements ReportRunAuditService {
         final String format = exportFormat(queryParams);
         final CommandSource entry = CommandSource.reportRunEntry(format == null ? ACTION_RUN : ACTION_EXPORT, ENTITY_NAME,
                 StringUtils.left(HREF_PREFIX + reportName, HREF_MAX_LENGTH), toJson(reportName, format, queryParams), user,
-                ZonedDateTime.now(DateUtils.getDateTimeZoneOfTenant()), format == null ? reportName : reportName + " (" + format + ")");
+                ZonedDateTime.now(DateUtils.getDateTimeZoneOfTenant()),
+                (format == null ? reportName : reportName + " (" + format + ")") + (denied ? DENIED_NOTE : ""));
+        if (denied) {
+            entry.markAsDenied();
+        }
         entry.updateForAudit(user.getOffice() == null ? null : user.getOffice().getId(), null, null, null, null, null, null);
         this.commandSourceRepository.saveAndFlush(entry);
     }

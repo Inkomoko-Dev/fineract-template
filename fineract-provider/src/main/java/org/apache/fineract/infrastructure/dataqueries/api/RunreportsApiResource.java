@@ -109,7 +109,7 @@ public class RunreportsApiResource {
 
         final boolean parameterType = ApiParameterHelper.parameterType(queryParams);
 
-        checkUserPermissionForReport(reportName, parameterType);
+        checkUserPermissionForReport(reportName, parameterType, queryParams);
 
         // Pass through isSelfServiceUserReport so that ReportingProcessService implementations can use it
         queryParams.putSingle(IS_SELF_SERVICE_USER_REPORT_PARAMETER, Boolean.toString(isSelfServiceUserReport));
@@ -124,12 +124,14 @@ public class RunreportsApiResource {
         return reportingProcessService.processRequest(reportName, queryParams);
     }
 
-    private void checkUserPermissionForReport(final String reportName, final boolean parameterType) {
+    private void checkUserPermissionForReport(final String reportName, final boolean parameterType,
+            final MultivaluedMap<String, String> queryParams) {
         // Anyone can run a 'report' that is simply getting possible parameter
         // (dropdown listbox) values.
         if (!parameterType) {
             final AppUser currentUser = this.context.authenticatedUser();
             if (currentUser.hasNotPermissionForReport(reportName)) {
+                this.reportRunAuditService.recordDeniedReportRun(reportName, queryParams);
                 throw new NoAuthorizationException("Not authorised to run report: " + reportName);
             }
         }

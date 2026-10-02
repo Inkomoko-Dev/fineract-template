@@ -113,11 +113,13 @@ class RunreportsApiResourceTest {
     }
 
     @Test
-    void unauthorisedRunIsRejectedWithoutAnAuditRow() {
+    void unauthorisedRunIsAuditedAsDeniedAndNotExecuted() {
         when(this.context.authenticatedUser()).thenReturn(this.user);
         when(this.user.hasNotPermissionForReport(REPORT)).thenReturn(true);
 
         assertThatThrownBy(() -> this.resource.runReport(REPORT, this.uriInfo, false)).isInstanceOf(NoAuthorizationException.class);
-        verifyNoInteractions(this.auditService);
+        verify(this.auditService).recordDeniedReportRun(eq(REPORT), any());
+        verify(this.auditService, never()).recordReportRun(any(), any());
+        verifyNoInteractions(this.processService);
     }
 }

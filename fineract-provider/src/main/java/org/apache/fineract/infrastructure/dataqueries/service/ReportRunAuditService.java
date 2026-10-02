@@ -23,4 +23,6 @@ import javax.ws.rs.core.MultivaluedMap;
 public interface ReportRunAuditService {
 
     void recordReportRun(String reportName, MultivaluedMap<String, String> queryParams);
+
+    void recordDeniedReportRun(String reportName, MultivaluedMap<String, String> queryParams);
 }

@@ -171,6 +171,10 @@ public class CommandSource extends AbstractPersistableCustom {
         this.processingResult = CommandProcessingResultType.PROCESSED.getValue();
     }
 
+    public void markAsDenied() {
+        this.processingResult = CommandProcessingResultType.REJECTED.getValue();
+    }
+
     public void markAsRejected(final AppUser checker, final ZonedDateTime checkedOnDate) {
         this.checker = checker;
         this.checkedOnDate = checkedOnDate != null ? checkedOnDate.toLocalDateTime() : null;

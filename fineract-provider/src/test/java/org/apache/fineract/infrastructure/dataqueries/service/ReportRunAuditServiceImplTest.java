@@ -28,6 +28,7 @@ import static org.mockito.Mockito.when;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import javax.ws.rs.core.MultivaluedMap;
+import org.apache.fineract.commands.domain.CommandProcessingResultType;
 import org.apache.fineract.commands.domain.CommandSource;
 import org.apache.fineract.commands.domain.CommandSourceRepository;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
@@ -177,6 +178,37 @@ class ReportRunAuditServiceImplTest {
         assertThat(ReportRunAuditServiceImpl.isAuditable(params("limit", "1", "offset", "0", "includeCount", "false"))).isTrue();
         assertThat(ReportRunAuditServiceImpl.isAuditable(params())).isTrue();
         assertThat(ReportRunAuditServiceImpl.isAuditable(params("offset", "abc"))).isTrue();
+    }
+
+    @Test
+    void deniedAttemptIsRecordedAsRejected() {
+        givenUserInOffice(4L);
+
+        this.service.recordDeniedReportRun(REPORT, params("R_asOn", "2026-10-02", "exportCSV", "true"));
+
+        final CommandSource entry = recorded();
+        assertThat(entry.getActionName()).isEqualTo("EXPORT");
+        assertThat(entry.getProcessingResult()).isEqualTo(CommandProcessingResultType.REJECTED.getValue());
+        assertThat(entry.getNotes()).isEqualTo(REPORT + " (CSV) - not authorised");
+        assertThat(entry.getOfficeId()).isEqualTo(4L);
+        assertThat(JsonParser.parseString(entry.getCommandAsJson()).getAsJsonObject().getAsJsonObject("parameters").get("R_asOn")
+                .getAsString()).isEqualTo("2026-10-02");
+    }
+
+    @Test
+    void allowedRunIsRecordedAsProcessed() {
+        givenUserInOffice(1L);
+
+        this.service.recordReportRun(REPORT, params());
+
+        assertThat(recorded().getProcessingResult()).isEqualTo(CommandProcessingResultType.PROCESSED.getValue());
+    }
+
+    @Test
+    void deniedCountProbeIsNotRecordedTwice() {
+        this.service.recordDeniedReportRun(REPORT, params("limit", "1", "offset", "0"));
+
+        verify(this.commandSourceRepository, never()).saveAndFlush(any());
     }
 
     @Test
