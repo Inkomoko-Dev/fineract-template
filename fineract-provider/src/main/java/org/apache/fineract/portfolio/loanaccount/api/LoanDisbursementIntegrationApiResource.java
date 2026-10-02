@@ -149,9 +149,7 @@ public class LoanDisbursementIntegrationApiResource {
         newJsonObject.add("actualDisbursementDate", originalJsonObject.get("actualDisbursementDate"));
         newJsonObject.add("locale", originalJsonObject.get("locale"));
         newJsonObject.add("resultCode", originalJsonObject.get("resultCode"));
-        if (originalJsonObject.has("resultMessage")) {
-            newJsonObject.add("resultMessage", originalJsonObject.get("resultMessage"));
-        }
+        // resultMessage is written on the loan note from the original callback. The disburse command rejects it.
         newJsonObject.add("dateFormat", originalJsonObject.get("dateFormat"));
         newJsonObject.add("receiptNumber", originalJsonObject.get("transactionRef"));
         return newJsonObject.toString();
