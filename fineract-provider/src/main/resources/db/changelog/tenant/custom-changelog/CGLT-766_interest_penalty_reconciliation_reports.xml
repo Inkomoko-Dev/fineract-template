@@ -1182,6 +1182,18 @@ order by 1, 2, 3]]></column>
         </createIndex>
     </changeSet>
 
+    <changeSet id="CGLT-766-v2-loan-transaction-date-index" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan_transaction" indexName="idx_m_loan_transaction_transaction_date"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_loan_transaction" indexName="idx_m_loan_transaction_transaction_date">
+            <column name="transaction_date"/>
+            <column name="is_reversed"/>
+        </createIndex>
+    </changeSet>
+
     <changeSet id="CGLT-766-v2-report-1" author="wmnjugunaink">
         <update tableName="stretchy_report">
             <column name="description" value="Per loan as at the cut-off date: interest and penalty accrued, received, waived, written off and reversed, the outstanding receivable, and the receivable GL balance posted for the loan."/>
