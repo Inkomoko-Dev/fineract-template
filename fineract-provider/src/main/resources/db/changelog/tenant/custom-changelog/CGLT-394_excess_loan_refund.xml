@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-394-create-m_loan_excess_refund_batch" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_excess_refund_batch"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_excess_refund_batch">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true"/>
+            </column>
+            <column name="office_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="fk_excess_refund_batch_office" references="m_office(id)"/>
+            </column>
+            <column name="submitted_by" type="bigint">
+                <constraints nullable="false" foreignKeyName="fk_excess_refund_batch_submitted_by" references="m_appuser(id)"/>
+            </column>
+            <column name="status_enum" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="total_count" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="success_count" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="failed_count" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="submission_note" type="longtext"/>
+            <column name="approver_id" type="bigint">
+                <constraints nullable="true" foreignKeyName="fk_excess_refund_batch_approver" references="m_appuser(id)"/>
+            </column>
+            <column name="approval_note" type="longtext"/>
+            <column name="approved_at" type="datetime"/>
+            <column name="created_at" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="m_loan_excess_refund_batch" indexName="idx_excess_refund_batch_office">
+            <column name="office_id"/>
+        </createIndex>
+        <createIndex tableName="m_loan_excess_refund_batch" indexName="idx_excess_refund_batch_submitted_by">
+            <column name="submitted_by"/>
+        </createIndex>
+        <createIndex tableName="m_loan_excess_refund_batch" indexName="idx_excess_refund_batch_status">
+            <column name="status_enum"/>
+        </createIndex>
+        <createIndex tableName="m_loan_excess_refund_batch" indexName="idx_excess_refund_batch_created_at">
+            <column name="created_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-394-create-m_loan_excess_refund" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_excess_refund"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_excess_refund">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true"/>
+            </column>
+            <column name="loan_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="fk_excess_refund_loan" references="m_loan(id)"/>
+            </column>
+            <column name="client_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="fk_excess_refund_client" references="m_client(id)"/>
+            </column>
+            <column name="batch_id" type="bigint">
+                <constraints nullable="true" foreignKeyName="fk_excess_refund_batch" references="m_loan_excess_refund_batch(id)"/>
+            </column>
+            <column name="amount" type="decimal(19,6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="currency_code" type="varchar(3)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="payment_mode_enum" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="payment_type_id" type="bigint"/>
+            <column name="status_enum" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="beneficiary_json" type="longtext">
+                <constraints nullable="false"/>
+            </column>
+            <column name="hub_request_id" type="varchar(100)"/>
+            <column name="hub_transaction_ref" type="varchar(100)"/>
+            <column name="manual_payment_ref" type="varchar(100)"/>
+            <column name="paid_on" type="date"/>
+            <column name="submitted_by" type="bigint">
+                <constraints nullable="false" foreignKeyName="fk_excess_refund_submitted_by" references="m_appuser(id)"/>
+            </column>
+            <column name="submitted_at" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+            <column name="approved_by" type="bigint">
+                <constraints nullable="true" foreignKeyName="fk_excess_refund_approved_by" references="m_appuser(id)"/>
+            </column>
+            <column name="approved_at" type="datetime"/>
+            <column name="rejected_by" type="bigint">
+                <constraints nullable="true" foreignKeyName="fk_excess_refund_rejected_by" references="m_appuser(id)"/>
+            </column>
+            <column name="rejected_at" type="datetime"/>
+            <column name="rejection_note" type="longtext"/>
+            <column name="posted_transaction_id" type="bigint">
+                <constraints nullable="true" foreignKeyName="fk_excess_refund_posted_txn" references="m_loan_transaction(id)"/>
+            </column>
+            <column name="failure_reason" type="varchar(500)"/>
+            <column name="version" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="datetime">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="m_loan_excess_refund" indexName="idx_excess_refund_loan">
+            <column name="loan_id"/>
+        </createIndex>
+        <createIndex tableName="m_loan_excess_refund" indexName="idx_excess_refund_status">
+            <column name="status_enum"/>
+        </createIndex>
+        <createIndex tableName="m_loan_excess_refund" indexName="idx_excess_refund_batch_id">
+            <column name="batch_id"/>
+        </createIndex>
+        <addUniqueConstraint tableName="m_loan_excess_refund" columnNames="hub_request_id"
+                             constraintName="uk_excess_refund_hub_request_id"/>
+    </changeSet>
+
+    <changeSet id="CGLT-394-permission-CREATE_EXCESS_REFUND" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'CREATE_EXCESS_REFUND'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="CREATE_EXCESS_REFUND"/>
+            <column name="entity_name" value="EXCESS_REFUND"/>
+            <column name="action_name" value="CREATE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-READ_EXCESS_REFUND" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'READ_EXCESS_REFUND'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="READ_EXCESS_REFUND"/>
+            <column name="entity_name" value="EXCESS_REFUND"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-APPROVE_EXCESS_REFUND" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'APPROVE_EXCESS_REFUND'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="APPROVE_EXCESS_REFUND"/>
+            <column name="entity_name" value="EXCESS_REFUND"/>
+            <column name="action_name" value="APPROVE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-REJECT_EXCESS_REFUND" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'REJECT_EXCESS_REFUND'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_EXCESS_REFUND"/>
+            <column name="entity_name" value="EXCESS_REFUND"/>
+            <column name="action_name" value="REJECT"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-CANCEL_EXCESS_REFUND" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'CANCEL_EXCESS_REFUND'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="CANCEL_EXCESS_REFUND"/>
+            <column name="entity_name" value="EXCESS_REFUND"/>
+            <column name="action_name" value="CANCEL"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-RECORD_PAYMENT_EXCESS_REFUND" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'RECORD_PAYMENT_EXCESS_REFUND'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="RECORD_PAYMENT_EXCESS_REFUND"/>
+            <column name="entity_name" value="EXCESS_REFUND"/>
+            <column name="action_name" value="RECORD_PAYMENT"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-SEND_TO_PAYMENTHUB_EXCESS_REFUND" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'SEND_TO_PAYMENTHUB_EXCESS_REFUND'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="SEND_TO_PAYMENTHUB_EXCESS_REFUND"/>
+            <column name="entity_name" value="EXCESS_REFUND"/>
+            <column name="action_name" value="SEND_TO_PAYMENTHUB"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-POST_EXCESS_REFUND" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'POST_EXCESS_REFUND'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="POST_EXCESS_REFUND"/>
+            <column name="entity_name" value="EXCESS_REFUND"/>
+            <column name="action_name" value="POST"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-CREATE_EXCESS_REFUND_BATCH" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'CREATE_EXCESS_REFUND_BATCH'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="CREATE_EXCESS_REFUND_BATCH"/>
+            <column name="entity_name" value="EXCESS_REFUND_BATCH"/>
+            <column name="action_name" value="CREATE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-APPROVE_EXCESS_REFUND_BATCH" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'APPROVE_EXCESS_REFUND_BATCH'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="APPROVE_EXCESS_REFUND_BATCH"/>
+            <column name="entity_name" value="EXCESS_REFUND_BATCH"/>
+            <column name="action_name" value="APPROVE"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet id="CGLT-394-permission-REJECT_EXCESS_REFUND_BATCH" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'REJECT_EXCESS_REFUND_BATCH'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="REJECT_EXCESS_REFUND_BATCH"/>
+            <column name="entity_name" value="EXCESS_REFUND_BATCH"/>
+            <column name="action_name" value="REJECT"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <!-- Partial unique: at most one open refund per loan (terminal statuses store NULL in open_loan_key). -->
+    <changeSet id="CGLT-394-open-refund-unique-per-loan" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_loan_excess_refund"/>
+            <not>
+                <columnExists tableName="m_loan_excess_refund" columnName="open_loan_key"/>
+            </not>
+        </preConditions>
+        <sql>
+            ALTER TABLE m_loan_excess_refund
+                ADD COLUMN open_loan_key BIGINT GENERATED ALWAYS AS (
+                    CASE WHEN status_enum IN (100, 200, 300, 400, 450) THEN loan_id ELSE NULL END
+                ) STORED;
+        </sql>
+        <addUniqueConstraint tableName="m_loan_excess_refund" columnNames="open_loan_key"
+                             constraintName="uk_excess_refund_open_loan"/>
+    </changeSet>
+
+</databaseChangeLog>

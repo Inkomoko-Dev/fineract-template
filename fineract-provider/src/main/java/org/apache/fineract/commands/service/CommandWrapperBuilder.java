@@ -1053,6 +1053,86 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder createExcessRefund() {
+        this.actionName = "CREATE";
+        this.entityName = "EXCESS_REFUND";
+        this.entityId = null;
+        this.href = "/excess-refunds";
+        return this;
+    }
+
+    public CommandWrapperBuilder approveExcessRefund(final Long refundId) {
+        this.actionName = "APPROVE";
+        this.entityName = "EXCESS_REFUND";
+        this.entityId = refundId;
+        this.href = "/excess-refunds/" + refundId + "?command=approve";
+        return this;
+    }
+
+    public CommandWrapperBuilder rejectExcessRefund(final Long refundId) {
+        this.actionName = "REJECT";
+        this.entityName = "EXCESS_REFUND";
+        this.entityId = refundId;
+        this.href = "/excess-refunds/" + refundId + "?command=reject";
+        return this;
+    }
+
+    public CommandWrapperBuilder cancelExcessRefund(final Long refundId) {
+        this.actionName = "CANCEL";
+        this.entityName = "EXCESS_REFUND";
+        this.entityId = refundId;
+        this.href = "/excess-refunds/" + refundId + "?command=cancel";
+        return this;
+    }
+
+    public CommandWrapperBuilder recordExcessRefundPayment(final Long refundId) {
+        this.actionName = "RECORD_PAYMENT";
+        this.entityName = "EXCESS_REFUND";
+        this.entityId = refundId;
+        this.href = "/excess-refunds/" + refundId + "?command=recordPayment";
+        return this;
+    }
+
+    public CommandWrapperBuilder sendExcessRefundToPaymentHub(final Long refundId) {
+        this.actionName = "SEND_TO_PAYMENTHUB";
+        this.entityName = "EXCESS_REFUND";
+        this.entityId = refundId;
+        this.href = "/excess-refunds/" + refundId + "?command=sendToPaymentHub";
+        return this;
+    }
+
+    public CommandWrapperBuilder postExcessRefund(final Long refundId) {
+        this.actionName = "POST";
+        this.entityName = "EXCESS_REFUND";
+        this.entityId = refundId;
+        this.href = "/excess-refunds/" + refundId + "?command=post";
+        return this;
+    }
+
+    public CommandWrapperBuilder createExcessRefundBatch() {
+        this.actionName = "CREATE";
+        this.entityName = "EXCESS_REFUND_BATCH";
+        this.entityId = null;
+        this.href = "/excess-refund-batches";
+        return this;
+    }
+
+    public CommandWrapperBuilder approveExcessRefundBatch(final Long batchId) {
+        this.actionName = "APPROVE";
+        this.entityName = "EXCESS_REFUND_BATCH";
+        this.entityId = batchId;
+        this.href = "/excess-refund-batches/" + batchId + "?command=approve";
+        return this;
+    }
+
+    public CommandWrapperBuilder rejectExcessRefundBatch(final Long batchId) {
+        this.actionName = "REJECT";
+        this.entityName = "EXCESS_REFUND_BATCH";
+        this.entityId = batchId;
+        this.href = "/excess-refund-batches/" + batchId + "?command=reject";
+        return this;
+    }
+
     public CommandWrapperBuilder undoWaiveChargeTransaction(final Long loanId, final Long transactionId) {
         this.actionName = "UNDO";
         this.entityName = "WAIVECHARGE";
