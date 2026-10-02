@@ -22,6 +22,7 @@ import java.util.List;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
+import org.apache.fineract.portfolio.loanaccount.exception.IncompatibleLoanTermAndFrequencyException;
 
 /**
  * Named monthly repayment intervals reuse the existing monthly schedule engine
@@ -32,6 +33,11 @@ import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
  * installments accrue over 3- and 6-month periods respectively, with the same first-due-date, grace, and last-installment
  * rounding rules as monthly loans. Reports and collections views must use installment due dates and
  * {@code numberOfRepayments}; they must not assume installments equal term-in-months.
+ * <p>
+ * Payment Due Today (T+X) / Loan payments due filters on {@code m_loan_repayment_schedule.duedate} with a
+ * day-based grace window. Arrears aging uses {@code MIN(duedate)} of unpaid installments. Neither path assumes monthly
+ * periodicity, so quarterly and semi-annual schedules are included correctly when their installment due dates fall in
+ * range.
  */
 public final class LoanRepaymentFrequency {
 
@@ -111,6 +117,39 @@ public final class LoanRepaymentFrequency {
         return termMonths / repaymentEvery;
     }
 
+    /**
+     * Service-layer guard used by loan product and loan application write services. Throws
+     * {@link IncompatibleLoanTermAndFrequencyException} when quarterly/semi-annual frequency is incompatible with term length.
+     * <p>
+     * Equivalent to the gate check: if (frequency == QUARTERLY &amp;&amp; term &lt; 3) throw ...
+     */
+    public static void assertCompatibleTerm(final Integer termMonths, final Integer repaymentEvery,
+            final Integer repaymentFrequencyType) {
+        if (!isMonths(repaymentFrequencyType) || repaymentEvery == null || termMonths == null) {
+            return;
+        }
+        final TermCompatibilityResult result = evaluateTermCompatibility(termMonths, repaymentEvery);
+        if (result != null) {
+            throw new IncompatibleLoanTermAndFrequencyException(result.globalisationCode, result.defaultUserMessage, result.args);
+        }
+    }
+
+    /**
+     * Product write-service guard: products have no separate term field, so implied term is
+     * {@code numberOfRepayments * repaymentEvery} months.
+     */
+    public static void assertCompatibleProductTerms(final Integer numberOfRepayments, final Integer repaymentEvery,
+            final Integer repaymentFrequencyType) {
+        if (numberOfRepayments != null && numberOfRepayments < 1) {
+            throw new IncompatibleLoanTermAndFrequencyException("error.msg.loanproduct.numberOfRepayments.must.be.at.least.one",
+                    "Number of installments must be at least 1.", numberOfRepayments);
+        }
+        if (!isMonths(repaymentFrequencyType) || repaymentEvery == null || numberOfRepayments == null || numberOfRepayments < 1) {
+            return;
+        }
+        assertCompatibleTerm(numberOfRepayments * repaymentEvery, repaymentEvery, repaymentFrequencyType);
+    }
+
     public static void validateProduct(final List<ApiParameterError> dataValidationErrors, final Integer numberOfRepayments,
             final Integer repaymentEvery, final Integer repaymentFrequencyType) {
         if (numberOfRepayments != null && numberOfRepayments < 1) {
@@ -139,8 +178,7 @@ public final class LoanRepaymentFrequency {
             return;
         }
         addMinimumTermErrors(dataValidationErrors, termMonths, repaymentEvery, "loanTermFrequency", false);
-        if ((repaymentEvery == QUARTERLY_INTERVAL || repaymentEvery == SEMI_ANNUAL_INTERVAL) && termMonths >= repaymentEvery
-                && termMonths % repaymentEvery != 0) {
+        if (isNamedInterval(repaymentEvery) && termMonths >= repaymentEvery && termMonths % repaymentEvery != 0) {
             dataValidationErrors.add(ApiParameterError.parameterError("validation.msg.loan.loanTermFrequency.not.a.multiple.of.repayment.interval",
                     "Loan term must be a multiple of the repayment interval. For " + intervalName(repaymentEvery)
                             + " repayments, loan term must be a multiple of " + repaymentEvery + " months.",
@@ -148,12 +186,32 @@ public final class LoanRepaymentFrequency {
         }
     }
 
+    private static TermCompatibilityResult evaluateTermCompatibility(final int termMonths, final int repaymentEvery) {
+        if (!isNamedInterval(repaymentEvery)) {
+            return null;
+        }
+        if (termMonths < repaymentEvery) {
+            if (repaymentEvery == QUARTERLY_INTERVAL) {
+                return new TermCompatibilityResult("error.msg.loan.repaymentFrequency.incompatible.with.loan.term.quarterly",
+                        "Repayment frequency is incompatible with loan term. For quarterly repayments, loan term must be at least 3 months.",
+                        new Object[] { termMonths });
+            }
+            return new TermCompatibilityResult("error.msg.loan.repaymentFrequency.incompatible.with.loan.term.semiannual",
+                    "Repayment frequency is incompatible with loan term. For semi-annual repayments, loan term must be at least 6 months.",
+                    new Object[] { termMonths });
+        }
+        if (termMonths % repaymentEvery != 0) {
+            return new TermCompatibilityResult("error.msg.loan.loanTermFrequency.not.a.multiple.of.repayment.interval",
+                    "Loan term must be a multiple of the repayment interval. For " + intervalName(repaymentEvery)
+                            + " repayments, loan term must be a multiple of " + repaymentEvery + " months.",
+                    new Object[] { termMonths, repaymentEvery });
+        }
+        return null;
+    }
+
     private static void addMinimumTermErrors(final List<ApiParameterError> dataValidationErrors, final int termMonths,
             final int repaymentEvery, final String parameterName, final boolean product) {
-        if (repaymentEvery != QUARTERLY_INTERVAL && repaymentEvery != SEMI_ANNUAL_INTERVAL) {
-            return;
-        }
-        if (termMonths >= repaymentEvery) {
+        if (!isNamedInterval(repaymentEvery) || termMonths >= repaymentEvery) {
             return;
         }
         final String resource = product ? "loanproduct" : "loan";
@@ -170,6 +228,10 @@ public final class LoanRepaymentFrequency {
         }
     }
 
+    private static boolean isNamedInterval(final int repaymentEvery) {
+        return repaymentEvery == QUARTERLY_INTERVAL || repaymentEvery == SEMI_ANNUAL_INTERVAL;
+    }
+
     private static String intervalName(final int repaymentEvery) {
         if (repaymentEvery == QUARTERLY_INTERVAL) {
             return "quarterly";
@@ -178,5 +240,17 @@ public final class LoanRepaymentFrequency {
             return "semi-annual";
         }
         return "monthly";
+    }
+
+    private static final class TermCompatibilityResult {
+        private final String globalisationCode;
+        private final String defaultUserMessage;
+        private final Object[] args;
+
+        private TermCompatibilityResult(final String globalisationCode, final String defaultUserMessage, final Object[] args) {
+            this.globalisationCode = globalisationCode;
+            this.defaultUserMessage = defaultUserMessage;
+            this.args = args;
+        }
     }
 }

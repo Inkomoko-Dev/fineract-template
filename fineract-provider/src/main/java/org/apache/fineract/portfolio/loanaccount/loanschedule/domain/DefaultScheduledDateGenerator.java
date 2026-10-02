@@ -241,6 +241,9 @@ public class DefaultScheduledDateGenerator implements ScheduledDateGenerator {
                 dueRepaymentPeriodDate = startDate.plusWeeks(repaidEvery);
             break;
             case MONTHS:
+                // Quarterly (repaidEvery=3) and semi-annual (repaidEvery=6) reuse the same month arithmetic as monthly
+                // loans; java.time LocalDate.plusMonths preserves day-of-month and clamps month-end dates (e.g. 31 Jan + 3
+                // months -> 30 Apr).
                 dueRepaymentPeriodDate = startDate.plusMonths(repaidEvery);
             break;
             case YEARS:
