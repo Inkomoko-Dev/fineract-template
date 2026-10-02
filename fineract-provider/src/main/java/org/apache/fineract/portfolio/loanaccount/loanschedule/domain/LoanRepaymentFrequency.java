@@ -22,7 +22,7 @@ import java.util.List;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
-import org.apache.fineract.portfolio.loanaccount.exception.IncompatibleLoanTermException;
+import org.apache.fineract.portfolio.loanaccount.exception.IncompatibleLoanTermAndFrequencyException;
 
 /**
  * Named monthly repayment intervals reuse the existing monthly schedule engine
@@ -33,6 +33,11 @@ import org.apache.fineract.portfolio.loanaccount.exception.IncompatibleLoanTermE
  * installments accrue over 3- and 6-month periods respectively, with the same first-due-date, grace, and last-installment
  * rounding rules as monthly loans. Reports and collections views must use installment due dates and
  * {@code numberOfRepayments}; they must not assume installments equal term-in-months.
+ * <p>
+ * Payment Due Today (T+X) / Loan payments due filters on {@code m_loan_repayment_schedule.duedate} with a
+ * day-based grace window. Arrears aging uses {@code MIN(duedate)} of unpaid installments. Neither path assumes monthly
+ * periodicity, so quarterly and semi-annual schedules are included correctly when their installment due dates fall in
+ * range.
  */
 public final class LoanRepaymentFrequency {
 
@@ -114,7 +119,7 @@ public final class LoanRepaymentFrequency {
 
     /**
      * Service-layer guard used by loan product and loan application write services. Throws
-     * {@link IncompatibleLoanTermException} when quarterly/semi-annual frequency is incompatible with term length.
+     * {@link IncompatibleLoanTermAndFrequencyException} when quarterly/semi-annual frequency is incompatible with term length.
      * <p>
      * Equivalent to the gate check: if (frequency == QUARTERLY &amp;&amp; term &lt; 3) throw ...
      */
@@ -125,7 +130,7 @@ public final class LoanRepaymentFrequency {
         }
         final TermCompatibilityResult result = evaluateTermCompatibility(termMonths, repaymentEvery);
         if (result != null) {
-            throw new IncompatibleLoanTermException(result.globalisationCode, result.defaultUserMessage, result.args);
+            throw new IncompatibleLoanTermAndFrequencyException(result.globalisationCode, result.defaultUserMessage, result.args);
         }
     }
 
@@ -136,7 +141,7 @@ public final class LoanRepaymentFrequency {
     public static void assertCompatibleProductTerms(final Integer numberOfRepayments, final Integer repaymentEvery,
             final Integer repaymentFrequencyType) {
         if (numberOfRepayments != null && numberOfRepayments < 1) {
-            throw new IncompatibleLoanTermException("error.msg.loanproduct.numberOfRepayments.must.be.at.least.one",
+            throw new IncompatibleLoanTermAndFrequencyException("error.msg.loanproduct.numberOfRepayments.must.be.at.least.one",
                     "Number of installments must be at least 1.", numberOfRepayments);
         }
         if (!isMonths(repaymentFrequencyType) || repaymentEvery == null || numberOfRepayments == null || numberOfRepayments < 1) {

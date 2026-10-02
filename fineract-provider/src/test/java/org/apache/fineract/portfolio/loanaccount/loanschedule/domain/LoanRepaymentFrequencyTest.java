@@ -27,7 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
-import org.apache.fineract.portfolio.loanaccount.exception.IncompatibleLoanTermException;
+import org.apache.fineract.portfolio.loanaccount.exception.IncompatibleLoanTermAndFrequencyException;
 import org.junit.jupiter.api.Test;
 
 class LoanRepaymentFrequencyTest {
@@ -106,21 +106,21 @@ class LoanRepaymentFrequencyTest {
 
     @Test
     void assertCompatibleTermRejectsQuarterlyWhenTermIsShorterThanThreeMonths() {
-        final IncompatibleLoanTermException thrown = assertThrows(IncompatibleLoanTermException.class,
+        final IncompatibleLoanTermAndFrequencyException thrown = assertThrows(IncompatibleLoanTermAndFrequencyException.class,
                 () -> LoanRepaymentFrequency.assertCompatibleTerm(2, 3, MONTHS));
         assertTrue(thrown.getDefaultUserMessage().contains("at least 3 months"));
     }
 
     @Test
     void assertCompatibleTermRejectsSemiAnnualWhenTermIsShorterThanSixMonths() {
-        final IncompatibleLoanTermException thrown = assertThrows(IncompatibleLoanTermException.class,
+        final IncompatibleLoanTermAndFrequencyException thrown = assertThrows(IncompatibleLoanTermAndFrequencyException.class,
                 () -> LoanRepaymentFrequency.assertCompatibleTerm(5, 6, MONTHS));
         assertTrue(thrown.getDefaultUserMessage().contains("at least 6 months"));
     }
 
     @Test
     void assertCompatibleTermRejectsNonMultipleOfInterval() {
-        final IncompatibleLoanTermException thrown = assertThrows(IncompatibleLoanTermException.class,
+        final IncompatibleLoanTermAndFrequencyException thrown = assertThrows(IncompatibleLoanTermAndFrequencyException.class,
                 () -> LoanRepaymentFrequency.assertCompatibleTerm(10, 3, MONTHS));
         assertTrue(thrown.getDefaultUserMessage().contains("multiple of 3 months"));
     }
@@ -134,7 +134,7 @@ class LoanRepaymentFrequencyTest {
 
     @Test
     void assertCompatibleProductTermsRejectsZeroInstallments() {
-        final IncompatibleLoanTermException thrown = assertThrows(IncompatibleLoanTermException.class,
+        final IncompatibleLoanTermAndFrequencyException thrown = assertThrows(IncompatibleLoanTermAndFrequencyException.class,
                 () -> LoanRepaymentFrequency.assertCompatibleProductTerms(0, 3, MONTHS));
         assertTrue(thrown.getDefaultUserMessage().contains("at least 1"));
     }

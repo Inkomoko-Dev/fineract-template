@@ -22,11 +22,11 @@ import org.apache.fineract.infrastructure.core.exception.AbstractPlatformDomainR
 
 /**
  * Thrown when loan or loan-product repayment frequency is incompatible with the loan term
- * (for example quarterly with a term shorter than 3 months).
+ * (for example quarterly with a 10-month term, or a term shorter than one repayment interval).
  */
-public class IncompatibleLoanTermException extends AbstractPlatformDomainRuleException {
+public class IncompatibleLoanTermAndFrequencyException extends AbstractPlatformDomainRuleException {
 
-    public IncompatibleLoanTermException(final String globalisationMessageCode, final String defaultUserMessage,
+    public IncompatibleLoanTermAndFrequencyException(final String globalisationMessageCode, final String defaultUserMessage,
             final Object... defaultUserMessageArgs) {
         super(globalisationMessageCode, defaultUserMessage, defaultUserMessageArgs);
     }
