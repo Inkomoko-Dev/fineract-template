@@ -16,16 +16,31 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.accounting.rule.service;
+package org.apache.fineract.organisation.office.domain;
 
-import java.util.List;
-import org.apache.fineract.accounting.rule.data.AccountingRuleData;
-import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
+import java.util.Collections;
+import java.util.Map;
 
-public interface AccountingRuleReadPlatformService {
+public final class NamedOfficeAccessPredicate {
 
-    List<AccountingRuleData> retrieveAllAccountingRules(OfficeAccessPredicate officeAccess, boolean isAssociationParametersExists);
+    private final String sql;
+    private final Map<String, Object> parameters;
 
-    AccountingRuleData retrieveAccountingRuleById(Long accountingRuleId);
+    NamedOfficeAccessPredicate(final String sql, final Map<String, Object> parameters) {
+        this.sql = sql;
+        this.parameters = parameters;
+    }
 
+    public String getSql() {
+        return this.sql;
+    }
+
+    public Map<String, Object> getParameters() {
+        return Collections.unmodifiableMap(this.parameters);
+    }
+
+    @Override
+    public String toString() {
+        return this.sql + " " + this.parameters;
+    }
 }

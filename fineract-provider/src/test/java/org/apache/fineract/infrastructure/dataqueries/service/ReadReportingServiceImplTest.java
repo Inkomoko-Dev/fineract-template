@@ -35,6 +35,7 @@ import java.io.Writer;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
@@ -44,6 +45,7 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.infrastructure.security.service.SqlInjectionPreventerService;
 import org.apache.fineract.infrastructure.security.utils.SQLInjectionException;
 import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -99,6 +101,7 @@ public class ReadReportingServiceImplTest {
         lenient().when(context.authenticatedUser()).thenReturn(appUser);
         lenient().when(appUser.getOffice()).thenReturn(office);
         lenient().when(office.getHierarchy()).thenReturn(".");
+        lenient().when(context.officeAccessScope()).thenReturn(OfficeAccessScope.hierarchical(List.of(".")));
         lenient().when(appUser.getId()).thenReturn(1L);
         lenient().when(sqlGenerator.currentBusinessDate()).thenReturn("'2026-09-03'");
         lenient().when(sqlGenerator.currentTenantDateTime()).thenReturn("'2026-09-03 00:00:00'");
@@ -209,7 +212,7 @@ public class ReadReportingServiceImplTest {
     public void pagedReportSqlStillCarriesTheAuthenticatedUsersOfficeHierarchy() {
         final String sql = service.buildReportSql(SCOPED_REPORT, Map.of(), false, 100, 200);
 
-        assertThat(sql).contains("hierarchy LIKE CONCAT('.', '%')");
+        assertThat(sql).contains("(o.hierarchy like '.%')");
         assertThat(sql).doesNotContain("${currentUserHierarchy}");
     }
 
@@ -219,7 +222,7 @@ public class ReadReportingServiceImplTest {
 
         final String sql = service.buildCountSql("Portfolio Management", "report", SCOPED_REPORT, Map.of(), false);
 
-        assertThat(sql).contains("hierarchy LIKE CONCAT('.', '%')");
+        assertThat(sql).contains("(o.hierarchy like '.%')");
         assertThat(sql).doesNotContain("${currentUserHierarchy}");
     }
 

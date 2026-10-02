@@ -36,6 +36,7 @@ import org.apache.fineract.accounting.rule.exception.AccountingRuleNotFoundExcep
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -147,15 +148,15 @@ public class AccountingRuleReadPlatformServiceImpl implements AccountingRuleRead
     }
 
     @Override
-    public List<AccountingRuleData> retrieveAllAccountingRules(final String hierarchySearchString,
+    public List<AccountingRuleData> retrieveAllAccountingRules(final OfficeAccessPredicate officeAccess,
             final boolean isAssociationParametersExists) {
         final AccountingRuleDataExtractor resultSetExtractor = new AccountingRuleDataExtractor(this.jdbcTemplate,
                 this.glAccountReadPlatformService, isAssociationParametersExists);
         Object[] arguments = new Object[] {};
         String sql = "select " + resultSetExtractor.schema() + " and system_defined=false ";
-        if (hierarchySearchString != null) {
-            sql = sql + " and office.hierarchy like ?";
-            arguments = new Object[] { hierarchySearchString };
+        if (officeAccess != null) {
+            sql = sql + " and " + officeAccess.getSql();
+            arguments = officeAccess.getArguments();
         }
         sql = sql + " order by rule.id asc";
         final Map<Long, AccountingRuleData> extractedData = this.jdbcTemplate.query(sql, resultSetExtractor, arguments); // NOSONAR

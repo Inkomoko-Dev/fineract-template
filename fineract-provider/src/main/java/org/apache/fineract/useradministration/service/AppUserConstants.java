@@ -28,6 +28,11 @@ public final class AppUserConstants {
     public static final String IS_SELF_SERVICE_USER = "isSelfServiceUser";
     public static final String CLIENTS = "clients";
     public static final String NOTES = "notes";
+    public static final String OFFICE_IDS = "officeIds";
+
+    public static final String OFFICE_ACCESS_ENTITY = "OFFICEACCESS";
+    public static final String HIERARCHICAL_ACTION = "HIERARCHICAL";
+    public static final String HIERARCHICAL_OFFICE_ACCESS_PERMISSION = HIERARCHICAL_ACTION + "_" + OFFICE_ACCESS_ENTITY;
 
     // TODO: Remove hard coding of system user name and make this a configurable parameter
     public static final String SYSTEM_USER_NAME = "system";

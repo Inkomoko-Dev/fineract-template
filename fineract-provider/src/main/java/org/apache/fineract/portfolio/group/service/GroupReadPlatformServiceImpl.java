@@ -39,6 +39,7 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.infrastructure.security.utils.SQLBuilder;
 import org.apache.fineract.organisation.office.data.OfficeData;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
@@ -47,7 +48,6 @@ import org.apache.fineract.portfolio.group.data.CenterData;
 import org.apache.fineract.portfolio.group.data.GroupGeneralData;
 import org.apache.fineract.portfolio.group.domain.GroupTypes;
 import org.apache.fineract.portfolio.group.exception.GroupNotFoundException;
-import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -140,16 +140,14 @@ public class GroupReadPlatformServiceImpl implements GroupReadPlatformService {
     public Page<GroupGeneralData> retrievePagedAll(final SearchParameters searchParameters, final PaginationParameters parameters) {
 
         this.paginationParametersDataValidator.validateParameterValues(parameters, supportedOrderByValues, "audits");
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(this.allGroupTypesDataMapper.schema());
 
         final SQLBuilder extraCriteria = getGroupExtraCriteria(this.allGroupTypesDataMapper.schema(), searchParameters);
-        extraCriteria.addCriteria(" o.hierarchy like ", hierarchySearchString);
+        extraCriteria.addPredicate(officeAccess.getSql(), officeAccess.getParameters());
         sqlBuilder.append(" ").append(extraCriteria.getSQLTemplate());
         if (parameters.isOrderByRequested()) {
             sqlBuilder.append(" order by ").append(searchParameters.getOrderBy()).append(' ').append(searchParameters.getSortOrder());
@@ -170,15 +168,13 @@ public class GroupReadPlatformServiceImpl implements GroupReadPlatformService {
 
     @Override
     public Collection<GroupGeneralData> retrieveAll(SearchParameters searchParameters, final PaginationParameters parameters) {
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select ");
         sqlBuilder.append(this.allGroupTypesDataMapper.schema());
         final SQLBuilder extraCriteria = getGroupExtraCriteria(this.allGroupTypesDataMapper.schema(), searchParameters);
-        extraCriteria.addCriteria("o.hierarchy like ", hierarchySearchString);
+        extraCriteria.addPredicate(officeAccess.getSql(), officeAccess.getParameters());
 
         sqlBuilder.append(" ").append(extraCriteria.getSQLTemplate());
 
@@ -238,12 +234,10 @@ public class GroupReadPlatformServiceImpl implements GroupReadPlatformService {
     public GroupGeneralData retrieveOne(final Long groupId) {
 
         try {
-            final AppUser currentUser = this.context.authenticatedUser();
-            final String hierarchy = currentUser.getOffice().getHierarchy();
-            final String hierarchySearchString = hierarchy + "%";
+            final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
-            final String sql = "select " + this.allGroupTypesDataMapper.schema() + " where g.id = ? and o.hierarchy like ?";
-            return this.jdbcTemplate.queryForObject(sql, this.allGroupTypesDataMapper, new Object[] { groupId, hierarchySearchString }); // NOSONAR
+            final String sql = "select " + this.allGroupTypesDataMapper.schema() + " where g.id = ? and " + officeAccess.getSql();
+            return this.jdbcTemplate.queryForObject(sql, this.allGroupTypesDataMapper, officeAccess.argumentsPrecededBy(groupId)); // NOSONAR
         } catch (final EmptyResultDataAccessException e) {
             throw new GroupNotFoundException(groupId, e);
         }
