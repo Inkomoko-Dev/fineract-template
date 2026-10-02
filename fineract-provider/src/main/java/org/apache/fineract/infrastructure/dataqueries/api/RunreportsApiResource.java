@@ -40,6 +40,7 @@ import javax.ws.rs.core.UriInfo;
 import org.apache.fineract.infrastructure.core.api.ApiParameterHelper;
 import org.apache.fineract.infrastructure.core.exception.PlatformServiceUnavailableException;
 import org.apache.fineract.infrastructure.dataqueries.service.ReadReportingService;
+import org.apache.fineract.infrastructure.dataqueries.service.ReportRunAuditService;
 import org.apache.fineract.infrastructure.report.provider.ReportingProcessServiceProvider;
 import org.apache.fineract.infrastructure.report.service.ReportingProcessService;
 import org.apache.fineract.infrastructure.security.exception.NoAuthorizationException;
@@ -61,13 +62,15 @@ public class RunreportsApiResource {
     private final PlatformSecurityContext context;
     private final ReadReportingService readExtraDataAndReportingService;
     private final ReportingProcessServiceProvider reportingProcessServiceProvider;
+    private final ReportRunAuditService reportRunAuditService;
 
     @Autowired
     public RunreportsApiResource(final PlatformSecurityContext context, final ReadReportingService readExtraDataAndReportingService,
-            final ReportingProcessServiceProvider reportingProcessServiceProvider) {
+            final ReportingProcessServiceProvider reportingProcessServiceProvider, final ReportRunAuditService reportRunAuditService) {
         this.context = context;
         this.readExtraDataAndReportingService = readExtraDataAndReportingService;
         this.reportingProcessServiceProvider = reportingProcessServiceProvider;
+        this.reportRunAuditService = reportRunAuditService;
     }
 
     @GET
@@ -117,6 +120,7 @@ public class RunreportsApiResource {
             throw new PlatformServiceUnavailableException("err.msg.report.service.implementation.missing",
                     ReportingProcessServiceProvider.SERVICE_MISSING + reportType, reportType);
         }
+        this.reportRunAuditService.recordReportRun(reportName, queryParams);
         return reportingProcessService.processRequest(reportName, queryParams);
     }
 
