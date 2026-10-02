@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -36,6 +37,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,6 +73,7 @@ import org.apache.fineract.useradministration.service.AppUserReadPlatformService
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -127,8 +130,14 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         private final Loan loan = mock(Loan.class);
         private final LoanCharge penalty = mock(LoanCharge.class);
         private final LoanSummary summary = LoanSummary.create(BigDecimal.ZERO);
+        private final Map<LoanTransaction, Long> flushedIds = new IdentityHashMap<>();
 
         private Fixture() {
+            when(this.loanTransactionRepository.saveAndFlush(any(LoanTransaction.class))).thenAnswer(invocation -> {
+                final LoanTransaction flushed = invocation.getArgument(0);
+                this.flushedIds.putIfAbsent(flushed, 5000L + this.flushedIds.size());
+                return flushed;
+            });
             when(this.loanAssembler.assembleFrom(LOAN_ID)).thenReturn(this.loan);
             when(this.loanChargeRepository.findById(CHARGE_ID)).thenReturn(Optional.of(this.penalty));
             when(this.applicationCurrencyRepository.findOneWithNotFoundDetection(any(MonetaryCurrency.class)))
@@ -200,6 +209,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
 
         private LoanTransaction transaction() {
             final LoanTransaction transaction = mock(LoanTransaction.class);
+            when(transaction.getId()).thenAnswer(invocation -> this.flushedIds.get(transaction));
             when(transaction.getPrincipalPortion()).thenReturn(BigDecimal.ZERO);
             when(transaction.getInterestPortion(KES)).thenReturn(Money.zero(KES));
             when(transaction.getFeeChargesPortion(KES)).thenReturn(Money.zero(KES));
@@ -261,7 +271,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         this.fixture.service().submit(LOAN_ID, CHARGE_ID, requestWithoutApprover("5000.00"), null, SUBMITTED_ON, LocalDate.of(2026, 8, 4));
 
         // The gap this ticket closes: waiveLoanCharge ran the replay and then dropped its replacements on the floor.
-        verify(this.fixture.loanTransactionRepository, times(3)).save(any(LoanTransaction.class));
+        verify(this.fixture.loanTransactionRepository, times(4)).saveAndFlush(any(LoanTransaction.class));
         verify(this.fixture.loan, times(3)).addLoanTransaction(any(LoanTransaction.class));
     }
 
@@ -274,6 +284,18 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
 
         // one WAIVE row, plus a REVERSED and a REPLACEMENT row for each of the two mappings
         verify(this.fixture.waiverTxnRepository, times(5)).save(any(LoanHistoricalPenaltyWaiverTxn.class));
+    }
+
+    @Test
+    public void everyAuditRowPointsAtATransactionTheDatabaseHasNumbered() {
+        this.fixture.requiresApproval(false);
+        this.fixture.replayProduces(2);
+
+        this.fixture.service().submit(LOAN_ID, CHARGE_ID, requestWithoutApprover("5000.00"), null, SUBMITTED_ON, LocalDate.of(2026, 8, 4));
+
+        final ArgumentCaptor<LoanHistoricalPenaltyWaiverTxn> rows = ArgumentCaptor.forClass(LoanHistoricalPenaltyWaiverTxn.class);
+        verify(this.fixture.waiverTxnRepository, times(5)).save(rows.capture());
+        rows.getAllValues().forEach(row -> assertNotNull(row.getLoanTransactionId(), row.getTxnRole()));
     }
 
     @Test

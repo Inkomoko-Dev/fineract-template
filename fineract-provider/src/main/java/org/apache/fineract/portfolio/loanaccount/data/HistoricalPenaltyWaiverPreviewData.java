@@ -62,6 +62,8 @@ public class HistoricalPenaltyWaiverPreviewData implements Serializable {
 
     private final boolean requiresApproval;
     private final String approvalTrigger;
+    private final Long approvalAgeThresholdDays;
+    private final Long approvalAmountThreshold;
     private final boolean nextApproverRequired;
     private final Collection<AppUserData> approverOptions;
 

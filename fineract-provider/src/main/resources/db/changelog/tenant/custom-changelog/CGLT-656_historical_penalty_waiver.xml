@@ -348,4 +348,19 @@
         </sql>
     </changeSet>
 
+    <changeSet id="CGLT-656_grant_historical_penalty_waiver_read_to_approvers" author="wilfredn@inkomoko.com">
+        <comment>Approvers need read access to see the pending historical corrections queue</comment>
+        <sql>
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT DISTINCT rp.role_id, rd.id
+            FROM m_role_permission rp
+            JOIN m_permission ap ON ap.id = rp.permission_id AND ap.code IN ('APPROVE_HISTORICALPENALTYWAIVER', 'REJECT_HISTORICALPENALTYWAIVER')
+            CROSS JOIN m_permission rd ON rd.code = 'READ_HISTORICALPENALTYWAIVER'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM m_role_permission erp
+                WHERE erp.role_id = rp.role_id AND erp.permission_id = rd.id
+            )
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>

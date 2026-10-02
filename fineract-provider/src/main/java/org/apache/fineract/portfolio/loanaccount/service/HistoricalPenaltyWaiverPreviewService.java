@@ -135,7 +135,8 @@ public class HistoricalPenaltyWaiverPreviewService {
                 .transactionProcessingStrategyName(strategyNameOf(loan))
                 .reprocessedTransactionCount(result.getChangedTransactionDetail().getNewTransactionMappings().size())
                 .transactions(describeImpact(before, result, currency)).requiresApproval(requirement.isRequired())
-                .approvalTrigger(requirement.getTrigger()).nextApproverRequired(requirement.isRequired())
+                .approvalTrigger(requirement.getTrigger()).approvalAgeThresholdDays(this.approvalPolicy.ageThresholdDays())
+                .approvalAmountThreshold(this.approvalPolicy.amountThreshold()).nextApproverRequired(requirement.isRequired())
                 .approverOptions(approverOptions(loanId, requirement)).correctionAllowed(correctionAllowed(latestClosure, effectiveDate))
                 .latestClosureDate(latestClosure == null ? null : latestClosure.getClosingDate()).build();
     }

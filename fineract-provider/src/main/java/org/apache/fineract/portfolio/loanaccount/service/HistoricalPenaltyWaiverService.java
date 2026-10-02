@@ -227,7 +227,7 @@ public class HistoricalPenaltyWaiverService {
         final ChangedTransactionDetail changedTransactionDetail = result.getChangedTransactionDetail();
         for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
             final LoanTransaction replacement = mapEntry.getValue();
-            this.loanTransactionRepository.save(replacement);
+            this.loanTransactionRepository.saveAndFlush(replacement);
             loan.addLoanTransaction(replacement);
             recordReversedTransaction(waiver, mapEntry.getKey());
             recordTouchedTransaction(waiver, replacement, LoanHistoricalPenaltyWaiverTxn.ROLE_REPLACEMENT, currency);
