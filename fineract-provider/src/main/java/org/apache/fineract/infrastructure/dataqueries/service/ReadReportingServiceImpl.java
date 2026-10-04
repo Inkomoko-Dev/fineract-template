@@ -128,8 +128,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             try {
                 final long rows = streamCsv(sql, writer);
                 writer.flush();
-                log.info(EXPORT_METRICS_LOG, storedName, storedType, metrics.rows, sink.getCount(), metrics.queryMs, metrics.streamMs,
-                        System.currentTimeMillis() - startTime, metrics.tmpDiskTables);
+
             } catch (final Exception e) {
                 if (sink.getCount() == 0) {
                     throw new PlatformDataIntegrityException("error.msg.exception.error", e.getMessage(), e);
@@ -227,8 +226,6 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             result.setCount(result.getData().size());
         }
 
-        log.info(REPORT_METRICS_LOG, report.name, storedReportType(type), result.getData().size(), result.getCount(), limit, offset,
-                includeCount, dataQueryElapsed, countQueryElapsed, System.currentTimeMillis() - startTime, tmpDiskTables[0]);
         return result;
     }
 

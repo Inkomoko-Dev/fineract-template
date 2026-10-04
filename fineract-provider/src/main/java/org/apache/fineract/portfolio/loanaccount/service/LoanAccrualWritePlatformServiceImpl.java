@@ -300,27 +300,14 @@ public class LoanAccrualWritePlatformServiceImpl implements LoanAccrualWritePlat
     private void addAccrualAccounting(LoanScheduleAccrualData scheduleAccrualData, BigDecimal amount, BigDecimal interestportion,
             BigDecimal totalAccInterest, BigDecimal feeportion, BigDecimal totalAccFee, BigDecimal penaltyportion,
             BigDecimal totalAccPenalty, final LocalDate accruedTill) throws DataAccessException {
-        // CGLT-672: one non-reversed ACCRUAL per loan per transaction date. If a concurrent/EOD path
-        // already posted the transaction, skip INSERT + GL but still sync schedule/loan derived fields
-        // so a partial prior write cannot leave the loan stuck as "needs accrual".
-        if (this.loanTransactionRepository.existsNonReversedAccrualForLoanAndDate(scheduleAccrualData.getLoanId(),
-                LoanTransactionType.ACCRUAL, accruedTill)) {
-            LOG.warn(
-                    "Skipping duplicate Interest Accrual insert for loan {} on {}; syncing schedule accrual derived fields and accrued_till only",
-                    scheduleAccrualData.getLoanId(), accruedTill);
-            updateAccrualDerivedFields(scheduleAccrualData, totalAccInterest, totalAccFee, totalAccPenalty, accruedTill);
-            return;
-        }
+
         final Map<LoanChargeData, BigDecimal> applicableCharges = scheduleAccrualData.getApplicableCharges();
         final BigDecimal[] reconciledPortions = reconcileAccrualChargePortionsWithApplicableCharges(applicableCharges, interestportion,
                 feeportion, penaltyportion);
         amount = reconciledPortions[0];
         feeportion = reconciledPortions[1];
         penaltyportion = reconciledPortions[2];
-        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-            updateAccrualDerivedFields(scheduleAccrualData, totalAccInterest, totalAccFee, totalAccPenalty, accruedTill);
-            return;
-        }
+
         String transactionSql = "INSERT INTO m_loan_transaction  (loan_id,office_id,is_reversed,transaction_type_enum,transaction_date,amount,interest_portion_derived,"
                 + "fee_charges_portion_derived,penalty_charges_portion_derived, submitted_on_date) VALUES (?, ?, false, ?, ?, ?, ?, ?, ?, ?)";
         this.jdbcTemplate.update(transactionSql, scheduleAccrualData.getLoanId(), scheduleAccrualData.getOfficeId(),
