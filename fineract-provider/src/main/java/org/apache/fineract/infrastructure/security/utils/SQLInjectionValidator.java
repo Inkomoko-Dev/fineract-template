@@ -37,6 +37,24 @@ public final class SQLInjectionValidator {
 
     private static final String SQL_PATTERN = "[a-zA-Z_=,\\-'!><.?\"`% ()0-9*\n\r]*";
 
+    private static final String REPORT_PARAMETER_PATTERN = "[a-zA-Z0-9_\\-.]*";
+
+    private static final String REPORT_LISTING_PARAMETER = "${reportListing}";
+
+    private static final String QUOTED_REPORT_NAMES_PATTERN = "'[^'\\\\]*'(,'[^'\\\\]*')*";
+
+    public static void validateReportParameter(final String parameterKey, final String parameterValue) {
+        validateSQLInput(parameterValue);
+        if (StringUtils.isBlank(parameterValue)) {
+            return;
+        }
+        final String allowedPattern = REPORT_LISTING_PARAMETER.equals(parameterKey) ? QUOTED_REPORT_NAMES_PATTERN
+                : REPORT_PARAMETER_PATTERN;
+        if (!Pattern.matches(allowedPattern, parameterValue)) {
+            throw new SQLInjectionException();
+        }
+    }
+
     public static void validateSQLInput(final String sqlSearch) {
         if (StringUtils.isBlank(sqlSearch)) {
             return;
