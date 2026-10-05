@@ -1,0 +1,82 @@
+name: Fineract Client Preprod Build
+
+on:
+  push:
+    branches:
+      - inkomoko-preprod
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get branch name
+        id: branch-name
+        uses: tj-actions/branch-names@v6
+
+      - uses: actions/checkout@v2
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v1
+        with:
+          java-version: 17
+
+      - name: Build with Gradles
+        run: ./gradlew --no-daemon -q -x rat -x compileTestJava -x test -x spotlessJavaCheck -x spotlessJava -x licenseMain bootJar
+
+      - name: List directory contents
+        run: |
+          echo "Listing contents of the directory:"
+          ls -l ./fineract-provider/build/libs/
+
+      - name: Get Shortened Commit SHA
+        id: shortened_sha
+        run: |
+          FULL_SHA=$GITHUB_SHA
+          SHORTENED_SHA=${FULL_SHA:0:8}
+          echo "::set-output name=shortened_sha::$SHORTENED_SHA"
+
+
+      - name: Update known hosts
+        run: |
+          mkdir -p ~/.ssh
+          touch ~/.ssh/known_hosts
+          ssh-keyscan -p ${{ secrets.PROD_SERVER_PORT }} -t rsa ${{ secrets.PROD_SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      # Added diagnostic SSH test step
+      - name: Test SSH Connection to VM
+        run: |
+          echo "${{ secrets.PROD_SERVER_SSH_KEY }}" > /tmp/key.pem
+          chmod 600 /tmp/key.pem
+          ls -al
+          echo "Testing SSH connection to ${{ secrets.PROD_SERVER_HOST }} on port ${{ secrets.PROD_SERVER_PORT }}..."
+          ssh -i /tmp/key.pem -p ${{ secrets.PROD_SERVER_PORT }} -o StrictHostKeyChecking=no -v ${{ secrets.PROD_SERVER_USERNAME }}@${{ secrets.PROD_SERVER_HOST }} "echo '✅ SSH connection successful!'"
+        continue-on-error: false
+
+      - name: Verify remote directory permissions
+        run: |
+          # Save SSH key to writable location
+          echo "${{ secrets.PROD_SERVER_SSH_KEY }}" > $HOME/key.pem
+          chmod 400 $HOME/key.pem
+          echo "Checking permissions on target directory..."
+          ssh -i $HOME/key.pem -p ${{ secrets.PROD_SERVER_PORT }} -o StrictHostKeyChecking=no \
+            ${{ secrets.PROD_SERVER_USERNAME }}@${{ secrets.PROD_SERVER_HOST }} \
+            "ls -ld /home/mifosdev/fineract_deployment/fineract/ && whoami && groups && touch /home/mifosdev/fineract_deployment/fineract/test_file && rm -f /home/mifosdev/fineract_deployment/fineract/test_file"
+            
+      - name: Copy file using SCP
+        run: |
+          HOST=${{ secrets.PROD_SERVER_HOST }}
+          USER=${{ secrets.PROD_SERVER_USERNAME }}
+          SOURCE_FILE=./fineract-provider/build/libs/fineract-provider-0.0.0-${{ steps.shortened_sha.outputs.shortened_sha }}.jar
+          DESTINATION_DIR=/home/fiter/inkomoko_deployments/fineract/
+          PENTAHO_FILE_SOURCE=./fineract-provider/pentahoReports/
+          PENTAHO_FILE_DESTINATION=/home/mifosdev/fineract_deployment/fineract/pentaho/  
+          echo "${{ secrets.PROD_SERVER_SSH_KEY }}" > /tmp/key.pem
+          chmod 400 /tmp/key.pem
+          ls -al $HOME/
+          ls -al /tmp/
+          scp -i /tmp/key.pem -P ${{ secrets.PROD_SERVER_PORT }} -o StrictHostKeyChecking=no $SOURCE_FILE $USER@$HOST:$DESTINATION_DIR
+          scp -r -i /tmp/key.pem -P ${{ secrets.PROD_SERVER_PORT }} -o StrictHostKeyChecking=no $PENTAHO_FILE_SOURCE $USER@$HOST:$PENTAHO_FILE_DESTINATION
+      
+      - name: Build image on server and deploy
+        run: ssh -i /tmp/key.pem -p ${{ secrets.PROD_SERVER_PORT }} -o StrictHostKeyChecking=no -l ${{ secrets.PROD_SERVER_USERNAME}} ${{ secrets.PROD_SERVER_HOST }} '/home/fiter/inkomoko_deployments/fineract/build.sh'    
