@@ -62,6 +62,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionProcessingStrategyRepository;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionProcessingStrategyNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculator;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
@@ -150,6 +151,7 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                     || command.bigDecimalValueOfParameterNamed(LoanProductConstants.residualClosureThresholdParamName) != null) {
                 this.context.authenticatedUser().validateHasPermissionTo(LoanProductConstants.CONFIGURE_RESIDUAL_CLOSURE_PERMISSION);
             }
+            assertCompatibleRepaymentFrequency(command, null);
             validateInputDates(command);
             final String currencyCode = command.stringValueOfParameterNamed("currencyCode");
             final Fund fund = findFundByIdIfProvided(command.longValueOfParameterNamed("fundId"));
@@ -242,6 +244,7 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                     .orElseThrow(() -> new LoanProductNotFoundException(loanProductId));
 
             this.fromApiJsonDeserializer.validateForUpdate(command.json(), product);
+            assertCompatibleRepaymentFrequency(command, product);
             validateInputDates(command);
 
             if (anyChangeInCriticalFloatingRateLinkedParams(command, product)
@@ -440,6 +443,24 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                 throw new LoanProductDateException(startDate.toString(), closeDate.toString());
             }
         }
+    }
+
+    /**
+     * Service-layer check for quarterly/semi-annual frequency vs implied term
+     * ({@code numberOfRepayments * repaymentEvery} months). Mirrors API validation with a named domain exception.
+     */
+    private void assertCompatibleRepaymentFrequency(final JsonCommand command, final LoanProduct existingProduct) {
+        final Integer numberOfRepayments = command.parameterExists("numberOfRepayments")
+                ? command.integerValueOfParameterNamed("numberOfRepayments")
+                : existingProduct == null ? null : existingProduct.getNumberOfRepayments();
+        final Integer repaymentEvery = command.parameterExists("repaymentEvery")
+                ? command.integerValueOfParameterNamed("repaymentEvery")
+                : existingProduct == null ? null : existingProduct.getLoanProductRelatedDetail().getRepayEvery();
+        final Integer repaymentFrequencyType = command.parameterExists("repaymentFrequencyType")
+                ? command.integerValueOfParameterNamed("repaymentFrequencyType")
+                : existingProduct == null ? null
+                        : existingProduct.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue();
+        LoanRepaymentFrequency.assertCompatibleProductTerms(numberOfRepayments, repaymentEvery, repaymentFrequencyType);
     }
 
     private void logAsErrorUnexpectedDataIntegrityException(final Exception dve) {
