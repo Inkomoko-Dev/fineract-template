@@ -68,9 +68,9 @@ jobs:
           HOST=${{ secrets.PROD_SERVER_HOST }}
           USER=${{ secrets.PROD_SERVER_USERNAME }}
           SOURCE_FILE=./fineract-provider/build/libs/fineract-provider-0.0.0-${{ steps.shortened_sha.outputs.shortened_sha }}.jar
-          DESTINATION_DIR=/home/fiter/inkomoko_deployments/fineract/
+          DESTINATION_DIR=/home/fiter/inkomoko_deployments/prod-container/fineract/
           PENTAHO_FILE_SOURCE=./fineract-provider/pentahoReports/
-          PENTAHO_FILE_DESTINATION=/home/mifosdev/fineract_deployment/fineract/pentaho/  
+          PENTAHO_FILE_DESTINATION=/home/fiter/inkomoko_deployments/prod-container/fineract/pentaho/  
           echo "${{ secrets.PROD_SERVER_SSH_KEY }}" > /tmp/key.pem
           chmod 400 /tmp/key.pem
           ls -al $HOME/
