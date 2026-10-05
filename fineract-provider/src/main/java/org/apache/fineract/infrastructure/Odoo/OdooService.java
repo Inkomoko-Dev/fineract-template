@@ -62,6 +62,11 @@ public interface OdooService {
 
     void postClientToOdooOnUpdateTask(final Map<String, Object> changes, Client client);
 
+    // sends the client through the integration layer (SYNC over HTTP, ASYNC over Kafka)
+    void syncClientToOdoo(Long clientId);
+
+    void applyClientSyncOutcome(JsonObject outcome);
+
     void postFailedClientsOnMigration(Client client, String errorMsg, String jsonObject);
 
     void postFailedLoansOnMigration(BigDecimal amount, Long clientID, String odooLoanNumber, String odooLoanId, String errorMsg,
