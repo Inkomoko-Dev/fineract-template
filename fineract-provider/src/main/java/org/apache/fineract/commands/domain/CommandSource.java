@@ -120,6 +120,12 @@ public class CommandSource extends AbstractPersistableCustom {
                 command.json(), maker, ZonedDateTime.now(DateUtils.getDateTimeZoneOfTenant()), notes);
     }
 
+    public static CommandSource reportRunEntry(final String actionName, final String entityName, final String href, final String json,
+            final AppUser maker, final ZonedDateTime madeOnDateTime, final String notes) {
+        return new CommandSource(actionName, entityName, null, href, null, null, json, maker, madeOnDateTime,
+                StringUtils.left(notes, NOTES_MAX_LENGTH));
+    }
+
     protected CommandSource() {
         //
     }
@@ -163,6 +169,10 @@ public class CommandSource extends AbstractPersistableCustom {
         this.checker = checker;
         this.checkedOnDate = checkedOnDate != null ? checkedOnDate.toLocalDateTime() : null;
         this.processingResult = CommandProcessingResultType.PROCESSED.getValue();
+    }
+
+    public void markAsDenied() {
+        this.processingResult = CommandProcessingResultType.REJECTED.getValue();
     }
 
     public void markAsRejected(final AppUser checker, final ZonedDateTime checkedOnDate) {
