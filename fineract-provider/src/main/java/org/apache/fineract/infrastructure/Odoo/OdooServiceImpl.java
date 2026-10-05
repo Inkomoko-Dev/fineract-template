@@ -62,6 +62,7 @@ import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalLine;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalRepository;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchStatus;
+import org.apache.fineract.infrastructure.Odoo.event.ClientEventPublisher;
 import org.apache.fineract.infrastructure.Odoo.event.JournalEntryEventPublisher;
 import org.apache.fineract.infrastructure.Odoo.exception.OdooFailedException;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -154,6 +155,8 @@ public class OdooServiceImpl implements OdooService {
 
     @Autowired
     private ObjectProvider<JournalEntryEventPublisher> journalEntryEventPublisher;
+    @Autowired
+    private ObjectProvider<ClientEventPublisher> clientEventPublisher;
     private ClientRepositoryWrapper clientRepository;
     private ConfigurationDomainService configurationDomainService;
 
@@ -325,6 +328,10 @@ public class OdooServiceImpl implements OdooService {
     @CronTarget(jobName = JobName.POST_CUSTOMERS_TO_ODDO)
     public void postClientsToOddo() throws JobExecutionException {
         Boolean isOdooEnabled = this.configurationDomainService.isOdooIntegrationEnabled();
+        if (isOdooEnabled && integrationLayerEnabled) {
+            syncClientsToOdoo(this.clientRepository.getClientByIsOdooPosted(false));
+            return;
+        }
         if (isOdooEnabled) {
             List<Client> clients = this.clientRepository.getClientByIsOdooPosted(false);
 
@@ -387,6 +394,10 @@ public class OdooServiceImpl implements OdooService {
     @CronTarget(jobName = JobName.POST_UPDATED_DETAILS_OF_CUSTOMER_TO_ODDO)
     public void postCustomerUpdatedDetailsToOddo() throws JobExecutionException {
         Boolean isOdooEnabled = this.configurationDomainService.isOdooIntegrationEnabled();
+        if (isOdooEnabled && integrationLayerEnabled) {
+            syncClientsToOdoo(this.clientRepository.getClientUpdatedDetailsNotPostedToOdoo(true));
+            return;
+        }
         if (isOdooEnabled) {
             List<Client> clients = this.clientRepository.getClientUpdatedDetailsNotPostedToOdoo(true);
             List<Throwable> errors = new ArrayList<>();
@@ -411,6 +422,107 @@ public class OdooServiceImpl implements OdooService {
                 throw new JobExecutionException(errors);
             }
         }
+    }
+
+    // stops at the first failure: it's the transport (Kafka or the integration layer), the rest would fail the same way
+    private void syncClientsToOdoo(List<Client> clients) throws JobExecutionException {
+        for (Client client : clients) {
+            try {
+                syncClient(client);
+            } catch (Exception e) {
+                LOG.error("Client sync to Odoo stopped at client {}: {}", client.getId(), e.getMessage());
+                throw new JobExecutionException(List.<Throwable>of(e));
+            }
+        }
+    }
+
+    @Override
+    public void syncClientToOdoo(Long clientId) {
+        syncClient(this.clientRepository.findOneWithNotFoundDetection(clientId));
+    }
+
+    private void syncClient(Client client) {
+        final JsonObject payload = buildClientSyncPayload(client);
+        if ("ASYNC".equalsIgnoreCase(integrationLayerDeliveryMode)) {
+            final ClientEventPublisher publisher = clientEventPublisher.getIfAvailable();
+            if (publisher == null) {
+                throw new GeneralPlatformDomainRuleException("error.msg.client.event.publish.failed",
+                        "ASYNC client sync requires Kafka (set fineract.integrations.kafka.enabled=true)");
+            }
+            publisher.publish(client.getId(), payload);
+            return;
+        }
+        try {
+            final JsonObject integrationResponse = postToIntegrationLayer("CBS_CLIENT", payload.toString());
+            if (!getBooleanField(integrationResponse, "success") || !integrationResponse.has("data")
+                    || !integrationResponse.get("data").isJsonObject()) {
+                throw new GeneralPlatformDomainRuleException("error.msg.client.sync.to.odoo.failed",
+                        "Failed to sync client " + client.getId() + " via integration layer: "
+                                + getStringField(integrationResponse, "errorCause"));
+            }
+            applyClientSyncOutcome(integrationResponse.getAsJsonObject("data"));
+        } catch (IOException e) {
+            throw new GeneralPlatformDomainRuleException("error.msg.client.sync.to.odoo.failed",
+                    "Failed to sync client " + client.getId() + " via integration layer: " + e.getMessage());
+        }
+    }
+
+    JsonObject buildClientSyncPayload(Client client) {
+        final LegalForm legalForm = client.getLegalForm() == null ? null : LegalForm.fromInt(client.getLegalForm());
+        JsonObject payload = new JsonObject();
+        payload.addProperty("clientId", client.getId());
+        payload.addProperty("displayName", client.getDisplayName());
+        payload.addProperty("mobileNo", client.getMobileNo());
+        payload.addProperty("isCompany", legalForm != null && legalForm.isEntity());
+        payload.addProperty("officeId", client.officeId());
+        return payload;
+    }
+
+    @Override
+    public void applyClientSyncOutcome(JsonObject outcome) {
+        final Long clientId = getLongField(outcome, "clientId");
+        final Long partnerId = getLongField(outcome, "partnerId");
+        final String responseCode = getStringField(outcome, "responseCode");
+        if (clientId == null) {
+            LOG.warn("Odoo client sync outcome without a clientId: {}", outcome);
+            return;
+        }
+        if (("CREATED".equals(responseCode) || "UPDATED".equals(responseCode)) && partnerId != null) {
+            if (this.clientRepository.markSyncedToOdoo(clientId, partnerId.intValue()) == 0) {
+                LOG.warn("Odoo client sync outcome for unknown client {}", clientId);
+            } else {
+                LOG.info("Client {} synced to Odoo partner {} ({})", clientId, partnerId, responseCode);
+            }
+            return;
+        }
+        LOG.warn("Odoo did not sync client {} ({}): {}", clientId, responseCode, getStringField(outcome, "responseMessage"));
+    }
+
+    private Long getLongField(JsonObject jsonObject, String fieldName) {
+        if (jsonObject != null && jsonObject.has(fieldName) && jsonObject.get(fieldName).isJsonPrimitive()
+                && jsonObject.get(fieldName).getAsJsonPrimitive().isNumber()) {
+            return jsonObject.get(fieldName).getAsLong();
+        }
+        return null;
+    }
+
+    private static boolean isOdooRelevantChange(Map<String, Object> changes) {
+        return changes.containsKey(ClientApiConstants.firstnameParamName) || changes.containsKey(ClientApiConstants.fullnameParamName)
+                || changes.containsKey(ClientApiConstants.lastnameParamName) || changes.containsKey(ClientApiConstants.middlenameParamName)
+                || changes.containsKey(ClientApiConstants.mobileNoParamName) || changes.containsKey(ClientApiConstants.legalFormIdParamName);
+    }
+
+    // after commit so the client row is visible, on the executor so the request doesn't wait on Kafka or the integration layer
+    private void syncClientAfterCommit(Long clientId) {
+        final FineractContext context = ThreadLocalContextUtil.getContext();
+        AfterCommitExecutor.execute(() -> this.genericExecutorService.execute(() -> {
+            ThreadLocalContextUtil.init(context);
+            try {
+                syncClientToOdoo(clientId);
+            } catch (Exception e) {
+                LOG.warn("Client {} not synced to Odoo, the client sync job will retry: {}", clientId, e.getMessage());
+            }
+        }));
     }
 
     public void updateClientWithOdooUpdateStatus(boolean status, Client client) {
@@ -866,6 +978,30 @@ public class OdooServiceImpl implements OdooService {
     }
 
     private JsonObject sendRequestViaIntegrationLayer(String payload) throws IOException {
+        JsonObject integrationResponse = postToIntegrationLayer("CBS_JOURNAL_ENTRY", payload);
+
+        if (!getBooleanField(integrationResponse, "success")) {
+            throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.posting.to.odoo.failed",
+                    " Failed to post Journal Entries to Odoo via integration layer: " + integrationResponse.get("errorCode") + " -Cause :-"
+                            + getStringField(integrationResponse, "errorCause"));
+        }
+
+        if (!integrationResponse.has("data") || !integrationResponse.get("data").isJsonObject()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.posting.to.odoo.failed",
+                    " Integration layer returned success without the Odoo response body");
+        }
+
+        // the synchronous Odoo response replaces the legacy updateOdooStatus callback
+        applyOdooStatus(integrationResponse.getAsJsonObject("data"));
+
+        JsonObject ack = new JsonObject();
+        ack.addProperty("success", true);
+        ack.addProperty("message", "Successful");
+        ack.addProperty("ack", true);
+        return ack;
+    }
+
+    private JsonObject postToIntegrationLayer(String serviceName, String payload) throws IOException {
 
         // read timeout must exceed the integration layer's own 30s Odoo timeout
         final OkHttpClient httpClient = this.integrationLayerHttpClient != null ? this.integrationLayerHttpClient
@@ -876,7 +1012,7 @@ public class OdooServiceImpl implements OdooService {
         envelope.addProperty("creationDate", OffsetDateTime.now(ZoneOffset.UTC).toString());
         envelope.addProperty("requester", "CBS");
         envelope.addProperty("target", "ODOO");
-        envelope.addProperty("serviceName", "CBS_JOURNAL_ENTRY");
+        envelope.addProperty("serviceName", serviceName);
         envelope.addProperty("version", "1.0");
         envelope.addProperty("deliveryMode", "SYNC");
         envelope.add("payload", JsonParser.parseString(payload));
@@ -887,30 +1023,10 @@ public class OdooServiceImpl implements OdooService {
 
         try (Response response = httpClient.newCall(request).execute()) {
             String resObject = response.body() != null ? response.body().string() : "";
-            LOG.debug("Integration layer response on Odoo Journal Entry posting: {}", resObject);
+            LOG.debug("Integration layer response for {}: {}", serviceName, resObject);
 
             // the integration layer returns a parseable IntegrationResponse body on both 200 and 502
-            JsonObject integrationResponse = JsonParser.parseString(resObject).getAsJsonObject();
-
-            if (!getBooleanField(integrationResponse, "success")) {
-                throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.posting.to.odoo.failed",
-                        " Failed to post Journal Entries to Odoo via integration layer: " + response.code() + " -Cause :-"
-                                + getStringField(integrationResponse, "errorCause"));
-            }
-
-            if (!integrationResponse.has("data") || !integrationResponse.get("data").isJsonObject()) {
-                throw new GeneralPlatformDomainRuleException("error.msg.journal.entry.posting.to.odoo.failed",
-                        " Integration layer returned success without the Odoo response body");
-            }
-
-            // the synchronous Odoo response replaces the legacy updateOdooStatus callback
-            applyOdooStatus(integrationResponse.getAsJsonObject("data"));
-
-            JsonObject ack = new JsonObject();
-            ack.addProperty("success", true);
-            ack.addProperty("message", "Successful");
-            ack.addProperty("ack", true);
-            return ack;
+            return JsonParser.parseString(resObject).getAsJsonObject();
         }
     }
 
@@ -1047,6 +1163,12 @@ public class OdooServiceImpl implements OdooService {
 
     @Override
     public void postClientToOdooOnCreateTask(Client client) {
+        if (integrationLayerEnabled) {
+            if (configurationDomainService.isOdooIntegrationEnabled()) {
+                syncClientAfterCommit(client.getId());
+            }
+            return;
+        }
         try {
             this.genericExecutorService.execute(new PostClientCreationToOdoo(client, ThreadLocalContextUtil.getContext()));
         } catch (Exception ex) {
@@ -1056,6 +1178,13 @@ public class OdooServiceImpl implements OdooService {
 
     @Override
     public void postClientToOdooOnUpdateTask(Map<String, Object> changes, Client client) {
+        if (integrationLayerEnabled) {
+            if (configurationDomainService.isOdooIntegrationEnabled() && isOdooRelevantChange(changes)) {
+                client.setUpdatedToOdoo(false);
+                syncClientAfterCommit(client.getId());
+            }
+            return;
+        }
         try {
             this.genericExecutorService.execute(new PostClientUpdateToOdoo(changes, client, ThreadLocalContextUtil.getContext()));
         } catch (Exception ex) {
