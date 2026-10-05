@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.loanschedule.domain;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
@@ -572,6 +573,26 @@ public final class LoanApplicationTerms {
         return adjusted;
     }
 
+    public Money fixedDuePrincipalForPeriod(final Money totalCumulativePrincipal) {
+        final Money remaining = this.principal.minus(totalCumulativePrincipal);
+        if (!remaining.isGreaterThanZero()) {
+            return remaining.zero();
+        }
+        final Money fixed = Money.of(getCurrency(), getFixedPrincipalAmount());
+        return fixed.isGreaterThan(remaining) ? remaining : fixed;
+    }
+
+    public int additionalPeriodsForFixedPrincipal(final BigDecimal fixedPrincipal, final Money totalCumulativePrincipal,
+            final int periodNumber) {
+        final Money remaining = this.principal.minus(totalCumulativePrincipal);
+        if (!remaining.isGreaterThanZero() || fixedPrincipal == null || fixedPrincipal.signum() <= 0) {
+            return 0;
+        }
+        final int periodsNeeded = remaining.getAmount().divide(fixedPrincipal, 0, RoundingMode.CEILING).intValue();
+        final int periodsLeft = this.actualNumberOfRepayments - (periodNumber - 1);
+        return Math.max(0, periodsNeeded - periodsLeft);
+    }
+
     public Money adjustInterestIfLastRepaymentPeriod(final Money interestForThisPeriod, final Money totalCumulativeInterestToDate,
             final Money totalInterestDueForLoan, final int periodNumber) {
 
@@ -914,6 +935,10 @@ public final class LoanApplicationTerms {
 
     public void updateLoanEndDate(final LocalDate loanEndDate) {
         this.loanEndDate = loanEndDate;
+    }
+
+    public LocalDate getLoanEndDate() {
+        return this.loanEndDate;
     }
 
     private Money calculateTotalInterestPerInstallmentWithoutGrace(final PaymentPeriodsInOneYearCalculator calculator,

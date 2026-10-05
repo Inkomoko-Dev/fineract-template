@@ -211,6 +211,8 @@ public class LoanRescheduleRequestDataValidator {
 
         }
 
+        validateFixedPrincipalChange(dataValidatorBuilder, jsonCommand, jsonElement);
+
         final LocalDate adjustedDueDate = this.fromJsonHelper.extractLocalDateNamed(RescheduleLoansApiConstants.adjustedDueDateParamName,
                 jsonElement);
 
@@ -269,6 +271,40 @@ public class LoanRescheduleRequestDataValidator {
         validateForOverdueCharges(dataValidatorBuilder, loan, installment, jsonCommand);
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException(dataValidationErrors);
+        }
+    }
+
+    private void validateFixedPrincipalChange(final DataValidatorBuilder dataValidatorBuilder, final JsonCommand jsonCommand,
+            final JsonElement jsonElement) {
+        final boolean hasFixedAmount = this.fromJsonHelper.parameterExists(RescheduleLoansApiConstants.newPrincipalDueFixedAmount,
+                jsonElement);
+        final boolean hasFixedPercentage = this.fromJsonHelper
+                .parameterExists(RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment, jsonElement);
+
+        if (hasFixedAmount) {
+            final BigDecimal fixedAmount = jsonCommand
+                    .bigDecimalValueOfParameterNamed(RescheduleLoansApiConstants.newPrincipalDueFixedAmount);
+            dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.newPrincipalDueFixedAmount).value(fixedAmount).notNull()
+                    .positiveAmount();
+        }
+
+        if (hasFixedPercentage) {
+            final BigDecimal fixedPercentage = jsonCommand
+                    .bigDecimalValueOfParameterNamed(RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment);
+            dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment)
+                    .value(fixedPercentage).notNull().positiveAmount().notGreaterThanMax(BigDecimal.valueOf(100));
+        }
+
+        if (hasFixedAmount && hasFixedPercentage) {
+            dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment).failWithCode(
+                    "cannot.be.combined.with.newPrincipalDueFixedAmount",
+                    "Provide either a new fixed principal amount or a new fixed principal percentage, not both");
+        }
+
+        if ((hasFixedAmount || hasFixedPercentage)
+                && this.fromJsonHelper.parameterExists(RescheduleLoansApiConstants.emiParamName, jsonElement)) {
+            dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.emiParamName).failWithCode(
+                    "cannot.be.combined.with.fixed.principal", "An EMI change cannot be combined with a fixed principal change");
         }
     }
 
