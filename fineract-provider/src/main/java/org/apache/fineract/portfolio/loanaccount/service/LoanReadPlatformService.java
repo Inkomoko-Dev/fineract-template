@@ -111,12 +111,9 @@ public interface LoanReadPlatformService {
     Page<LoanAccountData> retrieveAllActive(SearchParameters searchParameters);
 
     /**
-     * Active loans whose client or group office is under {@code officeHierarchy} and also under {@code userHierarchy}.
-     *
-     * @throws org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException
-     *             when the match count exceeds {@code maxRows}
+     * Active loans whose client, group, or transfer-to office is under {@code officeHierarchy}.
      */
-    List<LoanRepaymentTemplateData> retrieveActiveLoansForRepaymentTemplate(String officeHierarchy, String userHierarchy, int maxRows);
+    List<LoanRepaymentTemplateData> retrieveActiveLoansForRepaymentTemplate(String officeHierarchy);
 
     Collection<StaffData> retrieveAllowedLoanOfficers(Long selectedOfficeId, boolean staffInSelectedOfficeOnly);
 
