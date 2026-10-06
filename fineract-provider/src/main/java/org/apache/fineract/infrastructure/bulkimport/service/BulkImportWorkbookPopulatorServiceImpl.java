@@ -445,23 +445,24 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
         if (officeId == null) {
             throw new GeneralPlatformDomainRuleException("error.msg.office.id.missing", "No office selected");
         }
-        List<OfficeData> offices = fetchOfficesInHierarchy(officeId);
-        final String userHierarchy = this.context.authenticatedUser().getOffice().getHierarchy();
-        final String officeHierarchy = offices.stream().filter(office -> officeId.equals(office.getId())).map(OfficeData::getHierarchy)
-                .findFirst().orElseThrow(() -> new GeneralPlatformDomainRuleException("error.msg.office.not.in.user.hierarchy",
-                        "Selected office is outside the user's office hierarchy"));
+        final OfficeHierarchySelection selection = fetchOfficesInHierarchy(officeId);
         List<FundData> funds = fetchFunds();
         List<PaymentTypeData> paymentTypes = fetchPaymentTypes();
         List<CurrencyData> currencies = fetchCurrencies();
-        List<LoanRepaymentTemplateData> loans = this.loanReadPlatformService.retrieveActiveLoansForRepaymentTemplate(officeHierarchy,
-                userHierarchy, SpreadsheetVersion.EXCEL97.getLastRowIndex());
+        List<LoanRepaymentTemplateData> loans = this.loanReadPlatformService
+                .retrieveActiveLoansForRepaymentTemplate(selection.hierarchy());
+        if (loans.size() > SpreadsheetVersion.EXCEL97.getLastRowIndex()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.repayment.template.too.many.loans",
+                    "The selected office hierarchy has more active loans than the Excel template can hold", loans.size(),
+                    SpreadsheetVersion.EXCEL97.getLastRowIndex());
+        }
         List<CodeValueData> departments = fetchCodeValuesByCodeName("Department");
         List<CodeValueData> loanPurposes = fetchCodeValuesByCodeName("LoanPurpose");
-        return new LoanRepaymentWorkbookPopulator(loans, new OfficeSheetPopulator(offices),
+        return new LoanRepaymentWorkbookPopulator(loans, new OfficeSheetPopulator(selection.offices()),
                 new ExtrasSheetPopulator(funds, paymentTypes, currencies, departments, loanPurposes));
     }
 
-    private List<OfficeData> fetchOfficesInHierarchy(final Long officeId) {
+    private OfficeHierarchySelection fetchOfficesInHierarchy(final Long officeId) {
         final OfficeData selectedOffice = this.officeReadPlatformService.retrieveOffice(officeId);
         final String userHierarchy = this.context.authenticatedUser().getOffice().getHierarchy();
         final String selectedHierarchy = selectedOffice.getHierarchy();
@@ -473,16 +474,29 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
         offices.sort(Comparator.comparing(Office::getHierarchy, Comparator.nullsLast(String::compareTo)));
         final List<OfficeData> officeData = new ArrayList<>();
         for (final Office office : offices) {
-            if (office.getHierarchy() != null && office.getHierarchy().startsWith(userHierarchy)) {
-                officeData.add(new OfficeData(office.getId(), office.getName(), office.getName(), null, null, office.getHierarchy(), null,
-                        null, null));
-            }
+            officeData.add(new OfficeData(office.getId(), office.getName(), office.getName(), null, null, office.getHierarchy(), null, null,
+                    null));
         }
-        if (officeData.isEmpty()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.office.not.in.user.hierarchy",
-                    "Selected office is outside the user's office hierarchy");
+        return new OfficeHierarchySelection(selectedHierarchy, officeData);
+    }
+
+    private static final class OfficeHierarchySelection {
+
+        private final String hierarchy;
+        private final List<OfficeData> offices;
+
+        private OfficeHierarchySelection(final String hierarchy, final List<OfficeData> offices) {
+            this.hierarchy = hierarchy;
+            this.offices = offices;
         }
-        return officeData;
+
+        private String hierarchy() {
+            return this.hierarchy;
+        }
+
+        private List<OfficeData> offices() {
+            return this.offices;
+        }
     }
 
     private List<LoanAccountData> fetchLoanAccounts(final Long officeId) {

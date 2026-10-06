@@ -20,7 +20,6 @@ package org.apache.fineract.infrastructure.bulkimport.populator.loanrepayment;
 
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
-import java.util.ArrayList;
 import java.util.List;
 import org.apache.fineract.infrastructure.bulkimport.constants.LoanRepaymentConstants;
 import org.apache.fineract.infrastructure.bulkimport.constants.TemplatePopulateImportConstants;
@@ -73,7 +72,10 @@ public class LoanRepaymentWorkbookPopulator extends AbstractWorkbookPopulator {
 
     private void setDefaults(Sheet worksheet, String dateFormat) {
         final String lookupRange = lookupRange();
-        for (Integer rowNo = 1; rowNo < INPUT_ROW_COUNT; rowNo++) {
+        final Workbook workbook = worksheet.getWorkbook();
+        final CellStyle dateCellStyle = workbook.createCellStyle();
+        dateCellStyle.setDataFormat(workbook.createDataFormat().getFormat(dateFormat));
+        for (int rowNo = 1; rowNo < INPUT_ROW_COUNT; rowNo++) {
             Row row = worksheet.getRow(rowNo);
             if (row == null) {
                 row = worksheet.createRow(rowNo);
@@ -95,11 +97,6 @@ public class LoanRepaymentWorkbookPopulator extends AbstractWorkbookPopulator {
                     lookupFormula(excelRow, lookupRange, LoanRepaymentConstants.LOOKUP_TOTAL_OUTSTANDING_AMOUNT_COL));
             writeFormula(LoanRepaymentConstants.LOAN_DISBURSEMENT_DATE_COL, row,
                     lookupFormula(excelRow, lookupRange, LoanRepaymentConstants.LOOKUP_LOAN_DISBURSEMENT_DATE_COL));
-
-            Workbook workbook = worksheet.getWorkbook();
-            CellStyle dateCellStyle = workbook.createCellStyle();
-            short df = workbook.createDataFormat().getFormat(dateFormat);
-            dateCellStyle.setDataFormat(df);
             row.getCell(LoanRepaymentConstants.LOAN_DISBURSEMENT_DATE_COL).setCellStyle(dateCellStyle);
         }
     }
@@ -148,13 +145,7 @@ public class LoanRepaymentWorkbookPopulator extends AbstractWorkbookPopulator {
     }
 
     private void setNames(Sheet worksheet) {
-        ArrayList<String> officeNames = new ArrayList<>(officeSheetPopulator.getOfficeNames());
         Workbook loanRepaymentWorkbook = worksheet.getWorkbook();
-        Name officeGroup = loanRepaymentWorkbook.createName();
-        officeGroup.setNameName("Office");
-        officeGroup.setRefersToFormula(TemplatePopulateImportConstants.OFFICE_SHEET_NAME + "!$B$2:$B$"
-                + Math.max(officeNames.size() + 1, 2));
-
         final int lookupEndRow = Math.max(allloans.size() + 1, 2);
         Name loanAccountGroup = loanRepaymentWorkbook.createName();
         loanAccountGroup.setNameName("LoanAccounts");
@@ -162,7 +153,7 @@ public class LoanRepaymentWorkbookPopulator extends AbstractWorkbookPopulator {
                 + columnName(LoanRepaymentConstants.LOOKUP_ACCOUNT_NO_COL) + "$2:$"
                 + columnName(LoanRepaymentConstants.LOOKUP_ACCOUNT_NO_COL) + "$" + lookupEndRow);
 
-        LOG.info("All active loans: " + allloans.size());
+        LOG.info("All active loans: {}", allloans.size());
 
         Name paymentTypeGroup = loanRepaymentWorkbook.createName();
         paymentTypeGroup.setNameName("PaymentTypes");
