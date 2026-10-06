@@ -48,8 +48,8 @@ import org.apache.fineract.infrastructure.documentmanagement.domain.DocumentRepo
 import org.apache.fineract.infrastructure.documentmanagement.service.DocumentWritePlatformService;
 import org.apache.fineract.infrastructure.documentmanagement.service.DocumentWritePlatformServiceJpaRepositoryImpl;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
-import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.glassfish.jersey.media.multipart.FormDataContentDisposition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -93,7 +93,7 @@ public class BulkImportWorkbookServiceImpl implements BulkImportWorkbookService 
                 InputStream clonedInputStream = new ByteArrayInputStream(bytes);
                 final BufferedInputStream bis = new BufferedInputStream(new ByteArrayInputStream(bytes));
 
-                Workbook workbook = new HSSFWorkbook(clonedInputStream);
+                Workbook workbook = WorkbookFactory.create(clonedInputStream);
                 GlobalEntityType entityType = null;
                 int primaryColumn = 0;
                 if (entity.trim().equalsIgnoreCase(GlobalEntityType.CLIENTS_PERSON.toString())) {
