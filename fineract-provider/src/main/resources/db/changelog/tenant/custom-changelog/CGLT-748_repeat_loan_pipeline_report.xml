@@ -576,7 +576,7 @@ WHERE ('${countryId}' = '-1' OR IFNULL(adr.country_id, -10) = '${countryId}')
         </insert>
     </changeSet>
 
-    <changeSet id="CGLT-748-12-report-client-uuid" author="willy" context="mysql">
+    <changeSet id="CGLT-748-12-report-drop-completed-loans" author="willy" context="mysql">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
                 SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Repeat Loan Pipeline Eligibility'
@@ -692,7 +692,7 @@ crs AS (
     ) z WHERE z.rn = 1
 )
 SELECT
-    c.external_id                                       AS 'Client UUID',
+    c.id                                                AS 'Client ID',
     st.display_name                                     AS 'Loan Officer',
     cvco.code_value                                     AS 'Country',
     cvrg.code_value                                     AS 'Region',
