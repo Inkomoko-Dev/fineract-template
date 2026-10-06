@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.bulkimport.service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.ResponseBuilder;
@@ -73,6 +74,8 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.service.CurrencyReadPlatformService;
 import org.apache.fineract.organisation.office.data.OfficeData;
+import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.organisation.office.domain.OfficeRepository;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
@@ -87,6 +90,7 @@ import org.apache.fineract.portfolio.group.data.GroupGeneralData;
 import org.apache.fineract.portfolio.group.service.CenterReadPlatformService;
 import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
@@ -107,6 +111,7 @@ import org.apache.fineract.portfolio.shareproducts.data.ShareProductData;
 import org.apache.fineract.useradministration.data.RoleData;
 import org.apache.fineract.useradministration.service.RoleReadPlatformService;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.ss.SpreadsheetVersion;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -136,6 +141,7 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
     private final ChargeReadPlatformService chargeReadPlatformService;
     private final DepositProductReadPlatformService depositProductReadPlatformService;
     private final RoleReadPlatformService roleReadPlatformService;
+    private final OfficeRepository officeRepository;
 
     @Autowired
     public BulkImportWorkbookPopulatorServiceImpl(final PlatformSecurityContext context,
@@ -151,7 +157,7 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
             final SavingsProductReadPlatformService savingsProductReadPlatformService,
             final ProductReadPlatformService productReadPlatformService, final ChargeReadPlatformService chargeReadPlatformService,
             final DepositProductReadPlatformService depositProductReadPlatformService,
-            final RoleReadPlatformService roleReadPlatformService) {
+            final RoleReadPlatformService roleReadPlatformService, final OfficeRepository officeRepository) {
         this.officeReadPlatformService = officeReadPlatformService;
         this.staffReadPlatformService = staffReadPlatformService;
         this.context = context;
@@ -171,6 +177,7 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
         this.chargeReadPlatformService = chargeReadPlatformService;
         this.depositProductReadPlatformService = depositProductReadPlatformService;
         this.roleReadPlatformService = roleReadPlatformService;
+        this.officeRepository = officeRepository;
     }
 
     @Override
@@ -435,19 +442,47 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
         this.context.authenticatedUser().validateHasReadPermission(TemplatePopulateImportConstants.FUNDS_ENTITY_TYPE);
         this.context.authenticatedUser().validateHasReadPermission(TemplatePopulateImportConstants.PAYMENT_TYPE_ENTITY_TYPE);
         this.context.authenticatedUser().validateHasReadPermission(TemplatePopulateImportConstants.CURRENCY_ENTITY_TYPE);
-        if (officeId == null){
+        if (officeId == null) {
             throw new GeneralPlatformDomainRuleException("error.msg.office.id.missing", "No office selected");
         }
-        List<OfficeData> offices = fetchOffices(officeId);
-        List<ClientData> clients = fetchClients(officeId);
+        List<OfficeData> offices = fetchOfficesInHierarchy(officeId);
+        final String userHierarchy = this.context.authenticatedUser().getOffice().getHierarchy();
+        final String officeHierarchy = offices.stream().filter(office -> officeId.equals(office.getId())).map(OfficeData::getHierarchy)
+                .findFirst().orElseThrow(() -> new GeneralPlatformDomainRuleException("error.msg.office.not.in.user.hierarchy",
+                        "Selected office is outside the user's office hierarchy"));
         List<FundData> funds = fetchFunds();
         List<PaymentTypeData> paymentTypes = fetchPaymentTypes();
         List<CurrencyData> currencies = fetchCurrencies();
-        List<LoanAccountData> loans = fetchLoanAccounts(officeId);
+        List<LoanRepaymentTemplateData> loans = this.loanReadPlatformService.retrieveActiveLoansForRepaymentTemplate(officeHierarchy,
+                userHierarchy, SpreadsheetVersion.EXCEL97.getLastRowIndex());
         List<CodeValueData> departments = fetchCodeValuesByCodeName("Department");
         List<CodeValueData> loanPurposes = fetchCodeValuesByCodeName("LoanPurpose");
-        return new LoanRepaymentWorkbookPopulator(loans, new OfficeSheetPopulator(offices), new ClientSheetPopulator(clients, offices),
+        return new LoanRepaymentWorkbookPopulator(loans, new OfficeSheetPopulator(offices),
                 new ExtrasSheetPopulator(funds, paymentTypes, currencies, departments, loanPurposes));
+    }
+
+    private List<OfficeData> fetchOfficesInHierarchy(final Long officeId) {
+        final OfficeData selectedOffice = this.officeReadPlatformService.retrieveOffice(officeId);
+        final String userHierarchy = this.context.authenticatedUser().getOffice().getHierarchy();
+        final String selectedHierarchy = selectedOffice.getHierarchy();
+        if (selectedHierarchy == null || userHierarchy == null || !selectedHierarchy.startsWith(userHierarchy)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.office.not.in.user.hierarchy",
+                    "Selected office is outside the user's office hierarchy");
+        }
+        final List<Office> offices = new ArrayList<>(this.officeRepository.findByHierarchyStartingWith(selectedHierarchy));
+        offices.sort(Comparator.comparing(Office::getHierarchy, Comparator.nullsLast(String::compareTo)));
+        final List<OfficeData> officeData = new ArrayList<>();
+        for (final Office office : offices) {
+            if (office.getHierarchy() != null && office.getHierarchy().startsWith(userHierarchy)) {
+                officeData.add(new OfficeData(office.getId(), office.getName(), office.getName(), null, null, office.getHierarchy(), null,
+                        null, null));
+            }
+        }
+        if (officeData.isEmpty()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.office.not.in.user.hierarchy",
+                    "Selected office is outside the user's office hierarchy");
+        }
+        return officeData;
     }
 
     private List<LoanAccountData> fetchLoanAccounts(final Long officeId) {

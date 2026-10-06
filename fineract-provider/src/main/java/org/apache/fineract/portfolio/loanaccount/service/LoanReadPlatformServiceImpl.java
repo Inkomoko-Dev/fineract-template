@@ -114,6 +114,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanFinancialRatioData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanInterestRecalculationData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanNetCashFlowData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleAccrualData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanStatusEnumData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanSummaryData;
@@ -441,6 +442,43 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public Page<LoanAccountData> retrieveAllActive(final SearchParameters searchParameters) {
         return retrieveLoanAccountPage(searchParameters, true);
+    }
+
+    @Override
+    public List<LoanRepaymentTemplateData> retrieveActiveLoansForRepaymentTemplate(final String officeHierarchy,
+            final String userHierarchy, final int maxRows) {
+        this.context.authenticatedUser();
+        final String officeHierarchySearch = officeHierarchy + "%";
+        final String userHierarchySearch = userHierarchy + "%";
+        final String fromWhere = " from m_loan l " + " join m_product_loan lp on lp.id = l.product_id "
+                + " left join m_client c on c.id = l.client_id " + " left join m_group g on g.id = l.group_id "
+                + " left join m_office co on co.id = c.office_id " + " left join m_office go on go.id = g.office_id "
+                + " where l.loan_status_id = ? "
+                + " and (c.office_id in (select o.id from m_office o where o.hierarchy like ? and o.hierarchy like ?) "
+                + " or g.office_id in (select o.id from m_office o where o.hierarchy like ? and o.hierarchy like ?)) ";
+        final Object[] criteria = { LoanStatus.ACTIVE.getValue(), officeHierarchySearch, userHierarchySearch, officeHierarchySearch,
+                userHierarchySearch };
+        final Integer total = this.jdbcTemplate.queryForObject("select count(*)" + fromWhere, Integer.class, criteria);
+        final int loanCount = total == null ? 0 : total;
+        if (loanCount > maxRows) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.repayment.template.too.many.loans",
+                    "The selected office hierarchy has more active loans than the Excel template can hold", loanCount, maxRows);
+        }
+        if (loanCount == 0) {
+            return Collections.emptyList();
+        }
+        final String mfiCodeSql = "(select dd.mfi_code from m_loan_disbursement_detail dd where dd.loan_id = l.id "
+                + " and dd.mfi_code is not null and trim(dd.mfi_code) <> '' order by dd.disbursedon_date desc, dd.id desc "
+                + this.sqlGenerator.limit(1) + ")";
+        final String sql = "select l.account_no as accountNo, c.id as clientId, c.display_name as clientName, "
+                + " c.external_id as clientExternalId, lp.name as productName, l.principal_amount as principal, "
+                + " l.total_outstanding_derived as totalOutstanding, l.disbursedon_date as disbursementDate, "
+                + " coalesce(co.name, go.name) as officeName, " + mfiCodeSql + " as mfiCode " + fromWhere
+                + " order by l.account_no, l.id ";
+        return this.jdbcTemplate.query(sql, (rs, rowNum) -> new LoanRepaymentTemplateData(rs.getString("accountNo"), "Active",
+                JdbcSupport.getLong(rs, "clientId"), rs.getString("clientName"), rs.getString("clientExternalId"),
+                rs.getString("productName"), rs.getBigDecimal("principal"), rs.getBigDecimal("totalOutstanding"),
+                JdbcSupport.getLocalDate(rs, "disbursementDate"), rs.getString("officeName"), rs.getString("mfiCode")), criteria);
     }
 
     /**
