@@ -27,11 +27,13 @@ import static org.mockito.Mockito.when;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverTxnRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.useradministration.data.AppUserData;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.service.AppUserReadPlatformService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,17 +51,24 @@ public class HistoricalPenaltyWaiverApproverOptionsTest {
 
     private static final Long LOAN_ID = 4001L;
     private static final Long OFFICE_ID = 3L;
+    private static final Long CURRENT_USER_ID = 99L;
 
     private final AppUserReadPlatformService appUserReadPlatformService = mock(AppUserReadPlatformService.class);
     private final LoanRepositoryWrapper loanRepositoryWrapper = mock(LoanRepositoryWrapper.class);
+    private final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
 
     private HistoricalPenaltyWaiverReadPlatformService service() {
         final Loan loan = mock(Loan.class);
         when(loan.getOfficeId()).thenReturn(OFFICE_ID);
         when(this.loanRepositoryWrapper.findOneWithNotFoundDetection(LOAN_ID)).thenReturn(loan);
 
+        final AppUser currentUser = mock(AppUser.class);
+        when(currentUser.getId()).thenReturn(CURRENT_USER_ID);
+        when(this.context.authenticatedUser()).thenReturn(currentUser);
+
         return new HistoricalPenaltyWaiverReadPlatformServiceImpl(mock(LoanHistoricalPenaltyWaiverRepository.class),
-                mock(LoanHistoricalPenaltyWaiverTxnRepository.class), this.appUserReadPlatformService, this.loanRepositoryWrapper);
+                mock(LoanHistoricalPenaltyWaiverTxnRepository.class), this.appUserReadPlatformService, this.loanRepositoryWrapper,
+                this.context);
     }
 
     private void permittedUsers(final Long... userIds) {
@@ -94,5 +103,15 @@ public class HistoricalPenaltyWaiverApproverOptionsTest {
         service().retrieveApproverOptions(LOAN_ID);
 
         verify(this.appUserReadPlatformService).retrieveUsersByOfficeAndPermission(OFFICE_ID, "APPROVE_HISTORICALPENALTYWAIVER");
+    }
+
+    @Test
+    public void theSubmitterIsNotOfferedAsTheirOwnApprover() {
+        permittedUsers(10L, CURRENT_USER_ID, 12L);
+
+        final Collection<AppUserData> options = service().retrieveApproverOptions(LOAN_ID);
+
+        assertEquals(2, options.size());
+        assertTrue(options.stream().noneMatch(user -> user.hasIdentifyOf(CURRENT_USER_ID)));
     }
 }

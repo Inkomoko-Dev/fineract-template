@@ -52,4 +52,12 @@ public class HistoricalPenaltyWaiverApprovalPolicy {
 
         return HistoricalPenaltyWaiverApprovalRequirement.of(amountBreached, ageBreached);
     }
+
+    public Long ageThresholdDays() {
+        return this.configurationDomainService.retrieveHistoricalPenaltyWaiverApprovalAgeDays();
+    }
+
+    public Long amountThreshold() {
+        return this.configurationDomainService.retrieveHistoricalPenaltyWaiverApprovalAmountThreshold();
+    }
 }
