@@ -47,7 +47,7 @@ public final class UserDataValidator {
      */
     private final Set<String> supportedParameters = new HashSet<>(Arrays.asList("username", "firstname", "lastname", "password",
             "repeatPassword", "email", "officeId", "notSelectedRoles", "roles", "sendPasswordToEmail", "staffId", "passwordNeverExpires",
-            AppUserConstants.IS_SELF_SERVICE_USER, AppUserConstants.CLIENTS, AppUserConstants.NOTES));
+            AppUserConstants.IS_SELF_SERVICE_USER, AppUserConstants.CLIENTS, AppUserConstants.NOTES, AppUserConstants.OFFICE_IDS));
 
     private final Set<String> ownPasswordChangeParameters = new HashSet<>(
             Arrays.asList("password", "repeatPassword", AppUserConstants.NOTES));
@@ -148,7 +148,29 @@ public final class UserDataValidator {
         final String notes = this.fromApiJsonHelper.extractStringNamed(AppUserConstants.NOTES, element);
         baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).notBlank().notExceedingLengthOf(500);
 
+        validateOfficeIds(element, baseDataValidator);
+
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    private void validateOfficeIds(final JsonElement element, final DataValidatorBuilder baseDataValidator) {
+        if (!this.fromApiJsonHelper.parameterExists(AppUserConstants.OFFICE_IDS, element)) {
+            return;
+        }
+        final JsonArray officeIdsArray = this.fromApiJsonHelper.extractJsonArrayNamed(AppUserConstants.OFFICE_IDS, element);
+        baseDataValidator.reset().parameter(AppUserConstants.OFFICE_IDS).value(officeIdsArray).notNull();
+        if (officeIdsArray == null) {
+            return;
+        }
+        final Set<Long> seen = new HashSet<>();
+        for (final JsonElement officeIdElement : officeIdsArray) {
+            final Long officeId = officeIdElement.getAsLong();
+            baseDataValidator.reset().parameter(AppUserConstants.OFFICE_IDS).value(officeId).longGreaterThanZero();
+            if (!seen.add(officeId)) {
+                baseDataValidator.reset().parameter(AppUserConstants.OFFICE_IDS).value(officeId)
+                        .failWithCode("duplicate.office", "Office " + officeId + " is assigned more than once");
+            }
+        }
     }
 
     private void throwExceptionIfValidationWarningsExist(final List<ApiParameterError> dataValidationErrors) {
@@ -257,6 +279,8 @@ public final class UserDataValidator {
         } else {
             baseDataValidator.reset().parameter(AppUserConstants.NOTES).value(notes).notBlank().notExceedingLengthOf(500);
         }
+
+        validateOfficeIds(element, baseDataValidator);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }

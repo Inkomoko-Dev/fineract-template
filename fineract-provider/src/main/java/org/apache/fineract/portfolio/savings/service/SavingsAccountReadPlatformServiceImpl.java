@@ -53,6 +53,7 @@ import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChe
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
 import org.apache.fineract.portfolio.account.data.AccountTransferData;
@@ -211,20 +212,20 @@ public class SavingsAccountReadPlatformServiceImpl implements SavingsAccountRead
     @Override
     public Page<SavingsAccountData> retrieveAll(final SearchParameters searchParameters) {
 
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("o.hierarchy");
 
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(this.savingAccountMapper.schema());
 
         sqlBuilder.append(" join m_office o on (o.id = c.office_id or o.id = g.office_id)");
-        sqlBuilder.append(" where o.hierarchy like ?");
+        sqlBuilder.append(" where ").append(officeAccess.getSql());
 
-        final Object[] objectArray = new Object[2];
-        objectArray[0] = hierarchySearchString;
-        int arrayPos = 1;
+        final Object[] objectArray = new Object[officeAccess.getParameters().size() + 3];
+        int arrayPos = 0;
+        for (final Object officeAccessParameter : officeAccess.getParameters()) {
+            objectArray[arrayPos++] = officeAccessParameter;
+        }
         if (searchParameters != null) {
             String sqlQueryCriteria = searchParameters.getSqlSearch();
             if (StringUtils.isNotBlank(sqlQueryCriteria)) {

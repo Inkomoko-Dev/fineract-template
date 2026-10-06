@@ -76,7 +76,6 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.infrastructure.security.service.SqlInjectionPreventerService;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.infrastructure.security.utils.SQLInjectionValidator;
-import org.apache.fineract.useradministration.domain.AppUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -1452,7 +1451,7 @@ public class ReadWriteNonCoreDataServiceImpl implements ReadWriteNonCoreDataServ
          * few key tables are done. But if additional fields are needed on other tables the same pattern applies
          */
 
-        final AppUser currentUser = this.context.authenticatedUser();
+        final String officeAccess = this.context.officeAccessScope().inlinedPredicate("o.hierarchy");
         String scopedSQL = null;
         /*
          * m_loan and m_savings_account are connected to an m_office thru either an m_client or an m_group If both it
@@ -1461,34 +1460,34 @@ public class ReadWriteNonCoreDataServiceImpl implements ReadWriteNonCoreDataServ
         if (appTable.equalsIgnoreCase("m_loan")) {
             scopedSQL = "select distinct x.* from ("
                     + " (select o.id as officeId, l.group_id as groupId, l.client_id as clientId, null as savingsId, l.id as loanId, null as entityId from m_loan l "
-                    + " join m_client c on c.id = l.client_id " + " join m_office o on o.id = c.office_id and o.hierarchy like '"
-                    + currentUser.getOffice().getHierarchy() + "%'" + " where l.id = " + appTableId + ")" + " union all "
+                    + " join m_client c on c.id = l.client_id " + " join m_office o on o.id = c.office_id and "
+                    + officeAccess + " where l.id = " + appTableId + ")" + " union all "
                     + " (select o.id as officeId, l.group_id as groupId, l.client_id as clientId, null as savingsId, l.id as loanId, null as entityId from m_loan l "
-                    + " join m_group g on g.id = l.group_id " + " join m_office o on o.id = g.office_id and o.hierarchy like '"
-                    + currentUser.getOffice().getHierarchy() + "%'" + " where l.id = " + appTableId + ")" + " ) as x";
+                    + " join m_group g on g.id = l.group_id " + " join m_office o on o.id = g.office_id and "
+                    + officeAccess + " where l.id = " + appTableId + ")" + " ) as x";
         }
         if (appTable.equalsIgnoreCase("m_savings_account")) {
             scopedSQL = "select distinct x.* from ("
                     + " (select o.id as officeId, s.group_id as groupId, s.client_id as clientId, s.id as savingsId, null as loanId, null as entityId from m_savings_account s "
-                    + " join m_client c on c.id = s.client_id " + " join m_office o on o.id = c.office_id and o.hierarchy like '"
-                    + currentUser.getOffice().getHierarchy() + "%'" + " where s.id = " + appTableId + ")" + " union all "
+                    + " join m_client c on c.id = s.client_id " + " join m_office o on o.id = c.office_id and "
+                    + officeAccess + " where s.id = " + appTableId + ")" + " union all "
                     + " (select o.id as officeId, s.group_id as groupId, s.client_id as clientId, s.id as savingsId, null as loanId, null as entityId from m_savings_account s "
-                    + " join m_group g on g.id = s.group_id " + " join m_office o on o.id = g.office_id and o.hierarchy like '"
-                    + currentUser.getOffice().getHierarchy() + "%'" + " where s.id = " + appTableId + ")" + " ) as x";
+                    + " join m_group g on g.id = s.group_id " + " join m_office o on o.id = g.office_id and "
+                    + officeAccess + " where s.id = " + appTableId + ")" + " ) as x";
         }
         if (appTable.equalsIgnoreCase("m_client")) {
             scopedSQL = "select o.id as officeId, null as groupId, c.id as clientId, null as savingsId, null as loanId, null as entityId from m_client c "
-                    + " join m_office o on o.id = c.office_id and o.hierarchy like '" + currentUser.getOffice().getHierarchy() + "%'"
+                    + " join m_office o on o.id = c.office_id and " + officeAccess
                     + " where c.id = " + appTableId;
         }
         if (appTable.equalsIgnoreCase("m_group") || appTable.equalsIgnoreCase("m_center")) {
             scopedSQL = "select o.id as officeId, g.id as groupId, null as clientId, null as savingsId, null as loanId, null as entityId from m_group g "
-                    + " join m_office o on o.id = g.office_id and o.hierarchy like '" + currentUser.getOffice().getHierarchy() + "%'"
+                    + " join m_office o on o.id = g.office_id and " + officeAccess
                     + " where g.id = " + appTableId;
         }
         if (appTable.equalsIgnoreCase("m_office")) {
             scopedSQL = "select o.id as officeId, null as groupId, null as clientId, null as savingsId, null as loanId, null as entityId from m_office o "
-                    + " where o.hierarchy like '" + currentUser.getOffice().getHierarchy() + "%'" + " and o.id = " + appTableId;
+                    + " where " + officeAccess + " and o.id = " + appTableId;
         }
 
         if (appTable.equalsIgnoreCase("m_product_loan") || appTable.equalsIgnoreCase("m_savings_product")) {

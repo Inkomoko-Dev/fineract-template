@@ -20,6 +20,7 @@ package org.apache.fineract.useradministration.service;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.stream.StreamSupport;
@@ -126,6 +127,9 @@ public class AppUserWritePlatformServiceJpaRepositoryImpl implements AppUserWrit
             }
 
             AppUser appUser = AppUser.fromJson(userOffice, linkedStaff, allRoles, clients, command);
+            if (command.hasParameter(AppUserConstants.OFFICE_IDS)) {
+                appUser.updateAdditionalOffices(assembleAdditionalOffices(command, userOffice));
+            }
 
             final Boolean sendPasswordToEmail = command.booleanObjectValueOfParameterNamed("sendPasswordToEmail");
             this.userDomainService.create(appUser, sendPasswordToEmail);
@@ -199,6 +203,15 @@ public class AppUserWritePlatformServiceJpaRepositoryImpl implements AppUserWrit
                 userToUpdate.changeStaff(linkedStaff);
             }
 
+            if (command.hasParameter(AppUserConstants.OFFICE_IDS)) {
+                changes.putAll(userToUpdate
+                        .updateAdditionalOfficesWithChanges(assembleAdditionalOffices(command, userToUpdate.getOffice())));
+            } else if (changes.containsKey("officeId") && userToUpdate.getAdditionalOfficeIds().contains(userToUpdate.getOffice().getId())) {
+                final List<Office> remaining = new ArrayList<>(userToUpdate.getAdditionalOffices());
+                remaining.removeIf(office -> office.getId().equals(userToUpdate.getOffice().getId()));
+                changes.putAll(userToUpdate.updateAdditionalOfficesWithChanges(remaining));
+            }
+
             if (changes.containsKey("roles")) {
                 JsonArray roleArray = command.arrayOfParameterNamed("roles");
                 String[] roleIds = StreamSupport.stream(roleArray.spliterator(), false)
@@ -255,6 +268,26 @@ public class AppUserWritePlatformServiceJpaRepositoryImpl implements AppUserWrit
         }
 
         return currentPasswordToSaveAsPreview;
+    }
+
+    private List<Office> assembleAdditionalOffices(final JsonCommand command, final Office homeOffice) {
+        final List<Office> offices = new ArrayList<>();
+        final JsonArray officeIdsArray = command.arrayOfParameterNamed(AppUserConstants.OFFICE_IDS);
+        if (officeIdsArray == null) {
+            return offices;
+        }
+        for (final JsonElement officeIdElement : officeIdsArray) {
+            final Long officeId = officeIdElement.getAsLong();
+            if (officeId.equals(homeOffice.getId())) {
+                throw new PlatformApiDataValidationException(List.of(ApiParameterError.parameterError(
+                        "validation.msg.user.officeIds.contains.home.office", "Office " + officeId + " is already the user's own office",
+                        AppUserConstants.OFFICE_IDS, officeId)));
+            }
+            final Office office = this.officeRepositoryWrapper.findOneWithNotFoundDetection(officeId);
+            this.context.validateAccessRights(office.getHierarchy());
+            offices.add(office);
+        }
+        return offices;
     }
 
     private Set<Role> assembleSetOfRoles(final String[] rolesArray) {

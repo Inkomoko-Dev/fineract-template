@@ -25,6 +25,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
@@ -38,6 +39,8 @@ import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.service.CurrencyReadPlatformService;
 import org.apache.fineract.organisation.office.data.OfficeData;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
+import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.exception.StaffNotFoundException;
@@ -51,7 +54,6 @@ import org.apache.fineract.organisation.teller.data.TellerJournalData;
 import org.apache.fineract.organisation.teller.data.TellerTransactionData;
 import org.apache.fineract.organisation.teller.domain.CashierTxnType;
 import org.apache.fineract.organisation.teller.domain.TellerStatus;
-import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -346,20 +348,15 @@ public class TellerManagementReadPlatformServiceImpl implements TellerManagement
         return null;
     }
 
-    @Cacheable(value = "tellers", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat(#root.target.context.authenticatedUser().getOffice().getHierarchy()+'of')")
+    @Cacheable(value = "tellers", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat(#root.target.context.officeAccessScope().toString()+'of')")
     public Collection<TellerData> retrieveAllTellers(final boolean includeAllTellers) {
-        final AppUser currentUser = this.context.authenticatedUser();
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        String hierarchySearchString = null;
-        if (includeAllTellers) {
-            hierarchySearchString = "." + "%";
-        } else {
-            hierarchySearchString = hierarchy + "%";
-        }
+        this.context.authenticatedUser();
+        final OfficeAccessPredicate officeAccess = includeAllTellers ? OfficeAccessScope.hierarchical(List.of(".")).predicate("o.hierarchy")
+                : this.context.officeAccessScope().predicate("o.hierarchy");
         final TellerMapper tm = new TellerMapper();
-        final String sql = "select " + tm.schema() + "where o.hierarchy like ? order by o.hierarchy";
+        final String sql = "select " + tm.schema() + "where " + officeAccess.getSql() + " order by o.hierarchy";
 
-        return this.jdbcTemplate.query(sql, tm, new Object[] { hierarchySearchString }); // NOSONAR
+        return this.jdbcTemplate.query(sql, tm, officeAccess.getArguments()); // NOSONAR
     }
 
     @Override
