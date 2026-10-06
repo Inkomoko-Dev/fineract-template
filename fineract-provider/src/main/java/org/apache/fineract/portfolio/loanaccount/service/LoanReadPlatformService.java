@@ -41,6 +41,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanDecisionData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanDueDiligenceData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanFinancialRatioData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleAccrualData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
@@ -108,6 +109,14 @@ public interface LoanReadPlatformService {
     Page<LoanAccountData> retrieveAll(SearchParameters searchParameters);
 
     Page<LoanAccountData> retrieveAllActive(SearchParameters searchParameters);
+
+    /**
+     * Active loans whose client or group office is under {@code officeHierarchy} and also under {@code userHierarchy}.
+     *
+     * @throws org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException
+     *             when the match count exceeds {@code maxRows}
+     */
+    List<LoanRepaymentTemplateData> retrieveActiveLoansForRepaymentTemplate(String officeHierarchy, String userHierarchy, int maxRows);
 
     Collection<StaffData> retrieveAllowedLoanOfficers(Long selectedOfficeId, boolean staffInSelectedOfficeOnly);
 
