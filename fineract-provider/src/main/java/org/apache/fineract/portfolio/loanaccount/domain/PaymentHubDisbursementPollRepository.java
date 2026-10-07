@@ -16,17 +16,17 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.portfolio.loanaccount.service;
+package org.apache.fineract.portfolio.loanaccount.domain;
 
-import org.apache.fineract.infrastructure.core.api.JsonCommand;
-import org.apache.fineract.portfolio.loanaccount.data.PaymentHubStatusQueryResult;
-import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
-public interface DisbursementRequestService {
+@Repository
+public interface PaymentHubDisbursementPollRepository extends JpaRepository<PaymentHubDisbursementPoll, Long> {
 
-    String disburseRequestLoan(Loan loan, JsonCommand command);
+    Optional<PaymentHubDisbursementPoll> findByRequestId(String requestId);
 
-    String paymentHubAccessToken();
-
-    PaymentHubStatusQueryResult queryTransactionStatus(String accessToken, String requestId, String transactionId);
+    List<PaymentHubDisbursementPoll> findByLoanIdAndStatusOrderByIdAsc(Long loanId, String status);
 }
