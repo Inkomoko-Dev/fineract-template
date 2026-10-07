@@ -65,6 +65,7 @@ import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSeria
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.organisation.office.data.OfficeData;
+import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.context.annotation.Scope;
@@ -130,8 +131,7 @@ public class AccountingRuleApiResource {
         final AppUser currentUser = this.context.authenticatedUser();
         currentUser.validateHasReadPermission(this.resourceNameForPermission);
 
-        final String hierarchy = currentUser.getOffice().getHierarchy();
-        final String hierarchySearchString = hierarchy + "%";
+        final OfficeAccessPredicate officeAccess = this.context.officeAccessScope().predicate("office.hierarchy");
 
         final Set<String> associationParameters = ApiParameterHelper.extractAssociationsForResponseIfProvided(uriInfo.getQueryParameters());
         boolean isAssociationParametersExists = false;
@@ -143,7 +143,7 @@ public class AccountingRuleApiResource {
             }
         }
         final List<AccountingRuleData> accountingRuleDatas = this.accountingRuleReadPlatformService
-                .retrieveAllAccountingRules(hierarchySearchString, isAssociationParametersExists);
+                .retrieveAllAccountingRules(officeAccess, isAssociationParametersExists);
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.apiJsonSerializerService.serialize(settings, accountingRuleDatas, RESPONSE_DATA_PARAMETERS);

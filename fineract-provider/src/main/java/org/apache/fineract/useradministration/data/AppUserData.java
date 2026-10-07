@@ -56,6 +56,10 @@ public final class AppUserData {
     @SuppressWarnings("unused")
     private Set<ClientData> clients;
 
+    private List<Long> officeIds;
+
+    private Collection<OfficeData> assignedOffices;
+
     public static AppUserData importInstance(Long officeId, Long staffId, String username, String firstname, String lastname, String email,
             Boolean sendPasswordToEmail, Boolean passwordNeverExpires, List<Long> roleIds, Integer rowIndex) {
         return new AppUserData(officeId, staffId, username, firstname, lastname, email, sendPasswordToEmail, passwordNeverExpires, roleIds,
@@ -90,9 +94,26 @@ public final class AppUserData {
     }
 
     public static AppUserData template(final AppUserData user, final Collection<OfficeData> officesForDropdown) {
-        return new AppUserData(user.id, user.username, user.email, user.officeId, user.officeName, user.firstname, user.lastname,
-                user.availableRoles, user.selfServiceRoles, user.selectedRoles, officesForDropdown, user.staff, user.passwordNeverExpires,
-                user.isSelfServiceUser);
+        final AppUserData templated = new AppUserData(user.id, user.username, user.email, user.officeId, user.officeName, user.firstname,
+                user.lastname, user.availableRoles, user.selfServiceRoles, user.selectedRoles, officesForDropdown, user.staff,
+                user.passwordNeverExpires, user.isSelfServiceUser);
+        templated.clients = user.clients;
+        templated.officeIds = user.officeIds;
+        templated.assignedOffices = user.assignedOffices;
+        return templated;
+    }
+
+    public void setAssignedOffices(final Collection<OfficeData> assignedOffices, final List<Long> officeIds) {
+        this.assignedOffices = assignedOffices;
+        this.officeIds = officeIds;
+    }
+
+    public Collection<OfficeData> getAssignedOffices() {
+        return this.assignedOffices;
+    }
+
+    public List<Long> getOfficeIds() {
+        return this.officeIds;
     }
 
     public static AppUserData template(final Collection<OfficeData> offices, final Collection<RoleData> availableRoles,

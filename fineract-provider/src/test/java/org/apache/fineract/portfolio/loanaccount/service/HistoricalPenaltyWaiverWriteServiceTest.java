@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -36,6 +37,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,6 +73,7 @@ import org.apache.fineract.useradministration.service.AppUserReadPlatformService
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -93,6 +96,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
     private static final Long PRODUCT_ID = 9L;
     private static final Long OFFICE_ID = 3L;
     private static final Long APPROVER_ID = 55L;
+    private static final Long SUBMITTER_ID = 12L;
     private static final OffsetDateTime SUBMITTED_ON = OffsetDateTime.parse("2026-08-04T09:15:00Z");
 
     static {
@@ -126,8 +130,14 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         private final Loan loan = mock(Loan.class);
         private final LoanCharge penalty = mock(LoanCharge.class);
         private final LoanSummary summary = LoanSummary.create(BigDecimal.ZERO);
+        private final Map<LoanTransaction, Long> flushedIds = new IdentityHashMap<>();
 
         private Fixture() {
+            when(this.loanTransactionRepository.saveAndFlush(any(LoanTransaction.class))).thenAnswer(invocation -> {
+                final LoanTransaction flushed = invocation.getArgument(0);
+                this.flushedIds.putIfAbsent(flushed, 5000L + this.flushedIds.size());
+                return flushed;
+            });
             when(this.loanAssembler.assembleFrom(LOAN_ID)).thenReturn(this.loan);
             when(this.loanChargeRepository.findById(CHARGE_ID)).thenReturn(Optional.of(this.penalty));
             when(this.applicationCurrencyRepository.findOneWithNotFoundDetection(any(MonetaryCurrency.class)))
@@ -199,6 +209,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
 
         private LoanTransaction transaction() {
             final LoanTransaction transaction = mock(LoanTransaction.class);
+            when(transaction.getId()).thenAnswer(invocation -> this.flushedIds.get(transaction));
             when(transaction.getPrincipalPortion()).thenReturn(BigDecimal.ZERO);
             when(transaction.getInterestPortion(KES)).thenReturn(Money.zero(KES));
             when(transaction.getFeeChargesPortion(KES)).thenReturn(Money.zero(KES));
@@ -222,7 +233,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         this.fixture.requiresApproval(true);
         this.fixture.approverHoldsThePermission(true);
 
-        this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"), APPROVER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4));
+        this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"), SUBMITTER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4));
 
         verify(this.fixture.loan, never()).waiveLoanChargeHistorically(any(), any(), anyList(), anyList(), any(), any(), any(), any());
         verifyNoInteractions(this.fixture.loanTransactionRepository);
@@ -260,7 +271,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         this.fixture.service().submit(LOAN_ID, CHARGE_ID, requestWithoutApprover("5000.00"), null, SUBMITTED_ON, LocalDate.of(2026, 8, 4));
 
         // The gap this ticket closes: waiveLoanCharge ran the replay and then dropped its replacements on the floor.
-        verify(this.fixture.loanTransactionRepository, times(3)).save(any(LoanTransaction.class));
+        verify(this.fixture.loanTransactionRepository, times(4)).saveAndFlush(any(LoanTransaction.class));
         verify(this.fixture.loan, times(3)).addLoanTransaction(any(LoanTransaction.class));
     }
 
@@ -273,6 +284,18 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
 
         // one WAIVE row, plus a REVERSED and a REPLACEMENT row for each of the two mappings
         verify(this.fixture.waiverTxnRepository, times(5)).save(any(LoanHistoricalPenaltyWaiverTxn.class));
+    }
+
+    @Test
+    public void everyAuditRowPointsAtATransactionTheDatabaseHasNumbered() {
+        this.fixture.requiresApproval(false);
+        this.fixture.replayProduces(2);
+
+        this.fixture.service().submit(LOAN_ID, CHARGE_ID, requestWithoutApprover("5000.00"), null, SUBMITTED_ON, LocalDate.of(2026, 8, 4));
+
+        final ArgumentCaptor<LoanHistoricalPenaltyWaiverTxn> rows = ArgumentCaptor.forClass(LoanHistoricalPenaltyWaiverTxn.class);
+        verify(this.fixture.waiverTxnRepository, times(5)).save(rows.capture());
+        rows.getAllValues().forEach(row -> assertNotNull(row.getLoanTransactionId(), row.getTxnRole()));
     }
 
     @Test
@@ -315,7 +338,7 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
         this.fixture.approverHoldsThePermission(false);
 
         assertThrows(PlatformApiDataValidationException.class, () -> this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"),
-                APPROVER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4)));
+                SUBMITTER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4)));
     }
 
     @Test
@@ -372,11 +395,32 @@ public class HistoricalPenaltyWaiverWriteServiceTest {
                 () -> this.fixture.service().approve(4321L, APPROVER_ID, SUBMITTED_ON));
     }
 
+    @Test
+    public void theSubmitterMayNotNameThemselvesAsTheApprover() {
+        this.fixture.requiresApproval(true);
+        this.fixture.approverHoldsThePermission(true);
+
+        assertThrows(PlatformApiDataValidationException.class, () -> this.fixture.service().submit(LOAN_ID, CHARGE_ID, request("5000.00"),
+                APPROVER_ID, SUBMITTED_ON, LocalDate.of(2026, 8, 4)));
+        verify(this.fixture.loan, never()).waiveLoanChargeHistorically(any(), any(), anyList(), anyList(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void theSubmitterMayNotApproveTheirOwnRequest() {
+        final LoanHistoricalPenaltyWaiver request = pendingRequest();
+        when(this.fixture.waiverRepository.findById(4321L)).thenReturn(Optional.of(request));
+        this.fixture.approverHoldsThePermission(true);
+        ReflectionTestUtils.setField(request, "submittedById", APPROVER_ID);
+
+        assertThrows(PlatformApiDataValidationException.class, () -> this.fixture.service().approve(4321L, APPROVER_ID, SUBMITTED_ON));
+        assertEquals(HistoricalPenaltyWaiverStatus.PENDING_APPROVAL, request.getStatus());
+    }
+
     private LoanHistoricalPenaltyWaiver pendingRequest() {
         final LoanHistoricalPenaltyWaiver waiver = LoanHistoricalPenaltyWaiver.submit(LOAN_ID, 1200L, PRODUCT_ID, OFFICE_ID, CHARGE_ID, 8L,
                 "Late repayment penalty", CHARGE_DUE_DATE, 201, null, new BigDecimal("5000.00"), new BigDecimal("5000.00"), BigDecimal.ZERO,
                 BigDecimal.ZERO, new BigDecimal("5000.00"), false, EFFECTIVE_DATE, "Penalty charged in error", true,
-                HistoricalPenaltyWaiverApprovalRequirement.TRIGGER_AGE, APPROVER_ID, 12L, SUBMITTED_ON);
+                HistoricalPenaltyWaiverApprovalRequirement.TRIGGER_AGE, APPROVER_ID, SUBMITTER_ID, SUBMITTED_ON);
         ReflectionTestUtils.setField(waiver, "id", 4321L);
         return waiver;
     }

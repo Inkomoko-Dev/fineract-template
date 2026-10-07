@@ -209,6 +209,9 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
 
                 newPrincipalDueFixedAmount = jsonCommand
                         .bigDecimalValueOfParameterNamed(RescheduleLoansApiConstants.newPrincipalDueFixedAmount);
+            } else if (jsonCommand.hasParameter(RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment)) {
+                newPrincipalDueFixedAmount = fixedPrincipalAmountFromPercentage(loan, jsonCommand
+                        .bigDecimalValueOfParameterNamed(RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment));
             }
 
             // check if the parameter is in the JsonCommand object
@@ -459,6 +462,10 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                 break;
             }
         }
+    }
+
+    static BigDecimal fixedPrincipalAmountFromPercentage(final Loan loan, final BigDecimal percentage) {
+        return loan.getPrincpal().percentageOf(percentage, MoneyHelper.getRoundingMode()).getAmount();
     }
 
     private void createFixedPrincipalVariation(Loan loan, LocalDate rescheduleFromDate, LoanRescheduleRequest loanRescheduleRequest,

@@ -55,9 +55,11 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleP
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.MultiDisbursementEmiAmountException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.MultiDisbursementOutstandingAmoutException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.ScheduleDateException;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.ScheduleNotAmortisingException;
 
 public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGenerator {
 
+    static final int MAX_PERIODS_WITHOUT_PRINCIPAL_PROGRESS_AFTER_MATURITY = 12;
     protected final ScheduledDateGenerator scheduledDateGenerator = new DefaultScheduledDateGenerator();
     private final PaymentPeriodsInOneYearCalculator paymentPeriodsInOneYearCalculator = new DefaultPaymentPeriodsInOneYearCalculator();
 
@@ -181,6 +183,7 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
                 isFirstRepayment = false;
             }
         }
+        int periodsWithoutPrincipalProgressAfterMaturity = 0;
         while (!scheduleParams.getOutstandingBalance().isZero() || !scheduleParams.getDisburseDetailMap().isEmpty()) {
             LocalDate previousRepaymentDate = scheduleParams.getActualRepaymentDate();
             scheduleParams.setActualRepaymentDate(this.scheduledDateGenerator
@@ -314,6 +317,16 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
                 scheduleParams.setOutstandingBalance(Money.zero(currency));
             }
 
+            if (isPastMaturityWithoutPrincipalProgress(loanApplicationTerms, scheduleParams, scheduledDueDate,
+                    currentPeriodParams.getPrincipalForThisPeriod())) {
+                periodsWithoutPrincipalProgressAfterMaturity++;
+                if (periodsWithoutPrincipalProgressAfterMaturity >= MAX_PERIODS_WITHOUT_PRINCIPAL_PROGRESS_AFTER_MATURITY) {
+                    throw new ScheduleNotAmortisingException(scheduleParams.getOutstandingBalance().getAmount(), scheduledDueDate);
+                }
+            } else {
+                periodsWithoutPrincipalProgressAfterMaturity = 0;
+            }
+
             if (!isNextRepaymentAvailable) {
                 scheduleParams.getDisburseDetailMap().clear();
             }
@@ -426,6 +439,27 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
         } else {
             return loanScheduleParams.getOutstandingBalanceAsPerRest();
         }
+    }
+
+    private void extendRepaymentPeriods(final LoanApplicationTerms loanApplicationTerms, final LoanScheduleParams scheduleParams,
+            final int additionalPeriods, final MathContext mc) {
+        loanApplicationTerms.updateNumberOfRepayments(loanApplicationTerms.getNumberOfRepayments() + additionalPeriods);
+        final LocalDate loanEndDate = this.scheduledDateGenerator.getLastRepaymentDate(loanApplicationTerms,
+                loanApplicationTerms.getHolidayDetailDTO());
+        loanApplicationTerms.updateLoanEndDate(loanEndDate);
+        loanApplicationTerms.updateAccountedTillPeriod(scheduleParams.getPeriodNumber() - 1, scheduleParams.getTotalCumulativePrincipal(),
+                scheduleParams.getTotalCumulativeInterest(), additionalPeriods);
+        adjustInstallmentOrPrincipalAmount(loanApplicationTerms, scheduleParams.getTotalCumulativePrincipal(),
+                scheduleParams.getPeriodNumber(), mc);
+        loanApplicationTerms
+                .updateTotalInterestDue(loanApplicationTerms.calculateTotalInterestCharged(this.paymentPeriodsInOneYearCalculator, mc));
+    }
+
+    static boolean isPastMaturityWithoutPrincipalProgress(final LoanApplicationTerms loanApplicationTerms,
+            final LoanScheduleParams scheduleParams, final LocalDate scheduledDueDate, final Money principalForThisPeriod) {
+        final LocalDate loanEndDate = loanApplicationTerms.getLoanEndDate();
+        return loanEndDate != null && scheduledDueDate.isAfter(loanEndDate) && scheduleParams.getDisburseDetailMap().isEmpty()
+                && scheduleParams.getOutstandingBalance().isGreaterThanZero() && !principalForThisPeriod.isGreaterThanZero();
     }
 
     private boolean mergePeriodsForSameDueDateAndConfirm(Collection<LoanScheduleModelPeriod> periods,
@@ -1128,29 +1162,20 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
                 break;
 
                 case PRINCIPAL_DUE_FIXED_AMOUNT:
+                    final int additionalPeriods = loanApplicationTerms.additionalPeriodsForFixedPrincipal(
+                            loanTermVariationsData.getDecimalValue(), scheduleParams.getTotalCumulativePrincipal(),
+                            scheduleParams.getPeriodNumber());
+                    if (additionalPeriods > 0) {
+                        extendRepaymentPeriods(loanApplicationTerms, scheduleParams, additionalPeriods, mc);
+                    }
                     loanApplicationTerms.setFixedDueAmountChange(true);
                     loanApplicationTerms.setFixedPrincipalAmount(loanTermVariationsData.getDecimalValue());
-                    recalculateAmounts = true;
                 break;
 
                 case EXTEND_REPAYMENT_PERIOD:
-                    Integer rescheduleNumberOfRepayments = loanApplicationTerms.getNumberOfRepayments();
-                    rescheduleNumberOfRepayments += loanTermVariationsData.getDecimalValue().intValue();
-                    loanApplicationTerms.updateNumberOfRepayments(rescheduleNumberOfRepayments);
-                    LocalDate loanEndDate = this.scheduledDateGenerator.getLastRepaymentDate(loanApplicationTerms,
-                            loanApplicationTerms.getHolidayDetailDTO());
-                    loanApplicationTerms.updateLoanEndDate(loanEndDate);
-                    loanApplicationTerms.updateAccountedTillPeriod(scheduleParams.getPeriodNumber() - 1,
-                            scheduleParams.getTotalCumulativePrincipal(), scheduleParams.getTotalCumulativeInterest(),
-                            loanTermVariationsData.getDecimalValue().intValue());
-                    adjustInstallmentOrPrincipalAmount(loanApplicationTerms, scheduleParams.getTotalCumulativePrincipal(),
-                            scheduleParams.getPeriodNumber(), mc);
-
-                    Money totalInterestChargedForFullLoanTerm = loanApplicationTerms
-                            .calculateTotalInterestCharged(this.paymentPeriodsInOneYearCalculator, mc);
-
-                    loanApplicationTerms.updateTotalInterestDue(totalInterestChargedForFullLoanTerm);
-
+                    LocalDate loanEndDate;
+                    Money totalInterestChargedForFullLoanTerm;
+                    extendRepaymentPeriods(loanApplicationTerms, scheduleParams, loanTermVariationsData.getDecimalValue().intValue(), mc);
                     loanTermVariationsData.setProcessed(true);
                 break;
                 case GRACE_ON_PRINCIPAL:
