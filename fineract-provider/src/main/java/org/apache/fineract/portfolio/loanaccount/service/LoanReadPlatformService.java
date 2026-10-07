@@ -41,6 +41,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanDecisionData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanDueDiligenceData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanFinancialRatioData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleAccrualData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
@@ -108,6 +109,11 @@ public interface LoanReadPlatformService {
     Page<LoanAccountData> retrieveAll(SearchParameters searchParameters);
 
     Page<LoanAccountData> retrieveAllActive(SearchParameters searchParameters);
+
+    /**
+     * Active loans whose client, group, or transfer-to office is under {@code officeHierarchy}.
+     */
+    List<LoanRepaymentTemplateData> retrieveActiveLoansForRepaymentTemplate(String officeHierarchy);
 
     Collection<StaffData> retrieveAllowedLoanOfficers(Long selectedOfficeId, boolean staffInSelectedOfficeOnly);
 
