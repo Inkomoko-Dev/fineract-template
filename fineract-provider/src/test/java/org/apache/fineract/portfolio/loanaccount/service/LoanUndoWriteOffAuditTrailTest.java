@@ -127,7 +127,6 @@ class LoanUndoWriteOffAuditTrailTest {
         ReflectionTestUtils.setField(this.service, "accountTransfersWritePlatformService", mock(AccountTransfersWritePlatformService.class));
         ReflectionTestUtils.setField(this.service, "businessEventNotifierService", mock(BusinessEventNotifierService.class));
         ReflectionTestUtils.setField(this.service, "loanUtilService", mock(LoanUtilService.class));
-        ReflectionTestUtils.setField(this.service, "loanDailyLateFeeService", mock(LoanDailyLateFeeService.class));
     }
 
     @AfterEach
