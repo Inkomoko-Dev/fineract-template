@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -81,7 +82,7 @@ class EntityDisbursementDefaultsServiceTest {
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko Kenya");
 
-        final EntityDisbursementDefaultsResult result = service.resolve(loan, LocalDate.now());
+        final EntityDisbursementDefaultsResult result = service.resolve(loan, LocalDate.of(2026, 9, 9));
 
         assertFalse(result.isApplicable());
     }
@@ -143,7 +144,7 @@ class EntityDisbursementDefaultsServiceTest {
 
         final Loan loan = mock(Loan.class);
         final Office office = mock(Office.class);
-        final LoanDisbursementDetails detail = new LoanDisbursementDetails(LocalDate.now(), null, BigDecimal.TEN, null);
+        final LoanDisbursementDetails detail = new LoanDisbursementDetails(LocalDate.of(2026, 9, 9), null, BigDecimal.TEN, null);
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko - Capital Kenya Limited");
         when(loan.getDepartment()).thenReturn(existingDepartment);
@@ -201,7 +202,7 @@ class EntityDisbursementDefaultsServiceTest {
         when(loan.getOffice()).thenReturn(office);
         when(office.getName()).thenReturn("Inkomoko Kenya");
         when(txn.isDisbursement()).thenReturn(true);
-        when(txn.getTransactionDate()).thenReturn(LocalDate.now());
+        when(txn.getTransactionDate()).thenReturn(LocalDate.of(2026, 9, 9));
         when(txn.getId()).thenReturn(55L);
         when(loan.getId()).thenReturn(100L);
 
@@ -335,9 +336,10 @@ class EntityDisbursementDefaultsServiceTest {
 
     private void stubEntityConfigs(final String json) {
         final GlobalConfigurationProperty property = mock(GlobalConfigurationProperty.class);
-        when(property.toData()).thenReturn(new org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData(
-                EntityDisbursementDefaultsService.CONFIG_ENTITIES, true, null, null, null, json, false));
-        when(globalConfigurationRepository.findOneByNameWithNotFoundDetection(EntityDisbursementDefaultsService.CONFIG_ENTITIES))
+        lenient().when(property.toData())
+                .thenReturn(new org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData(
+                        EntityDisbursementDefaultsService.CONFIG_ENTITIES, true, null, null, null, json, false));
+        lenient().when(globalConfigurationRepository.findOneByNameWithNotFoundDetection(EntityDisbursementDefaultsService.CONFIG_ENTITIES))
                 .thenReturn(property);
     }
 }
