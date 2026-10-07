@@ -156,6 +156,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanSc
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
@@ -699,7 +700,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             LocalDate onDate) {
 
         this.context.authenticatedUser();
-        this.loanUtilService.validateRepaymentTransactionType(repaymentTransactionType, false);
+        this.loanUtilService.validateRepaymentTransactionType(repaymentTransactionType, repaymentTransactionType.isPayOff());
 
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         loan.setHelpers(null, null, loanRepaymentScheduleTransactionProcessorFactory);
@@ -1050,8 +1051,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final LoanTransactionData loanTransactionData = this.jdbcTemplate.queryForObject(sql, rm, loanId, transactionId); // NOSONAR
             final LoanTransaction loanTransaction = this.loanTransactionRepository.findById(transactionId)
                     .orElseThrow(() -> new LoanTransactionNotFoundException(transactionId));
-            if (loanTransaction.isRecoveryRepaymentType()) {
-                populateRecoveryCorrectionMetadata(loanTransactionData, loanTransaction.getLoan(), loanTransaction.getTransactionDate());
+            if (loanTransaction.isRecoveryRepaymentType() || loanTransaction.isRepaymentAtDisbursement()
+                    || loanTransaction.isDisbursementChargeAdjustment()) {
+                // Expose the closed-accounting-period correction window so the "Edit Insurance Payment" screen can warn
+                // when corrections are disallowed and knows the open-period date range. Mirrors the recovery flow.
+                populateClosedPeriodCorrectionMetadata(loanTransactionData, loanTransaction.getLoan(), loanTransaction.getTransactionDate());
             }
             return loanTransactionData;
         } catch (final EmptyResultDataAccessException e) {
@@ -1122,7 +1126,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " l.principal_writtenoff_derived as principalWrittenOff,"
                     + " l.principal_outstanding_derived as principalOutstanding," + " l.interest_charged_derived as interestCharged,"
                     + " l.interest_repaid_derived as interestPaid," + " l.interest_waived_derived as interestWaived,"
-                    + " l.interest_writtenoff_derived as interestWrittenOff," + " l.interest_outstanding_derived as interestOutstanding,"
+                    + " l.interest_writtenoff_derived as interestWrittenOff,"
+                    + " l.interest_cancelled_derived as interestCancelled,"
+                    + " l.interest_outstanding_derived as interestOutstanding,"
                     + " l.fee_charges_charged_derived as feeChargesCharged,"
                     + " l.total_charges_due_at_disbursement_derived as feeChargesDueAtDisbursementCharged,"
                     + " l.fee_charges_repaid_derived as feeChargesPaid," + " l.fee_charges_waived_derived as feeChargesWaived,"
@@ -1401,6 +1407,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 final BigDecimal interestPaid = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestPaid");
                 final BigDecimal interestWaived = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWaived");
                 final BigDecimal interestWrittenOff = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWrittenOff");
+                final BigDecimal interestCancelled = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestCancelled");
                 final BigDecimal interestOutstanding = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestOutstanding");
                 final BigDecimal interestOverdue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestOverdue");
 
@@ -1435,7 +1442,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
                 loanSummary = new LoanSummaryData(currencyData, principalDisbursed, principalPaid, principalWrittenOff,
                         principalOutstanding, principalOverdue, interestCharged, interestPaid, interestWaived, interestWrittenOff,
-                        interestOutstanding, interestOverdue, feeChargesCharged, feeChargesDueAtDisbursementCharged, feeChargesPaid,
+                        interestCancelled, interestOutstanding, interestOverdue, feeChargesCharged, feeChargesDueAtDisbursementCharged,
+                        feeChargesPaid,
                         feeChargesWaived, feeChargesWrittenOff, feeChargesOutstanding, feeChargesOverdue, penaltyChargesCharged,
                         penaltyChargesPaid, penaltyChargesWaived, penaltyChargesWrittenOff, penaltyChargesOutstanding,
                         penaltyChargesOverdue, totalExpectedRepayment, totalRepayment, totalExpectedCostOfLoan, totalCostOfLoan,
@@ -1762,7 +1770,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
             // update totals with details of fees charged during disbursement
             totalFeeChargesCharged = totalFeeChargesCharged.plus(disbursementPeriod.feeChargesDue().subtract(waivedChargeAmount));
-            totalRepaymentExpected = totalRepaymentExpected.plus(disbursementPeriod.feeChargesDue()).minus(waivedChargeAmount);
+            totalRepaymentExpected = totalRepaymentExpected.plus(disbursementPeriod.totalDueForPeriod()).minus(waivedChargeAmount);
             totalRepayment = totalRepayment.plus(disbursementPeriod.feeChargesPaid()).minus(waivedChargeAmount);
             totalOutstanding = totalOutstanding.plus(disbursementPeriod.feeChargesDue()).minus(disbursementPeriod.feeChargesPaid());
 
@@ -2716,7 +2724,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         if (originalTransactionId != null) {
             final LoanTransaction originalRecoveryTransaction = retrieveRecoveryCorrectionReference(loan, originalTransactionId);
             loanTransactionData.setOriginalTransactionId(originalTransactionId);
-            populateRecoveryCorrectionMetadata(loanTransactionData, loan, originalRecoveryTransaction.getTransactionDate());
+            populateClosedPeriodCorrectionMetadata(loanTransactionData, loan, originalRecoveryTransaction.getTransactionDate());
         }
         return loanTransactionData;
 
@@ -2741,7 +2749,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         return originalTransaction;
     }
 
-    private void populateRecoveryCorrectionMetadata(final LoanTransactionData loanTransactionData, final Loan loan,
+    private void populateClosedPeriodCorrectionMetadata(final LoanTransactionData loanTransactionData, final Loan loan,
             final LocalDate originalTransactionDate) {
         loanTransactionData.setCorrectionAllowed(Boolean.TRUE);
         loanTransactionData.setCorrectionDateRequired(Boolean.FALSE);
@@ -2762,7 +2770,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     }
 
     @Override
-    public LoanTransactionData retrieveLoanWriteoffTemplate(final Long loanId) {
+    public LoanTransactionData retrieveLoanWriteoffTemplate(final Long loanId, final LocalDate writeOffDate) {
 
         final LoanAccountData loan = this.retrieveOne(loanId);
         final BigDecimal outstandingLoanBalance = null;
@@ -2770,11 +2778,35 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final BigDecimal unrecognizedIncomePortion = null;
         final List<CodeValueData> writeOffReasonOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(LoanApiConstants.WRITEOFFREASONS));
+
+        // CGLT-632: break the write-off down as at the selected date so the user sees what will actually be written
+        // off (principal + interest earned by then) versus cancelled (future unaccrued interest, no GL impact).
+        final LocalDate effectiveDate = writeOffDate == null ? DateUtils.getBusinessLocalDate() : writeOffDate;
+        final Loan loanAccount = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        final BigDecimal recognisedInterest = loanAccount.getInterestRecognisedAsOf(effectiveDate).getAmount();
+        final BigDecimal futureInterestCancelled = loanAccount.getFutureInterestToCancelAsOf(effectiveDate).getAmount();
+        final BigDecimal principalOutstanding = loanAccount.getSummary().getTotalPrincipalOutstanding();
+        final BigDecimal feesOutstanding = loanAccount.getSummary().getTotalFeeChargesOutstanding();
+        final BigDecimal penaltiesOutstanding = loanAccount.getSummary().getTotalPenaltyChargesOutstanding();
+        final BigDecimal writeOffAmount = principalOutstanding.add(recognisedInterest).add(feesOutstanding).add(penaltiesOutstanding);
+
         LoanTransactionData loanTransactionData = new LoanTransactionData(null, null, null, transactionType, null, loan.currency(),
-                DateUtils.getBusinessLocalDate(), loan.getTotalOutstandingAmount(), loan.getNetDisbursalAmount(), null, null, null, null,
-                null, null, null, null, outstandingLoanBalance, unrecognizedIncomePortion, false, null);
+                effectiveDate, writeOffAmount, loan.getNetDisbursalAmount(), principalOutstanding, recognisedInterest, feesOutstanding,
+                penaltiesOutstanding, null, null, null, null, outstandingLoanBalance, unrecognizedIncomePortion, false, null);
         loanTransactionData.setWriteOffReasonOptions(writeOffReasonOptions);
+        loanTransactionData.setFutureInterestCancelled(futureInterestCancelled);
+        loanTransactionData.setProductBasis(productBasisOf(loanAccount.loanProduct()));
         return loanTransactionData;
+    }
+
+    private String productBasisOf(final LoanProduct loanProduct) {
+        if (loanProduct.isCashBasedAccountingEnabled()) {
+            return "Cash";
+        }
+        if (loanProduct.isAccrualBasedAccountingEnabled()) {
+            return "Accrual";
+        }
+        return "None";
     }
 
     @Override
@@ -3371,16 +3403,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
     @Override
     public LoanTransactionData retrieveLoanPayoffTemplate(Long loanId) {
-        final LoanAccountData loan = this.retrieveOne(loanId);
-        final BigDecimal outstandingLoanBalance = null;
-        final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.PAY_OFF);
-        final BigDecimal unrecognizedIncomePortion = null;
+        // Use the prepayment calculation to ensure only accrued interest is included
+        // This prevents overcharging clients with future/unearned interest on loan payoff
+        final LocalDate payoffDate = DateUtils.getBusinessLocalDate();
+        final LoanTransactionData loanTransactionData = this.retrieveLoanPrePaymentTemplate(LoanTransactionType.PAY_OFF, loanId, payoffDate);
+
+        // Add write-off reason options for the payoff template
         final List<CodeValueData> writeOffReasonOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(LoanApiConstants.WRITEOFFREASONS));
-        LoanTransactionData loanTransactionData = new LoanTransactionData(null, null, null, transactionType, null, loan.currency(),
-                DateUtils.getBusinessLocalDate(), loan.getTotalOutstandingAmount(), loan.getNetDisbursalAmount(), null, null, null, null,
-                null, null, null, null, outstandingLoanBalance, unrecognizedIncomePortion, false, null);
         loanTransactionData.setWriteOffReasonOptions(writeOffReasonOptions);
+
+        // CGLT-658: surface the future unaccrued interest that will be cancelled (not paid) on this early settlement.
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        loanTransactionData.setFutureInterestCancelled(loan.getFutureInterestToCancelAsOf(payoffDate).getAmount());
         return loanTransactionData;
     }
 
@@ -4385,7 +4420,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     "WHERE gl.is_oddo_posted = false " +
                     "AND mc.is_odoo_customer_posted = true " +
                     "AND odoo_customer_id IS NOT NULL " +
-                    "AND mlt.transaction_type_enum IN (1,2,4,5,6,8,9,10,19,26,27) " +
+                    "AND mlt.transaction_type_enum IN (1,2,4,5,6,8,9,10,19,26,27,33) " +
                     "AND ml.currency_code NOT IN ('ETB') " ;
 
         }

@@ -244,6 +244,7 @@ import org.apache.fineract.portfolio.loanproduct.data.LoanOverdueDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.exception.InvalidCurrencyException;
 import org.apache.fineract.portfolio.loanproduct.exception.LinkedAccountRequiredException;
+import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
@@ -1724,6 +1725,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 changes, existingTransactionIds, existingReversedTransactionIds, currentUser, scheduleGeneratorDTO);
         LoanTransaction writeOff = changedTransactionDetail.getNewTransactionMappings().remove(0L);
         this.loanTransactionRepository.saveAndFlush(writeOff);
+        // CGLT-632: record the future unaccrued interest cancelled by this write-off as its own audit transaction.
+        final LoanTransaction futureInterestCancellation = loan.reconcileFutureInterestCancellation(writeOff,
+                writeOff.getTransactionDate());
+        if (futureInterestCancellation != null) {
+            this.loanTransactionRepository.saveAndFlush(futureInterestCancellation);
+        }
         for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
             this.loanTransactionRepository.save(mapEntry.getValue());
             this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
@@ -3464,7 +3471,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     }
 
     @Override
-    public CommandProcessingResult undoWriteOff(Long loanId) {
+    public CommandProcessingResult undoWriteOff(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
 
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
@@ -3475,6 +3482,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             throw new PlatformServiceUnavailableException("error.msg.loan.status.not.written.off.update.not.allowed",
                     "Loan :" + loanId + " update not allowed as loan status is not written off", loanId);
         }
+        final String previousStatus = LoanEnumerations.status(loan.getLoanStatus()).value();
         LocalDate recalculateFrom = null;
         LoanTransaction writeOffTransaction = loan.findWriteOffTransaction();
         businessEventNotifierService.notifyPreBusinessEvent(new LoanUndoWrittenOffBusinessEvent(writeOffTransaction));
@@ -3489,18 +3497,40 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
             }
         }
+        LoanTransaction writeOffReversal = loan.findWriteOffReversalOf(writeOffTransaction);
+        if (writeOffReversal != null) {
+            writeOffReversal = this.loanTransactionRepository.saveAndFlush(writeOffReversal);
+        }
         saveLoanWithDataIntegrityViolationChecks(loan);
+
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        if (writeOffTransaction != null) {
+            changes.put("originalTransactionId", writeOffTransaction.getId());
+            changes.put("originalTransactionDate", writeOffTransaction.getTransactionDate().toString());
+        }
+        changes.put("previousStatus", previousStatus);
+        changes.put("status", LoanEnumerations.status(loan.getLoanStatus()).value());
+        final String noteText = command == null ? null : command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText) && writeOffReversal != null) {
+            changes.put("note", noteText);
+            this.noteRepository.save(Note.loanTransactionNote(loan, writeOffReversal, noteText));
+        }
 
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
         this.loanAccountDomainService.recalculateAccruals(loan);
         if (writeOffTransaction != null) {
             businessEventNotifierService.notifyPostBusinessEvent(new LoanUndoWrittenOffBusinessEvent(writeOffTransaction));
         }
+        final Long writeOffReversalId = writeOffReversal == null ? null : writeOffReversal.getId();
         return new CommandProcessingResultBuilder() //
+                .withCommandId(command == null ? null : command.commandId()) //
+                .withEntityId(writeOffReversalId) //
+                .withTransactionId(writeOffReversalId == null ? null : String.valueOf(writeOffReversalId)) //
                 .withOfficeId(loan.getOfficeId()) //
                 .withClientId(loan.getClientId()) //
                 .withGroupId(loan.getGroupId()) //
                 .withLoanId(loanId) //
+                .with(changes) //
                 .build();
     }
 
@@ -5264,6 +5294,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
         }
         loan.updateLoanSummarAndStatus();
+        loan.reopenIfBalanceRestored();
         saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
         this.loanAccountDomainService.recalculateAccruals(loan);
     }

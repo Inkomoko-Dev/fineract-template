@@ -60,6 +60,10 @@ public final class LoanSummary {
     @Column(name = "interest_writtenoff_derived", scale = 6, precision = 19)
     private BigDecimal totalInterestWrittenOff;
 
+    /** CGLT-658: future unaccrued interest cancelled on early settlement. Excluded from written-off and waived. */
+    @Column(name = "interest_cancelled_derived", scale = 6, precision = 19)
+    private BigDecimal totalInterestCancelled;
+
     @Column(name = "interest_outstanding_derived", scale = 6, precision = 19)
     private BigDecimal totalInterestOutstanding;
 
@@ -189,6 +193,7 @@ public final class LoanSummary {
         this.totalInterestRepaid = BigDecimal.ZERO;
         this.totalInterestWaived = BigDecimal.ZERO;
         this.totalInterestWrittenOff = BigDecimal.ZERO;
+        this.totalInterestCancelled = BigDecimal.ZERO;
         this.totalInterestOutstanding = BigDecimal.ZERO;
         this.totalFeeChargesCharged = BigDecimal.ZERO;
         this.totalFeeChargesRepaid = BigDecimal.ZERO;
@@ -225,9 +230,10 @@ public final class LoanSummary {
         this.totalInterestRepaid = summaryWrapper.calculateTotalInterestRepaid(repaymentScheduleInstallments, currency).getAmount();
         this.totalInterestWaived = summaryWrapper.calculateTotalInterestWaived(repaymentScheduleInstallments, currency).getAmount();
         this.totalInterestWrittenOff = summaryWrapper.calculateTotalInterestWrittenOff(repaymentScheduleInstallments, currency).getAmount();
+        this.totalInterestCancelled = summaryWrapper.calculateTotalInterestCancelled(repaymentScheduleInstallments, currency).getAmount();
 
         this.totalInterestOutstanding = totalInterestCharged.minus(this.totalInterestRepaid).minus(this.totalInterestWaived)
-                .minus(this.totalInterestWrittenOff).getAmount();
+                .minus(this.totalInterestWrittenOff).minus(this.totalInterestCancelled).getAmount();
 
         final Money totalFeeChargesCharged = summaryWrapper.calculateTotalFeeChargesCharged(repaymentScheduleInstallments, currency)
                 .plus(this.totalFeeChargesDueAtDisbursement);
@@ -302,6 +308,14 @@ public final class LoanSummary {
         return this.totalWrittenOff;
     }
 
+    public BigDecimal getTotalInterestWrittenOff() {
+        return this.totalInterestWrittenOff;
+    }
+
+    public BigDecimal getTotalInterestCancelled() {
+        return this.totalInterestCancelled;
+    }
+
     /**
      * @return total interest repaid
      **/
@@ -343,5 +357,9 @@ public final class LoanSummary {
 
     public BigDecimal getTotalExpectedRepayment() {
         return this.totalExpectedRepayment;
+    }
+
+    public void updateTotalOutstanding(final BigDecimal totalOutstanding) {
+        this.totalOutstanding = totalOutstanding;
     }
 }

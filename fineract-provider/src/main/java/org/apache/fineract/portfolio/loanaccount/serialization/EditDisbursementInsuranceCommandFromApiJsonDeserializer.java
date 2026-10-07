@@ -44,7 +44,7 @@ public class EditDisbursementInsuranceCommandFromApiJsonDeserializer {
 
     private static final Set<String> SUPPORTED_PARAMS = new HashSet<>(
             Arrays.asList("loanChargeId", "amount", "transactionDate", "externalId", "note", "notes", "locale", "dateFormat",
-                    "paymentTypeId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
+                    "paymentTypeId", "glAccountId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
                     "correctionDate"));
 
     private final FromJsonHelper fromApiJsonHelper;
@@ -78,9 +78,16 @@ public class EditDisbursementInsuranceCommandFromApiJsonDeserializer {
 
         final String notes = this.fromApiJsonHelper.extractStringNamed("notes", element);
         validator.reset().parameter("notes").value(notes).ignoreIfNull().notExceedingLengthOf(1000);
+        if (StringUtils.isBlank(note) && StringUtils.isBlank(notes)) {
+            errors.add(ApiParameterError.parameterError("validation.msg.loan.transaction.edit.disbursement.insurance.reason.required",
+                    "Reason is mandatory when editing an insurance payment at disbursement.", "note"));
+        }
 
         final Integer paymentTypeId = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("paymentTypeId", element);
         validator.reset().parameter("paymentTypeId").value(paymentTypeId).ignoreIfNull().integerGreaterThanZero();
+
+        final Long glAccountId = this.fromApiJsonHelper.extractLongNamed("glAccountId", element);
+        validator.reset().parameter("glAccountId").value(glAccountId).ignoreIfNull().longGreaterThanZero();
 
         final Set<String> paymentDetailParameters = new HashSet<>(
                 Arrays.asList("accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber"));

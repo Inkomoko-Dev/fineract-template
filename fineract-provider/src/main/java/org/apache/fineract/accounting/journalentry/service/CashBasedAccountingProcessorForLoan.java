@@ -95,7 +95,7 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
              * Only principal write off affects cash based accounting (interest and fee write off need not be
              * considered). Debit losses written off and credit Loan Portfolio
              **/
-            else if (loanTransactionDTO.getTransactionType().isWriteOff()) {
+            else if (loanTransactionDTO.getTransactionType().isWriteOff() || loanTransactionDTO.getTransactionType().isWriteOffReversal()) {
                 final BigDecimal principalAmount = loanTransactionDTO.getPrincipal();
                 if (principalAmount != null && !(principalAmount.compareTo(BigDecimal.ZERO) == 0)) {
                     this.helper.createCashBasedJournalEntriesAndReversalsForLoan(office, currencyCode,
@@ -111,6 +111,14 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
             /** Logic for Refunds of Active Loans **/
             else if (loanTransactionDTO.getTransactionType().isRefundForActiveLoans()) {
                 createJournalEntriesForRefundForActiveLoan(loanDTO, loanTransactionDTO, office);
+            }
+
+            else if (loanTransactionDTO.getTransactionType().isInsuranceChargeAdjustment()) {
+                // journal entries are posted directly in LoanWritePlatformServiceJpaRepositoryImpl
+            }
+
+            else if (loanTransactionDTO.getTransactionType().isDepositRedraw()) {
+                // journal entries are posted directly in LoanWritePlatformServiceJpaRepositoryImpl
             }
         }
     }

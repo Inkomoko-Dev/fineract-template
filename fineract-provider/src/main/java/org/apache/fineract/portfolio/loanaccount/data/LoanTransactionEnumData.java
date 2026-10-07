@@ -50,6 +50,9 @@ public class LoanTransactionEnumData {
     private final boolean refund;
     private final boolean refundForActiveLoans;
     private final boolean creditBalanceRefund;
+    private final boolean payOff;
+    private final boolean futureInterestCancellation;
+    private final boolean writeOffReversal;
 
     public LoanTransactionEnumData(final Long id, final String code, final String value) {
         this.id = id;
@@ -75,6 +78,9 @@ public class LoanTransactionEnumData {
         this.chargePayment = Long.valueOf(17).equals(this.id);
         this.refundForActiveLoans = Long.valueOf(18).equals(this.id);
         this.creditBalanceRefund = Long.valueOf(20).equals(this.id);
+        this.payOff = Long.valueOf(28).equals(this.id);
+        this.futureInterestCancellation = Long.valueOf(34).equals(this.id);
+        this.writeOffReversal = Long.valueOf(33).equals(this.id);
     }
 
     public Long id() {
@@ -103,10 +109,19 @@ public class LoanTransactionEnumData {
     }
 
     public boolean isRepaymentType() {
-        if (isRepayment() || isMerchantIssuedRefund() || isPayoutRefund() || isGoodwillCredit()) {
+        // CGLT-658: a payoff is a cash receipt like any other repayment and must be journalled as one.
+        if (isRepayment() || isMerchantIssuedRefund() || isPayoutRefund() || isGoodwillCredit() || isPayOff()) {
             return true;
         }
         return false;
+    }
+
+    public boolean isPayOff() {
+        return this.payOff;
+    }
+
+    public boolean isFutureInterestCancellation() {
+        return this.futureInterestCancellation;
     }
 
     public boolean isDisbursement() {
@@ -189,4 +204,14 @@ public class LoanTransactionEnumData {
         return this.creditBalanceRefund;
     }
 
+    public boolean isInsuranceChargeAdjustment() {
+        return LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getValue().equals(this.id);
+    }
+    public boolean isDepositRedraw() {
+        return LoanTransactionType.DEPOSIT_REDRAW.getValue().equals(this.id);
+    }
+
+    public boolean isWriteOffReversal() {
+        return this.writeOffReversal;
+    }
 }

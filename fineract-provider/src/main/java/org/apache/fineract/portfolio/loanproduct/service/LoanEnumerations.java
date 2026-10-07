@@ -372,6 +372,10 @@ public final class LoanEnumerations {
                 optionData = new LoanTransactionEnumData(LoanTransactionType.WRITEOFF.getValue().longValue(),
                         LoanTransactionType.WRITEOFF.getCode(), "Close (as written-off)");
             break;
+            case WRITEOFF_REVERSAL:
+                optionData = new LoanTransactionEnumData(LoanTransactionType.WRITEOFF_REVERSAL.getValue().longValue(),
+                        LoanTransactionType.WRITEOFF_REVERSAL.getCode(), "Write-off Reversal");
+            break;
             case RECOVERY_REPAYMENT:
                 optionData = new LoanTransactionEnumData(LoanTransactionType.RECOVERY_REPAYMENT.getValue().longValue(),
                         LoanTransactionType.RECOVERY_REPAYMENT.getCode(), "Repayment (after write-off)");
@@ -465,6 +469,10 @@ public final class LoanEnumerations {
                         LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getValue().longValue(),
                         LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getCode(),
                         "Insurance Charge Adjustment");
+            break;
+            case FUTURE_INTEREST_CANCELLATION:
+                optionData = new LoanTransactionEnumData(LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getValue().longValue(),
+                        LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getCode(), "Future Interest Cancellation");
             break;
         }
         return optionData;

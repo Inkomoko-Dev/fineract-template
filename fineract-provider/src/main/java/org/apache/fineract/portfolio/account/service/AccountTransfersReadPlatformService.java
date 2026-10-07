@@ -37,6 +37,14 @@ public interface AccountTransfersReadPlatformService {
 
     boolean isAccountTransfer(Long transactionId, PortfolioAccountType accountType);
 
+    /**
+     * Whether the given loan transaction is a leg of a loan-to-loan transfer (e.g. a top-up), i.e. a transfer whose both
+     * legs are loan transactions. Journal entries for such legs are posted against the Asset Transfer financial activity
+     * instead of the Liability Transfer one, so this has to stay derivable when entries are re-posted outside of the
+     * original transfer command.
+     */
+    boolean isLoanToLoanTransfer(Long loanTransactionId);
+
     Page<AccountTransferData> retrieveByStandingInstruction(Long id, SearchParameters searchParameters);
 
     Collection<Long> fetchPostInterestTransactionIds(Long accountId);

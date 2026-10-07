@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import com.google.common.base.Splitter;
+import com.google.errorprone.annotations.Keep;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -1450,6 +1451,31 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
 
+    }
+
+    /**
+     * CGLT-562: editing a disbursement charge upwards on an already settled loan restores an outstanding balance.
+     * {@code doPostLoanTransactionChecks} only ever moves a loan forward (to overpaid or closed) and never demotes,
+     * so the reopen has to be applied explicitly - otherwise the loan stays CLOSED while owing money and never shows
+     * up in arrears or collections. The maturity date is deliberately left intact: the loan really did run its term,
+     * it simply owes a charge.
+     *
+     * @return true when the loan was reopened
+     */
+    public boolean reopenIfBalanceRestored() {
+        if (this.summary == null || this.loanStatus == null) {
+            return false;
+        }
+        final LoanStatus currentStatus = LoanStatus.fromInt(this.loanStatus);
+        if (!(currentStatus.isClosedObligationsMet() || currentStatus.isOverpaid())) {
+            return false;
+        }
+        if (!this.summary.getTotalOutstanding(loanCurrency()).isGreaterThanZero()) {
+            return false;
+        }
+        this.loanStatus = LoanStatus.ACTIVE.getValue();
+        this.closedOnDate = null;
+        return true;
     }
 
     public void updateLoanScheduleDependentDerivedFields() {
@@ -3801,7 +3827,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         boolean isAllChargesPaid = true;
         for (final LoanCharge loanCharge : this.charges) {
             if (loanCharge.isActive() && loanCharge.amount().compareTo(BigDecimal.ZERO) > 0
-                    && !(loanCharge.isPaid() || loanCharge.isWaived())) {
+                    && !(loanCharge.isPaid() || loanCharge.isWaived()) && !isChargeSettledAtCurrencyPrecision(loanCharge)) {
                 isAllChargesPaid = false;
                 break;
             }
@@ -3819,6 +3845,15 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             this.loanStatus = statusEnum.getValue();
         }
         processIncomeAccrualTransactionOnLoanClosure();
+    }
+
+    /**
+     * A charge whose outstanding balance is zero once expressed at the loan currency's precision carries no real debt -
+     * it is a rounding residue left by a charge that was stored at a finer scale than the currency supports. Such a
+     * residue must not hold the loan open once the schedule itself is repaid in full.
+     */
+    private boolean isChargeSettledAtCurrencyPrecision(final LoanCharge loanCharge) {
+        return Money.of(loanCurrency(), loanCharge.amountOutstanding()).isZero();
     }
 
     private void processIncomeAccrualTransactionOnLoanClosure() {
@@ -4047,6 +4082,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             // find write off transaction and reverse it
             final LoanTransaction writeOffTransaction = findWriteOffTransaction();
             writeOffTransaction.reverse();
+            addLoanTransaction(LoanTransaction.writeOffReversal(writeOffTransaction, DateUtils.getBusinessLocalDate()));
         }
 
         if (isClosedObligationsMet() || isClosedWrittenOff() || isClosedWithOutsandingAmountMarkedForReschedule()) {
@@ -4069,6 +4105,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         existingReversedTransactionIds.addAll(findExistingReversedTransactionIds());
         final LoanTransaction writeOffTransaction = findWriteOffTransaction();
         writeOffTransaction.reverse();
+        addLoanTransaction(LoanTransaction.writeOffReversal(writeOffTransaction, DateUtils.getBusinessLocalDate()));
         this.loanStatus = LoanStatus.ACTIVE.getValue();
         final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
                 .determineProcessor(this.transactionProcessingStrategy);
@@ -4079,6 +4116,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         ChangedTransactionDetail changedTransactionDetail = loanRepaymentScheduleTransactionProcessor.handleTransaction(
                 getDisbursementDate(), allNonContraTransactionsPostDisbursement, getCurrency(), getRepaymentScheduleInstallments(),
                 charges());
+        // CGLT-632: the reprocess reinstates the cancelled interest, so unwind its audit transaction too.
+        reconcileFutureInterestCancellation(writeOffTransaction, writeOffTransaction.getTransactionDate());
         updateLoanSummaryDerivedFields();
         return changedTransactionDetail;
     }
@@ -4093,6 +4132,20 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         return writeOff;
+    }
+
+    public LoanTransaction findWriteOffReversalOf(final LoanTransaction writeOffTransaction) {
+        if (writeOffTransaction == null) {
+            return null;
+        }
+        LoanTransaction writeOffReversal = null;
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isWriteOffReversal() && transaction.isReversalTransaction()
+                    && Objects.equals(writeOffTransaction.getId(), transaction.getOriginalTransactionId())) {
+                writeOffReversal = transaction;
+            }
+        }
+        return writeOffReversal;
     }
 
     private boolean isOverPaid() {
@@ -5276,6 +5329,65 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         this.loanTransactions.add(loanTransaction);
     }
 
+    public Money getTotalInterestCancelled() {
+        Money total = Money.zero(getCurrency());
+        for (final LoanRepaymentScheduleInstallment installment : getRepaymentScheduleInstallments()) {
+            total = total.plus(installment.getInterestCancelled(getCurrency()));
+        }
+        return total;
+    }
+
+    // CGLT-658: future unaccrued interest that would be cancelled if the loan were settled on asOfDate (payoff preview).
+    public Money getFutureInterestToCancelAsOf(final LocalDate asOfDate) {
+        Money total = Money.zero(getCurrency());
+        for (final LoanRepaymentScheduleInstallment installment : getRepaymentScheduleInstallments()) {
+            total = total.plus(installment.getCancellableFutureInterest(getCurrency(), asOfDate));
+        }
+        return total;
+    }
+
+    // CGLT-632: interest earned/recognised by asOfDate, i.e. the interest a write-off on that date would write off.
+    public Money getInterestRecognisedAsOf(final LocalDate asOfDate) {
+        Money total = Money.zero(getCurrency());
+        for (final LoanRepaymentScheduleInstallment installment : getRepaymentScheduleInstallments()) {
+            total = total.plus(installment.getInterestPayableOnEarlySettlement(getCurrency(), asOfDate));
+        }
+        return total;
+    }
+
+    private Money getActiveFutureInterestCancellationTotal() {
+        Money total = Money.zero(getCurrency());
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isFutureInterestCancellation()) {
+                total = total.plus(transaction.getInterestPortion(getCurrency()));
+            }
+        }
+        return total;
+    }
+
+    // CGLT-658: keep the audit trail's FUTURE_INTEREST_CANCELLATION row(s) in step with the schedule's cancelled
+    // interest, linked to the settling transaction. Idempotent under reprocessing; reverses down on adjustment.
+    public LoanTransaction reconcileFutureInterestCancellation(final LoanTransaction settlingTransaction,
+            final LocalDate cancellationDate) {
+        final Money scheduleCancelled = getTotalInterestCancelled();
+        final Money activeCancelled = getActiveFutureInterestCancellationTotal();
+        if (scheduleCancelled.isEqualTo(activeCancelled)) {
+            return null;
+        }
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isFutureInterestCancellation()) {
+                transaction.reverse();
+            }
+        }
+        if (scheduleCancelled.isGreaterThanZero()) {
+            final LoanTransaction cancellation = LoanTransaction.futureInterestCancellation(this, getOffice(), scheduleCancelled,
+                    cancellationDate, settlingTransaction);
+            addLoanTransaction(cancellation);
+            return cancellation;
+        }
+        return null;
+    }
+
     public void removeLoanTransaction(final LoanTransaction loanTransaction) {
         this.loanTransactions.remove(loanTransaction);
     }
@@ -5425,7 +5537,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     public LocalDate getLastUserTransactionDate() {
         LocalDate currentTransactionDate = getDisbursementDate();
         for (final LoanTransaction previousTransaction : this.loanTransactions) {
-            if (!(previousTransaction.isReversed() || previousTransaction.isAccrual() || previousTransaction.isIncomePosting())) {
+            if (!(previousTransaction.isReversed() || previousTransaction.isAccrual() || previousTransaction.isIncomePosting()
+                    || previousTransaction.isWriteOffReversal())) {
                 if (currentTransactionDate.isBefore(previousTransaction.getTransactionDate())) {
                     currentTransactionDate = previousTransaction.getTransactionDate();
                 }
@@ -6140,8 +6253,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public LoanRepaymentScheduleInstallment fetchPrepaymentDetail(final ScheduleGeneratorDTO scheduleGeneratorDTO, final LocalDate onDate) {
-        // Use the persisted schedule with pro-rata accrued interest so the prepayment
-        // template matches what is outstanding on the live repayment schedule.
+        // Use persisted schedule with pro-rata accrued interest for all loans so the prepayment
+        // template matches what transaction processors apply on the live repayment schedule.
         return this.getTotalOutstandingOnLoanAsOfDate(onDate);
     }
 

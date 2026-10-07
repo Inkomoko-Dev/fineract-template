@@ -94,7 +94,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             }
 
             /** Handle Write Offs, waivers and their reversals **/
-            else if ((loanTransactionDTO.getTransactionType().isWriteOff() || loanTransactionDTO.getTransactionType().isWaiveInterest()
+            else if ((loanTransactionDTO.getTransactionType().isWriteOff() || loanTransactionDTO.getTransactionType().isWriteOffReversal()
+                    || loanTransactionDTO.getTransactionType().isWaiveInterest()
                     || loanTransactionDTO.getTransactionType().isWaiveCharges())) {
                 createJournalEntriesForRepaymentsAndWriteOffs(loanDTO, loanTransactionDTO, office, true, false);
             }
@@ -102,6 +103,10 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             /** Logic for Refunds of Active Loans **/
             else if (loanTransactionDTO.getTransactionType().isRefundForActiveLoans()) {
                 createJournalEntriesForRefundForActiveLoan(loanDTO, loanTransactionDTO, office);
+            }
+
+            else if (loanTransactionDTO.getTransactionType().isInsuranceChargeAdjustment()) {
+                // journal entries are posted directly in LoanWritePlatformServiceJpaRepositoryImpl
             }
         }
     }

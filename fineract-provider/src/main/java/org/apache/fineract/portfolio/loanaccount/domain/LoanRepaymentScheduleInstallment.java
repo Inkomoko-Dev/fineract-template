@@ -37,6 +37,7 @@ import javax.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecks;
@@ -81,6 +82,10 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     @Column(name = "interest_writtenoff_derived", scale = 6, precision = 19, nullable = true)
     private BigDecimal interestWrittenOff;
+
+    /** CGLT-658: future unaccrued interest dropped from the schedule on early settlement. Never a write-off. */
+    @Column(name = "interest_cancelled_derived", scale = 6, precision = 19, nullable = true)
+    private BigDecimal interestCancelled;
 
     @Column(name = "accrual_interest_derived", scale = 6, precision = 19, nullable = true)
     private BigDecimal interestAccrued;
@@ -210,6 +215,19 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return this.loan;
     }
 
+    // CGLT-562: a loan that has run past its maturity date has no future interest left to forgo. Replaying its
+    // history (e.g. after a disbursement-charge edit) must not treat an old payment as a prepayment, otherwise
+    // interest the borrower already earned and paid is retro-written-off and the cash becomes a phantom overpayment.
+    public boolean isLoanPastMaturity() {
+        final Loan owningLoan = getLoan();
+        if (owningLoan == null) {
+            return false;
+        }
+        final LocalDate maturityDate = owningLoan.getMaturityDate() != null ? owningLoan.getMaturityDate()
+                : owningLoan.getExpectedMaturityDate();
+        return maturityDate != null && DateUtils.getBusinessLocalDate().isAfter(maturityDate);
+    }
+
     public Integer getInstallmentNumber() {
         return this.installmentNumber;
     }
@@ -284,7 +302,8 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         final BigDecimal proRataFraction = BigDecimal.valueOf(accruedDays).divide(BigDecimal.valueOf(totalDaysInPeriod), 10,
                 RoundingMode.HALF_UP);
         final Money proRataInterest = totalInterestForPeriod.multipliedBy(proRataFraction);
-        final Money interestAccountedFor = getInterestPaid(currency).plus(getInterestWaived(currency)).plus(getInterestWrittenOff(currency));
+        final Money interestAccountedFor = getInterestPaid(currency).plus(getInterestWaived(currency))
+                .plus(getInterestWrittenOff(currency)).plus(getInterestCancelled(currency));
         final Money accruedOutstanding = proRataInterest.minus(interestAccountedFor);
         if (accruedOutstanding.isLessThanZero()) {
             return Money.zero(currency);
@@ -305,9 +324,13 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return Money.of(currency, this.interestWrittenOff);
     }
 
+    public Money getInterestCancelled(final MonetaryCurrency currency) {
+        return Money.of(currency, this.interestCancelled);
+    }
+
     public Money getInterestOutstanding(final MonetaryCurrency currency) {
         final Money interestAccountedFor = getInterestPaid(currency).plus(getInterestWaived(currency))
-                .plus(getInterestWrittenOff(currency));
+                .plus(getInterestWrittenOff(currency)).plus(getInterestCancelled(currency));
         return getInterestCharged(currency).minus(interestAccountedFor);
     }
 
@@ -415,6 +438,7 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         this.interestPaid = null;
         this.interestWaived = null;
         this.interestWrittenOff = null;
+        this.interestCancelled = null;
         this.feeChargesPaid = null;
         this.feeChargesWaived = null;
         this.feeChargesWrittenOff = null;
@@ -512,6 +536,55 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         trackAdvanceAndLateTotalsForRepaymentPeriod(transactionDate, currency, interestPortionOfTransaction);
 
         return interestPortionOfTransaction;
+    }
+
+    // CGLT-658: pay only interest earned to date; cancel the future unaccrued remainder (no GL impact).
+    public Money payAccruedInterestComponentAndCancelUnearned(final LocalDate transactionDate, final Money transactionAmountRemaining) {
+
+        final MonetaryCurrency currency = transactionAmountRemaining.getCurrency();
+        Money interestPortionOfTransaction = Money.zero(currency);
+
+        final Money interestPayable = getInterestPayableOnEarlySettlement(currency, transactionDate);
+        final Money cancellableInterest = getCancellableFutureInterest(currency, transactionDate);
+
+        if (transactionAmountRemaining.isGreaterThanOrEqualTo(interestPayable)) {
+            this.interestPaid = getInterestPaid(currency).plus(interestPayable).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(interestPayable);
+        } else {
+            this.interestPaid = getInterestPaid(currency).plus(transactionAmountRemaining).getAmount();
+            interestPortionOfTransaction = interestPortionOfTransaction.plus(transactionAmountRemaining);
+        }
+
+        this.interestPaid = defaultToNullIfZero(this.interestPaid);
+
+        // Only cancel once the earned interest has been settled in full.
+        if (interestPortionOfTransaction.isGreaterThanOrEqualTo(interestPayable) && cancellableInterest.isGreaterThanZero()) {
+            this.interestCancelled = getInterestCancelled(currency).plus(cancellableInterest).getAmount();
+            this.interestCancelled = defaultToNullIfZero(this.interestCancelled);
+        }
+
+        checkIfRepaymentPeriodObligationsAreMet(transactionDate, currency);
+
+        trackAdvanceAndLateTotalsForRepaymentPeriod(transactionDate, currency, interestPortionOfTransaction);
+
+        return interestPortionOfTransaction;
+    }
+
+    // Interest payable on early settlement: greater of pro-rata earned and interest already accrued to the GL.
+    public Money getInterestPayableOnEarlySettlement(final MonetaryCurrency currency, final LocalDate asOfDate) {
+        final Money interestOutstanding = getInterestOutstanding(currency);
+        final Money proRataEarned = calculateAccruedInterestToDate(currency, asOfDate);
+        final Money recognisedInGl = getAccruedInterestOutstanding(currency);
+        final Money payable = recognisedInGl.isGreaterThan(proRataEarned) ? recognisedInGl : proRataEarned;
+        if (payable.isLessThanZero()) {
+            return Money.zero(currency);
+        }
+        return payable.isGreaterThan(interestOutstanding) ? interestOutstanding : payable;
+    }
+
+    public Money getCancellableFutureInterest(final MonetaryCurrency currency, final LocalDate asOfDate) {
+        final Money cancellable = getInterestOutstanding(currency).minus(getInterestPayableOnEarlySettlement(currency, asOfDate));
+        return cancellable.isLessThanZero() ? Money.zero(currency) : cancellable;
     }
 
     public Money payPrincipalComponent(final LocalDate transactionDate, final Money transactionAmountRemaining) {
@@ -617,6 +690,24 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         return interestDue;
     }
 
+    // CGLT-632: write off only interest earned by the write-off date; cancel the unearned remainder (no GL impact).
+    public Money writeOffOutstandingInterestAndCancelUnearned(final LocalDate writeOffDate, final MonetaryCurrency currency) {
+
+        final Money recognisedInterest = getInterestPayableOnEarlySettlement(currency, writeOffDate);
+        final Money cancellableInterest = getCancellableFutureInterest(currency, writeOffDate);
+
+        this.interestWrittenOff = defaultToNullIfZero(recognisedInterest.getAmount());
+
+        if (cancellableInterest.isGreaterThanZero()) {
+            this.interestCancelled = getInterestCancelled(currency).plus(cancellableInterest).getAmount();
+            this.interestCancelled = defaultToNullIfZero(this.interestCancelled);
+        }
+
+        checkIfRepaymentPeriodObligationsAreMet(writeOffDate, currency);
+
+        return recognisedInterest;
+    }
+
     public Money writeOffOutstandingFeeCharges(final LocalDate transactionDate, final MonetaryCurrency currency) {
         final Money feeChargesOutstanding = getFeeChargesOutstanding(currency);
         this.feeChargesWrittenOff = defaultToNullIfZero(feeChargesOutstanding.getAmount());
@@ -658,7 +749,8 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
     public void updateDerivedFields(final MonetaryCurrency currency, final LocalDate actualDisbursementDate) {
         if (!this.obligationsMet && getTotalOutstanding(currency).isZero()) {
             this.obligationsMet = true;
-            this.obligationsMetOnDate = actualDisbursementDate;
+            // obligationsMetOnDate should only be set during actual payment transactions
+            // via checkIfRepaymentPeriodObligationsAreMet, not during disbursement
         }
     }
 
@@ -736,6 +828,10 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     public void updateObligationMetOnDate(final LocalDate obligationsMetOnDate) {
         this.obligationsMetOnDate = obligationsMetOnDate;
+    }
+
+    public void updateInterestCancelled(final BigDecimal interestCancelled) {
+        this.interestCancelled = interestCancelled;
     }
 
     public void updateInterestWrittenOff(final BigDecimal interestWrittenOff) {
@@ -885,7 +981,7 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
 
     public Money getAccruedInterestOutstanding(final MonetaryCurrency currency) {
         final Money interestAccountedFor = getInterestPaid(currency).plus(getInterestWaived(currency))
-                .plus(getInterestWrittenOff(currency));
+                .plus(getInterestWrittenOff(currency)).plus(getInterestCancelled(currency));
         return getInterestAccrued(currency).minus(interestAccountedFor);
     }
 
@@ -938,6 +1034,7 @@ public final class LoanRepaymentScheduleInstallment extends AbstractAuditableCus
         setInterestPaid(installment.getInterestPaid());
         setInterestWaived(installment.getInterestWaived());
         setInterestWrittenOff(installment.getInterestWrittenOff());
+        setInterestCancelled(installment.getInterestCancelled());
         setRescheduleInterestPortion(installment.getRescheduleInterestPortion());
         setRecalculatedInterestComponent(installment.isRecalculatedInterestComponent());
         // Fee

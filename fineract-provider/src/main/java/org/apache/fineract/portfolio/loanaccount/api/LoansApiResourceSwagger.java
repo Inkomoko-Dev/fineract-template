@@ -476,6 +476,9 @@ final class LoansApiResourceSwagger {
             public Long interestWaived;
             @Schema(example = "0")
             public Long interestWrittenOff;
+            @Schema(example = "0", description = "Future unaccrued interest cancelled on early full payoff. "
+                    + "Not a write-off or waiver and has no GL impact when the interest was never accrued.")
+            public Long interestCancelled;
             @Schema(example = "240000")
             public Long interestOutstanding;
             @Schema(example = "200000")
