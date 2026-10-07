@@ -139,8 +139,8 @@ class FutureInterestCancellationTest {
 
     @Test
     void futureInterestCancellationIsItsOwnTransactionType() {
-        assertEquals(30, LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getValue());
-        assertEquals(LoanTransactionType.FUTURE_INTEREST_CANCELLATION, LoanTransactionType.fromInt(30));
+        assertEquals(34, LoanTransactionType.FUTURE_INTEREST_CANCELLATION.getValue());
+        assertEquals(LoanTransactionType.FUTURE_INTEREST_CANCELLATION, LoanTransactionType.fromInt(34));
         assertTrue(LoanTransactionType.FUTURE_INTEREST_CANCELLATION.isFutureInterestCancellation());
         assertFalse(LoanTransactionType.FUTURE_INTEREST_CANCELLATION.isWriteOff());
         assertFalse(LoanTransactionType.FUTURE_INTEREST_CANCELLATION.isWaiveInterest());

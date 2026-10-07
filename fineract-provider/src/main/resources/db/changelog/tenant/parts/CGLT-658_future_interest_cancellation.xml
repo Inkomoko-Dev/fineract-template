@@ -23,6 +23,22 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
+    <changeSet id="CGLT-658-future-interest-cancellation-transaction-type-enum" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM r_enum_value
+                WHERE enum_name = 'loan_transaction_type_enum' AND enum_id = 34
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="r_enum_value">
+            <column name="enum_name" value="loan_transaction_type_enum"/>
+            <column name="enum_id" valueNumeric="34"/>
+            <column name="enum_message_property" value="loanTransactionType.futureInterestCancellation"/>
+            <column name="enum_value" value="FUTURE_INTEREST_CANCELLATION"/>
+            <column name="enum_type" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
     <changeSet id="CGLT-658-add-interest-cancelled-to-m_loan" author="willy">
         <preConditions onFail="MARK_RAN">
             <not>
