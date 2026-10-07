@@ -47,7 +47,6 @@ import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanHistoricalPenaltyWaiverRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
@@ -90,9 +89,6 @@ public class OdooServiceImplTest {
     private EntityDisbursementDefaultsService entityDisbursementDefaultsService;
 
     @Mock
-    private LoanHistoricalPenaltyWaiverRepository loanHistoricalPenaltyWaiverRepository;
-
-    @Mock
     private FailedClientCreationOnDataMigrationRepository failedClientCreationOnDataMigrationRepository;
 
     @Mock
@@ -100,9 +96,6 @@ public class OdooServiceImplTest {
 
     @Mock
     private FailedLoanRepaymentOnDataMigrationRepository failedLoanRepaymentOnDataMigrationRepository;
-
-    @Mock
-    private org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalRepository provisionBatchJournalRepository;
 
     @Mock
     private AppUserRepository appUserRepository;
