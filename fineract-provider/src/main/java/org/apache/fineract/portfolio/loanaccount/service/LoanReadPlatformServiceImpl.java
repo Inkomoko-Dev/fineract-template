@@ -156,11 +156,8 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanSc
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
-<<<<<<< HEAD
-import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
-=======
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
->>>>>>> f0f9ef859 (Merge pull request #280 from Inkomoko-Dev/CGLT-632)
+import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.service.DisbursementProviderReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
