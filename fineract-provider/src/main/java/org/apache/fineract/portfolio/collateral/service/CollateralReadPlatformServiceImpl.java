@@ -58,7 +58,7 @@ public class CollateralReadPlatformServiceImpl implements CollateralReadPlatform
                         .append(" FROM m_loan_collateral lc") //
                         .append(" JOIN m_code_value cv on lc.type_cv_id = cv.id")//
                         .append(" JOIN m_loan loan on lc.loan_id = loan.id")//
-                        .append(" JOIN m_organisation_currency oc on loan.currency_code = oc.code");
+                        .append(" LEFT JOIN m_organisation_currency oc on loan.currency_code = oc.code");
 
         public String schema() {
             return this.sqlBuilder.toString();
@@ -76,14 +76,18 @@ public class CollateralReadPlatformServiceImpl implements CollateralReadPlatform
             final CodeValueData type = CodeValueData.instance(typeId, typeName);
 
             final String currencyCode = rs.getString("currencyCode");
-            final String currencyName = rs.getString("currencyName");
-            final String currencyNameCode = rs.getString("currencyNameCode");
-            final String currencyDisplaySymbol = rs.getString("currencyDisplaySymbol");
-            final Integer currencyDecimalPlaces = JdbcSupport.getInteger(rs, "currencyDecimalPlaces");
-            final Integer inMultiplesOf = JdbcSupport.getInteger(rs, "inMultiplesOf");
-
-            final CurrencyData currencyData = new CurrencyData(currencyCode, currencyName, currencyDecimalPlaces, inMultiplesOf,
-                    currencyDisplaySymbol, currencyNameCode);
+            final CurrencyData currencyData;
+            if (currencyCode == null) {
+                currencyData = CurrencyData.blank();
+            } else {
+                final String currencyName = rs.getString("currencyName");
+                final String currencyNameCode = rs.getString("currencyNameCode");
+                final String currencyDisplaySymbol = rs.getString("currencyDisplaySymbol");
+                final Integer currencyDecimalPlaces = JdbcSupport.getInteger(rs, "currencyDecimalPlaces");
+                final Integer inMultiplesOf = JdbcSupport.getInteger(rs, "inMultiplesOf");
+                currencyData = new CurrencyData(currencyCode, currencyName, currencyDecimalPlaces != null ? currencyDecimalPlaces : 0,
+                        inMultiplesOf, currencyDisplaySymbol, currencyNameCode);
+            }
 
             return CollateralData.instance(id, type, value, description, currencyData);
         }
