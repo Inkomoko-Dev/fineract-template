@@ -102,6 +102,7 @@ public class ThirdPartyDisbursementRepaymentEventService {
         final JsonObject payload = new JsonObject();
         payload.addProperty("loanId", loan.getId());
         payload.addProperty("loanAccountNo", loan.getAccountNumber());
+        payload.addProperty("externalId", loan.getExternalId());
         payload.addProperty("clientId", loan.getClient() == null ? null : loan.getClient().getId());
         payload.addProperty("transactionId", transaction.getId());
         payload.addProperty("originalTransactionId", transaction.getOriginalTransactionId());
