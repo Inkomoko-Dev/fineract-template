@@ -171,13 +171,14 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         final int trancheNumber = loan.getDisbursementTrancheNumber(disbursementDetail);
         final BigDecimal totalDisbursementCharge = trancheNumber == 1 ? getDisbursementChargeAmount(loan) : BigDecimal.ZERO;
 
-        if (totalDisbursementCharge.compareTo(disbursementDetail.principal()) > 0) {
+        final BigDecimal disbursementPrincipal = resolveDisbursementRequestPrincipal(loan);
+        if (totalDisbursementCharge.compareTo(disbursementPrincipal) > 0) {
             throw new LoanDisbursementRequestException("Disbursement charge is greater than the loan amount ",
                     "integration.disbursementRequest.chargeGreaterThanLoanAmount");
         }
 
-        BigDecimal totalPrincipalToBeDisbursed = disbursementDetail.principal().subtract(totalDisbursementCharge);
-        LOG.info(" Loan Id :=>  [ " + loan.getId() + " ]  Tranche Principal  [" + disbursementDetail.principal() + "  ]  Currency   [ "
+        BigDecimal totalPrincipalToBeDisbursed = disbursementPrincipal.subtract(totalDisbursementCharge);
+        LOG.info(" Loan Id :=>  [ " + loan.getId() + " ]  Tranche Principal  [" + disbursementPrincipal + "  ]  Currency   [ "
                 + loan.getPrincpal().getCurrencyCode() + "  ]  Total Principal to be disbursed to middleware  ==>  ["
                 + totalPrincipalToBeDisbursed + " ]  Total Disbursement Charge  ==>  " + totalDisbursementCharge);
 
@@ -582,6 +583,11 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
     private String typeName(Object value) {
         return value == null ? "null" : value.getClass().getName();
+    }
+
+    static BigDecimal resolveDisbursementRequestPrincipal(Loan loan) {
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
+        return loan.getDisburseAmountForTemplate();
     }
 
     public static BigDecimal getDisbursementChargeAmount(Loan loan) {

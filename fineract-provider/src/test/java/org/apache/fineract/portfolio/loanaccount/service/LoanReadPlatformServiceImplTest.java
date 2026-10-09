@@ -44,6 +44,8 @@ import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.RepaymentScheduleRelatedLoanData;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanSchedulePeriodData;
 import org.junit.jupiter.api.AfterEach;
@@ -172,6 +174,53 @@ class LoanReadPlatformServiceImplTest {
 
     private void assertAmount(final String expected, final BigDecimal actual) {
         assertEquals(0, new BigDecimal(expected).compareTo(actual));
+    }
+
+    @Test
+    void disbursementTemplateUsesApprovedPrincipalWhenSingleTrancheStillHasAppliedAmount() {
+        final Loan loan = mock(Loan.class);
+        final LoanDisbursementDetails detail = mock(LoanDisbursementDetails.class);
+        when(loan.getRemainingUndisbursedPrincipal()).thenReturn(new BigDecimal("250000"));
+        when(loan.getApprovedPrincipal()).thenReturn(new BigDecimal("250000"));
+        when(loan.getDisbursementDetails()).thenReturn(List.of(detail));
+        when(detail.actualDisbursementDate()).thenReturn(null);
+        when(detail.principal()).thenReturn(new BigDecimal("300000"));
+
+        assertAmount("250000", serviceWithoutCollaborators().resolveDisbursementPrincipalForTemplate(loan, detail));
+    }
+
+    @Test
+    void disbursementTemplateCapsStaleLastTrancheToRemainingApproved() {
+        final Loan loan = mock(Loan.class);
+        final LoanDisbursementDetails paid = mock(LoanDisbursementDetails.class);
+        final LoanDisbursementDetails open = mock(LoanDisbursementDetails.class);
+        when(loan.getRemainingUndisbursedPrincipal()).thenReturn(new BigDecimal("150000"));
+        when(loan.getApprovedPrincipal()).thenReturn(new BigDecimal("250000"));
+        when(loan.getDisbursementDetails()).thenReturn(List.of(paid, open));
+        when(open.actualDisbursementDate()).thenReturn(null);
+        when(open.principal()).thenReturn(new BigDecimal("200000"));
+
+        assertAmount("150000", serviceWithoutCollaborators().resolveDisbursementPrincipalForTemplate(loan, open));
+    }
+
+    @Test
+    void disbursementTemplateKeepsPlannedFirstTrancheWhenWithinRemainingApproved() {
+        final Loan loan = mock(Loan.class);
+        final LoanDisbursementDetails first = mock(LoanDisbursementDetails.class);
+        final LoanDisbursementDetails second = mock(LoanDisbursementDetails.class);
+        when(loan.getRemainingUndisbursedPrincipal()).thenReturn(new BigDecimal("900000"));
+        when(loan.getApprovedPrincipal()).thenReturn(new BigDecimal("900000"));
+        when(loan.getDisbursementDetails()).thenReturn(List.of(first, second));
+        when(first.actualDisbursementDate()).thenReturn(null);
+        when(first.principal()).thenReturn(new BigDecimal("600000"));
+
+        assertAmount("600000", serviceWithoutCollaborators().resolveDisbursementPrincipalForTemplate(loan, first));
+    }
+
+    private LoanReadPlatformServiceImpl serviceWithoutCollaborators() {
+        return new LoanReadPlatformServiceImpl(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test
