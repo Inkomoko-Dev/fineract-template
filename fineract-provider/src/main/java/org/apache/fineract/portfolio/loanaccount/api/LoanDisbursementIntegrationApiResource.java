@@ -119,7 +119,7 @@ public class LoanDisbursementIntegrationApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
-    static String bankDisbursementResultNote(final String resultCode, final String transactionReference, final String resultMessage) {
+    public static String bankDisbursementResultNote(final String resultCode, final String transactionReference, final String resultMessage) {
         final boolean success = "200".equals(resultCode);
         final StringBuilder note = new StringBuilder();
         if (success) {

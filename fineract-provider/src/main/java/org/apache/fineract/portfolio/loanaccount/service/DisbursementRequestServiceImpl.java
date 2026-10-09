@@ -35,6 +35,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
@@ -54,7 +55,11 @@ import org.apache.fineract.portfolio.client.domain.ClientOtherInfoRepository;
 import org.apache.fineract.portfolio.client.exception.ClientOtherInfoNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementRequestData;
+import org.apache.fineract.portfolio.loanaccount.data.PaymentHubStatusQueryResult;
+import org.apache.fineract.portfolio.loanaccount.data.PaymentHubTransactionStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.PaymentHubDisbursementPoll;
+import org.apache.fineract.portfolio.loanaccount.domain.PaymentHubDisbursementPollRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
@@ -102,6 +107,8 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
 
     private final PlatformTransactionManager transactionManager;
+
+    private final PaymentHubDisbursementPollRepository paymentHubDisbursementPollRepository;
 
     private OkHttpClient client = new OkHttpClient();
     private Gson gson = new Gson();
@@ -271,6 +278,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
                         requestId, response.code(), responseBody);
                 final Note responseNote = Note.loanNote(loan, paymentHubSubmissionSuccessNote(requestId));
                 this.noteRepository.saveAndFlush(responseNote);
+                registerPendingPaymentHubDisbursement(loan, command, requestId, disbursementDetail, responseBody);
             } else {
                 final int responseCode = response.code();
                 final PaymentHubErrorResponse parsedError = parsePaymentHubErrorResponse(responseBody);
@@ -292,7 +300,84 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         return requestId;
     }
 
-    public static String disbursementFailureCategory(final int responseCode) {
+    static boolean shouldPollPaymentHubStatus(final PaymentHubTransactionStatus status) {
+        if (status == null || StringUtils.isBlank(status.getStatus())) {
+            return true;
+        }
+        return status.isPending();
+    }
+
+    private void registerPendingPaymentHubDisbursement(final Loan loan, final JsonCommand command, final String requestId,
+            final LoanDisbursementDetails disbursementDetail, final String responseBody) {
+        final PaymentHubTransactionStatus hubStatus = PaymentHubTransactionStatus.parse(responseBody);
+        if (!shouldPollPaymentHubStatus(hubStatus)) {
+            return;
+        }
+        final String transactionId = hubStatus == null ? null : hubStatus.getTransactionId();
+        final Long paymentTypeId = command.longValueOfParameterNamed("paymentTypeId");
+        final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
+        final Long disbursementDetailId = disbursementDetail == null ? null : disbursementDetail.getId();
+        final Optional<PaymentHubDisbursementPoll> existing = this.paymentHubDisbursementPollRepository.findByRequestId(requestId);
+        if (existing.isPresent()) {
+            final PaymentHubDisbursementPoll poll = existing.get();
+            poll.reopenPending(transactionId, paymentTypeId, actualDisbursementDate, disbursementDetailId);
+            this.paymentHubDisbursementPollRepository.save(poll);
+        } else {
+            this.paymentHubDisbursementPollRepository.save(PaymentHubDisbursementPoll.pending(loan.getId(), disbursementDetailId, requestId,
+                    transactionId, paymentTypeId, actualDisbursementDate));
+        }
+        LOG.info("Registered pending Payment Hub disbursement for status polling loanId={}, requestId={}, transactionId={}", loan.getId(),
+                requestId, transactionId);
+    }
+
+    @Override
+    public String paymentHubAccessToken() {
+        return authenticateToIntegrationApi();
+    }
+
+    @Override
+    public PaymentHubStatusQueryResult queryTransactionStatus(final String accessToken, final String requestId, final String transactionId) {
+        final String url = getConfigProperty("fineract.integrations.inkomoko.rest.query.transaction.status");
+        if (StringUtils.isBlank(url) || "XXXXXX".equals(url)) {
+            throw new LoanDisbursementRequestException("Payment Hub transaction status URL is not configured.",
+                    "integration.disbursementRequest.statusQueryNotConfigured");
+        }
+        final String requestJson = PaymentHubTransactionStatus.queryRequestJson(requestId, transactionId);
+        if ("{}".equals(requestJson)) {
+            throw new LoanDisbursementRequestException("A Payment Hub request id or transaction id is required to check status.",
+                    "integration.disbursementRequest.statusQueryMissingIdentifier");
+        }
+        final MediaType json = MediaType.get("application/json; charset=utf-8");
+        final Request request = new Request.Builder().url(url).addHeader("Authorization", "Bearer " + accessToken)
+                .post(RequestBody.create(requestJson, json)).build();
+        try (Response response = client.newCall(request).execute()) {
+            final String responseBody = response.body() == null ? null : response.body().string();
+            if (response.isSuccessful()) {
+                final PaymentHubTransactionStatus parsed = PaymentHubTransactionStatus.parse(responseBody);
+                if (parsed == null) {
+                    LOG.error("Payment Hub status response could not be read requestId={}, httpStatus={}, responseBody={}", requestId,
+                            response.code(), responseBody);
+                    return PaymentHubStatusQueryResult.error(response.code(), null, "Payment Hub status response could not be read.");
+                }
+                LOG.info("Payment Hub status query loan requestId={}, transactionId={}, status={}, statusCode={}", requestId, transactionId,
+                        parsed.getStatus(), parsed.getStatusCode());
+                return PaymentHubStatusQueryResult.success(response.code(), parsed);
+            }
+            final PaymentHubErrorResponse parsedError = parsePaymentHubErrorResponse(responseBody);
+            final String errorCode = parsedError == null ? null : parsedError.code;
+            final String errorMessage = parsedError == null || StringUtils.isBlank(parsedError.message) ? responseBody : parsedError.message;
+            LOG.error("Payment Hub status query failed requestId={}, httpStatus={}, code={}, responseBody={}", requestId, response.code(),
+                    errorCode, responseBody);
+            return PaymentHubStatusQueryResult.error(response.code(), errorCode, errorMessage);
+        } catch (IOException e) {
+            LOG.error("Connection failure while querying Payment Hub status requestId={}, transactionId={}", requestId, transactionId, e);
+            throw new LoanDisbursementRequestException(
+                    "There was a connection issue while checking the Payment Hub status. The check will be tried again.",
+                    "integration.disbursementRequest.statusQueryFailed");
+        }
+    }
+
+    static String disbursementFailureCategory(final int responseCode) {
         return disbursementFailureCategory(responseCode, null);
     }
 
