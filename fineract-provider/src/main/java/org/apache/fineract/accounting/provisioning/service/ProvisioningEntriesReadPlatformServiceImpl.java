@@ -24,6 +24,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -57,15 +58,30 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
         String formattedDate = DateUtils.DEFAULT_DATE_FORMATER.format(date);
         LoanProductProvisioningEntryMapper mapper = new LoanProductProvisioningEntryMapper(sqlGenerator);
         final String sql = mapper.schema();
-        return this.jdbcTemplate.query(sql, mapper, formattedDate, formattedDate, formattedDate, formattedDate, formattedDate,
-                formattedDate, formattedDate, formattedDate);
+        return this.jdbcTemplate.query(sql, mapper, cutoffDateBindValues(formattedDate, sql));
     }
 
-    private static final class LoanProductProvisioningEntryMapper implements RowMapper<LoanProductProvisioningEntryData> {
+    static Object[] cutoffDateBindValues(String formattedDate, String sql) {
+        Object[] args = new Object[placeholderCount(sql)];
+        Arrays.fill(args, formattedDate);
+        return args;
+    }
+
+    static int placeholderCount(String sql) {
+        int count = 0;
+        for (int i = 0; i < sql.length(); i++) {
+            if (sql.charAt(i) == '?') {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    static final class LoanProductProvisioningEntryMapper implements RowMapper<LoanProductProvisioningEntryData> {
 
         private final StringBuilder sqlQuery;
 
-        private LoanProductProvisioningEntryMapper(DatabaseSpecificSQLGenerator sqlGenerator) {
+        LoanProductProvisioningEntryMapper(DatabaseSpecificSQLGenerator sqlGenerator) {
 
             sqlQuery = new StringBuilder("SELECT DISTINCT " +
                     "(CASE WHEN loan.loan_type_enum = 1 THEN mclient.office_id ELSE mgroup.office_id END) AS office_id, " +
@@ -92,7 +108,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
                     "(GREATEST((CASE WHEN product.allow_multiple_disbursals = 1 " +
                     "THEN IFNULL(disbursementTbl.principal_disbursed, 0) " +
                     "ELSE IFNULL(loan.principal_disbursed_derived, 0) END) - IFNULL(paymentTbl.princ_paid, 0), 0) " +
-                    "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) AS outstandingbalance " +
+                    "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) AS outstandingbalance, " +
 
                     // Provision Amount
                     "(((IFNULL(loan.principal_disbursed_derived, 0) - IFNULL(paymentTbl.princ_paid, 0)) " +
