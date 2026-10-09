@@ -813,6 +813,30 @@ public class LoanTest {
         assertEquals(0, new BigDecimal("600000").compareTo(first.principal()));
         assertEquals(0, new BigDecimal("400000").compareTo(second.principal()));
         assertEquals(0, new BigDecimal("900000").compareTo(loan.getApprovedPrincipal()));
+        assertEquals(0, new BigDecimal("900000").compareTo(loan.getRemainingUndisbursedPrincipal()));
+        assertEquals(0, new BigDecimal("600000").compareTo(loan.getDisburseAmountForTemplate()));
+    }
+
+    @Test
+    public void remainingApprovedCapsStaleLastTrancheAfterPartialDisbursement() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("300000"));
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("250000"));
+        ReflectionTestUtils.setField(loan, "approvedICReview", new BigDecimal("250000"));
+        final LoanDisbursementDetails paid = new LoanDisbursementDetails(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1),
+                new BigDecimal("100000"), new BigDecimal("100000"));
+        final LoanDisbursementDetails open = new LoanDisbursementDetails(LocalDate.of(2026, 10, 1), null, new BigDecimal("200000"),
+                new BigDecimal("200000"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Arrays.asList(paid, open)));
+
+        assertEquals(0, new BigDecimal("300000").compareTo(loan.getProposedPrincipal()));
+        assertEquals(0, new BigDecimal("150000").compareTo(loan.getRemainingUndisbursedPrincipal()));
+        assertEquals(0, new BigDecimal("150000").compareTo(loan.getDisburseAmountForTemplate()));
+
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
+
+        assertEquals(0, new BigDecimal("100000").compareTo(paid.principal()));
+        assertEquals(0, new BigDecimal("150000").compareTo(open.principal()));
+        assertEquals(0, new BigDecimal("300000").compareTo(loan.getProposedPrincipal()));
     }
 
     @Test
