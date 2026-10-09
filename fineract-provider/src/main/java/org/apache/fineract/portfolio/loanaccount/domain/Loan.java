@@ -1980,7 +1980,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                     throw new MultiDisbursementDataRequiredException(LoanApiConstants.disbursementDataParameterName, errorMessage);
                 }
             }
-            if (disbursementDataArray.size() > loanProduct.maxTrancheCount()) {
+            if (disbursementDataArray != null && disbursementDataArray.size() > loanProduct.maxTrancheCount()) {
                 final String errorMessage = "Number of tranche shouldn't be greter than " + loanProduct.maxTrancheCount();
                 throw new ExceedingTrancheCountException(LoanApiConstants.disbursementDataParameterName, errorMessage,
                         loanProduct.maxTrancheCount(), disbursementDetails.size());
@@ -2039,7 +2039,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         final Boolean loanWithAnotherInstitution = command.booleanObjectValueOfParameterNamed(LoanApiConstants.loanWithAnotherInstitution);
-        if (loanWithAnotherInstitution) {
+        if (Boolean.TRUE.equals(loanWithAnotherInstitution)) {
             if (command.isChangeInBigDecimalParameterNamed(LoanApiConstants.loanWithAnotherInstitutionAmount,
                     this.loanWithAnotherInstitutionAmount)) {
                 final BigDecimal newValue = command.bigDecimalValueOfParameterNamed(LoanApiConstants.loanWithAnotherInstitutionAmount);
@@ -4791,6 +4791,25 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                         .comparing(LoanDisbursementDetails::expectedDisbursementDate, Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(LoanDisbursementDetails::getId, Comparator.nullsLast(Comparator.naturalOrder())))
                 .findFirst().orElse(null);
+    }
+
+    /**
+     * When Final IC reduces/sets principal, keep a single undisbursed tranche in sync so DR
+     * Transaction/Principal (which read disbursement-detail.principal) match approvedICReview.
+     * Multi-tranche undisbursed rows are left unchanged; schedule/approvedPrincipal remain authoritative.
+     */
+    void syncSingleUndisbursedDisbursementPrincipal(final BigDecimal principalAmount) {
+        if (principalAmount == null || this.disbursementDetails == null || this.disbursementDetails.isEmpty()) {
+            return;
+        }
+        final List<LoanDisbursementDetails> undisbursed = this.disbursementDetails.stream()
+                .filter(detail -> detail.actualDisbursementDate() == null).collect(Collectors.toList());
+        if (undisbursed.size() != 1) {
+            return;
+        }
+        final LoanDisbursementDetails detail = undisbursed.get(0);
+        detail.updatePrincipal(principalAmount);
+        detail.setNetDisbursalAmount(principalAmount);
     }
 
     public boolean hasPendingApprovedDisbursement() {
@@ -8143,7 +8162,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             this.approvedICReview = icReviewRecommendedAmount;
             this.netDisbursalAmount = icReviewRecommendedAmount;
             this.loanRepaymentScheduleDetail.setPrincipal(icReviewRecommendedAmount);
-            alignUndisbursedTranchesToApprovedPrincipal();
+            syncSingleUndisbursedDisbursementPrincipal(icReviewRecommendedAmount);
             actualChanges.put(LoanApiConstants.icReviewRecommendedAmount, icReviewRecommendedAmount);
         }
 

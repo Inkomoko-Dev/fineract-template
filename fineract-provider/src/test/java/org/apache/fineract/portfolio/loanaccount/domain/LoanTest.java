@@ -65,6 +65,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanSchedul
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.TrancheDisbursementAfterMaturityException;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanTransactionProcessingStrategy;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -780,6 +781,77 @@ public class LoanTest {
         // The system disallows a recommendation above the applied amount, so applied < approved cannot occur.
         assertThrows(InvalidLoanStateTransitionException.class, () -> loan.loanApplicationICReview(null, command));
         assertEquals(0, new BigDecimal("5000.00").compareTo(loan.getProposedPrincipal()));
+    }
+
+    @Test
+    public void icReviewSyncsSingleUndisbursedDisbursementDetailPrincipal() {
+        final BigDecimal appliedAmount = new BigDecimal("1000000.00");
+        final BigDecimal recommendedAmount = new BigDecimal("900000");
+        final Loan loan = newLoanForIcReview(appliedAmount);
+        final LoanDisbursementDetails detail = new LoanDisbursementDetails(LocalDate.of(2026, 10, 15), null, appliedAmount, appliedAmount);
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Collections.singletonList(detail)));
+
+        loan.loanApplicationICReview(null, jsonCommand("{\"icReviewRecommendedAmount\":900000,\"locale\":\"en\"}"));
+
+        assertEquals(0, recommendedAmount.compareTo(detail.principal()));
+        assertEquals(0, recommendedAmount.compareTo(detail.getNetDisbursalAmount()));
+        assertEquals(0, appliedAmount.compareTo(loan.getProposedPrincipal()));
+    }
+
+    @Test
+    public void icReviewLeavesMultipleUndisbursedTranchesUnchanged() {
+        final BigDecimal appliedAmount = new BigDecimal("1000000.00");
+        final Loan loan = newLoanForIcReview(appliedAmount);
+        final LoanDisbursementDetails first = new LoanDisbursementDetails(LocalDate.of(2026, 10, 15), null, new BigDecimal("600000"),
+                new BigDecimal("600000"));
+        final LoanDisbursementDetails second = new LoanDisbursementDetails(LocalDate.of(2026, 11, 15), null, new BigDecimal("400000"),
+                new BigDecimal("400000"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Arrays.asList(first, second)));
+
+        loan.loanApplicationICReview(null, jsonCommand("{\"icReviewRecommendedAmount\":900000,\"locale\":\"en\"}"));
+
+        assertEquals(0, new BigDecimal("600000").compareTo(first.principal()));
+        assertEquals(0, new BigDecimal("400000").compareTo(second.principal()));
+        assertEquals(0, new BigDecimal("900000").compareTo(loan.getApprovedPrincipal()));
+    }
+
+    @Test
+    public void modifyApplicationWithDisallowExpectedDisbursementsAndOmittedDisbursementDataDoesNotNpe() {
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("1000000.00"));
+        when(scheduleDetail.updateLoanApplicationAttributes(any(), any())).thenReturn(new HashMap<>());
+
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.getId()).thenReturn(1L);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        when(loanProduct.isDisallowExpectedDisbursements()).thenReturn(true);
+        when(loanProduct.canDefineInstallmentAmount()).thenReturn(false);
+        when(loanProduct.maxTrancheCount()).thenReturn(5);
+        when(loanProduct.getCurrency()).thenReturn(KES);
+
+        final LoanTransactionProcessingStrategy strategy = mock(LoanTransactionProcessingStrategy.class);
+        when(strategy.getId()).thenReturn(1L);
+
+        final Loan loan = new Loan();
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "transactionProcessingStrategy", strategy);
+        ReflectionTestUtils.setField(loan, "proposedPrincipal", new BigDecimal("1000000.00"));
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("900000.00"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>());
+        ReflectionTestUtils.setField(loan, "charges", Collections.emptySet());
+        ReflectionTestUtils.setField(loan, "submittedOnDate", LocalDate.of(2026, 5, 1));
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", LocalDate.of(2026, 6, 1));
+
+        final JsonCommand command = jsonCommand(
+                "{\"principal\":900000,\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"loanWithAnotherInstitution\":false}");
+        final org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculator aprCalculator = mock(
+                org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculator.class);
+
+        // Previously NPE'd on disbursementDataArray.size() when disallowExpectedDisbursements + omitted array.
+        loan.loanApplicationModification(command, Collections.emptySet(), null, aprCalculator, false, loanProduct);
+
+        assertEquals(0, new BigDecimal("900000").compareTo(loan.getProposedPrincipal()));
+        assertEquals(0, new BigDecimal("900000").compareTo(loan.getApprovedPrincipal()));
     }
 
     private Loan newLoanForIcReview(final BigDecimal appliedAmount) {
