@@ -735,12 +735,30 @@ public class LoanTest {
 
         loan.loanApplicationICReview(null, command);
 
-        // Applied amount (original client request) must never be overwritten by the review.
         assertEquals(0, new BigDecimal("5000.00").compareTo(loan.getProposedPrincipal()));
-        // Approved/IC-review/working principal track the latest recommendation.
         assertEquals(0, new BigDecimal("4000").compareTo(loan.getApprovedPrincipal()));
         assertEquals(0, new BigDecimal("4000").compareTo(loan.getApprovedICReview()));
         assertEquals(0, new BigDecimal("4000").compareTo(scheduleDetail.getPrincipal().getAmount()));
+        assertEquals(0, new BigDecimal("4000").compareTo(loan.getDisbursementDetails().get(0).principal()));
+        assertEquals(0, new BigDecimal("4000").compareTo(loan.getRemainingUndisbursedPrincipal()));
+        assertEquals(0, new BigDecimal("4000").compareTo(loan.getDisburseAmountForTemplate()));
+    }
+
+    @Test
+    public void disbursementTemplateUsesApprovedAmountWhenTrancheStillHasAppliedAmount() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("300000"));
+        loan.getDisbursementDetails().get(0).updatePrincipal(new BigDecimal("300000"));
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("250000"));
+        ReflectionTestUtils.setField(loan, "approvedICReview", new BigDecimal("250000"));
+
+        assertEquals(0, new BigDecimal("300000").compareTo(loan.getProposedPrincipal()));
+        assertEquals(0, new BigDecimal("250000").compareTo(loan.getRemainingUndisbursedPrincipal()));
+        assertEquals(0, new BigDecimal("250000").compareTo(loan.getDisburseAmountForTemplate()));
+
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
+
+        assertEquals(0, new BigDecimal("250000").compareTo(loan.getDisbursementDetails().get(0).principal()));
+        assertEquals(0, new BigDecimal("300000").compareTo(loan.getProposedPrincipal()));
     }
 
     @Test
@@ -771,6 +789,10 @@ public class LoanTest {
         ReflectionTestUtils.setField(loan, "proposedPrincipal", appliedAmount);
         ReflectionTestUtils.setField(loan, "approvedPrincipal", appliedAmount);
         ReflectionTestUtils.setField(loan, "approvedICReview", appliedAmount);
+        ReflectionTestUtils.setField(loan, "netDisbursalAmount", appliedAmount);
+        final LoanDisbursementDetails tranche = new LoanDisbursementDetails(LocalDate.of(2026, 10, 1), null, appliedAmount, appliedAmount);
+        tranche.updateLoan(loan);
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(List.of(tranche)));
         return loan;
     }
 

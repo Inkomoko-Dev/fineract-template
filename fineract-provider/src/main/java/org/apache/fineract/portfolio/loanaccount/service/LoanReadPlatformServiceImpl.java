@@ -836,12 +836,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public LoanApprovalData retrieveApprovalTemplate(final Long loanId, boolean paymentDetailsRequired, final LocalDate disbursementDate) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
-        final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
-        BigDecimal approvedAmount;
-        if (loanDecisionData != null
-                && loanDecisionData.getLoanDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
-            approvedAmount = loan.getApprovedICReview();
-        } else {
+        BigDecimal approvedAmount = loan.getApprovedICReview();
+        if (approvedAmount == null) {
+            approvedAmount = loan.getApprovedPrincipal();
+        }
+        if (approvedAmount == null) {
             approvedAmount = loan.getProposedPrincipal();
         }
         Collection<PaymentTypeData> paymentOptions = null;
@@ -851,7 +850,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
-        BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
+        BigDecimal netDisbursementAmount = approvedAmount.subtract(totalDisbursementCharge);
 
         BigDecimal fxRate = null;
         LocalDateTime fxTimestamp = null;
@@ -1024,8 +1023,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
         final int trancheNumber = loan.getDisbursementTrancheNumber(disbursementDetail);
         final BigDecimal totalDisbursementCharge = trancheNumber == 1 ? getDisbursementChargeAmount(loan) : BigDecimal.ZERO;
-        final BigDecimal disbursementPrincipal = disbursementDetail == null ? loan.getDisburseAmountForTemplate()
-                : disbursementDetail.principal();
+        final BigDecimal disbursementPrincipal = loan.getDisburseAmountForTemplate();
         final BigDecimal netDisbursalAmount = disbursementPrincipal.subtract(totalDisbursementCharge);
         LoanTransactionData loanTransactionData = LoanTransactionData.loanTransactionDataForDisbursalTemplate(transactionType,
                 loan.getExpectedDisbursedOnLocalDateForTemplate(), disbursementPrincipal, netDisbursalAmount, paymentOptions,

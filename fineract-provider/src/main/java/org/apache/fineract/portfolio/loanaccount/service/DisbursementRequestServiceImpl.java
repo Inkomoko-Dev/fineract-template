@@ -164,13 +164,15 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         final int trancheNumber = loan.getDisbursementTrancheNumber(disbursementDetail);
         final BigDecimal totalDisbursementCharge = trancheNumber == 1 ? getDisbursementChargeAmount(loan) : BigDecimal.ZERO;
 
-        if (totalDisbursementCharge.compareTo(disbursementDetail.principal()) > 0) {
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
+        final BigDecimal disbursementPrincipal = loan.getDisburseAmountForTemplate();
+        if (totalDisbursementCharge.compareTo(disbursementPrincipal) > 0) {
             throw new LoanDisbursementRequestException("Disbursement charge is greater than the loan amount ",
                     "integration.disbursementRequest.chargeGreaterThanLoanAmount");
         }
 
-        BigDecimal totalPrincipalToBeDisbursed = disbursementDetail.principal().subtract(totalDisbursementCharge);
-        LOG.info(" Loan Id :=>  [ " + loan.getId() + " ]  Tranche Principal  [" + disbursementDetail.principal() + "  ]  Currency   [ "
+        BigDecimal totalPrincipalToBeDisbursed = disbursementPrincipal.subtract(totalDisbursementCharge);
+        LOG.info(" Loan Id :=>  [ " + loan.getId() + " ]  Tranche Principal  [" + disbursementPrincipal + "  ]  Currency   [ "
                 + loan.getPrincpal().getCurrencyCode() + "  ]  Total Principal to be disbursed to middleware  ==>  ["
                 + totalPrincipalToBeDisbursed + " ]  Total Disbursement Charge  ==>  " + totalDisbursementCharge);
 

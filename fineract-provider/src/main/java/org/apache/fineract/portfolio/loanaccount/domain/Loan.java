@@ -2775,6 +2775,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 this.loanOfficerHistory.add(loanOfficerAssignmentHistory);
             }
             this.adjustNetDisbursalAmount(this.approvedPrincipal);
+            alignUndisbursedTranchesToApprovedPrincipal();
         }
 
         return actualChanges;
@@ -4767,12 +4768,21 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
      */
 
     public BigDecimal getDisburseAmountForTemplate() {
-        BigDecimal principal = this.loanRepaymentScheduleDetail.getPrincipal().getAmount();
+        final BigDecimal remainingApproved = getRemainingUndisbursedPrincipal();
         final LoanDisbursementDetails nextDetail = getNextUndisbursedDisbursementDetail();
-        if (nextDetail != null) {
-            principal = nextDetail.principal();
+        if (nextDetail == null) {
+            return remainingApproved;
         }
-        return principal;
+        long undisbursedCount = 0;
+        for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+            if (detail.actualDisbursementDate() == null) {
+                undisbursedCount++;
+            }
+        }
+        if (undisbursedCount <= 1 || nextDetail.principal() == null || nextDetail.principal().compareTo(remainingApproved) > 0) {
+            return remainingApproved;
+        }
+        return nextDetail.principal();
     }
 
     public LoanDisbursementDetails getNextUndisbursedDisbursementDetail() {
@@ -4800,8 +4810,77 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public BigDecimal getRemainingUndisbursedPrincipal() {
-        return this.disbursementDetails.stream().filter(detail -> detail.actualDisbursementDate() == null)
-                .map(LoanDisbursementDetails::principal).reduce(BigDecimal.ZERO, BigDecimal::add);
+        final BigDecimal approved = this.approvedPrincipal != null ? this.approvedPrincipal
+                : this.loanRepaymentScheduleDetail.getPrincipal().getAmount();
+        if (this.disbursementDetails == null || this.disbursementDetails.isEmpty()) {
+            return approved;
+        }
+        BigDecimal disbursed = BigDecimal.ZERO;
+        for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+            if (detail.actualDisbursementDate() != null && detail.principal() != null) {
+                disbursed = disbursed.add(detail.principal());
+            }
+        }
+        final BigDecimal remaining = approved.subtract(disbursed);
+        return remaining.signum() < 0 ? BigDecimal.ZERO : remaining;
+    }
+
+    public void alignUndisbursedTranchesToApprovedPrincipal() {
+        if (this.approvedPrincipal == null || this.disbursementDetails == null || this.disbursementDetails.isEmpty()) {
+            return;
+        }
+        final List<LoanDisbursementDetails> undisbursed = new ArrayList<>();
+        BigDecimal disbursedTotal = BigDecimal.ZERO;
+        for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+            if (detail.actualDisbursementDate() == null) {
+                undisbursed.add(detail);
+            } else if (detail.principal() != null) {
+                disbursedTotal = disbursedTotal.add(detail.principal());
+            }
+        }
+        if (undisbursed.isEmpty()) {
+            return;
+        }
+        BigDecimal remainingApproved = this.approvedPrincipal.subtract(disbursedTotal);
+        if (remainingApproved.signum() < 0) {
+            remainingApproved = BigDecimal.ZERO;
+        }
+        if (undisbursed.size() == 1) {
+            applyApprovedPrincipalToTranche(undisbursed.get(0), remainingApproved);
+            return;
+        }
+        BigDecimal currentTotal = BigDecimal.ZERO;
+        for (final LoanDisbursementDetails detail : undisbursed) {
+            if (detail.principal() != null) {
+                currentTotal = currentTotal.add(detail.principal());
+            }
+        }
+        if (currentTotal.compareTo(remainingApproved) == 0) {
+            return;
+        }
+        if (currentTotal.signum() <= 0) {
+            applyApprovedPrincipalToTranche(undisbursed.get(0), remainingApproved);
+            return;
+        }
+        BigDecimal allocated = BigDecimal.ZERO;
+        for (int i = 0; i < undisbursed.size(); i++) {
+            final LoanDisbursementDetails detail = undisbursed.get(i);
+            final BigDecimal share;
+            if (i == undisbursed.size() - 1) {
+                share = remainingApproved.subtract(allocated);
+            } else {
+                share = detail.principal().multiply(remainingApproved).divide(currentTotal, 6, RoundingMode.HALF_EVEN);
+                allocated = allocated.add(share);
+            }
+            applyApprovedPrincipalToTranche(detail, share);
+        }
+    }
+
+    private void applyApprovedPrincipalToTranche(final LoanDisbursementDetails detail, final BigDecimal principal) {
+        detail.updatePrincipal(principal);
+        if (this.netDisbursalAmount != null && this.disbursementDetails.size() == 1) {
+            detail.setNetDisbursalAmount(this.netDisbursalAmount);
+        }
     }
 
     public LocalDate getExpectedFirstRepaymentOnDate() {
@@ -8064,6 +8143,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             this.approvedICReview = icReviewRecommendedAmount;
             this.netDisbursalAmount = icReviewRecommendedAmount;
             this.loanRepaymentScheduleDetail.setPrincipal(icReviewRecommendedAmount);
+            alignUndisbursedTranchesToApprovedPrincipal();
             actualChanges.put(LoanApiConstants.icReviewRecommendedAmount, icReviewRecommendedAmount);
         }
 
