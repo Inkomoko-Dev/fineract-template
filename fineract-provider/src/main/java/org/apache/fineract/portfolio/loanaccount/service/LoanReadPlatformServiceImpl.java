@@ -1024,8 +1024,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
         final int trancheNumber = loan.getDisbursementTrancheNumber(disbursementDetail);
         final BigDecimal totalDisbursementCharge = trancheNumber == 1 ? getDisbursementChargeAmount(loan) : BigDecimal.ZERO;
-        final BigDecimal disbursementPrincipal = disbursementDetail == null ? loan.getDisburseAmountForTemplate()
-                : disbursementDetail.principal();
+        final BigDecimal disbursementPrincipal = resolveDisbursementPrincipalForTemplate(loan, disbursementDetail);
         final BigDecimal netDisbursalAmount = disbursementPrincipal.subtract(totalDisbursementCharge);
         LoanTransactionData loanTransactionData = LoanTransactionData.loanTransactionDataForDisbursalTemplate(transactionType,
                 loan.getExpectedDisbursedOnLocalDateForTemplate(), disbursementPrincipal, netDisbursalAmount, paymentOptions,
@@ -1085,6 +1084,27 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         return loanTransactionData;
 
+    }
+
+    /**
+     * Prefer approved principal when a single-tranche loan's disbursement detail is still at the applied amount after
+     * Final IC reduced principal (stale m_loan_disbursement_detail rows). Multi-tranche loans keep the selected detail
+     * amount (do not gate on remaining-undisbursed count — that would mis-substitute full approvedPrincipal onto the
+     * last remaining tranche after earlier ones were disbursed).
+     */
+    BigDecimal resolveDisbursementPrincipalForTemplate(final Loan loan, final LoanDisbursementDetails disbursementDetail) {
+        if (disbursementDetail == null) {
+            return loan.getDisburseAmountForTemplate();
+        }
+        final BigDecimal approvedPrincipal = loan.getApprovedPrincipal();
+        if (approvedPrincipal != null && disbursementDetail.principal() != null
+                && disbursementDetail.principal().compareTo(approvedPrincipal) != 0) {
+            final List<LoanDisbursementDetails> details = loan.getDisbursementDetails();
+            if (details != null && details.size() == 1 && disbursementDetail.actualDisbursementDate() == null) {
+                return approvedPrincipal;
+            }
+        }
+        return disbursementDetail.principal();
     }
 
     @Override
