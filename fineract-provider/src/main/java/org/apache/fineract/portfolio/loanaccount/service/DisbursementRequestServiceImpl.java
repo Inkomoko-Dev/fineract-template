@@ -164,8 +164,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         final int trancheNumber = loan.getDisbursementTrancheNumber(disbursementDetail);
         final BigDecimal totalDisbursementCharge = trancheNumber == 1 ? getDisbursementChargeAmount(loan) : BigDecimal.ZERO;
 
-        loan.alignUndisbursedTranchesToApprovedPrincipal();
-        final BigDecimal disbursementPrincipal = loan.getDisburseAmountForTemplate();
+        final BigDecimal disbursementPrincipal = resolveDisbursementRequestPrincipal(loan);
         if (totalDisbursementCharge.compareTo(disbursementPrincipal) > 0) {
             throw new LoanDisbursementRequestException("Disbursement charge is greater than the loan amount ",
                     "integration.disbursementRequest.chargeGreaterThanLoanAmount");
@@ -499,6 +498,11 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
     private String typeName(Object value) {
         return value == null ? "null" : value.getClass().getName();
+    }
+
+    static BigDecimal resolveDisbursementRequestPrincipal(Loan loan) {
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
+        return loan.getDisburseAmountForTemplate();
     }
 
     public static BigDecimal getDisbursementChargeAmount(Loan loan) {

@@ -840,6 +840,24 @@ public class LoanTest {
     }
 
     @Test
+    public void alignLeavesMultipleUndisbursedTranchesUnchangedWhenNextIsWithinRemaining() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("1000000.00"));
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("900000"));
+        ReflectionTestUtils.setField(loan, "approvedICReview", new BigDecimal("900000"));
+        final LoanDisbursementDetails first = new LoanDisbursementDetails(LocalDate.of(2026, 10, 15), null, new BigDecimal("600000"),
+                new BigDecimal("600000"));
+        final LoanDisbursementDetails second = new LoanDisbursementDetails(LocalDate.of(2026, 11, 15), null, new BigDecimal("400000"),
+                new BigDecimal("400000"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Arrays.asList(first, second)));
+
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
+
+        assertEquals(0, new BigDecimal("600000").compareTo(first.principal()));
+        assertEquals(0, new BigDecimal("400000").compareTo(second.principal()));
+        assertEquals(0, new BigDecimal("600000").compareTo(loan.getDisburseAmountForTemplate()));
+    }
+
+    @Test
     public void modifyApplicationWithDisallowExpectedDisbursementsAndOmittedDisbursementDataDoesNotNpe() {
         final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("1000000.00"));
         when(scheduleDetail.updateLoanApplicationAttributes(any(), any())).thenReturn(new HashMap<>());

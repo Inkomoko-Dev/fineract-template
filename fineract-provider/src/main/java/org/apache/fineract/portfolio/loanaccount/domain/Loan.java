@@ -4868,30 +4868,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             applyApprovedPrincipalToTranche(undisbursed.get(0), remainingApproved);
             return;
         }
-        BigDecimal currentTotal = BigDecimal.ZERO;
         for (final LoanDisbursementDetails detail : undisbursed) {
-            if (detail.principal() != null) {
-                currentTotal = currentTotal.add(detail.principal());
+            if (detail.principal() != null && detail.principal().compareTo(remainingApproved) > 0) {
+                applyApprovedPrincipalToTranche(detail, remainingApproved);
             }
-        }
-        if (currentTotal.compareTo(remainingApproved) == 0) {
-            return;
-        }
-        if (currentTotal.signum() <= 0) {
-            applyApprovedPrincipalToTranche(undisbursed.get(0), remainingApproved);
-            return;
-        }
-        BigDecimal allocated = BigDecimal.ZERO;
-        for (int i = 0; i < undisbursed.size(); i++) {
-            final LoanDisbursementDetails detail = undisbursed.get(i);
-            final BigDecimal share;
-            if (i == undisbursed.size() - 1) {
-                share = remainingApproved.subtract(allocated);
-            } else {
-                share = detail.principal().multiply(remainingApproved).divide(currentTotal, 6, RoundingMode.HALF_EVEN);
-                allocated = allocated.add(share);
-            }
-            applyApprovedPrincipalToTranche(detail, share);
         }
     }
 

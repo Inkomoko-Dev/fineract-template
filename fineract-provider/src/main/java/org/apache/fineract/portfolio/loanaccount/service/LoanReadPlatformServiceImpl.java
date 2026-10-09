@@ -836,12 +836,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     @Override
     public LoanApprovalData retrieveApprovalTemplate(final Long loanId, boolean paymentDetailsRequired, final LocalDate disbursementDate) {
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
-        BigDecimal approvedAmount = loan.getApprovedICReview();
-        if (approvedAmount == null) {
+        final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
+        BigDecimal approvedAmount;
+        if (loanDecisionData != null
+                && loanDecisionData.getLoanDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())
+                && loan.getApprovedICReview() != null) {
+            approvedAmount = loan.getApprovedICReview();
+        } else if (loan.getProposedPrincipal() != null) {
+            approvedAmount = loan.getProposedPrincipal();
+        } else {
             approvedAmount = loan.getApprovedPrincipal();
         }
         if (approvedAmount == null) {
-            approvedAmount = loan.getProposedPrincipal();
+            approvedAmount = BigDecimal.ZERO;
         }
         Collection<PaymentTypeData> paymentOptions = null;
 

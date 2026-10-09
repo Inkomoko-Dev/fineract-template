@@ -203,6 +203,20 @@ class LoanReadPlatformServiceImplTest {
         assertAmount("150000", serviceWithoutCollaborators().resolveDisbursementPrincipalForTemplate(loan, open));
     }
 
+    @Test
+    void disbursementTemplateKeepsPlannedFirstTrancheWhenWithinRemainingApproved() {
+        final Loan loan = mock(Loan.class);
+        final LoanDisbursementDetails first = mock(LoanDisbursementDetails.class);
+        final LoanDisbursementDetails second = mock(LoanDisbursementDetails.class);
+        when(loan.getRemainingUndisbursedPrincipal()).thenReturn(new BigDecimal("900000"));
+        when(loan.getApprovedPrincipal()).thenReturn(new BigDecimal("900000"));
+        when(loan.getDisbursementDetails()).thenReturn(List.of(first, second));
+        when(first.actualDisbursementDate()).thenReturn(null);
+        when(first.principal()).thenReturn(new BigDecimal("600000"));
+
+        assertAmount("600000", serviceWithoutCollaborators().resolveDisbursementPrincipalForTemplate(loan, first));
+    }
+
     private LoanReadPlatformServiceImpl serviceWithoutCollaborators() {
         return new LoanReadPlatformServiceImpl(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, mock(DatabaseSpecificSQLGenerator.class), null, null, null, null, null,
