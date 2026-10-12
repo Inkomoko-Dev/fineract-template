@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.accounting.provisioning.service;
 
+import java.time.LocalDate;
 import java.util.List;
 import org.apache.fineract.accounting.provisioning.data.ProvisionBatchJournalData;
 
@@ -26,11 +27,7 @@ public interface ProvisionBatchService {
    void postPendingProvisionJournals();
    void generateAndPostProvisionEntriesToOdoo();
 
-   /**
-    * Finance/support exceptions and reconciliation view.
-    *
-    * @param status optional filter: CREATED, POSTED, FAILED (null = all)
-    * @param reversal optional filter for original vs reversal journals
-    */
-   List<ProvisionBatchJournalData> retrieveProvisionBatchJournals(String status, Boolean reversal);
+   List<ProvisionBatchJournalData> retrieveProvisionBatchJournals(String status, Boolean reversal, Long entryId, LocalDate date);
+
+   ProvisionBatchJournalData retrieveProvisionBatchJournal(Long journalId);
 }

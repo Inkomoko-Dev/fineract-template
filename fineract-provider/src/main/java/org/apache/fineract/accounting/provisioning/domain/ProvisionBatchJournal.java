@@ -76,9 +76,8 @@ public class ProvisionBatchJournal extends AbstractPersistableCustom {
     private String currencyCode;
 
     /**
-     * The Fineract office (entity) this aggregated journal belongs to - e.g.
-     * Inkomoko Kenya vs Inkomoko Capital, which are two different offices
-     * that happen to share the KES currency.
+     * Representative Fineract office for this company journal. {@link #officeName}
+     * holds the company/country key (e.g. Rwanda Capital, Kenya Capital).
      */
     @Column(name = "office_id")
     private Long officeId;
@@ -88,7 +87,7 @@ public class ProvisionBatchJournal extends AbstractPersistableCustom {
 
     /**
      * True when this journal is a debit/credit mirror of a prior period's
-     * original (non-reversal) journal for the same office + currency.
+     * original (non-reversal) journal for the same company + currency.
      */
     @Column(name = "is_reversal", nullable = false)
     private boolean reversal = false;

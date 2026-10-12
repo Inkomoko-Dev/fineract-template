@@ -18,7 +18,10 @@
  */
 package org.apache.fineract.accounting.provisioning.domain;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -33,5 +36,15 @@ public interface ProvisionBatchJournalRepository extends JpaRepository<Provision
     List<ProvisionBatchJournal> findByStatus(String status);
 
     List<ProvisionBatchJournal> findByStatusIn(Collection<String> statuses);
+
+    @EntityGraph(attributePaths = "batch")
+    List<ProvisionBatchJournal> findAllByOrderByEntryDateDescIdDesc();
+
+    @EntityGraph(attributePaths = "batch")
+    List<ProvisionBatchJournal> findByBatchProvisioningHistoryIdOrderByEntryDateDescIdDesc(Long provisioningHistoryId);
+
+    @EntityGraph(attributePaths = { "journalLines", "batch" })
+    @Query("select j from ProvisionBatchJournal j where j.id = :id")
+    Optional<ProvisionBatchJournal> findDetailedById(@Param("id") Long id);
 }
 
