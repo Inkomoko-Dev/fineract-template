@@ -33,6 +33,8 @@ import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRedrawAccount;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRedrawAccountRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundData;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundPaymentMode;
@@ -48,6 +50,7 @@ public class ExcessRefundReadPlatformService {
     private final PlatformSecurityContext context;
     private final JdbcTemplate jdbcTemplate;
     private final LoanRepositoryWrapper loanRepository;
+    private final LoanRedrawAccountRepository loanRedrawAccountRepository;
 
     public ExcessRefundData retrieveOne(final Long id) {
         this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
@@ -89,7 +92,11 @@ public class ExcessRefundReadPlatformService {
         template.put("accountNo", loan.getAccountNumber());
         template.put("clientId", loan.getClientId());
         template.put("currencyCode", loan.getCurrencyCode());
-        template.put("totalOverpaid", loan.getTotalOverpaid() == null ? BigDecimal.ZERO : loan.getTotalOverpaid());
+        final BigDecimal totalOverpaid = loan.getTotalOverpaid() == null ? BigDecimal.ZERO : loan.getTotalOverpaid();
+        final BigDecimal redrawBalance = this.loanRedrawAccountRepository.findByLoanId(loanId).map(LoanRedrawAccount::getRedrawBalance)
+                .orElse(BigDecimal.ZERO);
+        template.put("totalOverpaid", totalOverpaid);
+        template.put("redrawBalance", redrawBalance);
         template.put("paymentModeOptions", List.of("MANUAL", "PAYMENT_HUB"));
         template.put("channelOptions", List.of("BANK_TRANSFER", "MOBILE_MONEY"));
         return template;
