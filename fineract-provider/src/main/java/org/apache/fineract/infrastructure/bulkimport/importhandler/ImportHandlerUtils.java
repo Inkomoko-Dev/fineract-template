@@ -49,12 +49,41 @@ public final class ImportHandlerUtils {
     public static Integer getNumberOfRows(Sheet sheet, int primaryColumn) {
         Integer noOfEntries = 0;
         // getLastRowNum and getPhysicalNumberOfRows showing false values
-        // sometimes
-        while (sheet.getRow(noOfEntries + 1) != null && sheet.getRow(noOfEntries + 1).getCell(primaryColumn) != null) {
+        // sometimes. Blank cells and formulas that evaluate to blank are
+        // template placeholders, not uploaded records.
+        Row row = sheet.getRow(noOfEntries + 1);
+        while (row != null && cellHasValue(row.getCell(primaryColumn))) {
             noOfEntries++;
+            row = sheet.getRow(noOfEntries + 1);
         }
 
         return noOfEntries;
+    }
+
+    private static boolean cellHasValue(final Cell cell) {
+        if (cell == null || cell.getCellType() == CellType.BLANK) {
+            return false;
+        }
+        if (cell.getCellType() == CellType.FORMULA) {
+            FormulaEvaluator evaluator = cell.getSheet().getWorkbook().getCreationHelper().createFormulaEvaluator();
+            try {
+                CellValue value = evaluator.evaluate(cell);
+                if (value == null || value.getCellType() == CellType.BLANK || value.getCellType() == CellType.ERROR) {
+                    return false;
+                }
+                if (value.getCellType() == CellType.STRING) {
+                    return value.getStringValue() != null && !value.getStringValue().trim().isEmpty();
+                }
+                return true;
+            } catch (RuntimeException ex) {
+                return false;
+            }
+        }
+        if (cell.getCellType() == CellType.STRING) {
+            String text = cell.getStringCellValue();
+            return text != null && !text.trim().isEmpty();
+        }
+        return true;
     }
 
     public static boolean isNotImported(Row row, int statusColumn) {
