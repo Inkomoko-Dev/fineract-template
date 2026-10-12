@@ -2217,7 +2217,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
 
-        if (jsonObject.get(LoanApiConstants.disbursementPrincipalParameterName).isJsonPrimitive()
+        if (jsonObject.has(LoanApiConstants.disbursementPrincipalParameterName)
+                && jsonObject.get(LoanApiConstants.disbursementPrincipalParameterName) != null
+                && jsonObject.get(LoanApiConstants.disbursementPrincipalParameterName).isJsonPrimitive()
                 && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.disbursementPrincipalParameterName).getAsString())) {
             BigDecimal principal = jsonObject.getAsJsonPrimitive(LoanApiConstants.disbursementPrincipalParameterName).getAsBigDecimal();
             returnObject.put(LoanApiConstants.disbursementPrincipalParameterName, principal);
@@ -2331,7 +2333,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         if (disbursementID != null) {
             LoanDisbursementDetails loanDisbursementDetail = fetchLoanDisbursementsById(disbursementID);
             existingDisbursementList.remove(disbursementID);
-            if (loanDisbursementDetail.actualDisbursementDate() == null) {
+            if (loanDisbursementDetail != null && loanDisbursementDetail.actualDisbursementDate() == null) {
                 LocalDate actualDisbursementDate = null;
                 LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
                         disbursementPrincipal, this.netDisbursalAmount);

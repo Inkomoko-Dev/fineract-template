@@ -896,6 +896,21 @@ public class LoanTest {
         assertEquals(0, new BigDecimal("900000").compareTo(loan.getApprovedPrincipal()));
     }
 
+    @Test
+    public void parseDisbursementDetailsWithOmittedPrincipalDoesNotNpe() {
+        final Loan loan = new Loan();
+        final com.google.gson.JsonObject json = new com.google.gson.JsonObject();
+        json.addProperty("expectedDisbursementDate", "12 October 2026");
+        // principal intentionally omitted — previously NPE'd on .isJsonPrimitive()
+
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> parsed = ReflectionTestUtils.invokeMethod(loan, "parseDisbursementDetails", json, "dd MMMM yyyy",
+                java.util.Locale.ENGLISH);
+
+        assertNull(parsed.get("principal"));
+        assertEquals(LocalDate.of(2026, 10, 12), parsed.get("expectedDisbursementDate"));
+    }
+
     private Loan newLoanForIcReview(final BigDecimal appliedAmount) {
         final Loan loan = new Loan();
         ReflectionTestUtils.setField(loan, "loanProduct", mock(LoanProduct.class));
