@@ -184,7 +184,7 @@ public class BulkImportWorkbookServiceImpl implements BulkImportWorkbookService 
             final StringBuilder sql = new StringBuilder();
             sql.append("i.id as id, i.document_id as documentId, d.name as name, i.import_time as importTime, i.end_time as endTime, ")
                     .append("i.completed as completed, i.total_records as totalRecords, i.success_count as successCount, ")
-                    .append("i.failure_count as failureCount, i.createdby_id as createdBy ")
+                    .append("i.failure_count as failureCount, i.failure_message as failureMessage, i.createdby_id as createdBy ")
                     .append("from m_import_document i inner join m_document d on i.document_id=d.id ").append("where i.entity_type= ? ");
             return sql.toString();
         }
@@ -201,10 +201,11 @@ public class BulkImportWorkbookServiceImpl implements BulkImportWorkbookService 
             final Integer totalRecords = JdbcSupport.getInteger(rs, "totalRecords");
             final Integer successCount = JdbcSupport.getInteger(rs, "successCount");
             final Integer failureCount = JdbcSupport.getInteger(rs, "failureCount");
+            final String failureMessage = rs.getString("failureMessage");
             final Long createdBy = rs.getLong("createdBy");
 
             return ImportData.instance(id, documentId, importTime, endTime, completed, name, createdBy, totalRecords, successCount,
-                    failureCount);
+                    failureCount, failureMessage);
         }
     }
 

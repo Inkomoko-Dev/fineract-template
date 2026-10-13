@@ -58,7 +58,7 @@ public class LoanRepaymentWorkbookPopulatorTest {
             assertEquals("Lookup MFI Code", header.getCell(LoanRepaymentConstants.LOOKUP_MFI_CODE_COL).getStringCellValue());
 
             final Row loanRow = sheet.getRow(1);
-            assertEquals("000001-Active", loanRow.getCell(LoanRepaymentConstants.LOOKUP_ACCOUNT_NO_COL).getStringCellValue());
+            assertEquals("000001", loanRow.getCell(LoanRepaymentConstants.LOOKUP_ACCOUNT_NO_COL).getStringCellValue());
             assertEquals("Child Office", loanRow.getCell(LoanRepaymentConstants.LOOKUP_OFFICE_NAME_COL).getStringCellValue());
             assertEquals("MFI-001", loanRow.getCell(LoanRepaymentConstants.LOOKUP_MFI_CODE_COL).getStringCellValue());
 

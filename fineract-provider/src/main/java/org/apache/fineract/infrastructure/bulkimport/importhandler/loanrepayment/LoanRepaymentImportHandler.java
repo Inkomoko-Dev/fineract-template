@@ -53,6 +53,7 @@ public class LoanRepaymentImportHandler implements ImportHandler {
     private static final Logger LOG = LoggerFactory.getLogger(LoanRepaymentImportHandler.class);
     private Workbook workbook;
     private List<LoanTransactionData> loanRepayments;
+    private int readErrorCount;
     private Long loanAccountId;
     private final LoanReadPlatformService loanReadPlatformService;
 
@@ -69,8 +70,20 @@ public class LoanRepaymentImportHandler implements ImportHandler {
     public Count process(Workbook workbook, String locale, String dateFormat) {
         this.workbook = workbook;
         this.loanRepayments = new ArrayList<>();
+        this.readErrorCount = 0;
         readExcelFile(locale, dateFormat);
-        return importEntity(dateFormat);
+        final Count count = importEntity(dateFormat);
+        return Count.instance(count.getSuccessCount(), count.getErrorCount() + this.readErrorCount);
+    }
+
+    private void recordFailure(final int rowIndex, final RuntimeException ex) {
+        final String message = ImportHandlerUtils.getErrorMessage(ex);
+        this.readErrorCount++;
+        LOG.error("Problem occurred in readExcelFile function", ex);
+        final Sheet sheet = this.workbook.getSheet(TemplatePopulateImportConstants.LOAN_REPAYMENT_SHEET_NAME);
+        if (sheet != null && sheet.getRow(rowIndex) != null) {
+            ImportHandlerUtils.writeErrorMessage(sheet, rowIndex, message, LoanRepaymentConstants.STATUS_COL);
+        }
     }
 
     public void readExcelFile(String locale, String dateFormat) {
@@ -79,8 +92,12 @@ public class LoanRepaymentImportHandler implements ImportHandler {
         for (int rowIndex = 1; rowIndex <= noOfEntries; rowIndex++) {
             Row row;
             row = loanRepaymentSheet.getRow(rowIndex);
-            if (ImportHandlerUtils.isNotImported(row, LoanRepaymentConstants.STATUS_COL)) {
-                loanRepayments.add(readLoanRepayment(row, locale, dateFormat));
+            if (row != null && ImportHandlerUtils.isNotImported(row, LoanRepaymentConstants.STATUS_COL)) {
+                try {
+                    loanRepayments.add(readLoanRepayment(row, locale, dateFormat));
+                } catch (RuntimeException ex) {
+                    recordFailure(rowIndex, ex);
+                }
             }
         }
     }
