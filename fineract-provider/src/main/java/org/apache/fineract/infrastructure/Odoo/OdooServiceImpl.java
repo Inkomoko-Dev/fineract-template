@@ -58,6 +58,7 @@ import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
 import org.apache.fineract.accounting.journalentry.data.JournalItemData;
+import org.apache.fineract.accounting.provisioning.data.ProvisionBatchJournalData;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalLine;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournalRepository;
@@ -704,6 +705,7 @@ public class OdooServiceImpl implements OdooService {
 
         final JournalData journalData = new JournalData();
         journalData.setTransactionId(journal.getTransactionId());
+        journalData.setName(ProvisionBatchJournalData.journalDisplayName(journal.getOfficeName(), isReversed));
         journalData.setRef(journal.getReference());
         journalData.setReversed(isReversed);
         journalData.setEntryDate(journal.getEntryDate() != null ? journal.getEntryDate().toString() : null);

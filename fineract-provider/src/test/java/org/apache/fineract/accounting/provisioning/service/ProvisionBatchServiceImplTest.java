@@ -31,9 +31,11 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.fineract.accounting.journalentry.data.JournalEntryData;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryReadPlatformService;
+import org.apache.fineract.accounting.provisioning.data.ProvisionBatchJournalData;
 import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryData;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatch;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
@@ -43,6 +45,8 @@ import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchReposito
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchStatus;
 import org.apache.fineract.infrastructure.Odoo.OdooService;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
+import org.apache.fineract.organisation.externalmapping.domain.ExternalOrganizationMapping;
+import org.apache.fineract.organisation.externalmapping.service.ExternalOrganizationMappingService;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +74,8 @@ class ProvisionBatchServiceImplTest {
     @Mock
     private ConfigurationDomainService configurationDomainService;
     @Mock
+    private ExternalOrganizationMappingService externalOrganizationMappingService;
+    @Mock
     private ProvisioningEntryData history;
 
     private ProvisionBatchServiceImpl service;
@@ -78,13 +84,22 @@ class ProvisionBatchServiceImplTest {
     void setUp() {
         service = new ProvisionBatchServiceImpl(provisionBatchRepository, provisionBatchJournalRepository,
                 provisioningEntriesReadPlatformService, journalEntryReadPlatformService, odooService,
-                configurationDomainService);
+                configurationDomainService, externalOrganizationMappingService);
         when(history.getId()).thenReturn(271L);
         when(history.getCreatedDate()).thenReturn(PERIOD);
         when(provisioningEntriesReadPlatformService.findLatestProvisioningHistory()).thenReturn(Optional.of(history));
         when(provisionBatchRepository.findByAccountingPeriod(PERIOD)).thenReturn(Optional.empty());
         when(provisionBatchRepository.saveAndFlush(any(ProvisionBatch.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(odooService.buildProvisioningJournalEntryPayload(any(), anyBoolean())).thenReturn("{}");
+        when(configurationDomainService.retrieveExternalOrganizationProvisionBatchingSystem()).thenReturn("GL");
+        lenient().when(externalOrganizationMappingService.activeMappingsByOffice("GL")).thenReturn(Map.of(
+                2L, mapping(2L, "10", "Inkomoko Kenya Capital", "KES"),
+                40L, mapping(40L, "10", "Inkomoko Kenya Capital", "KES"),
+                19L, mapping(19L, "20", "Rwanda Capital", "RWF"),
+                22L, mapping(22L, "20", "Rwanda Capital", "RWF"),
+                73L, mapping(73L, "20", "Rwanda Capital", "RWF"),
+                49L, mapping(49L, "30", "South Sudan", "SSP"),
+                117L, mapping(117L, "40", "Chad", "XAF")));
         lenient().when(provisionBatchRepository.findFirstByStatusOrderByAccountingPeriodDesc(any()))
                 .thenReturn(Optional.empty());
         lenient().when(provisionBatchRepository.findFirstByStatusNotOrderByAccountingPeriodDesc(any()))
@@ -138,7 +153,7 @@ class ProvisionBatchServiceImplTest {
     }
 
     @Test
-    void keepsKenyaCapitalSeparateFromKenya() {
+    void mergesKenyaAndKenyaCapitalIntoKenyaCapitalProvisioning() {
         when(journalEntryReadPlatformService.retrieveAllByTransactionId("P271")).thenReturn(List.of(
                 credit(1L, 2L, "Nairobi", "2601-1001-Kenya_Watch/Special Mention-loan loss allowance", 1001L, "10.00",
                         "KES"),
@@ -151,11 +166,49 @@ class ProvisionBatchServiceImplTest {
         service.generateProvisionBatch();
 
         final ProvisionBatch batch = capturedGeneratedBatch();
-        assertEquals(2, batch.getJournals().size());
-        assertEquals(new BigDecimal("10.00"), lineAmount(journalNamed(batch, "Kenya"),
-                "6306-1002-Kenya_Collective Credit loss provision", "DEBIT"));
-        assertEquals(new BigDecimal("25.00"), lineAmount(journalNamed(batch, "Kenya Capital"),
+        assertEquals(1, batch.getJournals().size());
+        final ProvisionBatchJournal kenya = journalNamed(batch, "Inkomoko Kenya Capital");
+        assertEquals("Inkomoko Kenya Capital", ProvisionBatchJournalData.journalDisplayName(kenya.getOfficeName(), false));
+        assertEquals(new BigDecimal("10.00"), lineAmount(kenya, "6306-1002-Kenya_Collective Credit loss provision",
+                "DEBIT"));
+        assertEquals(new BigDecimal("25.00"), lineAmount(kenya,
                 "6306-2002-Kenya Capital_Collective Credit loss provision", "DEBIT"));
+    }
+
+    @Test
+    void postsExactlyFourCountryJournals() {
+        when(journalEntryReadPlatformService.retrieveAllByTransactionId("P271")).thenReturn(List.of(
+                debit(1L, 2L, "Nairobi", "6306-1002-Kenya_Collective Credit loss provision", 1002L, "10.00", "KES"),
+                credit(2L, 2L, "Nairobi", "2601-1001-Kenya_Watch/Special Mention-loan loss allowance", 1001L, "10.00",
+                        "KES"),
+                debit(3L, 40L, "Capital Nairobi", "6306-2002-Kenya Capital_Collective Credit loss provision", 2002L,
+                        "25.00", "KES"),
+                credit(4L, 40L, "Capital Nairobi", "2601-2001-Kenya Capital_Watch/Special Mention-loan loss allowance",
+                        2001L, "25.00", "KES"),
+                debit(5L, 73L, "Kirhe", "6306-3591-Rwanda Capital_Collective Credit loss provision", 3591L, "10.00",
+                        "RWF"),
+                credit(6L, 73L, "Kirhe", "2606-3744-Rwanda Capital_Loss-loan loss allowance", 3744L, "10.00", "RWF"),
+                debit(7L, 49L, "Juba", "6306-3651-South Sudan_Collective Credit loss provision", 3651L, "8.00",
+                        "SSP"),
+                credit(8L, 49L, "Juba", "2601-3650-South Sudan_Watch/Special Mention-loan loss allowance", 3650L,
+                        "8.00", "SSP"),
+                debit(9L, 117L, "Inkomoko - Chad", "6306-4061-Chad Collective Credit loss provision", 4061L, "5.00",
+                        "XAF"),
+                credit(10L, 117L, "Inkomoko - Chad", "2605-6225-Chad Doubtful-loan loss allowance", 6225L, "5.00",
+                        "XAF"),
+                debit(11L, 5L, "Inkomoko - Ethiopia", "6306-3657-Ethiopia_Collective Credit loss provision", 3657L,
+                        "1000.00", "ETB")));
+
+        service.generateProvisionBatch();
+
+        final ProvisionBatch batch = capturedGeneratedBatch();
+        assertEquals(4, batch.getJournals().size());
+        assertEquals("KES", journalNamed(batch, "Inkomoko Kenya Capital").getCurrencyCode());
+        assertEquals("RWF", journalNamed(batch, "Rwanda Capital").getCurrencyCode());
+        assertEquals("SSP", journalNamed(batch, "South Sudan").getCurrencyCode());
+        assertEquals("XAF", journalNamed(batch, "Chad").getCurrencyCode());
+        assertTrue(batch.getJournals().stream().noneMatch(ProvisionBatchJournal::isReversal));
+        assertTrue(batch.getJournals().stream().noneMatch(journal -> journal.getOfficeName().contains("Ethiopia")));
     }
 
     @Test
@@ -188,10 +241,47 @@ class ProvisionBatchServiceImplTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("Rwanda Capital", reversal.getOfficeName());
+        assertEquals("Rwanda Capital reversal",
+                ProvisionBatchJournalData.journalDisplayName(reversal.getOfficeName(), true));
         assertTrue(reversal.getReference().startsWith("Reversal of Loan Loss Provision Entry ID: 270"));
         assertEquals(new BigDecimal("727600.00"), lineAmount(reversal,
                 "6306-3591-Rwanda Capital_Collective Credit loss provision", "CREDIT"));
         assertEquals(1, batch.getJournals().stream().filter(journal -> !journal.isReversal()).count());
+    }
+
+    @Test
+    void groupsManyOfficesOntoOneExternalOrganization() {
+        when(externalOrganizationMappingService.activeMappingsByOffice("GL")).thenReturn(Map.of(
+                5L, mapping(5L, "10", "Inkomoko Kenya Capital", "KES"),
+                6L, mapping(6L, "10", "Inkomoko Kenya Capital", "KES"),
+                73L, mapping(73L, "20", "Rwanda Capital", "RWF")));
+        when(journalEntryReadPlatformService.retrieveAllByTransactionId("P271")).thenReturn(List.of(
+                debit(1L, 5L, "Nairobi Branch", "6306-1002-Kenya_Collective Credit loss provision", 1002L, "10.00",
+                        "KES"),
+                credit(2L, 5L, "Nairobi Branch", "2601-1001-Kenya_Watch/Special Mention-loan loss allowance", 1001L,
+                        "10.00", "KES"),
+                debit(3L, 6L, "Mombasa Branch", "6306-1002-Kenya_Collective Credit loss provision", 1002L, "15.00",
+                        "KES"),
+                credit(4L, 6L, "Mombasa Branch", "2601-1001-Kenya_Watch/Special Mention-loan loss allowance", 1001L,
+                        "15.00", "KES"),
+                debit(5L, 73L, "Kirhe", "6306-3591-Rwanda Capital_Collective Credit loss provision", 3591L, "8.00",
+                        "RWF"),
+                credit(6L, 73L, "Kirhe", "2606-3744-Rwanda Capital_Loss-loan loss allowance", 3744L, "8.00", "RWF"),
+                debit(7L, 99L, "Unmapped Office",
+                        "6306-1002-Kenya_Collective Credit loss provision", 1002L, "99.00", "KES")));
+
+        service.generateProvisionBatch();
+
+        final ProvisionBatch batch = capturedGeneratedBatch();
+        assertEquals(2, batch.getJournals().size());
+        assertEquals(new BigDecimal("25.00"), lineAmount(journalNamed(batch, "Inkomoko Kenya Capital"),
+                "6306-1002-Kenya_Collective Credit loss provision", "DEBIT"));
+        assertEquals("RWF", journalNamed(batch, "Rwanda Capital").getCurrencyCode());
+    }
+
+    private static ExternalOrganizationMapping mapping(final Long officeId, final String externalId, final String name,
+            final String currency) {
+        return new ExternalOrganizationMapping(officeId, "GL", externalId, name, currency, true);
     }
 
     private ProvisionBatch capturedGeneratedBatch() {

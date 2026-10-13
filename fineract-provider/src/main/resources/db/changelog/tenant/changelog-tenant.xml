@@ -170,4 +170,5 @@
     <include file="parts/CGLT-618_loan_classification.xml" relativeToChangelogFile="true"/>
     <include file="custom-changelog/CGLT-776_import_failure_message.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-577_add_missing_provisioning_history_id.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-577_external_organization_mapping.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

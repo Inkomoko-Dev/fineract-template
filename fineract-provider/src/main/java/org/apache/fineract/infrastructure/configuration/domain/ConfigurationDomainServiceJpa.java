@@ -499,6 +499,14 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
+    public String retrieveExternalOrganizationProvisionBatchingSystem() {
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                "enable-external-organization-provision-batching");
+        final String system = property.getStringValue();
+        return system == null || system.isBlank() ? "GL" : system.trim();
+    }
+
+    @Override
     public boolean isMakerCheckerNotificationEnabled() {
         final String propertyName = "maker-checker-notification";
         final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(propertyName);
