@@ -28,6 +28,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.gson.JsonObject;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collections;
@@ -57,7 +58,11 @@ import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
 import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanJournalEntryCreatedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
+import org.apache.fineract.infrastructure.Odoo.event.ClientEventPublisher;
+import org.apache.fineract.portfolio.client.api.ClientApiConstants;
+import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
+import org.springframework.beans.factory.ObjectProvider;
 import org.apache.fineract.portfolio.client.domain.FailedClientCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanCreationOnDataMigrationRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.FailedLoanRepaymentOnDataMigrationRepository;
@@ -303,5 +308,97 @@ public class OdooServiceImplTest {
 
         org.junit.jupiter.api.Assertions.assertNull(journalData.getCreatedByUsername());
         org.junit.jupiter.api.Assertions.assertNull(journalData.getCreatedByDisplayName());
+    }
+
+    @Test
+    void clientSyncPayloadCarriesTheClientsCurrentState() {
+        Client client = mock(Client.class);
+        when(client.getId()).thenReturn(1234L);
+        when(client.getDisplayName()).thenReturn("Jane Ltd");
+        when(client.getMobileNo()).thenReturn(null);
+        when(client.getLegalForm()).thenReturn(2);
+        when(client.officeId()).thenReturn(3L);
+
+        JsonObject payload = odooService.buildClientSyncPayload(client);
+
+        assertEquals(1234L, payload.get("clientId").getAsLong());
+        assertEquals("Jane Ltd", payload.get("displayName").getAsString());
+        org.junit.jupiter.api.Assertions.assertTrue(payload.get("mobileNo").isJsonNull());
+        org.junit.jupiter.api.Assertions.assertTrue(payload.get("isCompany").getAsBoolean());
+        assertEquals(3L, payload.get("officeId").getAsLong());
+    }
+
+    @Test
+    void createdOutcomeMarksTheClientSynced() {
+        when(clientRepository.markSyncedToOdoo(1234L, 77)).thenReturn(1);
+
+        odooService.applyClientSyncOutcome(clientOutcome("CREATED", 77));
+
+        verify(clientRepository).markSyncedToOdoo(1234L, 77);
+    }
+
+    @Test
+    void errorOutcomeLeavesTheClientUnsynced() {
+        odooService.applyClientSyncOutcome(clientOutcome("ERROR", null));
+
+        verify(clientRepository, never()).markSyncedToOdoo(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void asyncClientSyncPublishesTheClient() {
+        ClientEventPublisher publisher = mock(ClientEventPublisher.class);
+        ObjectProvider<ClientEventPublisher> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(publisher);
+        ReflectionTestUtils.setField(odooService, "clientEventPublisher", provider);
+        ReflectionTestUtils.setField(odooService, "integrationLayerDeliveryMode", "ASYNC");
+        Client client = mock(Client.class);
+        when(client.getId()).thenReturn(1234L);
+        when(clientRepository.findOneWithNotFoundDetection(1234L)).thenReturn(client);
+
+        odooService.syncClientToOdoo(1234L);
+
+        verify(publisher).publish(eq(1234L), any(JsonObject.class));
+    }
+
+    @Test
+    void clientUpdateOnTheIntegrationLayerOnlySyncsOdooRelevantChanges() {
+        ReflectionTestUtils.setField(odooService, "integrationLayerEnabled", true);
+        when(configurationDomainService.isOdooIntegrationEnabled()).thenReturn(true);
+        Client client = mock(Client.class);
+
+        odooService.postClientToOdooOnUpdateTask(Map.of("dateOfBirth", "1990-01-01"), client);
+        verify(genericExecutorService, never()).execute(any());
+
+        when(client.getId()).thenReturn(1234L);
+        odooService.postClientToOdooOnUpdateTask(Map.of(ClientApiConstants.mobileNoParamName, "0788000000"), client);
+        verify(client).setUpdatedToOdoo(false);
+        verify(genericExecutorService).execute(any());
+    }
+
+    @Test
+    void clientSyncJobStopsAtTheFirstTransportFailure() {
+        ReflectionTestUtils.setField(odooService, "integrationLayerEnabled", true);
+        ReflectionTestUtils.setField(odooService, "integrationLayerDeliveryMode", "ASYNC");
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ClientEventPublisher> provider = mock(ObjectProvider.class);
+        ReflectionTestUtils.setField(odooService, "clientEventPublisher", provider);
+        when(configurationDomainService.isOdooIntegrationEnabled()).thenReturn(true);
+        Client first = mock(Client.class);
+        Client second = mock(Client.class);
+        when(clientRepository.getClientByIsOdooPosted(false)).thenReturn(List.of(first, second));
+
+        org.junit.jupiter.api.Assertions.assertThrows(JobExecutionException.class, () -> odooService.postClientsToOddo());
+
+        verify(second, never()).getMobileNo();
+    }
+
+    private JsonObject clientOutcome(String responseCode, Integer partnerId) {
+        JsonObject outcome = new JsonObject();
+        outcome.addProperty("clientId", 1234L);
+        outcome.addProperty("partnerId", partnerId);
+        outcome.addProperty("responseCode", responseCode);
+        outcome.addProperty("responseMessage", partnerId == null ? "odoo.exceptions.AccessError: not allowed" : null);
+        return outcome;
     }
 }

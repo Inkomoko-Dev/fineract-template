@@ -24,6 +24,12 @@
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
 
+    <!--
+        Do not reorder or re-run these changesets. includeAll sorts this file
+        before CGLT-577_provisioning_batching.xml, so on first deploy they were
+        MARK_RAN while the tables did not exist. Missing columns are added by
+        parts/CGLT-577_add_missing_provisioning_history_id.xml.
+    -->
     <changeSet id="add-history-id-to-provisioning-batch" author="omoi">
         <preConditions onFail="MARK_RAN">
             <and>

@@ -22,7 +22,9 @@ import com.google.gson.JsonObject;
 import org.apache.fineract.accounting.journalentry.data.JournalEntryData;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryReadPlatformService;
 import org.apache.fineract.accounting.provisioning.data.ProvisionBatchJournalData;
+import org.apache.fineract.accounting.provisioning.data.ProvisionBatchJournalLineData;
 import org.apache.fineract.accounting.provisioning.data.ProvisioningEntryData;
+import org.apache.fineract.accounting.provisioning.exception.ProvisionBatchJournalNotFoundException;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatch;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchEntry;
 import org.apache.fineract.accounting.provisioning.domain.ProvisionBatchJournal;
@@ -40,6 +42,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -53,16 +56,16 @@ import java.util.stream.Collectors;
 
 
 /**
- * Groups CBS provisioning journal lines into Odoo-ready journals and posts them.
+ * Groups CBS provisioning journal lines into company-level journals and posts them
+ * to the external GL.
  *
- * <p>Grouping is by <strong>office + currency</strong>, not currency alone. Two
- * countries can share a currency (e.g. KES) while each office has its own unique
- * mapped GLs; office keeps those journals separate so Odoo can resolve the
- * correct company from the GL mapping on each line.</p>
+ * <p>One journal is sent per company (country entity) and currency. Rwanda branches
+ * that share Rwanda Capital GLs become a single journal; Kenya Capital stays
+ * separate from Kenya MFI even though both use KES. Ethiopia is not posted.</p>
  *
- * <p>Each new period also mirrors the previous period's <em>original</em>
- * (non-reversal) office journals with debit/credit swapped, so provision
- * reversals are part of the same outbound payload set Odoo posts to GL.</p>
+ * <p>Each new period also mirrors the previous period's posted original
+ * company journals with debit/credit swapped, so the prior-month reversal and
+ * the current-month provision are posted in the same run.</p>
  */
 @Service
 public class ProvisionBatchServiceImpl implements ProvisionBatchService {
@@ -93,8 +96,6 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
     @CronTarget(jobName = JobName.PROCESS_AND_POST_PROVISION_JOURNAL_ENTRY)
     public void generateAndPostProvisionEntriesToOdoo() {
         generateProvisionBatch();
-        // Post outside the generate transaction so a Celery/Odoo failure cannot
-        // roll back already-persisted batch rows, and so retries remain idempotent.
         postPendingProvisionJournals();
     }
 
@@ -106,7 +107,7 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
                 provisioningEntriesReadPlatformService.findLatestProvisioningHistory();
 
         if (latestHistory.isEmpty()) {
-            LOG.info("No m_provisioning_history rows with journal entries found - nothing to process.");
+            LOG.info("No m_provisioning_history rows found - nothing to process.");
             return;
         }
 
@@ -138,66 +139,51 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         int journalCount = 0;
         int entryCount = 0;
 
-        // ------------------------------------------------------------------
-        // 1. Reverse the latest POSTED prior batch's ORIGINAL office journals.
-        //    Reversal journals from that batch must not be reversed again.
-        // ------------------------------------------------------------------
         final Optional<ProvisionBatch> previousBatch = findPreviousBatchToReverse(accountingPeriod);
 
         if (previousBatch.isPresent()) {
             final ProvisionBatch reversed = previousBatch.get();
-            LOG.info("Reversing original journals of provision batch '{}' (accounting period {}) into new batch '{}'.",
+            LOG.info("Reversing posted original journals of provision batch '{}' (accounting period {}) into new batch '{}'.",
                     reversed.getBatchReference(), reversed.getAccountingPeriod(), batchReference);
 
-            int reversedPostedCount = 0;
-            for (final ProvisionBatchJournal originalJournal : reversed.getJournals()) {
-                if (originalJournal.isReversal()) {
-                    continue;
-                }
-                // Only reverse journals that actually reached Odoo. Unposted
-                // originals are abandoned with the reversed batch so they are
-                // not posted later alongside a mirrored reversal.
-                if (!ProvisionBatchStatus.POSTED.name().equals(originalJournal.getStatus())) {
-                    LOG.info("Skipping reversal of unposted provision journal '{}' (status={}).",
-                            originalJournal.getJournalReference(), originalJournal.getStatus());
-                    continue;
-                }
-                final ProvisionBatchJournal reversalJournal = buildReversalJournal(batchReference, accountingPeriod,
-                        history.getId(), originalJournal);
+            final Map<String, List<ProvisionBatchJournal>> reversalsByCompany = groupPostedOriginalsByCompany(reversed);
+            for (final List<ProvisionBatchJournal> originals : reversalsByCompany.values()) {
+                final ProvisionBatchJournal reversalJournal = buildMergedReversalJournal(batchReference,
+                        accountingPeriod, history.getId(), originals);
                 batch.addJournal(reversalJournal);
                 journalCount++;
                 entryCount += reversalJournal.getEntryCount();
-                reversedPostedCount++;
             }
-
-            batch.setReversalOfBatch(reversed);
-            reversed.setStatus(ProvisionBatchStatus.REVERSED);
-            reversed.setReversedAt(LocalDateTime.now(ZoneId.systemDefault()));
-            provisionBatchRepository.saveAndFlush(reversed);
-            LOG.info("Marked provision batch '{}' as REVERSED after mirroring {} posted original journal(s).",
-                    reversed.getBatchReference(), reversedPostedCount);
         }
 
-        // ------------------------------------------------------------------
-        // 2. Aggregate current-period CBS lines by office + currency.
-        //    Same currency across countries stays split by office; GLs on each
-        //    line are already unique per country mapping.
-        // ------------------------------------------------------------------
-        final Map<String, List<JournalEntryData>> byOfficeAndCurrency = sourceLines.stream()
-                .collect(Collectors.groupingBy(
-                        line -> line.getOfficeId() + "::" + line.getCurrency().getCode(),
-                        LinkedHashMap::new,
-                        Collectors.toList()
-                ));
+        final Map<String, List<JournalEntryData>> byCompanyAndCurrency = new LinkedHashMap<>();
+        int skippedExcluded = 0;
+        for (final JournalEntryData line : sourceLines) {
+            final String companyKey = ProvisionPostingCompany.fromGlAccountCode(line.getGlAccountCode(),
+                    line.getOfficeId());
+            if (ProvisionPostingCompany.isExcluded(companyKey)) {
+                skippedExcluded++;
+                continue;
+            }
+            final String groupKey = ProvisionPostingCompany.groupingKey(companyKey, line.getCurrency().getCode());
+            byCompanyAndCurrency.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(line);
+        }
 
-        for (final List<JournalEntryData> officeLines : byOfficeAndCurrency.values()) {
-            final JournalEntryData first = officeLines.get(0);
+        if (skippedExcluded > 0) {
+            LOG.info("Skipped {} Ethiopia provision journal line(s) for GL posting.", skippedExcluded);
+        }
+
+        for (final List<JournalEntryData> companyLines : byCompanyAndCurrency.values()) {
+            final JournalEntryData first = companyLines.get(0);
             final String currencyCode = first.getCurrency().getCode();
-            final Long officeId = first.getOfficeId();
-            final String officeName = first.getOfficeName();
+            final String companyKey = ProvisionPostingCompany.fromGlAccountCode(first.getGlAccountCode(),
+                    first.getOfficeId());
+            final Long representativeOfficeId = companyLines.stream()
+                    .map(JournalEntryData::getOfficeId)
+                    .min(Long::compareTo)
+                    .orElse(first.getOfficeId());
 
-            final String journalReference = buildJournalReference(batchReference, officeId, currencyCode);
-
+            final String journalReference = buildJournalReference(batchReference, companyKey, currencyCode);
             final ProvisionBatchJournal journal = new ProvisionBatchJournal(
                     journalReference,
                     journalReference,
@@ -205,50 +191,30 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
                     accountingPeriod,
                     currencyCode
             );
-            journal.setOfficeId(officeId);
-            journal.setOfficeName(officeName);
+            journal.setOfficeId(representativeOfficeId);
+            journal.setOfficeName(companyKey);
             journal.setReversal(false);
             journal.setProvisioningHistoryId(history.getId());
-
-            final Map<String, List<JournalEntryData>> byAccountAndType = new LinkedHashMap<>();
-            for (final JournalEntryData line : officeLines) {
-                final String key = line.getGlAccountCode() + "::" + line.getEntryType().getValue();
-                byAccountAndType.computeIfAbsent(key, k -> new ArrayList<>()).add(line);
-
-                journal.incrementEntryCount();
-                batch.addEntry(new ProvisionBatchEntry(line.getId(), currencyCode));
-            }
-
-            BigDecimal journalTotalDebit = BigDecimal.ZERO;
-            BigDecimal journalTotalCredit = BigDecimal.ZERO;
-
-            for (final List<JournalEntryData> accountLines : byAccountAndType.values()) {
-                final JournalEntryData accountFirst = accountLines.get(0);
-                final boolean isDebit = "DEBIT".equals(accountFirst.getEntryType().getValue());
-                final BigDecimal sum = accountLines.stream()
-                        .map(JournalEntryData::getAmount)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-                journal.addJournalLine(new ProvisionBatchJournalLine(
-                        accountFirst.getGlAccountId(), accountFirst.getGlAccountCode(),
-                        isDebit ? "DEBIT" : "CREDIT",
-                        isDebit ? sum : BigDecimal.ZERO,
-                        isDebit ? BigDecimal.ZERO : sum,
-                        accountingPeriod));
-
-                if (isDebit) {
-                    journalTotalDebit = journalTotalDebit.add(sum);
-                } else {
-                    journalTotalCredit = journalTotalCredit.add(sum);
-                }
-            }
-
-            journal.setTotalDebit(journalTotalDebit);
-            journal.setTotalCredit(journalTotalCredit);
+            addAggregatedSourceLines(journal, companyLines, accountingPeriod, batch, currencyCode);
 
             batch.addJournal(journal);
             journalCount++;
-            entryCount += officeLines.size();
+            entryCount += companyLines.size();
+        }
+
+        if (batch.getJournals().isEmpty()) {
+            LOG.info("No country provision journals to send for provisioning history {} "
+                    + "(source lines={}, skipped Ethiopia={}).", history.getId(), sourceLines.size(),
+                    skippedExcluded);
+            return;
+        }
+
+        if (previousBatch.isPresent()) {
+            final ProvisionBatch reversed = previousBatch.get();
+            batch.setReversalOfBatch(reversed);
+            reversed.setStatus(ProvisionBatchStatus.REVERSED);
+            reversed.setReversedAt(LocalDateTime.now(ZoneId.systemDefault()));
+            provisionBatchRepository.saveAndFlush(reversed);
         }
 
         batch.setEntryCount(entryCount);
@@ -256,7 +222,6 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         batch.setTotalDebit(sumTotalDebit(batch));
         batch.setTotalCredit(sumTotalCredit(batch));
 
-        // Persist first so journal/line ids exist, then build Odoo payloads.
         provisionBatchRepository.saveAndFlush(batch);
         for (final ProvisionBatchJournal journal : batch.getJournals()) {
             journal.setPayloadJson(odooService.buildProvisioningJournalEntryPayload(journal, journal.isReversal()));
@@ -264,17 +229,12 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         provisionBatchRepository.saveAndFlush(batch);
 
         LOG.info("Generated provisioning batch '{}' for accounting period {}: {} source entries "
-                        + "aggregated into {} journal(s) across {} office/currency group(s) "
+                        + "aggregated into {} journal(s) across {} company/currency group(s) "
                         + "(provisioning history id {}).",
                 batchReference, accountingPeriod, sourceLines.size(), journalCount,
-                byOfficeAndCurrency.size(), history.getId());
+                byCompanyAndCurrency.size(), history.getId());
     }
 
-    /**
-     * Prefer the latest POSTED batch (with journals eagerly loaded). Fall back to
-     * any non-REVERSED prior batch so FAILED/CREATED predecessors are still closed
-     * out and cannot be picked again next month.
-     */
     private Optional<ProvisionBatch> findPreviousBatchToReverse(final LocalDate currentAccountingPeriod) {
         Optional<ProvisionBatch> posted = provisionBatchRepository
                 .findFirstByStatusOrderByAccountingPeriodDesc(ProvisionBatchStatus.POSTED);
@@ -310,26 +270,12 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
 
         for (final ProvisionBatchJournal journal : pending) {
             final ProvisionBatch parentBatch = journal.getBatch();
-            // Journals belonging to a REVERSED batch that are themselves still
-            // CREATED/FAILED are abandoned originals; do not post them. Reversal
-            // journals live on the *new* batch and are posted normally.
-            if (parentBatch != null && ProvisionBatchStatus.REVERSED.equals(parentBatch.getStatus())
-                    && !journal.isReversal()) {
-                LOG.info("Skipping abandoned journal '{}' because its batch '{}' is already REVERSED.",
+            if (parentBatch != null && ProvisionBatchStatus.REVERSED.equals(parentBatch.getStatus())) {
+                LOG.info("Skipping journal '{}' because its batch '{}' is already REVERSED.",
                         journal.getJournalReference(), parentBatch.getBatchReference());
                 continue;
             }
             if (ProvisionBatchStatus.POSTED.name().equals(journal.getStatus())) {
-                continue;
-            }
-            // Idempotency: never re-post a journal that already has an Odoo move id.
-            if (journal.getOdooJournalId() != null && !journal.getOdooJournalId().isBlank()) {
-                journal.setStatus(ProvisionBatchStatus.POSTED);
-                if (journal.getPostedAt() == null) {
-                    journal.setPostedAt(LocalDateTime.now(ZoneId.systemDefault()));
-                }
-                journal.setFailureReason(null);
-                provisionBatchJournalRepository.saveAndFlush(journal);
                 continue;
             }
 
@@ -412,48 +358,149 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         });
     }
 
-    private ProvisionBatchJournal buildReversalJournal(final String batchReference, final LocalDate accountingPeriod,
-            final Long currentHistoryId, final ProvisionBatchJournal original) {
+    private Map<String, List<ProvisionBatchJournal>> groupPostedOriginalsByCompany(final ProvisionBatch previous) {
+        final Map<String, List<ProvisionBatchJournal>> byCompany = new LinkedHashMap<>();
+        for (final ProvisionBatchJournal original : previous.getJournals()) {
+            if (original.isReversal()) {
+                continue;
+            }
+            if (!ProvisionBatchStatus.POSTED.name().equals(original.getStatus())) {
+                LOG.info("Skipping reversal of unposted provision journal '{}' (status={}).",
+                        original.getJournalReference(), original.getStatus());
+                continue;
+            }
+            final String companyKey = companyKeyFromJournal(original);
+            if (ProvisionPostingCompany.isExcluded(companyKey)) {
+                LOG.info("Skipping reversal of Ethiopia provision journal '{}'.", original.getJournalReference());
+                continue;
+            }
+            final String groupKey = ProvisionPostingCompany.groupingKey(companyKey, original.getCurrencyCode());
+            byCompany.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(original);
+        }
+        return byCompany;
+    }
 
-        final String journalReference = buildReversalJournalReference(batchReference, original.getOfficeId(),
-                original.getCurrencyCode());
-        final Long originalHistoryId = original.getProvisioningHistoryId() != null
-                ? original.getProvisioningHistoryId()
-                : (original.getBatch() != null ? original.getBatch().getProvisioningHistoryId() : null);
+    private String companyKeyFromJournal(final ProvisionBatchJournal journal) {
+        if (journal.getJournalLines() != null && !journal.getJournalLines().isEmpty()) {
+            return ProvisionPostingCompany.fromGlAccountCode(journal.getJournalLines().get(0).getGlAccountCode(),
+                    journal.getOfficeId());
+        }
+        if (journal.getOfficeName() != null && !journal.getOfficeName().isBlank()) {
+            return journal.getOfficeName();
+        }
+        return "OFFICE-" + journal.getOfficeId();
+    }
+
+    private void addAggregatedSourceLines(final ProvisionBatchJournal journal, final List<JournalEntryData> lines,
+            final LocalDate accountingPeriod, final ProvisionBatch batch, final String currencyCode) {
+        final Map<String, List<JournalEntryData>> byAccountAndType = new LinkedHashMap<>();
+        for (final JournalEntryData line : lines) {
+            final String key = line.getGlAccountCode() + "::" + line.getEntryType().getValue();
+            byAccountAndType.computeIfAbsent(key, k -> new ArrayList<>()).add(line);
+            journal.incrementEntryCount();
+            batch.addEntry(new ProvisionBatchEntry(line.getId(), currencyCode));
+        }
+
+        BigDecimal journalTotalDebit = BigDecimal.ZERO;
+        BigDecimal journalTotalCredit = BigDecimal.ZERO;
+        for (final List<JournalEntryData> accountLines : byAccountAndType.values()) {
+            final JournalEntryData accountFirst = accountLines.get(0);
+            final boolean isDebit = "DEBIT".equals(accountFirst.getEntryType().getValue());
+            final BigDecimal sum = roundMoney(accountLines.stream()
+                    .map(JournalEntryData::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add));
+
+            journal.addJournalLine(new ProvisionBatchJournalLine(
+                    accountFirst.getGlAccountId(), accountFirst.getGlAccountCode(),
+                    isDebit ? "DEBIT" : "CREDIT",
+                    isDebit ? sum : BigDecimal.ZERO,
+                    isDebit ? BigDecimal.ZERO : sum,
+                    accountingPeriod));
+
+            if (isDebit) {
+                journalTotalDebit = journalTotalDebit.add(sum);
+            } else {
+                journalTotalCredit = journalTotalCredit.add(sum);
+            }
+        }
+        journal.setTotalDebit(journalTotalDebit);
+        journal.setTotalCredit(journalTotalCredit);
+    }
+
+    private ProvisionBatchJournal buildMergedReversalJournal(final String batchReference,
+            final LocalDate accountingPeriod, final Long currentHistoryId,
+            final List<ProvisionBatchJournal> originals) {
+
+        final ProvisionBatchJournal first = originals.get(0);
+        final String companyKey = companyKeyFromJournal(first);
+        final String currencyCode = first.getCurrencyCode();
+        final String journalReference = buildReversalJournalReference(batchReference, companyKey, currencyCode);
+        final Long originalHistoryId = first.getProvisioningHistoryId() != null
+                ? first.getProvisioningHistoryId()
+                : (first.getBatch() != null ? first.getBatch().getProvisioningHistoryId() : null);
+        final String originalCbsId = originals.size() == 1
+                ? first.getJournalReference()
+                : buildJournalReference(first.getBatch() != null ? first.getBatch().getBatchReference() : batchReference,
+                        companyKey, currencyCode);
 
         final ProvisionBatchJournal reversalJournal = new ProvisionBatchJournal(
                 journalReference,
                 journalReference,
-                buildReversalJournalOdooReference(originalHistoryId, original.getJournalReference()),
+                buildReversalJournalOdooReference(
+                        originalHistoryId != null ? originalHistoryId : currentHistoryId, originalCbsId),
                 accountingPeriod,
-                original.getCurrencyCode()
+                currencyCode
         );
-        reversalJournal.setOfficeId(original.getOfficeId());
-        reversalJournal.setOfficeName(original.getOfficeName());
+        reversalJournal.setOfficeId(first.getOfficeId());
+        reversalJournal.setOfficeName(companyKey);
         reversalJournal.setReversal(true);
-        reversalJournal.setReversedJournalId(original.getId());
-        // Narration links to the batch/history being reversed; currentHistoryId is the run that triggers it.
-        reversalJournal.setProvisioningHistoryId(
-                originalHistoryId != null ? originalHistoryId : currentHistoryId);
+        reversalJournal.setReversedJournalId(first.getId());
+        reversalJournal.setProvisioningHistoryId(originalHistoryId != null ? originalHistoryId : currentHistoryId);
 
-        for (final ProvisionBatchJournalLine originalLine : original.getJournalLines()) {
-            final boolean wasDebit = originalLine.getDebitAmount().compareTo(BigDecimal.ZERO) != 0;
-            final ProvisionBatchJournalLine reversalLine = new ProvisionBatchJournalLine(
-                    originalLine.getGlAccountId(),
-                    originalLine.getGlAccountCode(),
-                    wasDebit ? "CREDIT" : "DEBIT",
-                    originalLine.getCreditAmount(),
-                    originalLine.getDebitAmount(),
-                    accountingPeriod
-            );
-            reversalJournal.addJournalLine(reversalLine);
-            reversalJournal.incrementEntryCount();
+        final Map<String, ProvisionBatchJournalLine> aggregated = new LinkedHashMap<>();
+        BigDecimal totalDebit = BigDecimal.ZERO;
+        BigDecimal totalCredit = BigDecimal.ZERO;
+        for (final ProvisionBatchJournal original : originals) {
+            for (final ProvisionBatchJournalLine originalLine : original.getJournalLines()) {
+                final boolean wasDebit = originalLine.getDebitAmount().compareTo(BigDecimal.ZERO) != 0;
+                final String reversalType = wasDebit ? "CREDIT" : "DEBIT";
+                final BigDecimal reversalDebit = roundMoney(originalLine.getCreditAmount());
+                final BigDecimal reversalCredit = roundMoney(originalLine.getDebitAmount());
+                final String key = originalLine.getGlAccountCode() + "::" + reversalType;
+                final ProvisionBatchJournalLine existing = aggregated.get(key);
+                if (existing == null) {
+                    final ProvisionBatchJournalLine reversalLine = new ProvisionBatchJournalLine(
+                            originalLine.getGlAccountId(),
+                            originalLine.getGlAccountCode(),
+                            reversalType,
+                            reversalDebit,
+                            reversalCredit,
+                            accountingPeriod
+                    );
+                    aggregated.put(key, reversalLine);
+                } else {
+                    existing.setDebitAmount(roundMoney(existing.getDebitAmount().add(reversalDebit)));
+                    existing.setCreditAmount(roundMoney(existing.getCreditAmount().add(reversalCredit)));
+                }
+                reversalJournal.incrementEntryCount();
+            }
         }
 
-        reversalJournal.setTotalDebit(original.getTotalCredit());
-        reversalJournal.setTotalCredit(original.getTotalDebit());
-
+        for (final ProvisionBatchJournalLine reversalLine : aggregated.values()) {
+            reversalJournal.addJournalLine(reversalLine);
+            totalDebit = totalDebit.add(reversalLine.getDebitAmount());
+            totalCredit = totalCredit.add(reversalLine.getCreditAmount());
+        }
+        reversalJournal.setTotalDebit(totalDebit);
+        reversalJournal.setTotalCredit(totalCredit);
         return reversalJournal;
+    }
+
+    private BigDecimal roundMoney(final BigDecimal amount) {
+        if (amount == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_EVEN);
+        }
+        return amount.setScale(2, RoundingMode.HALF_EVEN);
     }
 
     private BigDecimal sumTotalDebit(final ProvisionBatch batch) {
@@ -472,17 +519,18 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         return "PROV-" + accountingPeriod + "-H" + historyId;
     }
 
-    private String buildJournalReference(final String batchReference, final Long officeId, final String currencyCode) {
-        return batchReference + "-O" + officeId + "-" + currencyCode;
+    private String buildJournalReference(final String batchReference, final String companyKey,
+            final String currencyCode) {
+        return batchReference + "-" + ProvisionPostingCompany.slug(companyKey) + "-" + currencyCode;
     }
 
     private String buildJournalOdooReference(final Long historyId, final String journalReference) {
         return "Loan Loss Provision Entry ID: " + historyId + " ; CBS ID " + journalReference;
     }
 
-    private String buildReversalJournalReference(final String batchReference, final Long officeId,
+    private String buildReversalJournalReference(final String batchReference, final String companyKey,
             final String currencyCode) {
-        return batchReference + "-REV-O" + officeId + "-" + currencyCode;
+        return batchReference + "-REV-" + ProvisionPostingCompany.slug(companyKey) + "-" + currencyCode;
     }
 
     private String buildReversalJournalOdooReference(final Long originalHistoryId, final String originalJournalReference) {
@@ -514,28 +562,50 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ProvisionBatchJournalData> retrieveProvisionBatchJournals(final String status, final Boolean reversal) {
-        final List<ProvisionBatchJournal> journals;
-        if (status != null && !status.isBlank()) {
-            journals = provisionBatchJournalRepository.findByStatus(status.trim().toUpperCase());
-        } else {
-            journals = provisionBatchJournalRepository.findAll();
-        }
-
+    public List<ProvisionBatchJournalData> retrieveProvisionBatchJournals(final String status, final Boolean reversal,
+            final Long entryId, final LocalDate date) {
+        final String normalizedStatus = normalizeStatus(status);
+        final List<ProvisionBatchJournal> journals = entryId != null
+                ? provisionBatchJournalRepository.findByBatchProvisioningHistoryIdOrderByEntryDateDescIdDesc(entryId)
+                : provisionBatchJournalRepository.findAllByOrderByEntryDateDescIdDesc();
         return journals.stream()
-                .filter(j -> reversal == null || j.isReversal() == reversal)
-                .map(this::toJournalData)
+                .filter(journal -> normalizedStatus == null || normalizedStatus.equals(journal.getStatus()))
+                .filter(journal -> reversal == null || journal.isReversal() == reversal)
+                .filter(journal -> date == null || date.equals(journal.getEntryDate()))
+                .map(journal -> toJournalData(journal, false))
                 .collect(Collectors.toList());
     }
 
-    private ProvisionBatchJournalData toJournalData(final ProvisionBatchJournal journal) {
+    @Override
+    @Transactional(readOnly = true)
+    public ProvisionBatchJournalData retrieveProvisionBatchJournal(final Long journalId) {
+        final ProvisionBatchJournal journal = provisionBatchJournalRepository.findDetailedById(journalId)
+                .orElseThrow(() -> new ProvisionBatchJournalNotFoundException(journalId));
+        return toJournalData(journal, true);
+    }
+
+    private static String normalizeStatus(final String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        final String normalized = status.trim().toUpperCase();
+        if ("PENDING".equals(normalized)) {
+            return ProvisionBatchStatus.CREATED.name();
+        }
+        return normalized;
+    }
+
+    private ProvisionBatchJournalData toJournalData(final ProvisionBatchJournal journal, final boolean includeLines) {
         final ProvisionBatch batch = journal.getBatch();
+        final List<ProvisionBatchJournalLineData> lines = includeLines && journal.getJournalLines() != null
+                ? journal.getJournalLines().stream().map(ProvisionBatchJournalLineData::from).collect(Collectors.toList())
+                : null;
         return new ProvisionBatchJournalData(journal.getId(), batch != null ? batch.getId() : null,
                 batch != null ? batch.getBatchReference() : null, journal.getJournalReference(), journal.getReference(),
                 journal.getEntryDate(), journal.getCurrencyCode(), journal.getOfficeId(), journal.getOfficeName(),
                 journal.isReversal(), journal.getStatus(), journal.getOdooJournalId(), journal.getTotalDebit(),
                 journal.getTotalCredit(), journal.getProvisioningHistoryId(), journal.getReversedJournalId(),
-                journal.getFailureReason(), journal.getPostedAt(), journal.getCreatedAt());
+                journal.getFailureReason(), journal.getPostedAt(), journal.getCreatedAt(), lines);
     }
 
 }

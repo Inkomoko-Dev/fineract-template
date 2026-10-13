@@ -4093,6 +4093,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     @Transactional
     public CommandProcessingResult disbursePreApproval(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
         this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
         final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
         final Map<String, Object> entityChanges = new LinkedHashMap<>();
@@ -4232,6 +4233,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     @Transactional
     public CommandProcessingResult disburseRequestLoan(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
         this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
         final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
         final Map<String, Object> entityChanges = new LinkedHashMap<>();

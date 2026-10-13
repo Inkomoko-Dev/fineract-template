@@ -839,10 +839,16 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         final LoanDecisionData loanDecisionData = this.retrieveLoanDecisionByLoanId(loan.getId());
         BigDecimal approvedAmount;
         if (loanDecisionData != null
-                && loanDecisionData.getLoanDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())) {
+                && loanDecisionData.getLoanDecisionState().equals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue())
+                && loan.getApprovedICReview() != null) {
             approvedAmount = loan.getApprovedICReview();
-        } else {
+        } else if (loan.getProposedPrincipal() != null) {
             approvedAmount = loan.getProposedPrincipal();
+        } else {
+            approvedAmount = loan.getApprovedPrincipal();
+        }
+        if (approvedAmount == null) {
+            approvedAmount = BigDecimal.ZERO;
         }
         Collection<PaymentTypeData> paymentOptions = null;
 
@@ -851,7 +857,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         }
 
         BigDecimal totalDisbursementCharge = getDisbursementChargeAmount(loan);
-        BigDecimal netDisbursementAmount = loan.getPrincpal().getAmount().subtract(totalDisbursementCharge);
+        BigDecimal netDisbursementAmount = approvedAmount.subtract(totalDisbursementCharge);
 
         BigDecimal fxRate = null;
         LocalDateTime fxTimestamp = null;
@@ -1095,6 +1101,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
     BigDecimal resolveDisbursementPrincipalForTemplate(final Loan loan, final LoanDisbursementDetails disbursementDetail) {
         if (disbursementDetail == null) {
             return loan.getDisburseAmountForTemplate();
+        }
+        final BigDecimal remainingApproved = loan.getRemainingUndisbursedPrincipal();
+        if (disbursementDetail.actualDisbursementDate() == null && remainingApproved != null && disbursementDetail.principal() != null
+                && disbursementDetail.principal().compareTo(remainingApproved) > 0) {
+            return remainingApproved;
         }
         final BigDecimal approvedPrincipal = loan.getApprovedPrincipal();
         if (approvedPrincipal != null && disbursementDetail.principal() != null

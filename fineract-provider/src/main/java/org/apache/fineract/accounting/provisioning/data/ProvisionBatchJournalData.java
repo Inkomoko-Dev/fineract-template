@@ -21,10 +21,10 @@ package org.apache.fineract.accounting.provisioning.data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
- * Summary of an aggregated provision journal prepared for / posted to Odoo.
- * Used by Finance to reconcile originals vs reversals and review failures.
+ * Aggregated provision journal prepared for or posted to the external GL.
  */
 public class ProvisionBatchJournalData {
 
@@ -47,11 +47,28 @@ public class ProvisionBatchJournalData {
     private final String failureReason;
     private final LocalDateTime postedAt;
     private final LocalDateTime createdAt;
+    private final String company;
+    private final String number;
+    private final LocalDate date;
+    private final String postedJournalId;
+    private final BigDecimal total;
+    private final Long entryId;
+    private final List<ProvisionBatchJournalLineData> journalItems;
 
     public ProvisionBatchJournalData(Long id, Long batchId, String batchReference, String journalReference, String reference,
             LocalDate entryDate, String currencyCode, Long officeId, String officeName, boolean reversal, String status,
             String odooJournalId, BigDecimal totalDebit, BigDecimal totalCredit, Long provisioningHistoryId,
             Long reversedJournalId, String failureReason, LocalDateTime postedAt, LocalDateTime createdAt) {
+        this(id, batchId, batchReference, journalReference, reference, entryDate, currencyCode, officeId, officeName, reversal, status,
+                odooJournalId, totalDebit, totalCredit, provisioningHistoryId, reversedJournalId, failureReason, postedAt, createdAt,
+                null);
+    }
+
+    public ProvisionBatchJournalData(Long id, Long batchId, String batchReference, String journalReference, String reference,
+            LocalDate entryDate, String currencyCode, Long officeId, String officeName, boolean reversal, String status,
+            String odooJournalId, BigDecimal totalDebit, BigDecimal totalCredit, Long provisioningHistoryId,
+            Long reversedJournalId, String failureReason, LocalDateTime postedAt, LocalDateTime createdAt,
+            List<ProvisionBatchJournalLineData> journalItems) {
         this.id = id;
         this.batchId = batchId;
         this.batchReference = batchReference;
@@ -71,6 +88,13 @@ public class ProvisionBatchJournalData {
         this.failureReason = failureReason;
         this.postedAt = postedAt;
         this.createdAt = createdAt;
+        this.company = officeName;
+        this.number = odooJournalId != null && !odooJournalId.isBlank() ? odooJournalId : journalReference;
+        this.date = entryDate;
+        this.postedJournalId = odooJournalId;
+        this.total = totalDebit;
+        this.entryId = provisioningHistoryId;
+        this.journalItems = journalItems;
     }
 
     public Long getId() {
@@ -147,5 +171,33 @@ public class ProvisionBatchJournalData {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public String getCompany() {
+        return company;
+    }
+
+    public String getNumber() {
+        return number;
+    }
+
+    public LocalDate getDate() {
+        return date;
+    }
+
+    public String getPostedJournalId() {
+        return postedJournalId;
+    }
+
+    public BigDecimal getTotal() {
+        return total;
+    }
+
+    public Long getEntryId() {
+        return entryId;
+    }
+
+    public List<ProvisionBatchJournalLineData> getJournalItems() {
+        return journalItems;
     }
 }

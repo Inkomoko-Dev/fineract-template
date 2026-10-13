@@ -19,8 +19,16 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Arrays;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class DisbursementRequestServiceImplTest {
 
@@ -91,5 +99,22 @@ class DisbursementRequestServiceImplTest {
                 "clientPhoneNumber: The length of the number is too short"))
                 .isEqualTo(
                         "Payment Hub rejected this disbursement. clientPhoneNumber: The length of the number is too short Reference: cbs_disb_42_7");
+    }
+
+    @Test
+    void disburseRequestKeepsPlannedMultiTranchePrincipalForPaymentHub() {
+        final Loan loan = new Loan();
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("900000"));
+        final LoanDisbursementDetails first = new LoanDisbursementDetails(LocalDate.of(2026, 10, 15), null, new BigDecimal("600000"),
+                new BigDecimal("600000"));
+        final LoanDisbursementDetails second = new LoanDisbursementDetails(LocalDate.of(2026, 11, 15), null, new BigDecimal("400000"),
+                new BigDecimal("400000"));
+        ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Arrays.asList(first, second)));
+
+        final BigDecimal paymentHubPrincipal = DisbursementRequestServiceImpl.resolveDisbursementRequestPrincipal(loan);
+
+        assertEquals(0, new BigDecimal("600000").compareTo(paymentHubPrincipal));
+        assertEquals(0, new BigDecimal("600000").compareTo(first.principal()));
+        assertEquals(0, new BigDecimal("400000").compareTo(second.principal()));
     }
 }

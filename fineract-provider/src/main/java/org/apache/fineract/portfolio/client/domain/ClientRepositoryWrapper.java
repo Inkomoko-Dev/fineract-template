@@ -97,11 +97,11 @@ public class ClientRepositoryWrapper {
     }
 
     public List<Client> getClientByIsOdooPosted(boolean isOdooCustomerPosted) {
-        List<Client> clients = this.repository.findByIsOdooPosted(isOdooCustomerPosted);
-        if (clients.isEmpty()) {
-            throw new ClientNotFoundException();
-        }
-        return clients;
+        return this.repository.findByIsOdooPosted(isOdooCustomerPosted);
+    }
+
+    public int markSyncedToOdoo(Long clientId, Integer partnerId) {
+        return this.repository.markSyncedToOdoo(clientId, partnerId);
     }
 
     public List<Client> getClientUpdatedDetailsNotPostedToOdoo(boolean isOdooCustomerPosted) {

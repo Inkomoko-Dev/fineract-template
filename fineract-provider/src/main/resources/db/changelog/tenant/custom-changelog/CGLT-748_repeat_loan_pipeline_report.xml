@@ -481,6 +481,32 @@ WHERE ('${countryId}' = '-1' OR IFNULL(adr.country_id, -10) = '${countryId}')
         </insert>
     </changeSet>
 
+    <changeSet id="CGLT-748-9a-parameter-CountryIdSelectAll" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'CountryIdSelectAll'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="CountryIdSelectAll"/>
+            <column name="parameter_variable" value="countryId"/>
+            <column name="parameter_label" value="Country"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="-1"/>
+            <column name="selectAll" value="Y"/>
+            <column name="parameter_sql">
+                <![CDATA[SELECT -1 AS id, 'All' AS name
+UNION ALL
+SELECT cv.id, cv.code_value AS name
+FROM m_code_value cv
+INNER JOIN m_code c ON c.id = cv.code_id AND c.code_name = 'COUNTRY'
+WHERE cv.is_active = 1
+ORDER BY name]]>
+            </column>
+        </insert>
+    </changeSet>
+
     <changeSet id="CGLT-748-10-report-parameters" author="willy" context="mysql">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">

@@ -27,6 +27,7 @@ import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -42,6 +43,7 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.UriInfo;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.accounting.journalentry.api.DateParam;
 import org.apache.fineract.accounting.provisioning.constant.ProvisioningEntriesApiConstants;
 import org.apache.fineract.accounting.provisioning.data.LoanProductProvisioningEntryData;
 import org.apache.fineract.accounting.provisioning.data.ProvisionBatchJournalData;
@@ -174,28 +176,40 @@ public class ProvisioningEntriesApiResource {
     }
 
     @GET
-    @Path("odoojournals")
+    @Path("provisionjournals")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "List provision journals prepared for Odoo", description = "Finance/support reconciliation view of "
-            + "aggregated provision postings and reversals sent (or failed) to Odoo. "
-            + "Filter with status=FAILED|CREATED|POSTED and/or reversal=true|false.")
-    public String retrieveProvisionOdooJournals(@QueryParam("status") final String status,
-            @QueryParam("reversal") final Boolean reversal, @Context final UriInfo uriInfo) {
+    @Operation(summary = "List provision journals prepared for the external GL")
+    public String retrieveProvisionJournals(@QueryParam("status") final String status, @QueryParam("reversal") final Boolean reversal,
+            @QueryParam("entryId") final Long entryId, @QueryParam("date") final DateParam dateParam,
+            @QueryParam("dateFormat") final String dateFormat, @QueryParam("locale") final String locale,
+            @Context final UriInfo uriInfo) {
         this.platformSecurityContext.authenticatedUser();
-        final List<ProvisionBatchJournalData> journals = this.provisionBatchService.retrieveProvisionBatchJournals(status, reversal);
+        final LocalDate date = dateParam != null ? dateParam.getDate("date", dateFormat, locale) : null;
+        final List<ProvisionBatchJournalData> journals = this.provisionBatchService.retrieveProvisionBatchJournals(status, reversal,
+                entryId, date);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.entriesApiJsonSerializer.serialize(settings, journals);
     }
 
-    @POST
-    @Path("odoojournals")
+    @GET
+    @Path("provisionjournals/{journalId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Generate and/or post provision journals to Odoo", description = "command=postpending retries "
-            + "CREATED/FAILED journals. command=generateandpost builds the current period batch (including prior-period "
-            + "reversals) then posts pending journals.")
-    public String processProvisionOdooJournals(
+    @Operation(summary = "Retrieve one provision journal prepared for the external GL")
+    public String retrieveProvisionJournal(@PathParam("journalId") final Long journalId, @Context final UriInfo uriInfo) {
+        this.platformSecurityContext.authenticatedUser();
+        final ProvisionBatchJournalData journal = this.provisionBatchService.retrieveProvisionBatchJournal(journalId);
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.entriesApiJsonSerializer.serialize(settings, journal);
+    }
+
+    @POST
+    @Path("provisionjournals")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Generate and/or post provision journals to the external GL")
+    public String processProvisionJournals(
             @QueryParam("command") @Parameter(description = "command=postpending|generateandpost") final String commandParam) {
         this.platformSecurityContext.authenticatedUser();
         if ("postpending".equalsIgnoreCase(commandParam)) {
@@ -206,5 +220,25 @@ public class ProvisioningEntriesApiResource {
             return "{\"status\":\"ok\",\"command\":\"generateandpost\"}";
         }
         throw new UnrecognizedQueryParamException("command", commandParam);
+    }
+
+    @GET
+    @Path("odoojournals")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveProvisionOdooJournals(@QueryParam("status") final String status, @QueryParam("reversal") final Boolean reversal,
+            @QueryParam("entryId") final Long entryId, @QueryParam("date") final DateParam dateParam,
+            @QueryParam("dateFormat") final String dateFormat, @QueryParam("locale") final String locale,
+            @Context final UriInfo uriInfo) {
+        return retrieveProvisionJournals(status, reversal, entryId, dateParam, dateFormat, locale, uriInfo);
+    }
+
+    @POST
+    @Path("odoojournals")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String processProvisionOdooJournals(
+            @QueryParam("command") @Parameter(description = "command=postpending|generateandpost") final String commandParam) {
+        return processProvisionJournals(commandParam);
     }
 }

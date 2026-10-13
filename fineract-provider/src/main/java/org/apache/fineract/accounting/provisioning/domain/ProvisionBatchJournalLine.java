@@ -44,7 +44,7 @@ public class ProvisionBatchJournalLine extends AbstractPersistableCustom {
     private Long glAccountId;
 
 
-    @Column(name = "gl_account_code", nullable = false, length = 50)
+    @Column(name = "gl_account_code", nullable = false, length = 100)
     private String glAccountCode;
 
     @Column(name = "entry_type", nullable = false, length = 20)
@@ -115,8 +115,16 @@ public class ProvisionBatchJournalLine extends AbstractPersistableCustom {
         return debitAmount;
     }
 
+    public void setDebitAmount(final BigDecimal debitAmount) {
+        this.debitAmount = debitAmount != null ? debitAmount : BigDecimal.ZERO;
+    }
+
     public BigDecimal getCreditAmount() {
         return creditAmount;
+    }
+
+    public void setCreditAmount(final BigDecimal creditAmount) {
+        this.creditAmount = creditAmount != null ? creditAmount : BigDecimal.ZERO;
     }
 
     public LocalDate getTransactionDate() {

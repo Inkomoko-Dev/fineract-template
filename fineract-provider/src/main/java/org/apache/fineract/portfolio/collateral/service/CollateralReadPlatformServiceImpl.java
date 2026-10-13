@@ -53,12 +53,18 @@ public class CollateralReadPlatformServiceImpl implements CollateralReadPlatform
     private static final class CollateralMapper implements RowMapper<CollateralData> {
 
         private final StringBuilder sqlBuilder = new StringBuilder(
-                "lc.id as id, lc.description as description, lc.value as value, cv.id as typeId, cv.code_value as typeName, oc.code as currencyCode, ")
-                        .append(" oc.name as currencyName,oc.decimal_places as currencyDecimalPlaces, oc.currency_multiplesof as inMultiplesOf, oc.display_symbol as currencyDisplaySymbol, oc.internationalized_name_code as currencyNameCode")
+                "lc.id as id, lc.description as description, lc.value as value, cv.id as typeId, cv.code_value as typeName, ")
+                        .append("loan.currency_code as currencyCode, ")
+                        .append("coalesce(oc.name, cur.name, loan.currency_code) as currencyName, ")
+                        .append("coalesce(oc.decimal_places, cur.decimal_places) as currencyDecimalPlaces, ")
+                        .append("coalesce(oc.currency_multiplesof, cur.currency_multiplesof) as inMultiplesOf, ")
+                        .append("coalesce(oc.display_symbol, cur.display_symbol) as currencyDisplaySymbol, ")
+                        .append("coalesce(oc.internationalized_name_code, cur.internationalized_name_code) as currencyNameCode")
                         .append(" FROM m_loan_collateral lc") //
                         .append(" JOIN m_code_value cv on lc.type_cv_id = cv.id")//
                         .append(" JOIN m_loan loan on lc.loan_id = loan.id")//
-                        .append(" JOIN m_organisation_currency oc on loan.currency_code = oc.code");
+                        .append(" LEFT JOIN m_organisation_currency oc on loan.currency_code = oc.code")
+                        .append(" LEFT JOIN m_currency cur on loan.currency_code = cur.code");
 
         public String schema() {
             return this.sqlBuilder.toString();
@@ -76,14 +82,18 @@ public class CollateralReadPlatformServiceImpl implements CollateralReadPlatform
             final CodeValueData type = CodeValueData.instance(typeId, typeName);
 
             final String currencyCode = rs.getString("currencyCode");
-            final String currencyName = rs.getString("currencyName");
-            final String currencyNameCode = rs.getString("currencyNameCode");
-            final String currencyDisplaySymbol = rs.getString("currencyDisplaySymbol");
-            final Integer currencyDecimalPlaces = JdbcSupport.getInteger(rs, "currencyDecimalPlaces");
-            final Integer inMultiplesOf = JdbcSupport.getInteger(rs, "inMultiplesOf");
-
-            final CurrencyData currencyData = new CurrencyData(currencyCode, currencyName, currencyDecimalPlaces, inMultiplesOf,
-                    currencyDisplaySymbol, currencyNameCode);
+            final CurrencyData currencyData;
+            if (currencyCode == null) {
+                currencyData = CurrencyData.blank();
+            } else {
+                final String currencyName = rs.getString("currencyName");
+                final String currencyNameCode = rs.getString("currencyNameCode");
+                final String currencyDisplaySymbol = rs.getString("currencyDisplaySymbol");
+                final Integer currencyDecimalPlaces = JdbcSupport.getInteger(rs, "currencyDecimalPlaces");
+                final Integer inMultiplesOf = JdbcSupport.getInteger(rs, "inMultiplesOf");
+                currencyData = new CurrencyData(currencyCode, currencyName != null ? currencyName : currencyCode,
+                        currencyDecimalPlaces != null ? currencyDecimalPlaces : 0, inMultiplesOf, currencyDisplaySymbol, currencyNameCode);
+            }
 
             return CollateralData.instance(id, type, value, description, currencyData);
         }
