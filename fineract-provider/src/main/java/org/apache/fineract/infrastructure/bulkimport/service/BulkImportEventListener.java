@@ -30,6 +30,7 @@ import org.apache.fineract.infrastructure.bulkimport.data.GlobalEntityType;
 import org.apache.fineract.infrastructure.bulkimport.domain.ImportDocument;
 import org.apache.fineract.infrastructure.bulkimport.domain.ImportDocumentRepository;
 import org.apache.fineract.infrastructure.bulkimport.importhandler.ImportHandler;
+import org.apache.fineract.infrastructure.bulkimport.importhandler.ImportHandlerUtils;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
@@ -134,8 +135,13 @@ public class BulkImportEventListener implements ApplicationListener<BulkImportEv
         }
 
         final Workbook workbook = event.getWorkbook();
-        final Count count = importHandler.process(workbook, event.getLocale(), event.getDateFormat());
-        importDocument.update(DateUtils.getLocalDateTimeOfTenant(), count.getSuccessCount(), count.getErrorCount());
+        try {
+            final Count count = importHandler.process(workbook, event.getLocale(), event.getDateFormat());
+            importDocument.update(DateUtils.getLocalDateTimeOfTenant(), count.getSuccessCount(), count.getErrorCount(), null);
+        } catch (RuntimeException ex) {
+            LOG.error("Problem occurred in onApplicationEvent function", ex);
+            importDocument.fail(DateUtils.getLocalDateTimeOfTenant(), ImportHandlerUtils.getErrorMessage(ex));
+        }
         this.importRepository.saveAndFlush(importDocument);
 
         final Set<String> modifiedParams = new HashSet<>();
