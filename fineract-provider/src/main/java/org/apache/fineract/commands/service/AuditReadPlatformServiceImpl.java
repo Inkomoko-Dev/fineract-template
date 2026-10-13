@@ -21,6 +21,8 @@ package org.apache.fineract.commands.service;
 import com.google.common.reflect.TypeToken;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import java.lang.reflect.Type;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -94,7 +96,16 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
     private final DepositProductReadPlatformService depositProductReadPlatformService;
     private final ColumnValidator columnValidator;
 
-    private static final class AuditMapper implements RowMapper<AuditData> {
+    static final class AuditMapper implements RowMapper<AuditData> {
+
+        private static final String USER_ENTITY = "USER";
+        private static final String NOTES = "notes";
+
+        private final boolean hideUserNotes;
+
+        AuditMapper(final boolean hideUserNotes) {
+            this.hideUserNotes = hideUserNotes;
+        }
 
         public String schema(final boolean includeJson, final String hierarchy) {
 
@@ -156,12 +167,36 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
             final String clientName = rs.getString("clientName");
             final String loanAccountNo = rs.getString("loanAccountNo");
             final String savingsAccountNo = rs.getString("savingsAccountNo");
-            final String notes = rs.getString("notes");
+            String notes = rs.getString("notes");
+            if (this.hideUserNotes && USER_ENTITY.equalsIgnoreCase(entityName)) {
+                notes = null;
+                commandAsJson = withoutNotes(commandAsJson);
+            }
 
             return new AuditData(id, actionName, entityName, resourceId, subresourceId, maker, madeOnDate, checker, checkedOnDate,
                     processingResult, commandAsJson, officeName, groupLevelName, groupName, clientName, loanAccountNo, savingsAccountNo,
                     clientId, loanId, resourceGetUrl, notes);
         }
+
+        private static String withoutNotes(final String commandAsJson) {
+            if (StringUtils.isBlank(commandAsJson)) {
+                return commandAsJson;
+            }
+            try {
+                final JsonElement parsed = JsonParser.parseString(commandAsJson);
+                if (!parsed.isJsonObject() || !parsed.getAsJsonObject().has(NOTES)) {
+                    return commandAsJson;
+                }
+                parsed.getAsJsonObject().remove(NOTES);
+                return parsed.toString();
+            } catch (final JsonParseException e) {
+                return null;
+            }
+        }
+    }
+
+    private AuditMapper auditMapperFor(final AppUser currentUser) {
+        return new AuditMapper(!currentUser.hasAnyPermission("UPDATE_USER"));
     }
 
     @Override
@@ -177,7 +212,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
 
-        final AuditMapper rm = new AuditMapper();
+        final AuditMapper rm = auditMapperFor(currentUser);
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(rm.schema(includeJson, hierarchy));
@@ -225,7 +260,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
 
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
-        final AuditMapper rm = new AuditMapper();
+        final AuditMapper rm = auditMapperFor(currentUser);
 
         final StringBuilder sqlBuilder = new StringBuilder(400);
         sqlBuilder.append("select ").append(this.sqlGenerator.calcFoundRows()).append(' ');
@@ -259,7 +294,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
 
-        final AuditMapper rm = new AuditMapper();
+        final AuditMapper rm = auditMapperFor(currentUser);
         String sql = "select " + rm.schema(includeJson, hierarchy);
 
         Boolean isLimitedChecker = false;
@@ -287,7 +322,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
 
-        final AuditMapper rm = new AuditMapper();
+        final AuditMapper rm = auditMapperFor(currentUser);
 
         final String sql = "select " + rm.schema(true, hierarchy) + " where aud.id = ? ";
 
