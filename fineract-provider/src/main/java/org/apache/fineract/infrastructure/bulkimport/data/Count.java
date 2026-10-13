@@ -22,14 +22,20 @@ public final class Count {
 
     private Integer successCount;
     private Integer errorCount;
+    private String failureMessage;
 
     public static Count instance(final Integer successCount, final Integer errorCount) {
-        return new Count(successCount, errorCount);
+        return new Count(successCount, errorCount, null);
     }
 
-    private Count(final Integer successCount, final Integer errorCount) {
+    public static Count instance(final Integer successCount, final Integer errorCount, final String failureMessage) {
+        return new Count(successCount, errorCount, failureMessage);
+    }
+
+    private Count(final Integer successCount, final Integer errorCount, final String failureMessage) {
         this.successCount = successCount;
         this.errorCount = errorCount;
+        this.failureMessage = failureMessage;
     }
 
     public Integer getSuccessCount() {
@@ -38,6 +44,10 @@ public final class Count {
 
     public Integer getErrorCount() {
         return errorCount;
+    }
+
+    public String getFailureMessage() {
+        return failureMessage;
     }
 
 }

@@ -175,7 +175,7 @@ public class LoanRepaymentWorkbookPopulator extends AbstractWorkbookPopulator {
                 row = loanRepaymentSheet.createRow(rowIndex);
             }
             rowIndex++;
-            writeString(LoanRepaymentConstants.LOOKUP_ACCOUNT_NO_COL, row, loan.getAccountNo() + "-" + loan.getStatusValue());
+            writeString(LoanRepaymentConstants.LOOKUP_ACCOUNT_NO_COL, row, loan.getAccountNo());
             if (loan.getClientName() != null && loan.getClientId() != null) {
                 writeString(LoanRepaymentConstants.LOOKUP_CLIENT_NAME_COL, row, loan.getClientName() + "(" + loan.getClientId() + ")");
             }
