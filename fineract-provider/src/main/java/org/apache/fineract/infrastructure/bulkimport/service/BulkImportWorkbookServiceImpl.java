@@ -37,7 +37,6 @@ import org.apache.fineract.infrastructure.bulkimport.data.GlobalEntityType;
 import org.apache.fineract.infrastructure.bulkimport.data.ImportData;
 import org.apache.fineract.infrastructure.bulkimport.domain.ImportDocument;
 import org.apache.fineract.infrastructure.bulkimport.domain.ImportDocumentRepository;
-import org.apache.fineract.infrastructure.bulkimport.importhandler.ImportHandlerUtils;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -95,70 +94,50 @@ public class BulkImportWorkbookServiceImpl implements BulkImportWorkbookService 
 
                 Workbook workbook = WorkbookFactory.create(clonedInputStream);
                 GlobalEntityType entityType = null;
-                int primaryColumn = 0;
                 if (entity.trim().equalsIgnoreCase(GlobalEntityType.CLIENTS_PERSON.toString())) {
                     entityType = GlobalEntityType.CLIENTS_PERSON;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.CLIENTS_ENTITY.toString())) {
                     entityType = GlobalEntityType.CLIENTS_ENTITY;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.CENTERS.toString())) {
                     entityType = GlobalEntityType.CENTERS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.GROUPS.toString())) {
                     entityType = GlobalEntityType.GROUPS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.LOANS.toString())) {
                     entityType = GlobalEntityType.LOANS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.LOAN_TRANSACTIONS.toString())) {
                     entityType = GlobalEntityType.LOAN_TRANSACTIONS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.GUARANTORS.toString())) {
                     entityType = GlobalEntityType.GUARANTORS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.OFFICES.toString())) {
                     entityType = GlobalEntityType.OFFICES;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.CHART_OF_ACCOUNTS.toString())) {
                     entityType = GlobalEntityType.CHART_OF_ACCOUNTS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.GL_JOURNAL_ENTRIES.toString())) {
                     entityType = GlobalEntityType.GL_JOURNAL_ENTRIES;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.STAFF.toString())) {
                     entityType = GlobalEntityType.STAFF;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.SHARE_ACCOUNTS.toString())) {
                     entityType = GlobalEntityType.SHARE_ACCOUNTS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.SAVINGS_ACCOUNT.toString())) {
                     entityType = GlobalEntityType.SAVINGS_ACCOUNT;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.SAVINGS_TRANSACTIONS.toString())) {
                     entityType = GlobalEntityType.SAVINGS_TRANSACTIONS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.RECURRING_DEPOSIT_ACCOUNTS.toString())) {
                     entityType = GlobalEntityType.RECURRING_DEPOSIT_ACCOUNTS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.RECURRING_DEPOSIT_ACCOUNTS_TRANSACTIONS.toString())) {
                     entityType = GlobalEntityType.RECURRING_DEPOSIT_ACCOUNTS_TRANSACTIONS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.FIXED_DEPOSIT_ACCOUNTS.toString())) {
                     entityType = GlobalEntityType.FIXED_DEPOSIT_ACCOUNTS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.FIXED_DEPOSIT_TRANSACTIONS.toString())) {
                     entityType = GlobalEntityType.FIXED_DEPOSIT_TRANSACTIONS;
-                    primaryColumn = 0;
                 } else if (entity.trim().equalsIgnoreCase(GlobalEntityType.USERS.toString())) {
                     entityType = GlobalEntityType.USERS;
-                    primaryColumn = 0;
                 } else {
                     workbook.close();
                     throw new GeneralPlatformDomainRuleException("error.msg.unable.to.find.resource", "Unable to find requested resource");
 
                 }
-                return publishEvent(primaryColumn, fileDetail, bis, entityType, workbook, locale, dateFormat);
+                return publishEvent(fileDetail, bis, entityType, workbook, locale, dateFormat);
             }
             throw new GeneralPlatformDomainRuleException("error.msg.null", "One or more of the given parameters not found");
         } catch (IOException e) {
@@ -169,9 +148,8 @@ public class BulkImportWorkbookServiceImpl implements BulkImportWorkbookService 
         }
     }
 
-    private Long publishEvent(final Integer primaryColumn, final FormDataContentDisposition fileDetail,
-            final InputStream clonedInputStreamWorkbook, final GlobalEntityType entityType, final Workbook workbook, final String locale,
-            final String dateFormat) {
+    private Long publishEvent(final FormDataContentDisposition fileDetail, final InputStream clonedInputStreamWorkbook,
+            final GlobalEntityType entityType, final Workbook workbook, final String locale, final String dateFormat) {
 
         final String fileName = fileDetail.getFileName();
 
@@ -182,7 +160,7 @@ public class BulkImportWorkbookServiceImpl implements BulkImportWorkbookService 
         final Document document = this.documentRepository.findById(documentId).orElse(null);
 
         final ImportDocument importDocument = ImportDocument.instance(document, DateUtils.getLocalDateTimeOfTenant(), entityType.getValue(),
-                this.securityContext.authenticatedUser(), ImportHandlerUtils.getNumberOfRows(workbook.getSheetAt(0), primaryColumn));
+                this.securityContext.authenticatedUser(), 0);
         this.importDocumentRepository.saveAndFlush(importDocument);
         BulkImportEvent event = BulkImportEvent.instance(this, workbook, importDocument.getId(), locale, dateFormat,
                 ThreadLocalContextUtil.getContext());

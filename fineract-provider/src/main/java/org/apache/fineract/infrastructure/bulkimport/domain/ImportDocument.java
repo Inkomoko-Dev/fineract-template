@@ -97,8 +97,9 @@ public class ImportDocument extends AbstractPersistableCustom {
     public void update(final LocalDateTime endTime, final Integer successCount, final Integer errorCount) {
         this.endTime = endTime;
         this.completed = Boolean.TRUE;
-        this.successCount = successCount;
-        this.failureCount = errorCount;
+        this.successCount = successCount == null ? Integer.valueOf(0) : successCount;
+        this.failureCount = errorCount == null ? Integer.valueOf(0) : errorCount;
+        this.totalRecords = this.successCount + this.failureCount;
     }
 
     public Document getDocument() {
