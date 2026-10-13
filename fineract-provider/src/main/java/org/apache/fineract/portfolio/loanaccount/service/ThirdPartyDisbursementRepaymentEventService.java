@@ -26,6 +26,9 @@ import java.util.List;
 import java.util.UUID;
 import javax.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.security.service.TenantDetailsService;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanAdjustTransactionBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanTransactionMakeRepaymentPostBusinessEvent;
@@ -37,19 +40,26 @@ import org.apache.fineract.portfolio.loanaccount.domain.ThirdPartyDisbursementRe
 import org.apache.fineract.portfolio.loanaccount.domain.ThirdPartyDisbursementRepaymentEventRepository;
 import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementProvider;
 import org.apache.fineract.portfolio.loanproduct.event.DisbursementPartnerWebhookPublisher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @EnableScheduling
 @RequiredArgsConstructor
 public class ThirdPartyDisbursementRepaymentEventService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ThirdPartyDisbursementRepaymentEventService.class);
+
     private final BusinessEventNotifierService businessEventNotifierService;
     private final ThirdPartyDisbursementRepaymentEventRepository eventRepository;
     private final DisbursementPartnerWebhookPublisher webhookPublisher;
+    private final TenantDetailsService tenantDetailsService;
+    private final TransactionTemplate transactionTemplate;
 
     @PostConstruct
     public void subscribe() {
@@ -118,9 +128,24 @@ public class ThirdPartyDisbursementRepaymentEventService {
     }
 
 
+    // @Scheduled threads have no tenant, so without this the routing datasource falls back to fineract_tenants;
+    // the transaction starts per tenant, after the tenant is set, because it binds the connection when it begins
     @Scheduled(fixedDelayString = "${fineract.third-party-disbursement.repayment-webhook-delay-ms:60000}")
-    @Transactional
     public void deliverPending() {
+        for (final FineractPlatformTenant tenant : this.tenantDetailsService.findAllTenants()) {
+            try {
+                ThreadLocalContextUtil.setTenant(tenant);
+                this.transactionTemplate.executeWithoutResult(status -> deliverPendingForCurrentTenant());
+            } catch (final Exception e) {
+                LOG.error("Delivering pending partner repayment events failed for tenant {}: {}", tenant.getTenantIdentifier(),
+                        e.getMessage(), e);
+            } finally {
+                ThreadLocalContextUtil.clearTenant();
+            }
+        }
+    }
+
+    private void deliverPendingForCurrentTenant() {
         final List<ThirdPartyDisbursementRepaymentEvent> pending = this.eventRepository.findPending(OffsetDateTime.now(ZoneOffset.UTC));
         for (final ThirdPartyDisbursementRepaymentEvent event : pending) {
             if (this.webhookPublisher.publishRaw(event.getPartnerCode(), event.getEventId(), event.getPayload())) {

@@ -21,8 +21,10 @@ package org.apache.fineract.portfolio.client.domain;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecificationExecutor<Client> {
 
@@ -37,6 +39,12 @@ public interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecif
     @Query("select client from Client client where client.isOdooCustomerPosted= :isOdooCustomerPosted and client.isUpdatedToOdoo = :isUpdatedToOdoo")
     List<Client> getClientUpdatedDetailsByIsUpdatedToOdoo(@Param("isOdooCustomerPosted") boolean isOdooCustomerPosted,
             @Param("isUpdatedToOdoo") boolean isUpdatedToOdoo);
+
+    // targeted update so an Odoo outcome never overwrites other client fields with a stale copy
+    @Transactional
+    @Modifying
+    @Query("update Client client set client.odooCustomerId = :partnerId, client.isOdooCustomerPosted = true, client.isUpdatedToOdoo = true where client.id = :clientId")
+    int markSyncedToOdoo(@Param("clientId") Long clientId, @Param("partnerId") Integer partnerId);
 
     @Query("select client from Client client where client.mobileNo in :mobileNumbers")
     List<Client> findByMobileNumbers(@Param("mobileNumbers") List<String> mobileNumbers);
