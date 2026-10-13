@@ -151,7 +151,7 @@ public class BulkRescheduleExecutionService {
 
             // Validate user permissions
             AppUser currentUser = platformSecurityContext.authenticatedUser();
-            if (!hasExecutionPermission(currentUser, execution)) {
+            if (!canRunExecution(currentUser, execution)) {
                 throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.execution.permission.denied",
                     "User does not have permission to execute this bulk reschedule");
             }
@@ -523,6 +523,36 @@ public class BulkRescheduleExecutionService {
         }
         try {
             user.validateHasPermissionTo("APPROVE_RESCHEDULELOAN");
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean canRunExecution(final AppUser user, final BulkRescheduleExecution execution) {
+        if (user == null || execution == null
+                || !officeHierarchyService.validateUserAccessToOffice(user, execution.getOfficeId())) {
+            return false;
+        }
+        final BulkRescheduleExecutionStatus status = execution.getStatus();
+        if (status == BulkRescheduleExecutionStatus.APPROVED) {
+            return execution.getApprover() != null && execution.getApprover().getId().equals(user.getId())
+                    && hasPermission(user, "APPROVE_RESCHEDULELOAN");
+        }
+        if (status == BulkRescheduleExecutionStatus.EXECUTING || status == BulkRescheduleExecutionStatus.FAILED
+                || status == BulkRescheduleExecutionStatus.PARTIAL_SUCCESS) {
+            if (execution.getUser() != null && execution.getUser().getId().equals(user.getId())) {
+                return true;
+            }
+            return hasPermission(user, "APPROVE_RESCHEDULELOAN") || hasPermission(user, "CREATE_RESCHEDULELOAN")
+                    || hasPermission(user, "RECOVER_RESCHEDULELOAN");
+        }
+        return false;
+    }
+
+    private boolean hasPermission(final AppUser user, final String permission) {
+        try {
+            user.validateHasPermissionTo(permission);
             return true;
         } catch (Exception ignored) {
             return false;

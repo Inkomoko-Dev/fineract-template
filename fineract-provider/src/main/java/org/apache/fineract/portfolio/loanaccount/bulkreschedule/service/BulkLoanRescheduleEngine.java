@@ -89,8 +89,9 @@ public class BulkLoanRescheduleEngine {
         }
     }
 
-    public void undoApprovedReschedule(final Long rescheduleRequestId, final String noteText) {
-        loanRescheduleRequestService.undoApproved(rescheduleRequestId, noteText);
+    public void undoApprovedReschedule(final Long rescheduleRequestId, final String noteText,
+            final java.math.BigDecimal originalInterestRatePerPeriod) {
+        loanRescheduleRequestService.undoApproved(rescheduleRequestId, noteText, originalInterestRatePerPeriod);
     }
     /**
      * Converts ReschedulingDetailsDto to JsonCommand for use with the individual service.
