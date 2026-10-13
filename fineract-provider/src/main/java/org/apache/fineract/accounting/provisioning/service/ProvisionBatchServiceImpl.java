@@ -36,6 +36,9 @@ import org.apache.fineract.infrastructure.Odoo.OdooService;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.organisation.externalmapping.domain.ExternalOrganizationMapping;
+import org.apache.fineract.organisation.externalmapping.service.ExternalOrganizationMappingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -59,9 +62,10 @@ import java.util.stream.Collectors;
  * Groups CBS provisioning journal lines into company-level journals and posts them
  * to the external GL.
  *
- * <p>One journal is sent per company (country entity) and currency. Rwanda branches
- * that share Rwanda Capital GLs become a single journal; Kenya Capital stays
- * separate from Kenya MFI even though both use KES. Ethiopia is not posted.</p>
+ * <p>Offices are grouped only by {@code m_external_organization_mapping} for the
+ * system in {@code enable-external-organization-provision-batching} string value
+ * (default {@code GL}). Many Fineract branches can share one external
+ * organization. Unmapped offices are not posted.</p>
  *
  * <p>Each new period also mirrors the previous period's posted original
  * company journals with debit/credit swapped, so the prior-month reversal and
@@ -78,18 +82,21 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
     private final JournalEntryReadPlatformService provisioningJournalSourceReadService;
     private final OdooService odooService;
     private final ConfigurationDomainService configurationDomainService;
+    private final ExternalOrganizationMappingService externalOrganizationMappingService;
 
     public ProvisionBatchServiceImpl(ProvisionBatchRepository provisionBatchRepository,
             ProvisionBatchJournalRepository provisionBatchJournalRepository,
             ProvisioningEntriesReadPlatformService provisioningEntriesReadPlatformService,
             JournalEntryReadPlatformService provisioningJournalSourceReadService, OdooService odooService,
-            ConfigurationDomainService configurationDomainService) {
+            ConfigurationDomainService configurationDomainService,
+            ExternalOrganizationMappingService externalOrganizationMappingService) {
         this.provisionBatchRepository = provisionBatchRepository;
         this.provisionBatchJournalRepository = provisionBatchJournalRepository;
         this.provisioningEntriesReadPlatformService = provisioningEntriesReadPlatformService;
         this.provisioningJournalSourceReadService = provisioningJournalSourceReadService;
         this.odooService = odooService;
         this.configurationDomainService = configurationDomainService;
+        this.externalOrganizationMappingService = externalOrganizationMappingService;
     }
 
     @Override
@@ -139,6 +146,12 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         int journalCount = 0;
         int entryCount = 0;
 
+        final String externalSystem = configurationDomainService.retrieveExternalOrganizationProvisionBatchingSystem();
+        final Map<Long, ExternalOrganizationMapping> mappingsByOffice = externalOrganizationMappingService
+                .activeMappingsByOffice(externalSystem);
+        LOG.info("Grouping provision journals by external organization mapping system '{}' ({} office mapping(s)).",
+                externalSystem, mappingsByOffice.size());
+
         final Optional<ProvisionBatch> previousBatch = findPreviousBatchToReverse(accountingPeriod);
 
         if (previousBatch.isPresent()) {
@@ -146,38 +159,42 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
             LOG.info("Reversing posted original journals of provision batch '{}' (accounting period {}) into new batch '{}'.",
                     reversed.getBatchReference(), reversed.getAccountingPeriod(), batchReference);
 
-            final Map<String, List<ProvisionBatchJournal>> reversalsByCompany = groupPostedOriginalsByCompany(reversed);
+            final Map<String, List<ProvisionBatchJournal>> reversalsByCompany = groupPostedOriginalsByCompany(reversed,
+                    mappingsByOffice);
             for (final List<ProvisionBatchJournal> originals : reversalsByCompany.values()) {
                 final ProvisionBatchJournal reversalJournal = buildMergedReversalJournal(batchReference,
-                        accountingPeriod, history.getId(), originals);
+                        accountingPeriod, history.getId(), originals, mappingsByOffice);
                 batch.addJournal(reversalJournal);
                 journalCount++;
                 entryCount += reversalJournal.getEntryCount();
             }
         }
 
-        final Map<String, List<JournalEntryData>> byCompanyAndCurrency = new LinkedHashMap<>();
-        int skippedExcluded = 0;
+        final Map<String, List<JournalEntryData>> byCompany = new LinkedHashMap<>();
+        int skippedUnmapped = 0;
         for (final JournalEntryData line : sourceLines) {
-            final String companyKey = ProvisionPostingCompany.fromGlAccountCode(line.getGlAccountCode(),
-                    line.getOfficeId());
-            if (ProvisionPostingCompany.isExcluded(companyKey)) {
-                skippedExcluded++;
+            final ResolvedCompany resolved = resolveCompany(line.getOfficeId(),
+                    line.getCurrency() != null ? line.getCurrency().getCode() : null, mappingsByOffice);
+            if (resolved == null) {
+                skippedUnmapped++;
                 continue;
             }
-            final String groupKey = ProvisionPostingCompany.groupingKey(companyKey, line.getCurrency().getCode());
-            byCompanyAndCurrency.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(line);
+            byCompany.computeIfAbsent(resolved.groupKey, k -> new ArrayList<>()).add(line);
         }
 
-        if (skippedExcluded > 0) {
-            LOG.info("Skipped {} Ethiopia provision journal line(s) for GL posting.", skippedExcluded);
+        if (skippedUnmapped > 0) {
+            LOG.info("Skipped {} provision journal line(s) with no active external organization mapping.",
+                    skippedUnmapped);
         }
 
-        for (final List<JournalEntryData> companyLines : byCompanyAndCurrency.values()) {
+        for (final Map.Entry<String, List<JournalEntryData>> companyGroup : byCompany.entrySet()) {
+            final List<JournalEntryData> companyLines = companyGroup.getValue();
             final JournalEntryData first = companyLines.get(0);
-            final String currencyCode = first.getCurrency().getCode();
-            final String companyKey = ProvisionPostingCompany.fromGlAccountCode(first.getGlAccountCode(),
-                    first.getOfficeId());
+            final ResolvedCompany resolved = resolveCompany(first.getOfficeId(),
+                    first.getCurrency() != null ? first.getCurrency().getCode() : null, mappingsByOffice);
+            final String companyKey = resolved != null ? resolved.companyName : companyGroup.getKey();
+            final String currencyCode = resolved != null && resolved.currencyCode != null ? resolved.currencyCode
+                    : first.getCurrency().getCode();
             final Long representativeOfficeId = companyLines.stream()
                     .map(JournalEntryData::getOfficeId)
                     .min(Long::compareTo)
@@ -203,9 +220,8 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         }
 
         if (batch.getJournals().isEmpty()) {
-            LOG.info("No country provision journals to send for provisioning history {} "
-                    + "(source lines={}, skipped Ethiopia={}).", history.getId(), sourceLines.size(),
-                    skippedExcluded);
+            LOG.info("No mapped provision journals to send for provisioning history {} "
+                    + "(source lines={}, skipped unmapped={}).", history.getId(), sourceLines.size(), skippedUnmapped);
             return;
         }
 
@@ -229,10 +245,10 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         provisionBatchRepository.saveAndFlush(batch);
 
         LOG.info("Generated provisioning batch '{}' for accounting period {}: {} source entries "
-                        + "aggregated into {} journal(s) across {} company/currency group(s) "
+                        + "aggregated into {} journal(s) across {} company group(s) "
                         + "(provisioning history id {}).",
-                batchReference, accountingPeriod, sourceLines.size(), journalCount,
-                byCompanyAndCurrency.size(), history.getId());
+                batchReference, accountingPeriod, sourceLines.size(), journalCount, byCompany.size(),
+                history.getId());
     }
 
     private Optional<ProvisionBatch> findPreviousBatchToReverse(final LocalDate currentAccountingPeriod) {
@@ -358,7 +374,8 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
         });
     }
 
-    private Map<String, List<ProvisionBatchJournal>> groupPostedOriginalsByCompany(final ProvisionBatch previous) {
+    private Map<String, List<ProvisionBatchJournal>> groupPostedOriginalsByCompany(final ProvisionBatch previous,
+            final Map<Long, ExternalOrganizationMapping> mappingsByOffice) {
         final Map<String, List<ProvisionBatchJournal>> byCompany = new LinkedHashMap<>();
         for (final ProvisionBatchJournal original : previous.getJournals()) {
             if (original.isReversal()) {
@@ -369,26 +386,43 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
                         original.getJournalReference(), original.getStatus());
                 continue;
             }
-            final String companyKey = companyKeyFromJournal(original);
-            if (ProvisionPostingCompany.isExcluded(companyKey)) {
-                LOG.info("Skipping reversal of Ethiopia provision journal '{}'.", original.getJournalReference());
+            final ResolvedCompany resolved = resolveCompanyFromJournal(original, mappingsByOffice);
+            if (resolved == null) {
+                LOG.info("Skipping reversal of provision journal '{}' that has no external organization mapping.",
+                        original.getJournalReference());
                 continue;
             }
-            final String groupKey = ProvisionPostingCompany.groupingKey(companyKey, original.getCurrencyCode());
-            byCompany.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(original);
+            byCompany.computeIfAbsent(resolved.groupKey, k -> new ArrayList<>()).add(original);
         }
         return byCompany;
     }
 
-    private String companyKeyFromJournal(final ProvisionBatchJournal journal) {
-        if (journal.getJournalLines() != null && !journal.getJournalLines().isEmpty()) {
-            return ProvisionPostingCompany.fromGlAccountCode(journal.getJournalLines().get(0).getGlAccountCode(),
-                    journal.getOfficeId());
+    private ResolvedCompany resolveCompanyFromJournal(final ProvisionBatchJournal journal,
+            final Map<Long, ExternalOrganizationMapping> mappingsByOffice) {
+        return resolveCompany(journal.getOfficeId(), journal.getCurrencyCode(), mappingsByOffice);
+    }
+
+    private ResolvedCompany resolveCompany(final Long officeId, final String lineCurrency,
+            final Map<Long, ExternalOrganizationMapping> mappingsByOffice) {
+        final ExternalOrganizationMapping mapping = officeId == null ? null : mappingsByOffice.get(officeId);
+        if (mapping == null) {
+            return null;
         }
-        if (journal.getOfficeName() != null && !journal.getOfficeName().isBlank()) {
-            return journal.getOfficeName();
+        final String currency = StringUtils.isNotBlank(mapping.getCurrencyCode()) ? mapping.getCurrencyCode() : lineCurrency;
+        return new ResolvedCompany(mapping.getExternalName(), mapping.getExternalId() + "::" + (currency == null ? "" : currency),
+                currency);
+    }
+
+    private static final class ResolvedCompany {
+        private final String companyName;
+        private final String groupKey;
+        private final String currencyCode;
+
+        private ResolvedCompany(final String companyName, final String groupKey, final String currencyCode) {
+            this.companyName = companyName;
+            this.groupKey = groupKey;
+            this.currencyCode = currencyCode;
         }
-        return "OFFICE-" + journal.getOfficeId();
     }
 
     private void addAggregatedSourceLines(final ProvisionBatchJournal journal, final List<JournalEntryData> lines,
@@ -429,11 +463,13 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
 
     private ProvisionBatchJournal buildMergedReversalJournal(final String batchReference,
             final LocalDate accountingPeriod, final Long currentHistoryId,
-            final List<ProvisionBatchJournal> originals) {
+            final List<ProvisionBatchJournal> originals, final Map<Long, ExternalOrganizationMapping> mappingsByOffice) {
 
         final ProvisionBatchJournal first = originals.get(0);
-        final String companyKey = companyKeyFromJournal(first);
-        final String currencyCode = first.getCurrencyCode();
+        final ResolvedCompany resolved = resolveCompanyFromJournal(first, mappingsByOffice);
+        final String companyKey = resolved != null ? resolved.companyName : first.getOfficeName();
+        final String currencyCode = resolved != null && resolved.currencyCode != null ? resolved.currencyCode
+                : first.getCurrencyCode();
         final String journalReference = buildReversalJournalReference(batchReference, companyKey, currencyCode);
         final Long originalHistoryId = first.getProvisioningHistoryId() != null
                 ? first.getProvisioningHistoryId()
@@ -521,7 +557,15 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
 
     private String buildJournalReference(final String batchReference, final String companyKey,
             final String currencyCode) {
-        return batchReference + "-" + ProvisionPostingCompany.slug(companyKey) + "-" + currencyCode;
+        return batchReference + "-" + slug(companyKey) + "-" + currencyCode;
+    }
+
+    private static String slug(final String companyKey) {
+        if (companyKey == null || companyKey.isBlank()) {
+            return "UNKNOWN";
+        }
+        final String slug = companyKey.replaceAll("[^A-Za-z0-9]+", "");
+        return slug.isEmpty() ? "UNKNOWN" : slug;
     }
 
     private String buildJournalOdooReference(final Long historyId, final String journalReference) {
@@ -530,7 +574,7 @@ public class ProvisionBatchServiceImpl implements ProvisionBatchService {
 
     private String buildReversalJournalReference(final String batchReference, final String companyKey,
             final String currencyCode) {
-        return batchReference + "-REV-" + ProvisionPostingCompany.slug(companyKey) + "-" + currencyCode;
+        return batchReference + "-REV-" + slug(companyKey) + "-" + currencyCode;
     }
 
     private String buildReversalJournalOdooReference(final Long originalHistoryId, final String originalJournalReference) {

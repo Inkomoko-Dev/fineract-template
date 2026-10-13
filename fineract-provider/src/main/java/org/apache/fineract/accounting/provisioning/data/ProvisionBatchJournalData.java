@@ -48,6 +48,7 @@ public class ProvisionBatchJournalData {
     private final LocalDateTime postedAt;
     private final LocalDateTime createdAt;
     private final String company;
+    private final String name;
     private final String number;
     private final LocalDate date;
     private final String postedJournalId;
@@ -89,6 +90,7 @@ public class ProvisionBatchJournalData {
         this.postedAt = postedAt;
         this.createdAt = createdAt;
         this.company = officeName;
+        this.name = journalDisplayName(officeName, reversal);
         this.number = odooJournalId != null && !odooJournalId.isBlank() ? odooJournalId : journalReference;
         this.date = entryDate;
         this.postedJournalId = odooJournalId;
@@ -175,6 +177,24 @@ public class ProvisionBatchJournalData {
 
     public String getCompany() {
         return company;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public static String journalDisplayName(final String organizationName, final boolean reversal) {
+        if (organizationName == null || organizationName.isBlank()) {
+            return reversal ? "reversal" : organizationName;
+        }
+        if (!reversal) {
+            return organizationName;
+        }
+        final String trimmed = organizationName.trim();
+        if (trimmed.toLowerCase().endsWith(" reversal")) {
+            return trimmed;
+        }
+        return trimmed + " reversal";
     }
 
     public String getNumber() {

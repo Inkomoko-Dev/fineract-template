@@ -27,6 +27,7 @@ import java.util.List;
 public class JournalData {
 
     private String transactionId;
+    private String name;
     private String ref;
     private Boolean reversed;
     private String entryDate;

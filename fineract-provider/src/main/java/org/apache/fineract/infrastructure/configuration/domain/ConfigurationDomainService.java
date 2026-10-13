@@ -133,6 +133,8 @@ public interface ConfigurationDomainService {
 
     public boolean isOdooIntegrationEnabled();
 
+    String retrieveExternalOrganizationProvisionBatchingSystem();
+
     boolean isMakerCheckerNotificationEnabled();
 
     boolean isCorrectionsInClosedPeriodsAllowed();
