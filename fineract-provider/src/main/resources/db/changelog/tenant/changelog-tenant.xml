@@ -171,4 +171,5 @@
     <include file="custom-changelog/CGLT-776_import_failure_message.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-577_add_missing_provisioning_history_id.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-577_external_organization_mapping.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-788_make_address_location_mandatory.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

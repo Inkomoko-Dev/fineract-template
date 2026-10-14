@@ -35,6 +35,8 @@ final class ClientAddressApiResourcesSwagger {
 
         @Schema(example = "Ipca")
         public String street;
+        @Schema(example = "Nairobi")
+        public String location;
         @Schema(example = "Kandivali")
         public String addressLine1;
         @Schema(example = "plot47")
@@ -79,6 +81,8 @@ final class ClientAddressApiResourcesSwagger {
         public Boolean isActive;
         @Schema(example = "anki's home")
         public String street;
+        @Schema(example = "Nairobi")
+        public String location;
         @Schema(example = "test123")
         public String addressLine1;
         @Schema(example = "iuyt")
@@ -116,6 +120,8 @@ final class ClientAddressApiResourcesSwagger {
         public Integer addressId;
         @Schema(example = "goldensource")
         public String street;
+        @Schema(example = "Nairobi")
+        public String location;
     }
 
     @Schema(description = "PutClientClientIdAddressesResponse")

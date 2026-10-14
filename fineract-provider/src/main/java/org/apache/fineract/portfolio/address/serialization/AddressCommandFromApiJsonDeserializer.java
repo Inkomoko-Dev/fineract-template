@@ -35,6 +35,7 @@ import org.apache.fineract.infrastructure.core.exception.InvalidJsonException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.address.data.FieldConfigurationData;
+import org.apache.fineract.portfolio.address.service.ClientAddressLocationValidator;
 import org.apache.fineract.portfolio.address.service.FieldConfigurationReadPlatformService;
 import org.springframework.stereotype.Component;
 
@@ -69,7 +70,7 @@ public class AddressCommandFromApiJsonDeserializer {
         final List<FieldConfigurationData> configData = configurationData.stream().filter(FieldConfigurationData::isEnabled)
                 .collect(Collectors.toList());
         final List<String> alwaysMandatoryFields = Arrays.asList("physicalAddressDistrict", "physicalAddressSector", "physicalAddressCell",
-                "addressId");
+                "addressId", "location");
 
         final Set<String> supportedParameters = configData.stream().map(FieldConfigurationData::getField).collect(Collectors.toSet());
 
@@ -92,11 +93,17 @@ public class AddressCommandFromApiJsonDeserializer {
                 }
             }
 
-            if (!fieldConfiguration.getValidation_regex().isEmpty()) {
+            if (StringUtils.isNotBlank(fieldConfiguration.getValidation_regex())) {
                 baseDataValidator.reset().parameter(field).value(fieldValue)
                         .matchesRegularExpression(fieldConfiguration.getValidation_regex());
             }
         });
+
+        final String location = this.fromApiJsonHelper.extractStringNamed("location", element);
+        if (StringUtils.isBlank(location)) {
+            dataValidationErrors.add(ApiParameterError.parameterError(ClientAddressLocationValidator.VALIDATION_CODE,
+                    ClientAddressLocationValidator.ERROR_MESSAGE, "location"));
+        }
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
 

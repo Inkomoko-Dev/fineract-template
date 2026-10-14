@@ -103,7 +103,7 @@ class DisbursementRequestServiceImplTest {
 
     @Test
     void disburseRequestKeepsPlannedMultiTranchePrincipalForPaymentHub() {
-        final Loan loan = new Loan();
+        final Loan loan = new TestLoan();
         ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("900000"));
         final LoanDisbursementDetails first = new LoanDisbursementDetails(LocalDate.of(2026, 10, 15), null, new BigDecimal("600000"),
                 new BigDecimal("600000"));
@@ -116,5 +116,10 @@ class DisbursementRequestServiceImplTest {
         assertEquals(0, new BigDecimal("600000").compareTo(paymentHubPrincipal));
         assertEquals(0, new BigDecimal("600000").compareTo(first.principal()));
         assertEquals(0, new BigDecimal("400000").compareTo(second.principal()));
+    }
+
+    private static final class TestLoan extends Loan {
+
+        private TestLoan() {}
     }
 }
