@@ -63,6 +63,9 @@ public class ImportDocument extends AbstractPersistableCustom {
     @Column(name = "failure_count", nullable = true)
     private Integer failureCount;
 
+    @Column(name = "failure_message")
+    private String failureMessage;
+
     protected ImportDocument() {
 
     }
@@ -94,11 +97,19 @@ public class ImportDocument extends AbstractPersistableCustom {
 
     }
 
-    public void update(final LocalDateTime endTime, final Integer successCount, final Integer errorCount) {
+    public void update(final LocalDateTime endTime, final Integer successCount, final Integer errorCount, final String failureMessage) {
         this.endTime = endTime;
         this.completed = Boolean.TRUE;
-        this.successCount = successCount;
-        this.failureCount = errorCount;
+        this.successCount = successCount == null ? Integer.valueOf(0) : successCount;
+        this.failureCount = errorCount == null ? Integer.valueOf(0) : errorCount;
+        this.totalRecords = this.successCount + this.failureCount;
+        this.failureMessage = failureMessage;
+    }
+
+    public void fail(final LocalDateTime endTime, final String failureMessage) {
+        this.endTime = endTime;
+        this.completed = Boolean.FALSE;
+        this.failureMessage = failureMessage;
     }
 
     public Document getDocument() {

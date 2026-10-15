@@ -162,4 +162,5 @@
     <include file="parts/042_add_notes_to_command_source.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-658_future_interest_cancellation.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-317_write_off_reversal_transaction_type.xml" relativeToChangelogFile="true"/>
+    <include file="custom-changelog/CGLT-776_import_failure_message.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
