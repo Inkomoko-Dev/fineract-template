@@ -2204,7 +2204,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     private Map<String, Object> parseDisbursementDetails(final JsonObject jsonObject, String dateFormat, Locale locale) {
         Map<String, Object> returnObject = new HashMap<>();
-        if (jsonObject.get(LoanApiConstants.disbursementDateParameterName) != null
+        if (jsonObject.has(LoanApiConstants.disbursementDateParameterName)
+                && jsonObject.get(LoanApiConstants.disbursementDateParameterName) != null
                 && jsonObject.get(LoanApiConstants.disbursementDateParameterName).isJsonPrimitive()) {
             final JsonPrimitive primitive = jsonObject.get(LoanApiConstants.disbursementDateParameterName).getAsJsonPrimitive();
             final String valueAsString = primitive.getAsString();

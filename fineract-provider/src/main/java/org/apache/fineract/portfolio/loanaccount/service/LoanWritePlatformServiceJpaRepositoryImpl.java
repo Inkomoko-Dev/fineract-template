@@ -4414,6 +4414,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
             }
             loan.adjustNetDisbursalAmount(loan.getProposedPrincipal());
+            // Final IC may have synced the single undisbursed tranche down; realign to restored approved/proposed.
+            loan.alignUndisbursedTranchesToApprovedPrincipal();
 
             final String noteText = command.stringValueOfParameterNamed("note");
             if (StringUtils.isNotBlank(noteText)) {
