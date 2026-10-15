@@ -100,7 +100,7 @@ public class AddressCommandFromApiJsonDeserializer {
         });
 
         final String location = this.fromApiJsonHelper.extractStringNamed("location", element);
-        if (StringUtils.isBlank(location)) {
+        if (ClientAddressLocationValidator.isMissingLocation(location)) {
             dataValidationErrors.add(ApiParameterError.parameterError(ClientAddressLocationValidator.VALIDATION_CODE,
                     ClientAddressLocationValidator.ERROR_MESSAGE, "location"));
         }

@@ -77,6 +77,13 @@ class AddressCommandFromApiJsonDeserializerTest {
     }
 
     @Test
+    void createRejectsPlaceholderLocation() {
+        final PlatformApiDataValidationException exception = assertThrows(PlatformApiDataValidationException.class,
+                () -> deserializer.validateForCreate(validAddressJson("N/A"), true));
+        assertLocationRequired(exception.getErrors());
+    }
+
+    @Test
     void createAcceptsLocation() {
         assertDoesNotThrow(() -> deserializer.validateForCreate(validAddressJson("Kigali"), true));
     }
