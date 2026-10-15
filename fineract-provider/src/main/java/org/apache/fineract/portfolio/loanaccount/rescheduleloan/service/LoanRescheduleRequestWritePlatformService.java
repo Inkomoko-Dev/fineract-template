@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.rescheduleloan.service;
 
+import java.math.BigDecimal;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 
@@ -31,6 +32,6 @@ public interface LoanRescheduleRequestWritePlatformService {
 
     CommandProcessingResult undo(JsonCommand jsonCommand);
 
-    CommandProcessingResult undoApproved(Long rescheduleRequestId, String noteText);
+    CommandProcessingResult undoApproved(Long rescheduleRequestId, String noteText, BigDecimal originalInterestRatePerPeriod);
 
 }
