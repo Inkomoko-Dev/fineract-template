@@ -104,7 +104,7 @@ public class LoanDecisionStateUtilService {
                 }
             }
 
-            if (loanDecision != null && !loanDecision.getReviewApplicationSigned()) {
+            if (!Boolean.TRUE.equals(loanDecision.getReviewApplicationSigned())) {
                 throw new GeneralPlatformDomainRuleException(
                         "error.msg.loan.account.should.extend.decision.engine.required.state.is.review.application",
                         "Loan Account is not permitted for Approval . [Review Application ] to proceed ");
@@ -146,19 +146,20 @@ public class LoanDecisionStateUtilService {
                         "Approval on  date" + approveOnDate + " should be after IC ReviewDecision Level two date "
                                 + loanDecision.getIcReviewDecisionLevelTwoOn());
             }
-            if (approveOnDate.isBefore(loanDecision.getIcReviewDecisionLevelOneOn())) {
+            if (loanDecision.getIcReviewDecisionLevelOneOn() != null
+                    && approveOnDate.isBefore(loanDecision.getIcReviewDecisionLevelOneOn())) {
                 throw new GeneralPlatformDomainRuleException(
-                        "error.msg.loan.Approval.date.should.be.after.Ic.Review.decision.level.one.date",
+                        "error.msg.loan.approval.date.should.be.after.Ic.Review.decision.level.one.date",
                         "Approval on  date" + approveOnDate + " should be after IC ReviewDecision Level One date "
                                 + loanDecision.getIcReviewDecisionLevelOneOn());
             }
-            if (approveOnDate.isBefore(loanDecision.getDueDiligenceOn())) {
-                throw new GeneralPlatformDomainRuleException("error.msg.loan.Approval.date.should.be.after.Due.Diligence.date",
+            if (loanDecision.getDueDiligenceOn() != null && approveOnDate.isBefore(loanDecision.getDueDiligenceOn())) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.approval.date.should.be.after.Due.Diligence.date",
                         "Approval on date" + approveOnDate + " should be after Loan Due Diligence Approved date "
                                 + loanDecision.getDueDiligenceOn());
             }
-            if (approveOnDate.isBefore(loanDecision.getReviewApplicationOn())) {
-                throw new GeneralPlatformDomainRuleException("error.msg.loan.Approval.date.should.be.after.review.application.date",
+            if (loanDecision.getReviewApplicationOn() != null && approveOnDate.isBefore(loanDecision.getReviewApplicationOn())) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.approval.date.should.be.after.review.application.date",
                         "Approval on date" + approveOnDate + " should be after Loan Review Application Approved date "
                                 + loanDecision.getReviewApplicationOn());
             }
@@ -189,7 +190,7 @@ public class LoanDecisionStateUtilService {
                         "error.msg.loan.account.should.extend.decision.engine.to.review.Loan.application.to.be.disbursed",
                         "Loan Account is not permitted for Disbursement since new workflow [Add-More-Stages-To-A-Loan-Life-Cycle] is activated and next stage is [Review Application]");
             }
-            if (loanDecision != null && !loanDecision.getReviewApplicationSigned()) {
+            if (loanDecision != null && !Boolean.TRUE.equals(loanDecision.getReviewApplicationSigned())) {
                 throw new GeneralPlatformDomainRuleException(
                         "error.msg.loan.account.should.extend.decision.engine.required.state.is.review.application",
                         "Loan Account is not permitted for Disbursement . [Review Application ] to proceed ");
@@ -233,18 +234,19 @@ public class LoanDecisionStateUtilService {
                         "Disbursement on  date" + actualDisbursementDate + " should be after IC ReviewDecision Level two date "
                                 + loanDecision.getIcReviewDecisionLevelTwoOn());
             }
-            if (actualDisbursementDate.isBefore(loanDecision.getIcReviewDecisionLevelOneOn())) {
+            if (loanDecision.getIcReviewDecisionLevelOneOn() != null
+                    && actualDisbursementDate.isBefore(loanDecision.getIcReviewDecisionLevelOneOn())) {
                 throw new GeneralPlatformDomainRuleException(
                         "error.msg.loan.Disbursement.date.should.be.after.Ic.Review.decision.level.one.date",
                         "Disbursement on  date" + actualDisbursementDate + " should be after IC ReviewDecision Level One date "
                                 + loanDecision.getIcReviewDecisionLevelOneOn());
             }
-            if (actualDisbursementDate.isBefore(loanDecision.getDueDiligenceOn())) {
+            if (loanDecision.getDueDiligenceOn() != null && actualDisbursementDate.isBefore(loanDecision.getDueDiligenceOn())) {
                 throw new GeneralPlatformDomainRuleException("error.msg.loan.Disbursement.date.should.be.after.Due.Diligence.date",
                         "Disbursement on date" + actualDisbursementDate + " should be after Loan Due Diligence Approved date "
                                 + loanDecision.getDueDiligenceOn());
             }
-            if (actualDisbursementDate.isBefore(loanDecision.getReviewApplicationOn())) {
+            if (loanDecision.getReviewApplicationOn() != null && actualDisbursementDate.isBefore(loanDecision.getReviewApplicationOn())) {
                 throw new GeneralPlatformDomainRuleException("error.msg.loan.Disbursement.date.should.be.after.review.application.date",
                         "Disbursement on date" + actualDisbursementDate + " should be after Loan Review Application Approved date "
                                 + loanDecision.getReviewApplicationOn());
