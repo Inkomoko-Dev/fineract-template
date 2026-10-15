@@ -96,12 +96,16 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
     private final DepositProductReadPlatformService depositProductReadPlatformService;
     private final ColumnValidator columnValidator;
 
-    static final class AuditMapper implements RowMapper<AuditData> {
+    final class AuditMapper implements RowMapper<AuditData> {
 
         private static final String USER_ENTITY = "USER";
         private static final String NOTES = "notes";
 
         private final boolean hideUserNotes;
+
+        AuditMapper() {
+            this.hideUserNotes = !context.authenticatedUser().hasAnyPermission("UPDATE_USER");
+        }
 
         AuditMapper(final boolean hideUserNotes) {
             this.hideUserNotes = hideUserNotes;
@@ -195,10 +199,6 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
         }
     }
 
-    private AuditMapper auditMapperFor(final AppUser currentUser) {
-        return new AuditMapper(!currentUser.hasAnyPermission("UPDATE_USER"));
-    }
-
     @Override
     public Collection<AuditData> retrieveAuditEntries(final SQLBuilder extraCriteria, final boolean includeJson) {
         return retrieveEntries("audit", extraCriteria, " order by aud.id DESC ", includeJson);
@@ -212,7 +212,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
 
-        final AuditMapper rm = auditMapperFor(currentUser);
+        final AuditMapper rm = new AuditMapper();
         final StringBuilder sqlBuilder = new StringBuilder(200);
         sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
         sqlBuilder.append(rm.schema(includeJson, hierarchy));
@@ -260,7 +260,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
 
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
-        final AuditMapper rm = auditMapperFor(currentUser);
+        final AuditMapper rm = new AuditMapper();
 
         final StringBuilder sqlBuilder = new StringBuilder(400);
         sqlBuilder.append("select ").append(this.sqlGenerator.calcFoundRows()).append(' ');
@@ -294,7 +294,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
 
-        final AuditMapper rm = auditMapperFor(currentUser);
+        final AuditMapper rm = new AuditMapper();
         String sql = "select " + rm.schema(includeJson, hierarchy);
 
         Boolean isLimitedChecker = false;
@@ -322,7 +322,7 @@ public class AuditReadPlatformServiceImpl implements AuditReadPlatformService {
         final AppUser currentUser = this.context.authenticatedUser();
         final String hierarchy = currentUser.getOffice().getHierarchy();
 
-        final AuditMapper rm = auditMapperFor(currentUser);
+        final AuditMapper rm = new AuditMapper();
 
         final String sql = "select " + rm.schema(true, hierarchy) + " where aud.id = ? ";
 

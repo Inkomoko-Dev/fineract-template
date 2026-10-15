@@ -29,11 +29,29 @@ import static org.mockito.Mockito.when;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import org.apache.fineract.commands.data.AuditData;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.junit.jupiter.api.Test;
 
 class AuditMapperUserNotesTest {
 
     private static final String USER_JSON = "{\"username\":\"jdoe\",\"notes\":\"INC-12067 new hire\"}";
+
+    private static AuditReadPlatformServiceImpl service(final PlatformSecurityContext context) {
+        return new AuditReadPlatformServiceImpl(null, context, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    private static AuditReadPlatformServiceImpl.AuditMapper mapper(final boolean hideUserNotes) {
+        return service(null).new AuditMapper(hideUserNotes);
+    }
+
+    private static AuditReadPlatformServiceImpl.AuditMapper mapperForCallerWithUpdateUser(final boolean hasUpdateUser) {
+        final AppUser user = mock(AppUser.class);
+        when(user.hasAnyPermission("UPDATE_USER")).thenReturn(hasUpdateUser);
+        final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
+        when(context.authenticatedUser()).thenReturn(user);
+        return service(context).new AuditMapper();
+    }
 
     private ResultSet row(final String entityName, final String notes, final String commandAsJson) throws SQLException {
         final ResultSet rs = mock(ResultSet.class);
@@ -48,7 +66,7 @@ class AuditMapperUserNotesTest {
 
     @Test
     void hidesUserNotesFromCallersWithoutUpdateUser() throws SQLException {
-        final AuditData data = new AuditReadPlatformServiceImpl.AuditMapper(true).mapRow(row("USER", "INC-12067 new hire", USER_JSON), 0);
+        final AuditData data = mapper(true).mapRow(row("USER", "INC-12067 new hire", USER_JSON), 0);
 
         assertNull(data.getNotes());
         assertFalse(data.getCommandAsJson().contains("notes"));
@@ -57,7 +75,7 @@ class AuditMapperUserNotesTest {
 
     @Test
     void showsUserNotesToCallersWithUpdateUser() throws SQLException {
-        final AuditData data = new AuditReadPlatformServiceImpl.AuditMapper(false).mapRow(row("USER", "INC-12067 new hire", USER_JSON), 0);
+        final AuditData data = mapper(false).mapRow(row("USER", "INC-12067 new hire", USER_JSON), 0);
 
         assertEquals("INC-12067 new hire", data.getNotes());
         assertEquals(USER_JSON, data.getCommandAsJson());
@@ -66,7 +84,7 @@ class AuditMapperUserNotesTest {
     @Test
     void leavesNotesOnOtherEntitiesUntouched() throws SQLException {
         final String json = "{\"notes\":\"report tweak\"}";
-        final AuditData data = new AuditReadPlatformServiceImpl.AuditMapper(true).mapRow(row("REPORT", "report tweak", json), 0);
+        final AuditData data = mapper(true).mapRow(row("REPORT", "report tweak", json), 0);
 
         assertEquals("report tweak", data.getNotes());
         assertEquals(json, data.getCommandAsJson());
@@ -74,9 +92,20 @@ class AuditMapperUserNotesTest {
 
     @Test
     void handlesUserRowsWithoutJson() throws SQLException {
-        final AuditData data = new AuditReadPlatformServiceImpl.AuditMapper(true).mapRow(row("USER", "reason", null), 0);
+        final AuditData data = mapper(true).mapRow(row("USER", "reason", null), 0);
 
         assertNull(data.getNotes());
         assertNull(data.getCommandAsJson());
+    }
+
+    @Test
+    void decidesFromTheAuthenticatedUserWhenNotTold() throws SQLException {
+        final AuditData hidden = mapperForCallerWithUpdateUser(false).mapRow(row("USER", "INC-12067 new hire", USER_JSON), 0);
+        final AuditData shown = mapperForCallerWithUpdateUser(true).mapRow(row("USER", "INC-12067 new hire", USER_JSON), 0);
+
+        assertNull(hidden.getNotes());
+        assertFalse(hidden.getCommandAsJson().contains("notes"));
+        assertEquals("INC-12067 new hire", shown.getNotes());
+        assertEquals(USER_JSON, shown.getCommandAsJson());
     }
 }
