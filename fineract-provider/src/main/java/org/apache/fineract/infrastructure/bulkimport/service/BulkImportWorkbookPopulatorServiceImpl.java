@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.bulkimport.service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import javax.ws.rs.core.Response;
@@ -74,8 +75,6 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.service.CurrencyReadPlatformService;
 import org.apache.fineract.organisation.office.data.OfficeData;
-import org.apache.fineract.organisation.office.domain.Office;
-import org.apache.fineract.organisation.office.domain.OfficeRepository;
 import org.apache.fineract.organisation.office.service.OfficeReadPlatformService;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.service.StaffReadPlatformService;
@@ -141,7 +140,6 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
     private final ChargeReadPlatformService chargeReadPlatformService;
     private final DepositProductReadPlatformService depositProductReadPlatformService;
     private final RoleReadPlatformService roleReadPlatformService;
-    private final OfficeRepository officeRepository;
 
     @Autowired
     public BulkImportWorkbookPopulatorServiceImpl(final PlatformSecurityContext context,
@@ -157,7 +155,7 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
             final SavingsProductReadPlatformService savingsProductReadPlatformService,
             final ProductReadPlatformService productReadPlatformService, final ChargeReadPlatformService chargeReadPlatformService,
             final DepositProductReadPlatformService depositProductReadPlatformService,
-            final RoleReadPlatformService roleReadPlatformService, final OfficeRepository officeRepository) {
+            final RoleReadPlatformService roleReadPlatformService) {
         this.officeReadPlatformService = officeReadPlatformService;
         this.staffReadPlatformService = staffReadPlatformService;
         this.context = context;
@@ -177,7 +175,6 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
         this.chargeReadPlatformService = chargeReadPlatformService;
         this.depositProductReadPlatformService = depositProductReadPlatformService;
         this.roleReadPlatformService = roleReadPlatformService;
-        this.officeRepository = officeRepository;
     }
 
     @Override
@@ -470,13 +467,14 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
             throw new GeneralPlatformDomainRuleException("error.msg.office.not.in.user.hierarchy",
                     "Selected office is outside the user's office hierarchy");
         }
-        final List<Office> offices = new ArrayList<>(this.officeRepository.findByHierarchyStartingWith(selectedHierarchy));
-        offices.sort(Comparator.comparing(Office::getHierarchy, Comparator.nullsLast(String::compareTo)));
+        final Collection<OfficeData> userOffices = this.officeReadPlatformService.retrieveAllOffices(false, null);
         final List<OfficeData> officeData = new ArrayList<>();
-        for (final Office office : offices) {
-            officeData.add(new OfficeData(office.getId(), office.getName(), office.getName(), null, null, office.getHierarchy(), null, null,
-                    null));
+        for (final OfficeData office : userOffices) {
+            if (office.getHierarchy() != null && office.getHierarchy().startsWith(selectedHierarchy)) {
+                officeData.add(office);
+            }
         }
+        officeData.sort(Comparator.comparing(OfficeData::getHierarchy, Comparator.nullsLast(String::compareTo)));
         return new OfficeHierarchySelection(selectedHierarchy, officeData);
     }
 
