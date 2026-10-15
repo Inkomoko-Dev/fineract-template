@@ -65,6 +65,7 @@
     </changeSet>
 
     <changeSet id="CGLT-577-enable-external-org-provision-batching-config" author="omoi">
+        <validCheckSum>8:0effc0dbfbe3797f6a51dbdff3bbfdd0</validCheckSum>
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">SELECT COUNT(*) FROM c_configuration WHERE name = 'enable-external-organization-provision-batching'</sqlCheck>
         </preConditions>
