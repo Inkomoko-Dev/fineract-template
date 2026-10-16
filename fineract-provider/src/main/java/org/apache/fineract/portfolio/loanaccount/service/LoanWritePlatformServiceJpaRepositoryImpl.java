@@ -111,6 +111,7 @@ import org.apache.fineract.portfolio.account.service.AccountAssociationsReadPlat
 import org.apache.fineract.portfolio.account.service.AccountTransfersReadPlatformService;
 import org.apache.fineract.portfolio.account.service.AccountTransfersWritePlatformService;
 import org.apache.fineract.portfolio.accountdetails.domain.AccountType;
+import org.apache.fineract.portfolio.address.service.ClientAddressLocationValidator;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanAcceptTransferBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanAdjustTransactionBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanApplyOverdueChargeBusinessEvent;
@@ -331,6 +332,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
     private final PartialWriteOffAuditRepository partialWriteOffAuditRepository;
     private final ResidualLoanAdjustmentAuditRepository residualLoanAdjustmentAuditRepository;
+    private final ClientAddressLocationValidator clientAddressLocationValidator;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -409,6 +411,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
 
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        if (loan.getClient() != null) {
+            this.clientAddressLocationValidator.validateClientHasLocation(loan.getClient().getId());
+        }
 
         this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
 
