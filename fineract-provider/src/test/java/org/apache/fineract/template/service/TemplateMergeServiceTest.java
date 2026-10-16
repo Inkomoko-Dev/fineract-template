@@ -49,6 +49,21 @@ public class TemplateMergeServiceTest {
 
     private static final String AUTHORIZATION = "Basic aW5rb21va29EZXZzOnBhc3N3b3Jk";
     private static final String LOAN_MAPPER = "loans/{{loanId}}?associations=all&tenantIdentifier=default";
+    private static final String CLIENT_MAPPER = "clients/{{loan.clientId}}?tenantIdentifier=default";
+    private static final String INDIVIDUAL_LOAN_JSON = "{\"id\":8,\"accountNo\":\"000000008\",\"clientId\":42}";
+    private static final String CLIENT_JSON = "{\"id\":42,\"officeName\":\"Inkomoko - Rwanda Capital\",\"mobileNo\":\"250700000000\"}";
+    private static final String SCHEDULE_LOAN_JSON = "{\"id\":9,\"repaymentSchedule\":{\"totalPrincipalExpected\":100.0,"
+            + "\"totalInterestCharged\":10.0,\"totalFeeChargesCharged\":0,\"totalRepaymentExpected\":110.0,\"periods\":["
+            + "{\"dueDate\":[2026,9,1],\"principalDisbursed\":100.0},"
+            + "{\"period\":1,\"dueDate\":[2026,10,1],\"principalDue\":50.0,\"interestDue\":5.0,\"feeChargesDue\":0,\"totalDueForPeriod\":55.0},"
+            + "{\"period\":2,\"dueDate\":[2026,11,1],\"principalDue\":50.0,\"interestDue\":5.0,\"feeChargesDue\":0,\"totalDueForPeriod\":55.0}]}}";
+    private static final String SCHEDULE_SNIPPET = "<table border=\"1\" cellpadding=\"4\"><tbody><tr><th>Installment</th><th>Due Date</th>"
+            + "<th>Principal</th><th>Interest</th><th>Fees</th><th>Total Due</th></tr>"
+            + "<tr><td>{{#loan.repaymentSchedule.periods}}{{#period}}{{period}}</td><td>{{dueDate}}</td><td>{{principalDue}}</td>"
+            + "<td>{{interestDue}}</td><td>{{feeChargesDue}}</td><td>{{totalDueForPeriod}}</td></tr>"
+            + "<tr><td>{{/period}}{{/loan.repaymentSchedule.periods}}Total</td><td>&nbsp;</td>"
+            + "<td>{{loan.repaymentSchedule.totalPrincipalExpected}}</td><td>{{loan.repaymentSchedule.totalInterestCharged}}</td>"
+            + "<td>{{loan.repaymentSchedule.totalFeeChargesCharged}}</td><td>{{loan.repaymentSchedule.totalRepaymentExpected}}</td></tr></tbody></table>";
     private static final String LOAN_JSON = "{\"id\":7,\"accountNo\":\"000000007\",\"loanProductName\":\"Business Loan\","
             + "\"approvedPrincipal\":50000.0,\"closedOnDate\":null,\"timeline\":{\"actualDisbursementDate\":[2026,9,1]},"
             + "\"repaymentSchedule\":{\"periods\":[{\"period\":1,\"dueDate\":[2026,10,1]}]},\"multiDisburseTranches\":[1,2,3]}";
@@ -67,8 +82,23 @@ public class TemplateMergeServiceTest {
             request.put("authorization", exchange.getRequestHeaders().getFirst("Authorization"));
             request.put("tenant", exchange.getRequestHeaders().getFirst("Fineract-Platform-TenantId"));
             this.requests.add(request);
-            final boolean found = exchange.getRequestURI().getPath().endsWith("/loans/7");
-            final byte[] body = (found ? LOAN_JSON : "{\"developerMessage\":\"not found\"}").getBytes(StandardCharsets.UTF_8);
+            final String path = exchange.getRequestURI().getPath();
+            final String loan = path.endsWith("/loans/7") ? LOAN_JSON
+                    : path.endsWith("/loans/8") ? INDIVIDUAL_LOAN_JSON : path.endsWith("/loans/9") ? SCHEDULE_LOAN_JSON : null;
+            final boolean found = loan != null;
+            final byte[] body = (found ? loan : "{\"developerMessage\":\"not found\"}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(found ? 200 : 404, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        this.server.createContext("/fineract-provider/api/v1/clients/", exchange -> {
+            final Map<String, String> request = new HashMap<>();
+            request.put("uri", exchange.getRequestURI().toString());
+            this.requests.add(request);
+            final boolean found = exchange.getRequestURI().getPath().endsWith("/clients/42");
+            final byte[] body = (found ? CLIENT_JSON : "{\"developerMessage\":\"not found\"}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(found ? 200 : 404, body.length);
             try (OutputStream out = exchange.getResponseBody()) {
@@ -101,6 +131,13 @@ public class TemplateMergeServiceTest {
     private static Template loanTemplate(final String text, final String mapperValue) {
         final List<TemplateMapper> mappers = new ArrayList<>();
         mappers.add(new TemplateMapper(0, "loan", mapperValue));
+        return new Template("Contract test", text, TemplateEntity.LOAN, TemplateType.DOCUMENT, mappers);
+    }
+
+    private static Template loanAndClientTemplate(final String text) {
+        final List<TemplateMapper> mappers = new ArrayList<>();
+        mappers.add(new TemplateMapper(0, "loan", LOAN_MAPPER));
+        mappers.add(new TemplateMapper(1, "client", CLIENT_MAPPER));
         return new Template("Contract test", text, TemplateEntity.LOAN, TemplateType.DOCUMENT, mappers);
     }
 
@@ -189,6 +226,31 @@ public class TemplateMergeServiceTest {
         final PlatformApiDataValidationException exception = assertThrows(PlatformApiDataValidationException.class,
                 () -> merge(loanTemplate("{{#loan}}unclosed section", LOAN_MAPPER), "7"));
         assertEquals("text", exception.getErrors().get(0).getParameterName());
+    }
+
+    @Test
+    public void clientMapperIsSkippedWhenTheLoanHasNoClient() throws IOException {
+        assertEquals("[000000007][]", merge(loanAndClientTemplate("[{{loan.accountNo}}][{{client.officeName}}]"), "7"));
+        assertEquals(1, this.requests.size());
+        assertEquals("/fineract-provider/api/v1/loans/7?associations=all&tenantIdentifier=default", this.requests.get(0).get("uri"));
+    }
+
+    @Test
+    public void clientMapperLoadsTheBorrowerOfAnIndividualLoan() throws IOException {
+        assertEquals("[000000008][Inkomoko - Rwanda Capital]",
+                merge(loanAndClientTemplate("[{{loan.accountNo}}][{{client.officeName}}]"), "8"));
+        assertEquals(2, this.requests.size());
+        assertEquals("/fineract-provider/api/v1/clients/42?tenantIdentifier=default", this.requests.get(1).get("uri"));
+    }
+
+    @Test
+    public void scheduleTableSnippetRendersOneRowPerInstalmentAndATotalsRow() throws IOException {
+        assertEquals("<table border=\"1\" cellpadding=\"4\"><tbody><tr><th>Installment</th><th>Due Date</th><th>Principal</th>"
+                + "<th>Interest</th><th>Fees</th><th>Total Due</th></tr>"
+                + "<tr><td>1</td><td>01 October 2026</td><td>50.0</td><td>5.0</td><td>0</td><td>55.0</td></tr>"
+                + "<tr><td>2</td><td>01 November 2026</td><td>50.0</td><td>5.0</td><td>0</td><td>55.0</td></tr>"
+                + "<tr><td>Total</td><td>&nbsp;</td><td>100.0</td><td>10.0</td><td>0</td><td>110.0</td></tr></tbody></table>",
+                merge(loanTemplate(SCHEDULE_SNIPPET, LOAN_MAPPER), "9"));
     }
 
     @Test
