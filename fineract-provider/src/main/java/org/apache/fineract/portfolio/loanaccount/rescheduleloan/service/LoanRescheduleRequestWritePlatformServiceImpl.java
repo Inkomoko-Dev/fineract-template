@@ -77,6 +77,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.LoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleDTO;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.DefaultScheduledDateGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentScheduleHistory;
@@ -140,6 +141,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
     private final ChargeRepositoryWrapper chargeRepositoryWrapper;
     private final LoanWritePlatformService loanWritePlatformService;
     private final FromJsonHelper fromApiJsonHelper;
+    private final AprCalculator aprCalculator;
 
 
     /**
@@ -571,6 +573,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     .getLoanRescheduleRequestToTermVariationMappings()) {
                 mapping.getLoanTermVariations().updateIsActive(true);
             }
+            applyInterestRateChangeToLoan(loan, loanRescheduleRequest, loanApplicationTerms);
             BigDecimal annualNominalInterestRate = null;
             List<LoanTermVariationsData> loanTermVariations = new ArrayList<>();
             loan.constructLoanTermVariations(scheduleGeneratorDTO.getFloatingRateDTO(), annualNominalInterestRate, loanTermVariations);
@@ -780,7 +783,8 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
 
     @Override
     @Transactional
-    public CommandProcessingResult undoApproved(final Long rescheduleRequestId, final String noteText) {
+    public CommandProcessingResult undoApproved(final Long rescheduleRequestId, final String noteText,
+            final BigDecimal originalInterestRatePerPeriod) {
         final LoanRescheduleRequest loanRescheduleRequest = this.loanRescheduleRequestRepository.findById(rescheduleRequestId)
                 .orElseThrow(() -> new LoanRescheduleRequestNotFoundException(rescheduleRequestId));
         if (LoanStatus.UNDO_LOAN_RESCHEDULE.getValue().equals(loanRescheduleRequest.getStatusEnum())) {
@@ -813,7 +817,9 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     history.getPenaltyCharges(), false, null));
         }
         loan.updateLoanSchedule(restored);
-        loan.recalculateAllCharges();
+        if (originalInterestRatePerPeriod != null) {
+            loan.repaymentScheduleDetail().updateNominalInterestRate(originalInterestRatePerPeriod, this.aprCalculator);
+        }
         final ChangedTransactionDetail changedTransactionDetail = loan.processTransactions();
         loanRescheduleRequest.undo();
         loan.updateRescheduledOnDate(null);
@@ -828,7 +834,6 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             }
         }
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
-        this.loanAccountDomainService.recalculateAccruals(loan, true);
         if (noteText != null && !noteText.isBlank()) {
             this.noteRepository.save(Note.loanNote(loan, noteText));
         }
@@ -882,6 +887,29 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             LoanCharge carryForwardCharge = LoanCharge.createNewFromJson(loan, carryForwardDef, fakeCommand, dueDate);
             loan.addLoanCharge(carryForwardCharge);
             loanChargeRepository.saveAndFlush(carryForwardCharge);
+        }
+    }
+
+    private void applyInterestRateChangeToLoan(final Loan loan, final LoanRescheduleRequest loanRescheduleRequest,
+            final LoanApplicationTerms loanApplicationTerms) {
+        if (loanRescheduleRequest.getLoanRescheduleRequestToTermVariationMappings() == null) {
+            return;
+        }
+        for (final LoanRescheduleRequestToTermVariationMapping mapping : loanRescheduleRequest
+                .getLoanRescheduleRequestToTermVariationMappings()) {
+            final LoanTermVariations variation = mapping.getLoanTermVariations();
+            if (variation == null || !variation.getTermType().isInterestRateFromInstallment() || variation.getTermValue() == null) {
+                continue;
+            }
+            final BigDecimal periodRate = variation.getTermValue();
+            loan.repaymentScheduleDetail().updateNominalInterestRate(periodRate, this.aprCalculator);
+            final BigDecimal annualRate = loan.repaymentScheduleDetail().getAnnualNominalInterestRate();
+            if (annualRate != null && annualRate.compareTo(periodRate) != 0) {
+                variation.setDecimalValue(annualRate);
+            }
+            loanApplicationTerms.updateInterestRatePerPeriod(periodRate);
+            loanApplicationTerms.updateAnnualNominalInterestRate(annualRate);
+            break;
         }
     }
 

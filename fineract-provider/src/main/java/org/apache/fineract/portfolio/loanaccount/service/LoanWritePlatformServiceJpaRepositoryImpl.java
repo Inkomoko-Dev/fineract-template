@@ -4412,6 +4412,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final Map<String, Object> changes = loan.undoApproval(defaultLoanLifecycleStateMachine());
         if (!changes.isEmpty()) {
 
+            // Match undoApplicationApproval: restore schedule/net disbursal when approved amount was reduced (e.g. Final IC).
+            if (changes.containsKey(LoanApiConstants.approvedLoanAmountParameterName)
+                    || changes.containsKey(LoanApiConstants.disbursementPrincipalParameterName)) {
+                final ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, null);
+                loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
+            }
+            loan.adjustNetDisbursalAmount(loan.getProposedPrincipal());
+            // Final IC may have synced the single undisbursed tranche down; realign to restored approved/proposed.
+            loan.alignUndisbursedTranchesToApprovedPrincipal();
+
             final String noteText = command.stringValueOfParameterNamed("note");
             if (StringUtils.isNotBlank(noteText)) {
                 final Note note = Note.loanNote(loan, noteText);

@@ -2204,7 +2204,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     private Map<String, Object> parseDisbursementDetails(final JsonObject jsonObject, String dateFormat, Locale locale) {
         Map<String, Object> returnObject = new HashMap<>();
-        if (jsonObject.get(LoanApiConstants.disbursementDateParameterName) != null
+        if (jsonObject.has(LoanApiConstants.disbursementDateParameterName)
+                && jsonObject.get(LoanApiConstants.disbursementDateParameterName) != null
                 && jsonObject.get(LoanApiConstants.disbursementDateParameterName).isJsonPrimitive()) {
             final JsonPrimitive primitive = jsonObject.get(LoanApiConstants.disbursementDateParameterName).getAsJsonPrimitive();
             final String valueAsString = primitive.getAsString();
@@ -2217,7 +2218,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
 
-        if (jsonObject.get(LoanApiConstants.disbursementPrincipalParameterName).isJsonPrimitive()
+        if (jsonObject.has(LoanApiConstants.disbursementPrincipalParameterName)
+                && jsonObject.get(LoanApiConstants.disbursementPrincipalParameterName) != null
+                && jsonObject.get(LoanApiConstants.disbursementPrincipalParameterName).isJsonPrimitive()
                 && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.disbursementPrincipalParameterName).getAsString())) {
             BigDecimal principal = jsonObject.getAsJsonPrimitive(LoanApiConstants.disbursementPrincipalParameterName).getAsBigDecimal();
             returnObject.put(LoanApiConstants.disbursementPrincipalParameterName, principal);
@@ -2331,7 +2334,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         if (disbursementID != null) {
             LoanDisbursementDetails loanDisbursementDetail = fetchLoanDisbursementsById(disbursementID);
             existingDisbursementList.remove(disbursementID);
-            if (loanDisbursementDetail.actualDisbursementDate() == null) {
+            if (loanDisbursementDetail != null && loanDisbursementDetail.actualDisbursementDate() == null) {
                 LocalDate actualDisbursementDate = null;
                 LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
                         disbursementPrincipal, this.netDisbursalAmount);

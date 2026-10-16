@@ -2152,6 +2152,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             }
 
             loan.adjustNetDisbursalAmount(loan.getProposedPrincipal());
+            // Match rejectDisbursement: realign undisbursed tranche(s) after approved principal is restored.
+            loan.alignUndisbursedTranchesToApprovedPrincipal();
 
             saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 

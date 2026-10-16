@@ -896,6 +896,109 @@ public class LoanTest {
         assertEquals(0, new BigDecimal("900000").compareTo(loan.getApprovedPrincipal()));
     }
 
+    @Test
+    public void parseDisbursementDetailsWithOmittedPrincipalDoesNotNpe() {
+        final Loan loan = new Loan();
+        final com.google.gson.JsonObject json = new com.google.gson.JsonObject();
+        json.addProperty("expectedDisbursementDate", "12 October 2026");
+        // principal intentionally omitted — previously NPE'd on .isJsonPrimitive()
+
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> parsed = ReflectionTestUtils.invokeMethod(loan, "parseDisbursementDetails", json, "dd MMMM yyyy",
+                java.util.Locale.ENGLISH);
+
+        assertNull(parsed.get("principal"));
+        assertEquals(LocalDate.of(2026, 10, 12), parsed.get("expectedDisbursementDate"));
+    }
+
+    @Test
+    public void rejectDisbursementRestoreSequenceRealignsIcReducedTrancheToProposed() {
+        final BigDecimal appliedAmount = new BigDecimal("1000000.00");
+        final BigDecimal recommendedAmount = new BigDecimal("900000");
+        final Loan loan = newLoanForIcReview(appliedAmount);
+        loan.loanApplicationICReview(null, jsonCommand("{\"icReviewRecommendedAmount\":900000,\"locale\":\"en\"}"));
+        assertEquals(0, recommendedAmount.compareTo(loan.getDisbursementDetails().get(0).principal()));
+
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.APPROVED.getValue());
+        ReflectionTestUtils.setField(loan, "loanOfficerHistory", new java.util.HashSet<>());
+        final LoanLifecycleStateMachine stateMachine = mock(LoanLifecycleStateMachine.class);
+        when(stateMachine.transition(any(), any())).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+
+        final Map<String, Object> changes = loan.undoApproval(stateMachine);
+        assertFalse(changes.isEmpty());
+        loan.adjustNetDisbursalAmount(loan.getProposedPrincipal());
+
+        // Without align, tranche stays at Final IC amount while approvedPrincipal is restored to proposed.
+        assertEquals(0, recommendedAmount.compareTo(loan.getDisbursementDetails().get(0).principal()));
+        assertEquals(0, appliedAmount.compareTo(loan.getApprovedPrincipal()));
+
+        // Same call Reject DR / undoApplicationApproval must make after adjustNetDisbursalAmount.
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
+
+        assertEquals(0, appliedAmount.compareTo(loan.getDisbursementDetails().get(0).principal()));
+        assertEquals(0, appliedAmount.compareTo(loan.getDisbursementDetails().get(0).getNetDisbursalAmount()));
+        assertEquals(0, appliedAmount.compareTo(loan.getProposedPrincipal()));
+    }
+
+    @Test
+    public void modifyApplicationAfterRejectDisbursementStateDoesNotNpe() {
+        final BigDecimal appliedAmount = new BigDecimal("1000000.00");
+        final Loan loan = newLoanForIcReview(appliedAmount);
+        loan.loanApplicationICReview(null, jsonCommand("{\"icReviewRecommendedAmount\":900000,\"locale\":\"en\"}"));
+
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.APPROVED.getValue());
+        ReflectionTestUtils.setField(loan, "loanOfficerHistory", new java.util.HashSet<>());
+        final LoanLifecycleStateMachine stateMachine = mock(LoanLifecycleStateMachine.class);
+        when(stateMachine.transition(any(), any())).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+        loan.undoApproval(stateMachine);
+        loan.adjustNetDisbursalAmount(loan.getProposedPrincipal());
+        loan.alignUndisbursedTranchesToApprovedPrincipal();
+
+        final LoanProductRelatedDetail scheduleDetail = (LoanProductRelatedDetail) ReflectionTestUtils.getField(loan,
+                "loanRepaymentScheduleDetail");
+        when(scheduleDetail.updateLoanApplicationAttributes(any(), any())).thenReturn(new HashMap<>());
+
+        final LoanProduct loanProduct = (LoanProduct) ReflectionTestUtils.getField(loan, "loanProduct");
+        when(loanProduct.getId()).thenReturn(1L);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(false);
+        when(loanProduct.isDisallowExpectedDisbursements()).thenReturn(false);
+        when(loanProduct.canDefineInstallmentAmount()).thenReturn(false);
+        when(loanProduct.getCurrency()).thenReturn(KES);
+
+        final LoanTransactionProcessingStrategy strategy = mock(LoanTransactionProcessingStrategy.class);
+        when(strategy.getId()).thenReturn(1L);
+        ReflectionTestUtils.setField(loan, "transactionProcessingStrategy", strategy);
+        ReflectionTestUtils.setField(loan, "charges", Collections.emptySet());
+        ReflectionTestUtils.setField(loan, "submittedOnDate", LocalDate.of(2026, 5, 1));
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", LocalDate.of(2026, 6, 1));
+
+        // UI-like PUT after Reject DR: principal edit, no disbursementData array.
+        final JsonCommand command = jsonCommand(
+                "{\"principal\":1000000,\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"loanWithAnotherInstitution\":false}");
+        final org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculator aprCalculator = mock(
+                org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculator.class);
+
+        loan.loanApplicationModification(command, Collections.emptySet(), null, aprCalculator, false, loanProduct);
+
+        assertEquals(0, appliedAmount.compareTo(loan.getProposedPrincipal()));
+        assertEquals(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL.getValue(), loan.getLoanStatus());
+    }
+
+    @Test
+    public void parseDisbursementDetailsWithOmittedExpectedDisbursementDateDoesNotNpe() {
+        final Loan loan = new Loan();
+        final com.google.gson.JsonObject json = new com.google.gson.JsonObject();
+        json.addProperty("principal", "900000");
+        // expectedDisbursementDate intentionally omitted
+
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> parsed = ReflectionTestUtils.invokeMethod(loan, "parseDisbursementDetails", json, "dd MMMM yyyy",
+                java.util.Locale.ENGLISH);
+
+        assertNull(parsed.get("expectedDisbursementDate"));
+        assertEquals(0, new BigDecimal("900000").compareTo((BigDecimal) parsed.get("principal")));
+    }
+
     private Loan newLoanForIcReview(final BigDecimal appliedAmount) {
         final Loan loan = new Loan();
         ReflectionTestUtils.setField(loan, "loanProduct", mock(LoanProduct.class));
