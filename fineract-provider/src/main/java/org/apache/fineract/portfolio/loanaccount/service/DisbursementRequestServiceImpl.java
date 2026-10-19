@@ -49,7 +49,7 @@ import org.apache.fineract.accounting.producttoaccountmapping.service.ProductToG
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.dataqueries.service.ReadWriteNonCoreDataService;
-import org.apache.fineract.portfolio.client.domain.ClientAddressRepositoryWrapper;
+import org.apache.fineract.portfolio.address.service.ClientAddressLocationValidator;
 import org.apache.fineract.portfolio.client.domain.ClientOtherInfo;
 import org.apache.fineract.portfolio.client.domain.ClientOtherInfoRepository;
 import org.apache.fineract.portfolio.client.exception.ClientOtherInfoNotFoundException;
@@ -94,7 +94,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
 
     private final NoteRepository noteRepository;
 
-    private final ClientAddressRepositoryWrapper clientAddressRepositoryWrapper;
+    private final ClientAddressLocationValidator clientAddressLocationValidator;
 
     private final LoanProductReadPlatformService loanProductReadPlatformService;
 
@@ -192,9 +192,7 @@ public class DisbursementRequestServiceImpl implements DisbursementRequestServic
         final String loanOfficer = loan.getLoanOfficer().emailAddress();
         final String clientName = loan.getClient().getDisplayName();
         final String narration = "Loan Disbursement for Loan Account No: " + loan.getAccountNumber() + "  Client " + clientName;
-        final String location = clientAddressRepositoryWrapper.findAddressesForClient(loan.getClient().getId()).stream().findFirst()
-                .map(address -> address.getAddress().getLocation()).orElse("N/A");
-        String resolvedLocation = location;
+        String resolvedLocation = this.clientAddressLocationValidator.resolveRequiredLocation(loan.getClient().getId());
         final LocalDate disbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
         if (this.entityDisbursementDefaultsService.resolve(loan, disbursementDate).isApplicable()) {
             if (disbursementDetail != null && StringUtils.isNotBlank(disbursementDetail.getBudgetLocation())) {

@@ -28,6 +28,8 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.fineract.accounting.glaccount.domain.GLAccount;
 import org.apache.fineract.accounting.journalentry.data.JournalData;
@@ -35,8 +37,11 @@ import org.apache.fineract.accounting.journalentry.data.LoanDTO;
 import org.apache.fineract.accounting.journalentry.data.LoanTransactionDTO;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntry;
 import org.apache.fineract.accounting.journalentry.domain.JournalEntryRepository;
+import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.portfolio.address.service.ClientAddressLocationValidator;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientAddressRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
@@ -45,6 +50,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.service.EntityDisbursementDefaultsService;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -75,6 +82,9 @@ public class PostHookForLoanJournalEntriesKenyaCapitalEnrichmentTest {
     private ClientAddressRepositoryWrapper clientAddressRepositoryWrapper;
 
     @Mock
+    private ClientAddressLocationValidator clientAddressLocationValidator;
+
+    @Mock
     private LoanTransactionRepository loanTransactionRepository;
 
     @Mock
@@ -88,6 +98,16 @@ public class PostHookForLoanJournalEntriesKenyaCapitalEnrichmentTest {
 
     @InjectMocks
     private JournalEntryWritePlatformServiceJpaRepositoryImpl service;
+
+    @BeforeEach
+    void setBusinessDate() {
+        ThreadLocalContextUtil.setBusinessDates(new HashMap<>(Map.of(BusinessDateType.BUSINESS_DATE, LocalDate.of(2026, 9, 15))));
+    }
+
+    @AfterEach
+    void clearBusinessDate() {
+        ThreadLocalContextUtil.clear();
+    }
 
     @Test
     public void disbursementJournalIsEnrichedBeforeOdooWebhook() {
@@ -108,9 +128,11 @@ public class PostHookForLoanJournalEntriesKenyaCapitalEnrichmentTest {
         when(entry.getGlAccount()).thenReturn(glAccount);
         when(entry.getClient()).thenReturn(client);
         when(entry.isCorrection()).thenReturn(false);
+        when(entry.getAmount()).thenReturn(BigDecimal.TEN);
+        when(entry.getType()).thenReturn(1);
         when(this.glJournalEntryRepository.findJournalEntriesByLoanTransactionId("L3410536"))
                 .thenReturn(Collections.singletonList(entry));
-        when(this.clientAddressRepositoryWrapper.findAddressesForClient(594191L)).thenReturn(Collections.emptyList());
+        when(this.clientAddressLocationValidator.resolveRequiredLocation(594191L)).thenReturn("Nairobi");
 
         final Loan loan = mock(Loan.class);
         final LoanTransaction loanTransaction = mock(LoanTransaction.class);

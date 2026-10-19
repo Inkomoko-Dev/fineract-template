@@ -264,13 +264,9 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
 
             this.fromApiJsonDeserializer.validateForCreate(command.json());
 
-            final GlobalConfigurationPropertyData configuration = this.configurationReadPlatformService
-                    .retrieveGlobalConfiguration("Enable-Address");
-
             final GlobalConfigurationPropertyData businessOwner = this.configurationReadPlatformService
                     .retrieveGlobalConfiguration("Enable-businessOwners");
 
-            final Boolean isAddressEnabled = configuration.isEnabled();
             final Boolean isBusinessOwnerEnabled = businessOwner.isEnabled();
 
             final Boolean isStaff = command.booleanObjectValueOfParameterNamed(ClientApiConstants.isStaffParamName);
@@ -371,9 +367,7 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
                 extractAndCreateClientNonPerson(newClient, command);
             }
 
-            if (isAddressEnabled) {
-                this.addressWritePlatformService.addNewClientAddress(newClient, command);
-            }
+            this.addressWritePlatformService.addNewClientAddress(newClient, command);
 
             if (command.arrayOfParameterNamed("familyMembers") != null) {
                 this.clientFamilyMembersWritePlatformService.addClientFamilyMember(newClient, command);

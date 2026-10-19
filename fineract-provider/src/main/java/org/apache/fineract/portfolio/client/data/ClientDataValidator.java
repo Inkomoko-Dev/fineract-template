@@ -39,6 +39,7 @@ import org.apache.fineract.infrastructure.core.exception.InvalidJsonException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.portfolio.address.service.ClientAddressLocationValidator;
 import org.apache.fineract.portfolio.client.api.ClientApiConstants;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -232,10 +233,7 @@ public final class ClientDataValidator {
             baseDataValidator.reset().parameter("isStaff").value(isStaffFlag).notNull();
         }
 
-        if (isIndividual || this.configurationReadPlatformService.retrieveGlobalConfiguration("Enable-Address").isEnabled()) {
-            final JsonArray address = this.fromApiJsonHelper.extractJsonArrayNamed(ClientApiConstants.address, element);
-            baseDataValidator.reset().parameter(ClientApiConstants.address).value(address).notNull().jsonArrayNotEmpty();
-        }
+        validateCreateRequiresAddressLocation(element, baseDataValidator, dataValidationErrors);
 
         final boolean migrated = this.fromApiJsonHelper.parameterExists(ClientApiConstants.migratedParamName, element)
                 && Boolean.TRUE.equals(this.fromApiJsonHelper.extractBooleanNamed(ClientApiConstants.migratedParamName, element));
@@ -367,6 +365,30 @@ public final class ClientDataValidator {
     private boolean isFullnameProvided(final JsonElement element) {
         final String fullname = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.fullnameParamName, element);
         return StringUtils.isNotBlank(fullname);
+    }
+
+    private void validateCreateRequiresAddressLocation(final JsonElement element, final DataValidatorBuilder baseDataValidator,
+            final List<ApiParameterError> dataValidationErrors) {
+        final JsonArray address = this.fromApiJsonHelper.extractJsonArrayNamed(ClientApiConstants.address, element);
+        baseDataValidator.reset().parameter(ClientApiConstants.address).value(address).notNull().jsonArrayNotEmpty();
+
+        boolean missingLocation = address == null || !address.iterator().hasNext();
+        if (!missingLocation) {
+            for (int i = 0; i < address.size(); i++) {
+                final JsonElement item = address.get(i);
+                final String location = item != null && item.isJsonObject()
+                        ? this.fromApiJsonHelper.extractStringNamed("location", item)
+                        : null;
+                if (ClientAddressLocationValidator.isMissingLocation(location)) {
+                    missingLocation = true;
+                    break;
+                }
+            }
+        }
+        if (missingLocation) {
+            dataValidationErrors.add(ApiParameterError.parameterError(ClientAddressLocationValidator.VALIDATION_CODE,
+                    ClientAddressLocationValidator.ERROR_MESSAGE, ClientApiConstants.address));
+        }
     }
 
     public void validateForUpdate(final String json) {

@@ -78,6 +78,7 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.office.domain.OfficeRepositoryWrapper;
 import org.apache.fineract.organisation.office.domain.OrganisationCurrencyRepositoryWrapper;
+import org.apache.fineract.portfolio.address.service.ClientAddressLocationValidator;
 import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanJournalEntryCreatedBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -141,6 +142,7 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
     private final BusinessEventNotifierService businessEventNotifierService;
     private final LoanTransactionRepository loanTransactionRepository;
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
+    private final ClientAddressLocationValidator clientAddressLocationValidator;
 
     // transaction types createJournalEntriesForLoan actually posts to Odoo, shared with the real-time notifier below
     private static final List<Long> ODOO_POSTABLE_TRANSACTION_TYPES = Arrays.asList(1L, 2L, 4L, 5L, 6L, 8L, 9L, 10L, 19L, 26L, 27L, 31L, 33L);
@@ -576,15 +578,23 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
             List<JournalItemData> journalItems = new ArrayList<>();
 
             JournalData journalData = new JournalData();
+            Client client = journalEntries.get(0).getClient();
+            final boolean disbursement = LoanTransactionType.DISBURSEMENT.getValue().longValue() == paymentTypeId.id();
             String location = null;
-            Client client = null;
+            if (client != null) {
+                if (disbursement) {
+                    location = clientAddressLocationValidator.resolveRequiredLocation(client.getId());
+                } else {
+                    location = clientAddressRepositoryWrapper.findAddressesForClient(client.getId()).stream().findFirst()
+                            .map(address -> address.getAddress().getLocation()).orElse("N/A");
+                }
+            }
+            final String clientAddressLocation = location;
 
             for (JournalEntry entry : journalEntries) {
 
                 String accountId = entry.getGlAccount().getGlCode();
                 client = entry.getClient();
-                location = clientAddressRepositoryWrapper.findAddressesForClient(client.getId()).stream().findFirst()
-                        .map(address -> address.getAddress().getLocation()).orElse("N/A");
 
                 journalItemData = new  JournalItemData(entry, accountId);
                 journalItems.add(journalItemData);
@@ -613,8 +623,11 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
 
             // Live CBS→Odoo path for loan journals. Kenya Capital (and other entity) disbursement
             // defaults must enrich here — OdooServiceImpl's parallel path is not used for this hook.
-            if (LoanTransactionType.DISBURSEMENT.getValue().longValue() == paymentTypeId.id()) {
+            if (disbursement) {
                 applyEntityDisbursementDefaultsToOdooJournal(journalData, loanId, transactionId, office);
+                if (ClientAddressLocationValidator.isMissingLocation(journalData.getLocation())) {
+                    journalData.setLocation(clientAddressLocation);
+                }
             }
 
             AppUser currentUser = this.context.authenticatedUser();

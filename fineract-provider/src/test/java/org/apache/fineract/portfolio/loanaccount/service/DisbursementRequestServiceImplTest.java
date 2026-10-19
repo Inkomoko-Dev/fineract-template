@@ -119,5 +119,7 @@ class DisbursementRequestServiceImplTest {
     }
 
     private static final class TestLoan extends Loan {
+
+        private TestLoan() {}
     }
 }
