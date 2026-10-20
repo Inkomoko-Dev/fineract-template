@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.infrastructure.campaigns.email.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Collection;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -47,6 +51,7 @@ import org.springframework.stereotype.Component;
 @Produces({ MediaType.APPLICATION_JSON })
 @Component
 @Scope("singleton")
+@Tag(name = "Email Configuration", description = "Email Configuration operations.")
 public class EmailConfigurationApiResource {
 
     private final String resourceNameForPermissions = "EMAIL_CONFIGURATION";
@@ -71,7 +76,9 @@ public class EmailConfigurationApiResource {
         this.emailConfigurationReadPlatformService = emailConfigurationReadPlatformService;
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAll(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -82,7 +89,9 @@ public class EmailConfigurationApiResource {
         return this.toApiJsonSerializer.serialize(settings, configuration);
     }
 
+    @Operation(summary = "Update Configuration", description = "Update Configuration.")
     @PUT
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String updateConfiguration(@Context final UriInfo uriInfo, final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateEmailConfiguration().withJson(apiRequestBodyAsJson).build();

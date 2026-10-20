@@ -77,6 +77,7 @@ public class PasswordPreferencesApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Retrieve", description = "Retrieve.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })

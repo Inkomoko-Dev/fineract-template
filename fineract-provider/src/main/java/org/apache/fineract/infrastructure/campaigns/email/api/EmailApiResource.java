@@ -18,6 +18,11 @@
  */
 package org.apache.fineract.infrastructure.campaigns.email.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
 import java.util.Collection;
 import javax.ws.rs.Consumes;
@@ -54,6 +59,7 @@ import org.springframework.stereotype.Component;
 @Produces({ MediaType.APPLICATION_JSON })
 @Component
 @Scope("singleton")
+@Tag(name = "Email", description = "Email operations.")
 public class EmailApiResource {
 
     private final String resourceNameForPermissions = "Email";
@@ -74,7 +80,9 @@ public class EmailApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Retrieve All Emails", description = "Retrieve All Emails.")
     @GET
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAllEmails(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         final Collection<EmailData> emailMessages = this.readPlatformService.retrieveAll();
@@ -82,11 +90,15 @@ public class EmailApiResource {
         return this.toApiJsonSerializer.serialize(settings, emailMessages);
     }
 
+    @Operation(summary = "Retrieve Pending Email", description = "Retrieve Pending Email.")
     @GET
     @Path("pendingEmail")
-    public String retrievePendingEmail(@QueryParam("sqlSearch") final String sqlSearch, @QueryParam("offset") final Integer offset,
-            @QueryParam("limit") final Integer limit, @QueryParam("orderBy") final String orderBy,
-            @QueryParam("sortOrder") final String sortOrder, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrievePendingEmail(@QueryParam("sqlSearch") @Parameter(description = "sqlSearch") final String sqlSearch,
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy,
+            @QueryParam("sortOrder") @Parameter(description = "sortOrder") final String sortOrder, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         final SearchParameters searchParameters = SearchParameters.forEmailCampaign(sqlSearch, offset, limit, orderBy, sortOrder);
@@ -95,11 +107,15 @@ public class EmailApiResource {
         return this.toApiJsonSerializer.serialize(settings, emailMessages);
     }
 
+    @Operation(summary = "Retrieve Sent Email", description = "Retrieve Sent Email.")
     @GET
     @Path("sentEmail")
-    public String retrieveSentEmail(@QueryParam("sqlSearch") final String sqlSearch, @QueryParam("offset") final Integer offset,
-            @QueryParam("limit") final Integer limit, @QueryParam("orderBy") final String orderBy,
-            @QueryParam("sortOrder") final String sortOrder, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveSentEmail(@QueryParam("sqlSearch") @Parameter(description = "sqlSearch") final String sqlSearch,
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy,
+            @QueryParam("sortOrder") @Parameter(description = "sortOrder") final String sortOrder, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -110,13 +126,20 @@ public class EmailApiResource {
         return this.toApiJsonSerializer.serialize(settings, emailMessages);
     }
 
+    @Operation(summary = "Retrieve All Email By Status", description = "Retrieve All Email By Status.")
     @GET
     @Path("messageByStatus")
-    public String retrieveAllEmailByStatus(@QueryParam("sqlSearch") final String sqlSearch, @QueryParam("offset") final Integer offset,
-            @QueryParam("limit") final Integer limit, @QueryParam("status") final Integer status,
-            @QueryParam("orderBy") final String orderBy, @QueryParam("sortOrder") final String sortOrder,
-            @QueryParam("fromDate") final DateParam fromDateParam, @QueryParam("toDate") final DateParam toDateParam,
-            @QueryParam("locale") final String locale, @QueryParam("dateFormat") final String dateFormat, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAllEmailByStatus(@QueryParam("sqlSearch") @Parameter(description = "sqlSearch") final String sqlSearch,
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("status") @Parameter(description = "status") final Integer status,
+            @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy,
+            @QueryParam("sortOrder") @Parameter(description = "sortOrder") final String sortOrder,
+            @QueryParam("fromDate") @Parameter(description = "fromDate") final DateParam fromDateParam,
+            @QueryParam("toDate") @Parameter(description = "toDate") final DateParam toDateParam,
+            @QueryParam("locale") @Parameter(description = "locale") final String locale,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         LocalDate fromDate = null;
@@ -132,11 +155,15 @@ public class EmailApiResource {
         return this.toApiJsonSerializer.serialize(settings, emailMessages);
     }
 
+    @Operation(summary = "Retrieve Failed Email", description = "Retrieve Failed Email.")
     @GET
     @Path("failedEmail")
-    public String retrieveFailedEmail(@QueryParam("sqlSearch") final String sqlSearch, @QueryParam("offset") final Integer offset,
-            @QueryParam("limit") final Integer limit, @QueryParam("orderBy") final String orderBy,
-            @QueryParam("sortOrder") final String sortOrder, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveFailedEmail(@QueryParam("sqlSearch") @Parameter(description = "sqlSearch") final String sqlSearch,
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy,
+            @QueryParam("sortOrder") @Parameter(description = "sortOrder") final String sortOrder, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -147,7 +174,9 @@ public class EmailApiResource {
         return this.toApiJsonSerializer.serialize(settings, emailMessages);
     }
 
+    @Operation(summary = "Create", description = "Create.")
     @POST
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String create(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createEmail().withJson(apiRequestBodyAsJson).build();
@@ -157,9 +186,12 @@ public class EmailApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Retrieve One", description = "Retrieve One.")
     @GET
     @Path("{resourceId}")
-    public String retrieveOne(@PathParam("resourceId") final Long resourceId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveOne(@PathParam("resourceId") @Parameter(description = "resourceId") final Long resourceId,
+            @Context final UriInfo uriInfo) {
 
         final EmailData emailMessage = this.readPlatformService.retrieveOne(resourceId);
 
@@ -167,9 +199,12 @@ public class EmailApiResource {
         return this.toApiJsonSerializer.serialize(settings, emailMessage);
     }
 
+    @Operation(summary = "Update", description = "Update.")
     @PUT
     @Path("{resourceId}")
-    public String update(@PathParam("resourceId") final Long resourceId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String update(@PathParam("resourceId") @Parameter(description = "resourceId") final Long resourceId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateEmail(resourceId).withJson(apiRequestBodyAsJson).build();
 
@@ -178,9 +213,11 @@ public class EmailApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete", description = "Delete.")
     @DELETE
     @Path("{resourceId}")
-    public String delete(@PathParam("resourceId") final Long resourceId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String delete(@PathParam("resourceId") @Parameter(description = "resourceId") final Long resourceId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteEmail(resourceId).build();
 

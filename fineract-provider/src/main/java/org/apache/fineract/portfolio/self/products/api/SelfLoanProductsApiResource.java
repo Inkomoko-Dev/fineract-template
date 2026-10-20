@@ -19,6 +19,9 @@
 
 package org.apache.fineract.portfolio.self.products.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -128,9 +131,11 @@ public class SelfLoanProductsApiResource {
 
     }
 
+    @Operation(summary = "Retrieve All Loan Products", description = "Retrieve All Loan Products.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAllLoanProducts(@QueryParam(LoanApiConstants.clientIdParameterName) final Long clientId,
             @Context final UriInfo uriInfo) {
 
@@ -139,10 +144,12 @@ public class SelfLoanProductsApiResource {
 
     }
 
+    @Operation(summary = "Retrieve Loan Product Details", description = "Retrieve Loan Product Details.")
     @GET
     @Path("{productId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveLoanProductDetails(@QueryParam(LoanApiConstants.clientIdParameterName) final Long clientId,
             @PathParam(LoanApiConstants.productIdParameterName) final Long productId, @Context final UriInfo uriInfo) {
 
