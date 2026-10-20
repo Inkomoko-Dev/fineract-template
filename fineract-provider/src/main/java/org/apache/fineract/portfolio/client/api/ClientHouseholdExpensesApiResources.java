@@ -19,7 +19,10 @@
 
 package org.apache.fineract.portfolio.client.api;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Collection;
 import javax.ws.rs.Consumes;
@@ -62,10 +65,13 @@ public class ClientHouseholdExpensesApiResources {
 
     private final CodeValueReadPlatformService codeValueReadPlatformService;
 
+    @Operation(summary = "Get Client Household Expenses", description = "Get Client Household Expenses.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getClientHouseholdExpenses(@Context final UriInfo uriInfo, @PathParam("clientId") final long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getClientHouseholdExpenses(@Context final UriInfo uriInfo,
+            @PathParam("clientId") @Parameter(description = "clientId") final long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(ClientApiConstants.CLIENT_HOUSEHOLD_EXPENSES_RESOURCE_NAME);
 
@@ -79,11 +85,14 @@ public class ClientHouseholdExpensesApiResources {
 
     }
 
+    @Operation(summary = "Update Client Household Expenses", description = "Update Client Household Expenses.")
     @PUT
     @Path("/{householdExpenseId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateClientHouseholdExpenses(@PathParam("householdExpenseId") final long householdExpenseId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateClientHouseholdExpenses(
+            @PathParam("householdExpenseId") @Parameter(description = "householdExpenseId") final long householdExpenseId,
             final String apiRequestBodyAsJson, @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateHouseholdExpenses(householdExpenseId)
@@ -94,10 +103,13 @@ public class ClientHouseholdExpensesApiResources {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Add Client Household Expenses", description = "Add Client Household Expenses.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String addClientHouseholdExpenses(@PathParam("clientId") final long clientId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addClientHouseholdExpenses(@PathParam("clientId") @Parameter(description = "clientId") final long clientId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().addHouseholdExpenses(clientId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -107,11 +119,14 @@ public class ClientHouseholdExpensesApiResources {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete Client Household Expenses", description = "Delete Client Household Expenses.")
     @DELETE
     @Path("/{householdExpenseId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteClientHouseholdExpenses(@PathParam("householdExpenseId") final long householdExpenseId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteClientHouseholdExpenses(
+            @PathParam("householdExpenseId") @Parameter(description = "householdExpenseId") final long householdExpenseId,
             final String apiRequestBodyAsJson, @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteHouseholdExpenses(householdExpenseId)

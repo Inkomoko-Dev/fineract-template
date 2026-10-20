@@ -23,6 +23,11 @@ import static org.apache.fineract.infrastructure.core.domain.AuditableFieldsCons
 import static org.apache.fineract.infrastructure.core.domain.AuditableFieldsConstants.LAST_MODIFIED_BY;
 import static org.apache.fineract.infrastructure.core.domain.AuditableFieldsConstants.LAST_MODIFIED_DATE;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.HashMap;
 import java.util.Map;
 import javax.ws.rs.Consumes;
@@ -51,6 +56,7 @@ import org.springframework.stereotype.Component;
 @Path("/internal/loan")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "Internal Loan Information", description = "Internal Loan Information operations.")
 public class InternalLoanInformationApiResource implements InitializingBean {
 
     private final LoanRepositoryWrapper loanRepositoryWrapper;
@@ -70,11 +76,13 @@ public class InternalLoanInformationApiResource implements InitializingBean {
 
     }
 
+    @Operation(summary = "Get Loan Audit Fields", description = "Get Loan Audit Fields.")
     @GET
     @Path("{loanId}/audit")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getLoanAuditFields(@Context final UriInfo uriInfo, @PathParam("loanId") Long loanId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getLoanAuditFields(@Context final UriInfo uriInfo, @PathParam("loanId") @Parameter(description = "loanId") Long loanId) {
         log.warn("------------------------------------------------------------");
         log.warn("                                                            ");
         log.warn("Fetching loan with {}", loanId);
@@ -89,12 +97,15 @@ public class InternalLoanInformationApiResource implements InitializingBean {
         return this.toApiJsonSerializer.serialize(settings, auditFields);
     }
 
+    @Operation(summary = "Get Loan Transaction Audit Fields", description = "Get Loan Transaction Audit Fields.")
     @GET
     @Path("{loanId}/transaction/{transactionId}/audit")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getLoanTransactionAuditFields(@Context final UriInfo uriInfo, @PathParam("loanId") Long loanId,
-            @PathParam("transactionId") Long transactionId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getLoanTransactionAuditFields(@Context final UriInfo uriInfo,
+            @PathParam("loanId") @Parameter(description = "loanId") Long loanId,
+            @PathParam("transactionId") @Parameter(description = "transactionId") Long transactionId) {
         log.warn("------------------------------------------------------------");
         log.warn("                                                            ");
         log.warn("Fetching loan transaction with loanId {}, transactionId {}", loanId, transactionId);

@@ -19,6 +19,10 @@
 
 package org.apache.fineract.infrastructure.creditbureau.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -117,9 +121,11 @@ public class CreditBureauConfigurationAPI {
 
     }
 
+    @Operation(summary = "Get Credit Bureau", description = "Get Credit Bureau.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getCreditBureau(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -130,10 +136,12 @@ public class CreditBureauConfigurationAPI {
 
     }
 
+    @Operation(summary = "Get Credit Bureau Loan Product Mapping", description = "Get Credit Bureau Loan Product Mapping.")
     @GET
     @Path("/mappings")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getCreditBureauLoanProductMapping(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -146,10 +154,12 @@ public class CreditBureauConfigurationAPI {
 
     }
 
+    @Operation(summary = "Get Organisation Credit Bureau", description = "Get Organisation Credit Bureau.")
     @GET
     @Path("/organisationCreditBureau")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getOrganisationCreditBureau(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -161,11 +171,14 @@ public class CreditBureauConfigurationAPI {
 
     }
 
+    @Operation(summary = "Get Configuration", description = "Get Configuration.")
     @GET
     @Path("/config/{organisationCreditBureauId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getConfiguration(@PathParam("organisationCreditBureauId") final Long organisationCreditBureauId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getConfiguration(
+            @PathParam("organisationCreditBureauId") @Parameter(description = "organisationCreditBureauId") final Long organisationCreditBureauId,
             @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -176,10 +189,12 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializerReport.serialize(configurationData);
     }
 
+    @Operation(summary = "Fetch Loan Products", description = "Fetch Loan Products.")
     @GET
     @Path("/loanProduct")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String fetchLoanProducts(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -191,11 +206,14 @@ public class CreditBureauConfigurationAPI {
                 this.responseDataParameters);
     }
 
+    @Operation(summary = "Fetch Mapping By Loan Product Id", description = "Fetch Mapping By Loan Product Id.")
     @GET
     @Path("/loanProduct/{loanProductId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String fetchMappingByLoanProductId(@Context final UriInfo uriInfo, @PathParam("loanProductId") final Long loanProductId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String fetchMappingByLoanProductId(@Context final UriInfo uriInfo,
+            @PathParam("loanProductId") @Parameter(description = "loanProductId") final Long loanProductId) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
         final CreditBureauLoanProductMappingData creditBureauLoanProductMapping = this.readPlatformServiceCreditBureauLoanProduct
@@ -206,10 +224,12 @@ public class CreditBureauConfigurationAPI {
                 this.responseDataParameters);
     }
 
+    @Operation(summary = "Update Credit Bureau", description = "Update Credit Bureau.")
     @PUT
     @Path("/organisationCreditBureau")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String updateCreditBureau(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateCreditBureau().withJson(apiRequestBodyAsJson).build();
@@ -219,10 +239,12 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Credit Bureau Loan Product Mapping", description = "Update Credit Bureau Loan Product Mapping.")
     @PUT
     @Path("/mappings")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String updateCreditBureauLoanProductMapping(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateCreditBureauLoanProductMapping()
@@ -233,11 +255,14 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Add Organisation Credit Bureau", description = "Add Organisation Credit Bureau.")
     @POST
     @Path("/organisationCreditBureau/{organisationCreditBureauId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String addOrganisationCreditBureau(@PathParam("organisationCreditBureauId") final Long organisationCreditBureauId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addOrganisationCreditBureau(
+            @PathParam("organisationCreditBureauId") @Parameter(description = "organisationCreditBureauId") final Long organisationCreditBureauId,
             final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().addOrganisationCreditBureau(organisationCreditBureauId)
@@ -248,11 +273,14 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Create Credit Bureau Loan Product Mapping", description = "Create Credit Bureau Loan Product Mapping.")
     @POST
     @Path("/mappings/{organisationCreditBureauId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createCreditBureauLoanProductMapping(@PathParam("organisationCreditBureauId") final Long organisationCreditBureauId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createCreditBureauLoanProductMapping(
+            @PathParam("organisationCreditBureauId") @Parameter(description = "organisationCreditBureauId") final Long organisationCreditBureauId,
             final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createCreditBureauLoanProductMapping(organisationCreditBureauId)
@@ -263,11 +291,14 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Create Credit Bureau Configuration", description = "Create Credit Bureau Configuration.")
     @POST
     @Path("/configuration/{creditBureauId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createCreditBureauConfiguration(@PathParam("creditBureauId") final Long creditBureauId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createCreditBureauConfiguration(
+            @PathParam("creditBureauId") @Parameter(description = "creditBureauId") final Long creditBureauId,
             final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().addCreditBureauConfiguration(creditBureauId)
@@ -278,11 +309,14 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Credit Bureau Configuration", description = "Update Credit Bureau Configuration.")
     @PUT
     @Path("/configuration/{configurationId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateCreditBureauConfiguration(@PathParam("configurationId") final Long configurationId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateCreditBureauConfiguration(
+            @PathParam("configurationId") @Parameter(description = "configurationId") final Long configurationId,
             final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateCreditBureauConfiguration(configurationId)
@@ -293,11 +327,14 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Verify Loan On Trans Union Rwanda", description = "Verify Loan On Trans Union Rwanda.")
     @POST
     @Path("/verifyLoanOnTransUnionRwanda/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String verifyLoanOnTransUnionRwanda(@PathParam("loanId") final Long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String verifyLoanOnTransUnionRwanda(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().verifyLoanOnTransUnionRwanda(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -307,11 +344,13 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Fetch Crb Report For Trans Union", description = "Fetch Crb Report For Trans Union.")
     @GET
     @Path("/crbReportTransUnion/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String fetchCrbReportForTransUnion(@PathParam("loanId") final Integer loanId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String fetchCrbReportForTransUnion(@PathParam("loanId") @Parameter(description = "loanId") final Integer loanId) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
         TransUnionRwandaCrbReportData crbReportData = this.transUnionCrbClientVerificationReadPlatformService
@@ -329,11 +368,14 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializerCreditBureauLoanProduct.serialize(crbReportData);
     }
 
+    @Operation(summary = "Verify Loan On Metropol Kenya", description = "Verify Loan On Metropol Kenya.")
     @POST
     @Path("/verifyLoanOnMetropolKenya/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String verifyLoanOnMetropolKenya(@PathParam("loanId") final Long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String verifyLoanOnMetropolKenya(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().verifyLoanOnMetropolKenya(loanId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -343,11 +385,13 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Crb Metropol Identity Verification", description = "Crb Metropol Identity Verification.")
     @GET
     @Path("/crbMetropolIdentityVerification/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String crbMetropolIdentityVerification(@PathParam("loanId") final Integer loanId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String crbMetropolIdentityVerification(@PathParam("loanId") @Parameter(description = "loanId") final Integer loanId) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
         final CrbKenyaMetropolRequestData crbReportData = this.metropolCrbReadPlatformService.fetchIdentityVerificationDetails(loanId);
@@ -367,11 +411,14 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializerCreditBureauLoanProduct.serialize(crbReportData);
     }
 
+    @Operation(summary = "Verify Loan Credit Info Enhanced On Metropol Kenya", description = "Verify Loan Credit Info Enhanced On Metropol Kenya.")
     @POST
     @Path("/verifyLoanCreditInfoEnhancedOnMetropolKenya/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String verifyLoanCreditInfoEnhancedOnMetropolKenya(@PathParam("loanId") final Long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String verifyLoanCreditInfoEnhancedOnMetropolKenya(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().verifyLoanCreditInfoEnhancedOnMetropolKenya(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -381,11 +428,14 @@ public class CreditBureauConfigurationAPI {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Verify Loan Report Json On Metropol Kenya", description = "Verify Loan Report Json On Metropol Kenya.")
     @POST
     @Path("/verifyLoanReportJsonOnMetropolKenya/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String verifyLoanReportJsonOnMetropolKenya(@PathParam("loanId") final Long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String verifyLoanReportJsonOnMetropolKenya(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().verifyLoanReportJsonOnMetropolKenya(loanId)
                 .withJson(apiRequestBodyAsJson).build();

@@ -183,9 +183,12 @@ public class TemplatesApiResource {
         return this.toApiJsonSerializer.serialize(settings, template, this.responseTemplatesDataParameters);
     }
 
+    @Operation(summary = "Get Template By Template", description = "Get Template By Template.")
     @GET
     @Path("{templateId}/template")
-    public String getTemplateByTemplate(@PathParam("templateId") final Long templateId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getTemplateByTemplate(@PathParam("templateId") @Parameter(description = "templateId") final Long templateId,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermission);
 
@@ -225,11 +228,13 @@ public class TemplatesApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Merge Template", description = "Merge Template.")
     @POST
     @Path("{templateId}")
     @Produces({ MediaType.TEXT_HTML })
-    public String mergeTemplate(@PathParam("templateId") final Long templateId, @Context final UriInfo uriInfo,
-            final String apiRequestBodyAsJson) throws MalformedURLException, IOException {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String mergeTemplate(@PathParam("templateId") @Parameter(description = "templateId") final Long templateId,
+            @Context final UriInfo uriInfo, final String apiRequestBodyAsJson) throws MalformedURLException, IOException {
 
         final Template template = this.templateService.findOneById(templateId);
 

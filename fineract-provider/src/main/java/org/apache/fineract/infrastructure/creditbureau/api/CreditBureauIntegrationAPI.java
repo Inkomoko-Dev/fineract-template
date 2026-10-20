@@ -20,10 +20,14 @@
 package org.apache.fineract.infrastructure.creditbureau.api;
 
 import com.google.gson.Gson;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.io.File;
 import java.io.InputStream;
 import java.util.Arrays;
@@ -66,6 +70,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 @Path("/creditBureauIntegration")
 @Component
 @Scope("singleton")
+@Tag(name = "Credit Bureau Integration API", description = "Credit Bureau Integration API operations.")
 public class CreditBureauIntegrationAPI {
 
     private static final Set<String> RESPONSE_DATA_PARAMETERS = new HashSet<>(Arrays.asList("id", "creditBureauId", "nrc", "creditReport"));
@@ -97,10 +102,12 @@ public class CreditBureauIntegrationAPI {
 
     }
 
+    @Operation(summary = "Fetch Credit Report", description = "Fetch Credit Report.")
     @POST
     @Path("creditReport")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String fetchCreditReport(@Context final UriInfo uriInfo, @RequestParam("params") final Map<String, Object> params) {
 
         Gson gson = new Gson();
@@ -113,11 +120,13 @@ public class CreditBureauIntegrationAPI {
     }
 
     // submit loan file of clients to Credit Bureau
+    @Operation(summary = "Add Credit Report", description = "Add Credit Report.")
     @POST
     @Path("addCreditReport")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload credit report", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String addCreditReport(@FormDataParam("file") final File creditReport, @FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") final UriInfo uriInfo, @FormDataParam("file") FormDataContentDisposition fileDetail,
             @QueryParam("creditBureauId") @Parameter(description = "creditBureauId") final Long creditBureauId) {
@@ -127,10 +136,12 @@ public class CreditBureauIntegrationAPI {
     }
 
     // saves fetched-creditreport into database
+    @Operation(summary = "Save Credit Report", description = "Save Credit Report.")
     @POST
     @Path("saveCreditReport")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String saveCreditReport(@Parameter(hidden = true) final String apiRequestBodyAsJson,
             @QueryParam("creditBureauId") @Parameter(description = "creditBureauId") final Long creditBureauId,
             @QueryParam("nationalId") @Parameter(description = "nationalId") final String nationalId) {
@@ -146,10 +157,12 @@ public class CreditBureauIntegrationAPI {
     }
 
     // fetch saved creditReports(NRC) from DB by creditBureauId, to select for downloading and deleting the reports
+    @Operation(summary = "Get Saved Credit Report", description = "Get Saved Credit Report.")
     @GET
     @Path("creditReport/{creditBureauId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getSavedCreditReport(@PathParam("creditBureauId") @Parameter(description = "creditBureauId") final Long creditBureauId,
             @Context final UriInfo uriInfo) {
 
@@ -163,10 +176,12 @@ public class CreditBureauIntegrationAPI {
     }
 
     // deletes saved creditReports from database
+    @Operation(summary = "Delete Credit Report", description = "Delete Credit Report.")
     @DELETE
     @Path("deleteCreditReport/{creditBureauId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String deleteCreditReport(@PathParam("creditBureauId") @Parameter(description = "creditBureauId") final Long creditBureauId,
             @Parameter(hidden = true) final String apiRequestBodyAsJson) {
 

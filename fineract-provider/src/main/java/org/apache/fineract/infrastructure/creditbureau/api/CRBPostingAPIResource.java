@@ -18,7 +18,25 @@
  */
 package org.apache.fineract.infrastructure.creditbureau.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import javax.ws.rs.Consumes;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
@@ -34,61 +52,43 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
-import javax.ws.rs.Consumes;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.UriInfo;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.Arrays;
-
-
 @Slf4j
 @Path("/crb/posting-logs")
 @Component
 @Scope("singleton")
 @Tag(name = "CRB Posting", description = "Generate crb posting report status")
 public class CRBPostingAPIResource {
+
     private final PlatformSecurityContext context;
     private final ToApiJsonSerializer<CRBPostingLoggerData> toApiJsonSerializer;
     private final ApiRequestParameterHelper apiRequestParameterHelper;
     private final CreditBureauReadPlatformService crbReadPlatformService;
 
-    private final Set<String> responseDataParameters = new HashSet<>(Arrays.asList(
-            "id",
-            "batchId",
-            "hasPassed",
-            "loanId",
-            "loanAccountNumber",
-            "crbResponseId",
-            "errorLogs",
-            "payload",
-            "date")
-    );
-
+    private final Set<String> responseDataParameters = new HashSet<>(
+            Arrays.asList("id", "batchId", "hasPassed", "loanId", "loanAccountNumber", "crbResponseId", "errorLogs", "payload", "date"));
 
     @Autowired
-    public CRBPostingAPIResource(PlatformSecurityContext context, ToApiJsonSerializer<CRBPostingLoggerData> toApiJsonSerializer, ApiRequestParameterHelper apiRequestParameterHelper, CreditBureauReadPlatformService crbReadPlatformService) {
+    public CRBPostingAPIResource(PlatformSecurityContext context, ToApiJsonSerializer<CRBPostingLoggerData> toApiJsonSerializer,
+            ApiRequestParameterHelper apiRequestParameterHelper, CreditBureauReadPlatformService crbReadPlatformService) {
         this.context = context;
         this.toApiJsonSerializer = toApiJsonSerializer;
         this.apiRequestParameterHelper = apiRequestParameterHelper;
         this.crbReadPlatformService = crbReadPlatformService;
     }
 
+    @Operation(summary = "Retrieve All CRBPosting Logs", description = "Retrieve All CRBPosting Logs.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAllCRBPostingLogs(@Context final UriInfo uriInfo, @QueryParam("paged") final Boolean paged,
-            @QueryParam("offset") final Integer offset, @QueryParam("limit") final Integer limit, @QueryParam("status") final String status,
-            @QueryParam("fromDate") final String fromDate, @QueryParam("toDate") final String toDate,
-            @QueryParam("search") final String search) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAllCRBPostingLogs(@Context final UriInfo uriInfo,
+            @QueryParam("paged") @Parameter(description = "paged") final Boolean paged,
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("status") @Parameter(description = "status") final String status,
+            @QueryParam("fromDate") @Parameter(description = "fromDate") final String fromDate,
+            @QueryParam("toDate") @Parameter(description = "toDate") final String toDate,
+            @QueryParam("search") @Parameter(description = "search") final String search) {
 
         this.context.authenticatedUser().validateHasReadPermission("VIEW_CRB_LOGGER");
 
@@ -108,11 +108,14 @@ public class CRBPostingAPIResource {
         return this.toApiJsonSerializer.serialize(settings, result, this.responseDataParameters);
     }
 
+    @Operation(summary = "Retrieve CRBPosting Log", description = "Retrieve CRBPosting Log.")
     @GET
     @Path("/{logId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveCRBPostingLog(@PathParam("logId") final Long logId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveCRBPostingLog(@PathParam("logId") @Parameter(description = "logId") final Long logId,
+            @Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission("VIEW_CRB_LOGGER");
         final CRBPostingLoggerData result = crbReadPlatformService.retrieveCrbPostingLog(logId);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
@@ -126,11 +129,14 @@ public class CRBPostingAPIResource {
         return Boolean.valueOf(status);
     }
 
+    @Operation(summary = "Mark Log Has Fixed", description = "Mark Log Has Fixed.")
     @POST
     @Path("/{loanId}/mark-fixed")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String markLogHasFixed(@PathParam("loanId") final Integer loanId, @Context final UriInfo uriInfo){
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String markLogHasFixed(@PathParam("loanId") @Parameter(description = "loanId") final Integer loanId,
+            @Context final UriInfo uriInfo) {
         String resourceNameForPermissions = "VIEW_CRB_LOGGER";
         this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
         log.debug("Marking CRB posting log as fixed for loanId {}", loanId);
@@ -143,11 +149,13 @@ public class CRBPostingAPIResource {
 
     }
 
+    @Operation(summary = "Export Logs To CSV", description = "Export Logs To CSV.")
     @GET
     @Path("/export")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_OCTET_STREAM })
-    public Response exportLogsToCSV(@Context final UriInfo uriInfo){
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response exportLogsToCSV(@Context final UriInfo uriInfo) {
 
         String resourceNameForPermissions = "VIEW_CRB_LOGGER";
 
@@ -158,11 +166,8 @@ public class CRBPostingAPIResource {
         TransUnionCreditReportCsvData fileData = this.crbReadPlatformService.generateCsvReport(uriInfo.getQueryParameters());
 
         return Response.ok(fileData.getInputStream(), fileData.getContentType())
-                .header("Content-Disposition",
-                        "attachment; filename=\"" + fileData.getFileName() + "\"")
-                .build();
+                .header("Content-Disposition", "attachment; filename=\"" + fileData.getFileName() + "\"").build();
 
     }
-
 
 }

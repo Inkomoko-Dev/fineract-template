@@ -137,11 +137,14 @@ public class SurveyApiResource {
     }
 
     /** FIXME Vishwas what does this API really do? ***/
+    @Operation(summary = "Get Client Survey Overview", description = "Get Client Survey Overview.")
     @GET
     @Path("{surveyName}/{clientId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getClientSurveyOverview(@PathParam("surveyName") final String surveyName, @PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getClientSurveyOverview(@PathParam("surveyName") @Parameter(description = "surveyName") final String surveyName,
+            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(SurveyApiConstants.SURVEY_RESOURCE_NAME);
 
@@ -150,12 +153,15 @@ public class SurveyApiResource {
         return this.toApiJsonClientScoreOverviewSerializer.serialize(scores);
     }
 
+    @Operation(summary = "Get Survey Entry", description = "Get Survey Entry.")
     @GET
     @Path("{surveyName}/{clientId}/{entryId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getSurveyEntry(@PathParam("surveyName") final String surveyName, @PathParam("clientId") final Long clientId,
-            @PathParam("entryId") final Long entryId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getSurveyEntry(@PathParam("surveyName") @Parameter(description = "surveyName") final String surveyName,
+            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId,
+            @PathParam("entryId") @Parameter(description = "entryId") final Long entryId) {
 
         this.context.authenticatedUser().validateHasReadPermission(SurveyApiConstants.SURVEY_RESOURCE_NAME);
 
@@ -165,12 +171,14 @@ public class SurveyApiResource {
 
     }
 
+    @Operation(summary = "Register", description = "Register.")
     @PUT
     @Path("register/{surveyName}/{apptable}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String register(@PathParam("surveyName") final String datatable, @PathParam("apptable") final String apptable,
-            final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String register(@PathParam("surveyName") @Parameter(description = "surveyName") final String datatable,
+            @PathParam("apptable") @Parameter(description = "apptable") final String apptable, final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().registerSurvey(datatable, apptable).withJson(apiRequestBodyAsJson)
                 .build();
@@ -181,12 +189,15 @@ public class SurveyApiResource {
 
     }
 
+    @Operation(summary = "Delete Datatable Entries", description = "Delete Datatable Entries.")
     @DELETE
     @Path("{surveyName}/{clientId}/{fulfilledId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteDatatableEntries(@PathParam("surveyName") final String surveyName, @PathParam("clientId") final Long clientId,
-            @PathParam("fulfilledId") final Long fulfilledId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteDatatableEntries(@PathParam("surveyName") @Parameter(description = "surveyName") final String surveyName,
+            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId,
+            @PathParam("fulfilledId") @Parameter(description = "fulfilledId") final Long fulfilledId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder() //
                 .deleteDatatable(surveyName, clientId, fulfilledId) //

@@ -18,6 +18,9 @@
  */
 package org.apache.fineract.portfolio.group.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -63,9 +66,11 @@ public class GroupsLevelApiResource {
         this.apiRequestParameterHelper = apiRequestParameterHelper;
     }
 
+    @Operation(summary = "Retrieve All Groups", description = "Retrieve All Groups.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAllGroups(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission("GROUP");

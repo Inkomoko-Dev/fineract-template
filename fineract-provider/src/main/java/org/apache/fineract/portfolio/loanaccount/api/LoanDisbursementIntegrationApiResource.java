@@ -21,7 +21,12 @@ package org.apache.fineract.portfolio.loanaccount.api;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import java.math.BigDecimal;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
@@ -42,11 +47,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-
 @Path("/loans/{accountNo}/disbursements-integration")
 @Component
 @Scope("singleton")
+@Tag(name = "Loan Disbursement Integration", description = "Loan Disbursement Integration operations.")
 public class LoanDisbursementIntegrationApiResource {
 
     private static final Logger LOG = LoggerFactory.getLogger(LoanDisbursementIntegrationApiResource.class);
@@ -73,10 +77,12 @@ public class LoanDisbursementIntegrationApiResource {
         this.loanReadPlatformService = loanReadPlatformService;
     }
 
+    @Operation(summary = "State Transitions", description = "State Transitions.")
     @POST
     @Path("update")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String stateTransitions(@PathParam("accountNo") @Parameter(description = "accountNo") final String accountNo,
             @Parameter(hidden = true) final String apiRequestBodyAsJson) {
         this.context.authenticatedUser().validateHasUpdatePermission(this.resourceNameForPermissions);
@@ -111,7 +117,7 @@ public class LoanDisbursementIntegrationApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
-    private String extractJson(JsonElement element, BigDecimal loanPrinciple ) {
+    private String extractJson(JsonElement element, BigDecimal loanPrinciple) {
         JsonObject originalJsonObject = element.getAsJsonObject();
         JsonObject newJsonObject = new JsonObject();
         newJsonObject.add("paymentTypeId", originalJsonObject.get("paymentTypeId"));

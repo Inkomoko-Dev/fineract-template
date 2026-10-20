@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -73,11 +77,14 @@ public class LoanDisbursementDetailApiResource {
         this.loanReadPlatformService = loanReadPlatformService;
     }
 
+    @Operation(summary = "Update Disbursement Date", description = "Update Disbursement Date.")
     @PUT
     @Path("{disbursementId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateDisbursementDate(@PathParam("loanId") final Long loanId, @PathParam("disbursementId") final Long disbursementId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateDisbursementDate(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            @PathParam("disbursementId") @Parameter(description = "disbursementId") final Long disbursementId,
             final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateDisbusementDate(loanId, disbursementId)
@@ -88,11 +95,14 @@ public class LoanDisbursementDetailApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Add And Delete Disbursement Detail", description = "Add And Delete Disbursement Detail.")
     @PUT
     @Path("editDisbursements")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String addAndDeleteDisbursementDetail(@PathParam("loanId") final Long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addAndDeleteDisbursementDetail(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            final String apiRequestBodyAsJson) {
 
         CommandWrapper commandRequest = new CommandWrapperBuilder().addAndDeleteDisbursementDetails(loanId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -102,11 +112,14 @@ public class LoanDisbursementDetailApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Retrive Detail", description = "Retrive Detail.")
     @GET
     @Path("{disbursementId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retriveDetail(@PathParam("loanId") final Long loanId, @PathParam("disbursementId") final Long disbursementId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retriveDetail(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            @PathParam("disbursementId") @Parameter(description = "disbursementId") final Long disbursementId,
             @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);

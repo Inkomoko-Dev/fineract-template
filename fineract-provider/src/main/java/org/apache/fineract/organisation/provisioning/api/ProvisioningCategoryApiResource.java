@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.organisation.provisioning.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Collection;
 import javax.ws.rs.Consumes;
@@ -71,9 +75,11 @@ public class ProvisioningCategoryApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAll(@Context final UriInfo uriInfo) {
         this.platformSecurityContext.authenticatedUser();
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
@@ -82,9 +88,11 @@ public class ProvisioningCategoryApiResource {
         return this.toApiJsonSerializer.serialize(settings, provisionCategoriesSet);
     }
 
+    @Operation(summary = "Create Provisioning Category", description = "Create Provisioning Category.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String createProvisioningCategory(final String apiRequestBodyAsJson) {
         CommandWrapper commandWrapper = null;
         this.platformSecurityContext.authenticatedUser();
@@ -93,11 +101,14 @@ public class ProvisioningCategoryApiResource {
         return this.toApiJsonSerializer.serialize(commandProcessingResult);
     }
 
+    @Operation(summary = "Update Provisioning Category", description = "Update Provisioning Category.")
     @PUT
     @Path("{categoryId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateProvisioningCategory(@PathParam("categoryId") final Long categoryId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateProvisioningCategory(@PathParam("categoryId") @Parameter(description = "categoryId") final Long categoryId,
+            final String apiRequestBodyAsJson) {
         this.platformSecurityContext.authenticatedUser();
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateProvisioningCategory(categoryId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -105,11 +116,13 @@ public class ProvisioningCategoryApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete Provisioning Category", description = "Delete Provisioning Category.")
     @DELETE
     @Path("{categoryId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteProvisioningCategory(@PathParam("categoryId") final Long categoryId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteProvisioningCategory(@PathParam("categoryId") @Parameter(description = "categoryId") final Long categoryId) {
         this.platformSecurityContext.authenticatedUser();
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteProvisioningCategory(categoryId).build();
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);

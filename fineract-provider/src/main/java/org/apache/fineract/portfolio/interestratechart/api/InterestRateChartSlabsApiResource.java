@@ -97,10 +97,12 @@ public class InterestRateChartSlabsApiResource {
         this.interestRateChartSlabReadPlatformService = interestRateChartSlabReadPlatformService;
     }
 
+    @Operation(summary = "Template", description = "Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String template(@Context final UriInfo uriInfo, @PathParam("chartId") @Parameter(description = "chartId") final Long chartId) {
         InterestRateChartSlabData chartSlab = this.interestRateChartSlabReadPlatformService.retrieveTemplate();
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());

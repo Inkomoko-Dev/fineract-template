@@ -19,6 +19,10 @@
 
 package org.apache.fineract.portfolio.self.spm.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import javax.ws.rs.Consumes;
@@ -58,23 +62,28 @@ public class SelfScorecardApiResource {
         this.appuserClientMapperReadService = appuserClientMapperReadService;
     }
 
+    @Operation(summary = "Find By Client", description = "Find By Client.")
     @GET
     @Path("clients/{clientId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Transactional
-    public List<ScorecardData> findByClient(@PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public List<ScorecardData> findByClient(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         validateAppuserClientsMapping(clientId);
         return this.scorecardApiResource.findByClient(clientId);
     }
 
+    @Operation(summary = "Create Scorecard", description = "Create Scorecard.")
     @POST
     @Path("{surveyId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Transactional
-    public void createScorecard(@PathParam("surveyId") final Long surveyId, final ScorecardData scorecardData) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public void createScorecard(@PathParam("surveyId") @Parameter(description = "surveyId") final Long surveyId,
+            final ScorecardData scorecardData) {
         if (scorecardData.getClientId() != null) {
             validateAppuserClientsMapping(scorecardData.getClientId());
             this.scorecardApiResource.createScorecard(surveyId, scorecardData);

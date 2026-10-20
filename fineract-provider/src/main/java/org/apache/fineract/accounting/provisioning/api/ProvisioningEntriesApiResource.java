@@ -138,16 +138,19 @@ public class ProvisioningEntriesApiResource {
         return this.toApiJsonSerializer.serialize(settings, data, PROVISIONING_ENTRY_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve Proviioning Entries", description = "Retrieve Proviioning Entries.")
     @GET
     @Path("entries")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanProductProvisioningEntryData.class))) })
-    public String retrieveProviioningEntries(@QueryParam("entryId") final Long entryId, @QueryParam("offset") final Integer offset,
-            @QueryParam("limit") final Integer limit, @QueryParam("officeId") final Long officeId,
-            @QueryParam("productId") final Long productId, @QueryParam("categoryId") final Long categoryId,
-            @Context final UriInfo uriInfo) {
+    public String retrieveProviioningEntries(@QueryParam("entryId") @Parameter(description = "entryId") final Long entryId,
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("productId") @Parameter(description = "productId") final Long productId,
+            @QueryParam("categoryId") @Parameter(description = "categoryId") final Long categoryId, @Context final UriInfo uriInfo) {
         this.platformSecurityContext.authenticatedUser();
         SearchParameters params = SearchParameters.forProvisioningEntries(entryId, officeId, productId, categoryId, offset, limit);
         Page<LoanProductProvisioningEntryData> entries = this.provisioningEntriesReadPlatformService.retrieveProvisioningEntries(params);
