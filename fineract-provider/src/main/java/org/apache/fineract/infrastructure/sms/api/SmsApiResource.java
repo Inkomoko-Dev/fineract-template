@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.infrastructure.sms.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
 import java.util.Collection;
@@ -77,7 +81,9 @@ public class SmsApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAll(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -88,7 +94,9 @@ public class SmsApiResource {
         return this.toApiJsonSerializer.serialize(settings, smsMessages);
     }
 
+    @Operation(summary = "Create", description = "Create.")
     @POST
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String create(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createSms().withJson(apiRequestBodyAsJson).build();
@@ -98,9 +106,12 @@ public class SmsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Retrieve One", description = "Retrieve One.")
     @GET
     @Path("{resourceId}")
-    public String retrieveOne(@PathParam("resourceId") final Long resourceId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveOne(@PathParam("resourceId") @Parameter(description = "resourceId") final Long resourceId,
+            @Context final UriInfo uriInfo) {
 
         final SmsData smsMessage = this.readPlatformService.retrieveOne(resourceId);
 
@@ -108,14 +119,21 @@ public class SmsApiResource {
         return this.toApiJsonSerializer.serialize(settings, smsMessage);
     }
 
+    @Operation(summary = "Retrieve All Sms By Status", description = "Retrieve All Sms By Status.")
     @GET
     @Path("{campaignId}/messageByStatus")
-    public String retrieveAllSmsByStatus(@PathParam("campaignId") final Long campaignId, @Context final UriInfo uriInfo,
-            @QueryParam("status") final Long status, @QueryParam("fromDate") final DateParam fromDateParam,
-            @QueryParam("toDate") final DateParam toDateParam, @QueryParam("locale") final String locale,
-            @QueryParam("dateFormat") final String dateFormat, @QueryParam("sqlSearch") final String sqlSearch,
-            @QueryParam("offset") final Integer offset, @QueryParam("limit") final Integer limit,
-            @QueryParam("orderBy") final String orderBy, @QueryParam("sortOrder") final String sortOrder) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAllSmsByStatus(@PathParam("campaignId") @Parameter(description = "campaignId") final Long campaignId,
+            @Context final UriInfo uriInfo, @QueryParam("status") @Parameter(description = "status") final Long status,
+            @QueryParam("fromDate") @Parameter(description = "fromDate") final DateParam fromDateParam,
+            @QueryParam("toDate") @Parameter(description = "toDate") final DateParam toDateParam,
+            @QueryParam("locale") @Parameter(description = "locale") final String locale,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat,
+            @QueryParam("sqlSearch") @Parameter(description = "sqlSearch") final String sqlSearch,
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy,
+            @QueryParam("sortOrder") @Parameter(description = "sortOrder") final String sortOrder) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -137,9 +155,12 @@ public class SmsApiResource {
         return this.toApiJsonSerializer.serialize(settings, smsMessages);
     }
 
+    @Operation(summary = "Update", description = "Update.")
     @PUT
     @Path("{resourceId}")
-    public String update(@PathParam("resourceId") final Long resourceId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String update(@PathParam("resourceId") @Parameter(description = "resourceId") final Long resourceId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateSms(resourceId).withJson(apiRequestBodyAsJson).build();
 
@@ -148,9 +169,11 @@ public class SmsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete", description = "Delete.")
     @DELETE
     @Path("{resourceId}")
-    public String delete(@PathParam("resourceId") final Long resourceId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String delete(@PathParam("resourceId") @Parameter(description = "resourceId") final Long resourceId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteSms(resourceId).build();
 

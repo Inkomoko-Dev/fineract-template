@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.infrastructure.survey.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -59,11 +63,13 @@ public class PovertyLineApiResource {
 
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
     @Path("{ppiName}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAll(@PathParam("ppiName") final String ppiName) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAll(@PathParam("ppiName") @Parameter(description = "ppiName") final String ppiName) {
 
         this.context.authenticatedUser().validateHasReadPermission(PovertyLineApiConstants.POVERTY_LINE_RESOURCE_NAME);
 
@@ -72,11 +78,14 @@ public class PovertyLineApiResource {
 
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
     @Path("{ppiName}/{likelihoodId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAll(@PathParam("ppiName") final String ppiName, @PathParam("likelihoodId") final Long likelihoodId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAll(@PathParam("ppiName") @Parameter(description = "ppiName") final String ppiName,
+            @PathParam("likelihoodId") @Parameter(description = "likelihoodId") final Long likelihoodId) {
 
         this.context.authenticatedUser().validateHasReadPermission(PovertyLineApiConstants.POVERTY_LINE_RESOURCE_NAME);
 

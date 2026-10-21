@@ -206,10 +206,12 @@ public class SavingsAccountsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Submit GSIMApplication", description = "Submit GSIMApplication.")
     @POST
     @Path("/gsim")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String submitGSIMApplication(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createGSIMAccount().withJson(apiRequestBodyAsJson).build();
@@ -364,6 +366,7 @@ public class SavingsAccountsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Gsim", description = "Update Gsim.")
     @PUT
     @Path("/gsim/{parentAccountId}")
     @Consumes({ MediaType.APPLICATION_JSON })
@@ -374,7 +377,9 @@ public class SavingsAccountsApiResource {
      *
      * @QueryParam("command") final String commandParam) {
      */
-    public String updateGsim(@PathParam("parentAccountId") final Long parentAccountId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateGsim(@PathParam("parentAccountId") @Parameter(description = "parentAccountId") final Long parentAccountId,
+            final String apiRequestBodyAsJson) {
 
         /*
          * if (is(commandParam, "updateWithHoldTax")) { final CommandWrapper commandRequest = new
@@ -391,12 +396,14 @@ public class SavingsAccountsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Handle GSIMCommands", description = "Handle GSIMCommands.")
     @POST
     @Path("/gsimcommands/{parentAccountId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String handleGSIMCommands(@PathParam("parentAccountId") final Long parentAccountId,
-            @QueryParam("command") final String commandParam, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String handleGSIMCommands(@PathParam("parentAccountId") @Parameter(description = "parentAccountId") final Long parentAccountId,
+            @QueryParam("command") @Parameter(description = "command") final String commandParam, final String apiRequestBodyAsJson) {
 
         String jsonApiRequest = apiRequestBodyAsJson;
         if (StringUtils.isBlank(jsonApiRequest)) {
@@ -648,19 +655,24 @@ public class SavingsAccountsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Get Savings Template", description = "Get Savings Template.")
     @GET
     @Path("downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getSavingsTemplate(@QueryParam("officeId") final Long officeId, @QueryParam("staffId") final Long staffId,
-            @QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getSavingsTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("staffId") @Parameter(description = "staffId") final Long staffId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.SAVINGS_ACCOUNT.toString(), officeId, staffId, dateFormat);
     }
 
+    @Operation(summary = "Post Savings Template", description = "Post Savings Template.")
     @POST
     @Path("uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload savings template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postSavingsTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
             @FormDataParam("dateFormat") final String dateFormat) {
@@ -669,19 +681,23 @@ public class SavingsAccountsApiResource {
         return this.toApiJsonSerializer.serialize(importDocumentId);
     }
 
+    @Operation(summary = "Get Savings Transaction Template", description = "Get Savings Transaction Template.")
     @GET
     @Path("transactions/downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getSavingsTransactionTemplate(@QueryParam("officeId") final Long officeId,
-            @QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getSavingsTransactionTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.SAVINGS_TRANSACTIONS.toString(), officeId, null, dateFormat);
     }
 
+    @Operation(summary = "Post Savings Transaction Template", description = "Post Savings Transaction Template.")
     @POST
     @Path("transactions/uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload savings transaction template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postSavingsTransactionTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
             @FormDataParam("dateFormat") final String dateFormat) {
@@ -690,11 +706,14 @@ public class SavingsAccountsApiResource {
         return this.toApiJsonSerializer.serialize(importDocumentId);
     }
 
+    @Operation(summary = "Add More Members To GSIMApplication", description = "Add More Members To GSIMApplication.")
     @POST
     @Path("/addmember/{gsimId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String addMoreMembersToGSIMApplication(@PathParam("gsimId") final Long gsimId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addMoreMembersToGSIMApplication(@PathParam("gsimId") @Parameter(description = "gsimId") final Long gsimId,
+            final String apiRequestBodyAsJson) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder().addMoreMembersToGSIMApplication(gsimId)
                 .withJson(apiRequestBodyAsJson).build();
 

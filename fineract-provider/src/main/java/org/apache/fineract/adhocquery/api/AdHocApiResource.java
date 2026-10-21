@@ -18,7 +18,10 @@
  */
 package org.apache.fineract.adhocquery.api;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -78,9 +81,11 @@ public class AdHocApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAll(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser();
@@ -89,10 +94,12 @@ public class AdHocApiResource {
         return this.toApiJsonSerializer.serialize(settings, adhocs, RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Template", description = "Template.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Path("template")
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String template(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser();
         final AdHocData user = this.adHocReadPlatformService.retrieveNewAdHocDetails();
@@ -100,9 +107,11 @@ public class AdHocApiResource {
         return this.toApiJsonSerializer.serialize(settings, user, RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Create Ad Hoc Query", description = "Create Ad Hoc Query.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String createAdHocQuery(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder() //
@@ -115,10 +124,12 @@ public class AdHocApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Retrieve Ad Hoc Query", description = "Retrieve Ad Hoc Query.")
     @GET
     @Path("{adHocId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAdHocQuery(@PathParam("adHocId") @Parameter(description = "adHocId") final Long adHocId,
             @Context final UriInfo uriInfo) {
 
@@ -131,10 +142,12 @@ public class AdHocApiResource {
         return this.toApiJsonSerializer.serialize(settings, adhoc, RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Update", description = "Update.")
     @PUT
     @Path("{adHocId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String update(@PathParam("adHocId") @Parameter(description = "adHocId") final Long adHocId, final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder() //
@@ -153,10 +166,12 @@ public class AdHocApiResource {
      * @param adHocId
      * @return
      */
+    @Operation(summary = "Delete Ad Hoc Query", description = "Delete Ad Hoc Query.")
     @DELETE
     @Path("{adHocId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String deleteAdHocQuery(@PathParam("adHocId") @Parameter(description = "adHocId") final Long adHocId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder() //

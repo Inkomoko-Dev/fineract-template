@@ -19,6 +19,10 @@
 
 package org.apache.fineract.portfolio.rate.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -77,11 +81,13 @@ public class RateApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Retrieve Rate", description = "Retrieve Rate.")
     @GET
     @Path("{rateId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveRate(@PathParam("rateId") Long rateId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveRate(@PathParam("rateId") @Parameter(description = "rateId") Long rateId, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -92,9 +98,11 @@ public class RateApiResource {
         return this.toApiJsonSerializer.serialize(settings, rate, this.responseDataParameters);
     }
 
+    @Operation(summary = "Create Rate", description = "Create Rate.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String createRate(final String apiRequestBodyAsJson) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createRate().withJson(apiRequestBodyAsJson).build();
 
@@ -104,9 +112,11 @@ public class RateApiResource {
 
     }
 
+    @Operation(summary = "Get All Rates", description = "Get All Rates.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getAllRates(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -118,11 +128,13 @@ public class RateApiResource {
         return this.toApiJsonSerializer.serialize(settings, rates, this.responseDataParameters);
     }
 
+    @Operation(summary = "Update Rate", description = "Update Rate.")
     @PUT
     @Path("{rateId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateRate(@PathParam("rateId") Long rateId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateRate(@PathParam("rateId") @Parameter(description = "rateId") Long rateId, final String apiRequestBodyAsJson) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateRate(rateId).withJson(apiRequestBodyAsJson).build();
 
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);

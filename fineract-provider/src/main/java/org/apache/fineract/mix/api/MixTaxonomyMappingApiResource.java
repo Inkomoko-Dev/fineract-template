@@ -18,6 +18,9 @@
  */
 package org.apache.fineract.mix.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -73,9 +76,11 @@ public class MixTaxonomyMappingApiResource {
         this.apiRequestParameterHelper = apiRequestParameterHelper;
     }
 
+    @Operation(summary = "Retrieve Taxonomy Mapping", description = "Retrieve Taxonomy Mapping.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveTaxonomyMapping(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser();
         final MixTaxonomyMappingData mappingData = this.readTaxonomyMappingService.retrieveTaxonomyMapping();
@@ -83,9 +88,11 @@ public class MixTaxonomyMappingApiResource {
         return this.toApiJsonSerializer.serialize(settings, mappingData, this.responseDataParameters);
     }
 
+    @Operation(summary = "Update Taxonomy Mapping", description = "Update Taxonomy Mapping.")
     @PUT
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String updateTaxonomyMapping(final String jsonRequestBody) {
         // TODO support multiple configuration file loading
         final Long mappingId = (long) 1;

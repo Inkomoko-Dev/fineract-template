@@ -81,9 +81,11 @@ public class NotificationApiResource {
         return this.toApiJsonSerializer.serialize(settings, notificationData);
     }
 
+    @Operation(summary = "Update", description = "Update.")
     @PUT
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public void update() {
         this.context.authenticatedUser();
         this.notificationReadPlatformService.updateNotificationReadStatus();

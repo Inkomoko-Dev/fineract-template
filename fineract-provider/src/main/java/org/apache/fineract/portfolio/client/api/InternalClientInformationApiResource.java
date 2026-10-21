@@ -23,6 +23,11 @@ import static org.apache.fineract.infrastructure.core.domain.AuditableFieldsCons
 import static org.apache.fineract.infrastructure.core.domain.AuditableFieldsConstants.LAST_MODIFIED_BY;
 import static org.apache.fineract.infrastructure.core.domain.AuditableFieldsConstants.LAST_MODIFIED_DATE;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.HashMap;
 import java.util.Map;
 import javax.ws.rs.Consumes;
@@ -49,6 +54,7 @@ import org.springframework.stereotype.Component;
 @Path("/internal/client")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "Internal Client Information", description = "Internal Client Information operations.")
 public class InternalClientInformationApiResource implements InitializingBean {
 
     private final ClientRepositoryWrapper clientRepositoryWrapper;
@@ -67,11 +73,14 @@ public class InternalClientInformationApiResource implements InitializingBean {
 
     }
 
+    @Operation(summary = "Get Client Audit Fields", description = "Get Client Audit Fields.")
     @GET
     @Path("{clientId}/audit")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getClientAuditFields(@Context final UriInfo uriInfo, @PathParam("clientId") Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getClientAuditFields(@Context final UriInfo uriInfo,
+            @PathParam("clientId") @Parameter(description = "clientId") Long clientId) {
         log.warn("------------------------------------------------------------");
         log.warn("                                                            ");
         log.warn("Fetching client with {}", clientId);

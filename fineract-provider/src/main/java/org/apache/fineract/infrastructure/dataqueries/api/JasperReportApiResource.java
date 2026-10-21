@@ -18,10 +18,30 @@
  */
 package org.apache.fineract.infrastructure.dataqueries.api;
 
-
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.io.InputStream;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import javax.ws.rs.Consumes;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.HttpHeaders;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.commands.domain.CommandWrapper;
 import org.apache.fineract.commands.service.CommandWrapperBuilder;
@@ -38,28 +58,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
-
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.Produces;
-import javax.ws.rs.POST;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.UriInfo;
-import javax.ws.rs.core.HttpHeaders;
-import java.io.InputStream;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.Map;
-import java.util.HashMap;
-import java.util.Collection;
-
-
 @Slf4j
 @Path("/reports/jasper")
 @Component
@@ -75,20 +73,14 @@ public class JasperReportApiResource {
     private final ReadJasperReportingService readReportingService;
     private final ApiRequestParameterHelper apiRequestParameterHelper;
 
-
-    private final Set<String> responseDataParameters = new HashSet<>(Arrays.asList(
-            "id",
-            "requestedOn",
-            "approvedBy",
-            "approvedOn",
-            "status",
-            "fileFormat",
-            "filePath",
-            "parameters")
-    );
+    private final Set<String> responseDataParameters = new HashSet<>(
+            Arrays.asList("id", "requestedOn", "approvedBy", "approvedOn", "status", "fileFormat", "filePath", "parameters"));
 
     @Autowired
-    public JasperReportApiResource(final JasperReportService jasperReadWriteReportService, ToApiJsonSerializer<JasperReport> toApiJsonSerializer, ToApiJsonSerializer<Object> toObjectApiJsonSerializer, PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService, PlatformSecurityContext context, ReadJasperReportingService readReportingService, ApiRequestParameterHelper apiRequestParameterHelper) {
+    public JasperReportApiResource(final JasperReportService jasperReadWriteReportService,
+            ToApiJsonSerializer<JasperReport> toApiJsonSerializer, ToApiJsonSerializer<Object> toObjectApiJsonSerializer,
+            PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService, PlatformSecurityContext context,
+            ReadJasperReportingService readReportingService, ApiRequestParameterHelper apiRequestParameterHelper) {
         this.jasperReadWriteReportService = jasperReadWriteReportService;
         this.toApiJsonSerializer = toApiJsonSerializer;
         this.toObjectApiJsonSerializer = toObjectApiJsonSerializer;
@@ -98,13 +90,14 @@ public class JasperReportApiResource {
         this.apiRequestParameterHelper = apiRequestParameterHelper;
     }
 
+    @Operation(summary = "Get Report", description = "Get Report.")
     @GET
     @Path("{reportName}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON, "application/pdf", "text/csv", "application/vnd.ms-excel", "text/html" })
-    public Response getReport(@PathParam("reportName") final String reportName,
-                              @Context final UriInfo uriInfo,
-                              @Context final HttpHeaders headers) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getReport(@PathParam("reportName") @Parameter(description = "reportName") final String reportName,
+            @Context final UriInfo uriInfo, @Context final HttpHeaders headers) {
 
         Map<String, Object> queryParams = new HashMap<>();
         uriInfo.getQueryParameters().forEach((key, values) -> {
@@ -113,17 +106,15 @@ public class JasperReportApiResource {
             }
         });
 
-        queryParams.put("REQUESTED_BY",  this.context.authenticatedUser().getDisplayName());
+        queryParams.put("REQUESTED_BY", this.context.authenticatedUser().getDisplayName());
 
-        String mediaType = headers.getAcceptableMediaTypes().isEmpty()
-                ? "application/pdf"
+        String mediaType = headers.getAcceptableMediaTypes().isEmpty() ? "application/pdf"
                 : headers.getAcceptableMediaTypes().get(0).toString();
 
         byte[] reportData = jasperReadWriteReportService.generateReport(reportName, queryParams, mediaType);
 
         return Response.ok(reportData, mediaType)
-                .header("Content-Disposition", "inline; filename=\"" + reportName + getFileExtension(mediaType) + "\"")
-                .build();
+                .header("Content-Disposition", "inline; filename=\"" + reportName + getFileExtension(mediaType) + "\"").build();
     }
 
     private String getFileExtension(String mediaType) {
@@ -152,9 +143,9 @@ public class JasperReportApiResource {
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "List Jasper Reports", description = "Lists all jasper reports and their parameters.\n" + "\n" + "Example Request:\n" + "\n"
-            + "reports")
-    public String retrieveReportList(@QueryParam("status") String status,@Context final UriInfo uriInfo) {
+    @Operation(summary = "List Jasper Reports", description = "Lists all jasper reports and their parameters.\n" + "\n"
+            + "Example Request:\n" + "\n" + "reports")
+    public String retrieveReportList(@QueryParam("status") String status, @Context final UriInfo uriInfo) {
 
         String resourceNameForPermissions = "JASPER_REPORT";
         this.context.authenticatedUser().validateHasReadPermission(resourceNameForPermissions);
@@ -165,34 +156,29 @@ public class JasperReportApiResource {
         return this.toApiJsonSerializer.serialize(settings, result, this.responseDataParameters);
     }
 
-
     @POST
     @Path("{reportId}/approve")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Approve a Jasper Report Request", description = "Approves a pending Jasper Report request")
-    public String approveReport(
-            @PathParam("reportId") final Long reportId,
-            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+    public String approveReport(@PathParam("reportId") final Long reportId, @Parameter(hidden = true) final String apiRequestBodyAsJson) {
 
-        final CommandWrapper commandRequest = new CommandWrapperBuilder()
-                .approveJasperReport(reportId)
-                .withJson(apiRequestBodyAsJson)
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().approveJasperReport(reportId).withJson(apiRequestBodyAsJson)
                 .build();
 
-        final CommandProcessingResult result =
-                this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
 
         return this.toApiJsonSerializer.serialize(result);
     }
 
-
-
+    @Operation(summary = "Get Jasper Report", description = "Get Jasper Report.")
     @GET
     @Path("{reportId}/view")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getJasperReport(@PathParam("reportId") final String reportId,@Context final UriInfo uriInfo){
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getJasperReport(@PathParam("reportId") @Parameter(description = "reportId") final String reportId,
+            @Context final UriInfo uriInfo) {
 
         String resourceNameForPermissions = "READ_JASPER_REPORT";
 
@@ -205,12 +191,13 @@ public class JasperReportApiResource {
         return this.toApiJsonSerializer.serialize(settings, result, this.responseDataParameters);
     }
 
+    @Operation(summary = "Get File From Minio", description = "Get File From Minio.")
     @GET
     @Path("{reportId}/view/download")
     @Consumes({ MediaType.APPLICATION_JSON })
-    @Produces({ MediaType.APPLICATION_OCTET_STREAM})
-    public Response getFileFromMinio(
-            @PathParam("reportId") final String reportId,
+    @Produces({ MediaType.APPLICATION_OCTET_STREAM })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getFileFromMinio(@PathParam("reportId") @Parameter(description = "reportId") final String reportId,
             @Context final UriInfo uriInfo) {
 
         final String resourceNameForPermissions = "READ_JASPER_REPORT";
@@ -225,9 +212,7 @@ public class JasperReportApiResource {
             mediaType = MediaType.APPLICATION_OCTET_STREAM;
         }
         return Response.ok(resource, mediaType)
-                .header("Content-Disposition",
-                        "inline; filename=\"" + jasperReport.getReportName()
-                                + getFileExtension(mediaType) + "\"")
+                .header("Content-Disposition", "inline; filename=\"" + jasperReport.getReportName() + getFileExtension(mediaType) + "\"")
                 .build();
     }
 
@@ -250,7 +235,5 @@ public class JasperReportApiResource {
         return this.toObjectApiJsonSerializer.serialize(settings, result);
 
     }
-
-
 
 }
