@@ -22,12 +22,16 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepository;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.address.domain.Address;
@@ -75,23 +79,26 @@ public class AddressWritePlatformServiceImpl implements AddressWritePlatformServ
     public CommandProcessingResult addNewClientAddress(final Client client, final JsonCommand command) {
         ClientAddress clientAddress = new ClientAddress();
         final JsonArray addressArray = command.arrayOfParameterNamed("address");
+        if (addressArray == null || addressArray.size() == 0) {
+            final List<ApiParameterError> errors = new ArrayList<>();
+            errors.add(ApiParameterError.parameterError(ClientAddressLocationValidator.VALIDATION_CODE,
+                    ClientAddressLocationValidator.ERROR_MESSAGE, "address"));
+            throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.", errors);
+        }
 
-        if (addressArray != null) {
-            for (int i = 0; i < addressArray.size(); i++) {
-                final JsonObject jsonObject = addressArray.get(i).getAsJsonObject();
+        for (int i = 0; i < addressArray.size(); i++) {
+            final JsonObject jsonObject = addressArray.get(i).getAsJsonObject();
 
-                fromApiJsonDeserializer.validateForCreate(jsonObject.toString(), true);
+            fromApiJsonDeserializer.validateForCreate(jsonObject.toString(), true);
 
-                final long addressTypeId = jsonObject.get("addressTypeId").getAsLong();
-                final CodeValue addressTypeIdCodeValue = codeValueRepository.getReferenceById(addressTypeId);
+            final long addressTypeId = jsonObject.get("addressTypeId").getAsLong();
+            final CodeValue addressTypeIdCodeValue = codeValueRepository.getReferenceById(addressTypeId);
 
-                final Address address = createAddress(jsonObject);
-                addressRepository.save(address);
+            final Address address = createAddress(jsonObject);
+            addressRepository.save(address);
 
-                clientAddress = createClientAddress(client, jsonObject, addressTypeIdCodeValue, address);
-                clientAddressRepository.saveAndFlush(clientAddress);
-
-            }
+            clientAddress = createClientAddress(client, jsonObject, addressTypeIdCodeValue, address);
+            clientAddressRepository.saveAndFlush(clientAddress);
         }
 
         // This is confusing because only the last client address id is returned

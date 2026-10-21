@@ -111,6 +111,7 @@ import org.apache.fineract.portfolio.account.service.AccountAssociationsReadPlat
 import org.apache.fineract.portfolio.account.service.AccountTransfersReadPlatformService;
 import org.apache.fineract.portfolio.account.service.AccountTransfersWritePlatformService;
 import org.apache.fineract.portfolio.accountdetails.domain.AccountType;
+import org.apache.fineract.portfolio.address.service.ClientAddressLocationValidator;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanAcceptTransferBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanAdjustTransactionBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanApplyOverdueChargeBusinessEvent;
@@ -331,6 +332,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final EntityDisbursementDefaultsService entityDisbursementDefaultsService;
     private final PartialWriteOffAuditRepository partialWriteOffAuditRepository;
     private final ResidualLoanAdjustmentAuditRepository residualLoanAdjustmentAuditRepository;
+    private final ClientAddressLocationValidator clientAddressLocationValidator;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -409,6 +411,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
 
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        if (loan.getClient() != null) {
+            this.clientAddressLocationValidator.validateClientHasLocation(loan.getClient().getId());
+        }
 
         this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
 
@@ -4406,6 +4411,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final Map<String, Object> changes = loan.undoApproval(defaultLoanLifecycleStateMachine());
         if (!changes.isEmpty()) {
+
+            // Match undoApplicationApproval: restore schedule/net disbursal when approved amount was reduced (e.g. Final IC).
+            if (changes.containsKey(LoanApiConstants.approvedLoanAmountParameterName)
+                    || changes.containsKey(LoanApiConstants.disbursementPrincipalParameterName)) {
+                final ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, null);
+                loan.regenerateRepaymentSchedule(scheduleGeneratorDTO);
+            }
+            loan.adjustNetDisbursalAmount(loan.getProposedPrincipal());
+            // Final IC may have synced the single undisbursed tranche down; realign to restored approved/proposed.
+            loan.alignUndisbursedTranchesToApprovedPrincipal();
 
             final String noteText = command.stringValueOfParameterNamed("note");
             if (StringUtils.isNotBlank(noteText)) {

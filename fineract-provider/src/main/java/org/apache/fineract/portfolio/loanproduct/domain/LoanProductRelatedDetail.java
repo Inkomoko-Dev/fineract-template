@@ -675,4 +675,12 @@ public class LoanProductRelatedDetail implements LoanProductMinimumRepaymentSche
     public void setNominalInterestRatePerPeriod(BigDecimal nominalInterestRatePerPeriod) {
         this.nominalInterestRatePerPeriod = nominalInterestRatePerPeriod;
     }
+
+    public void updateNominalInterestRate(final BigDecimal nominalInterestRatePerPeriod, final AprCalculator aprCalculator) {
+        if (nominalInterestRatePerPeriod == null || aprCalculator == null) {
+            return;
+        }
+        this.nominalInterestRatePerPeriod = nominalInterestRatePerPeriod;
+        updateInterestRateDerivedFields(aprCalculator);
+    }
 }

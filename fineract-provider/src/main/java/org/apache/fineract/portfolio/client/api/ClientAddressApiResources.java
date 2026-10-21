@@ -62,8 +62,9 @@ import org.springframework.stereotype.Component;
 @Tag(name = "Clients Address", description = "Address module is an optional module and can be configured into the system by using GlobalConfiguration setting: enable-address. In order to activate Address module, we need to enable the configuration, enable-address by setting its value to true.")
 public class ClientAddressApiResources {
 
-    private final Set<String> responseDataParameters = new HashSet<>(Arrays.asList("addressId", "street", "addressLine1", "addressLine2",
-            "addressLine3", "townVillage", "city", "countyDistrict", "stateProvinceId", "countryId", "postalCode", "latitude", "longitude",
+    private final Set<String> responseDataParameters = new HashSet<>(Arrays.asList("addressId", "street", "location", "addressLine1",
+            "addressLine2", "addressLine3", "townVillage", "city", "countyDistrict", "stateProvinceId", "countryId", "postalCode",
+            "latitude", "longitude",
             "createdBy", "createdOn", "updatedBy", "updatedOn", "clientAddressId", "client_id", "address_id", "address_type_id", "isActive",
             "fieldConfigurationId", "entity", "table", "field", "is_enabled", "is_mandatory", "validation_regex"));
     private final String resourceNameForPermissions = "Address";
@@ -102,7 +103,7 @@ public class ClientAddressApiResources {
     @Path("/{clientid}/addresses")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Create an address for a Client", description = "Mandatory Fields : \n" + "type and clientId")
+    @Operation(summary = "Create an address for a Client", description = "Mandatory Fields : \n" + "type, clientId and location")
     @RequestBody(required = true, content = @Content(schema = @Schema(implementation = ClientAddressApiResourcesSwagger.PostClientClientIdAddressesRequest.class)))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = ClientAddressApiResourcesSwagger.PostClientClientIdAddressesResponse.class))) })
@@ -155,7 +156,7 @@ public class ClientAddressApiResources {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Update an address for a Client", description = "All the address fields can be updated by using update client address API\n"
-            + "\n" + "Mandatory Fields\n" + "type and addressId")
+            + "\n" + "Mandatory Fields\n" + "type, addressId and location")
     @RequestBody(required = true, content = @Content(schema = @Schema(implementation = ClientAddressApiResourcesSwagger.PutClientClientIdAddressesRequest.class)))
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = ClientAddressApiResourcesSwagger.PutClientClientIdAddressesResponse.class))) })

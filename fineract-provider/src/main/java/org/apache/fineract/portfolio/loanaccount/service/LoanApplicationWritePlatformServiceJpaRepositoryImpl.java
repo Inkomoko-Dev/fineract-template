@@ -97,6 +97,7 @@ import org.apache.fineract.portfolio.calendar.domain.CalendarInstanceRepository;
 import org.apache.fineract.portfolio.calendar.domain.CalendarRepository;
 import org.apache.fineract.portfolio.calendar.domain.CalendarType;
 import org.apache.fineract.portfolio.calendar.exception.CalendarNotFoundException;
+import org.apache.fineract.portfolio.address.service.ClientAddressLocationValidator;
 import org.apache.fineract.portfolio.calendar.service.CalendarReadPlatformService;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.client.domain.AccountNumberGenerator;
@@ -264,6 +265,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
     private final LoanDueDiligenceInfoRepository loanDueDiligenceInfoRepository;
     private final ClientBankDetailsResolver clientBankDetailsResolver;
+    private final ClientAddressLocationValidator clientAddressLocationValidator;
 
     private LoanLifecycleStateMachine defaultLoanLifecycleStateMachine() {
         final List<LoanStatus> allowedLoanStatuses = Arrays.asList(LoanStatus.values());
@@ -289,6 +291,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             if (clientId != null) {
                 Client client = this.clientRepository.findOneWithNotFoundDetection(clientId);
                 officeSpecificLoanProductValidation(productId, client.getOffice().getId());
+                this.clientAddressLocationValidator.validateClientHasLocation(clientId);
             }
             final Long groupId = this.fromJsonHelper.extractLongNamed("groupId", command.parsedJson());
             if (groupId != null) {
@@ -1565,6 +1568,9 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         LocalDate expectedDisbursementDate = null;
 
         final Loan loan = retrieveLoanBy(loanId);
+        if (loan.getClient() != null) {
+            this.clientAddressLocationValidator.validateClientHasLocation(loan.getClient().getId());
+        }
         final JsonArray disbursementDataArray = command.arrayOfParameterNamed(LoanApiConstants.disbursementDataParameterName);
         if (!loan.loanProduct().isMultiDisburseLoan() && disbursementDataArray != null && disbursementDataArray.size() > 1) {
             throw new PlatformApiDataValidationException("validation.msg.loanapproval.single.disbursement.detail.only",
@@ -2146,6 +2152,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             }
 
             loan.adjustNetDisbursalAmount(loan.getProposedPrincipal());
+            // Match rejectDisbursement: realign undisbursed tranche(s) after approved principal is restored.
+            loan.alignUndisbursedTranchesToApprovedPrincipal();
 
             saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
