@@ -80,9 +80,12 @@ public final class ThreadLocalContextUtil {
         businessDateContext.remove();
         actionContext.remove();
         jobParams.remove();
+        clearJobTrigger();
     }
 
     private static final ThreadLocal<Map<String, Object>> jobParams = new ThreadLocal<>();
+    private static final ThreadLocal<String> jobTriggerType = new ThreadLocal<>();
+    private static final ThreadLocal<Long> jobTriggeredByUserId = new ThreadLocal<>();
 
     // Map is not serializable, but Hashmap is
     public static HashMap<BusinessDateType, LocalDate> getBusinessDates() {
@@ -135,5 +138,23 @@ public final class ThreadLocalContextUtil {
 
     public static Map<String, Object> getJobParams() {
         return jobParams.get();
+    }
+
+    public static void setJobTrigger(final String triggerType, final Long triggeredByUserId) {
+        jobTriggerType.set(triggerType);
+        jobTriggeredByUserId.set(triggeredByUserId);
+    }
+
+    public static String getJobTriggerType() {
+        return jobTriggerType.get();
+    }
+
+    public static Long getJobTriggeredByUserId() {
+        return jobTriggeredByUserId.get();
+    }
+
+    public static void clearJobTrigger() {
+        jobTriggerType.remove();
+        jobTriggeredByUserId.remove();
     }
 }
