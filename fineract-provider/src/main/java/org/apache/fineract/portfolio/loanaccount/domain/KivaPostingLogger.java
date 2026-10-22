@@ -72,6 +72,12 @@ public class KivaPostingLogger extends AbstractAuditableWithUTCDateTimeCustom {
     @Column(name = "date")
     private LocalDate date;
 
+    @Column(name = "trigger_type")
+    private String triggerType;
+
+    @Column(name = "triggered_by_user_id")
+    private Long triggeredByUserId;
+
     public KivaPostingLogger() {}
 
     public KivaPostingLogger(String batchId, Boolean hasPassed, Long loanId, String loanAccountNo, Long clientId, String clientName,
