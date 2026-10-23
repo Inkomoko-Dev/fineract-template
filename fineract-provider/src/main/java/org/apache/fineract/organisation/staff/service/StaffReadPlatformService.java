@@ -29,6 +29,8 @@ public interface StaffReadPlatformService {
 
     Collection<StaffData> retrieveAllLoanOfficersInOfficeById(Long officeId);
 
+    Collection<StaffData> retrieveLoanOfficersServingOffice(Long officeId);
+
     /**
      * returns all staff in offices that are above the provided <code>officeId</code>.
      */

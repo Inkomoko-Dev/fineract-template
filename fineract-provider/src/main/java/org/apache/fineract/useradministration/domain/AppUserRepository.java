@@ -44,4 +44,7 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long>, JpaSpec
             + "WHERE p.code = :permissionCode AND u.enabled = true AND u.deleted = false")
     List<AppUser> findEnabledUsersWithPermission(@Param("permissionCode") String permissionCode);
 
+    @Query("SELECT u FROM AppUser u JOIN u.staff s WHERE u.enabled = true AND u.deleted = false AND s.active = true AND s.loanOfficer = true")
+    List<AppUser> findEnabledUsersLinkedToActiveLoanOfficers();
+
 }

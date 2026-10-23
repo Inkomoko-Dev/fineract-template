@@ -2470,7 +2470,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
         if (staffInSelectedOfficeOnly) {
             // only bring back loan officers in selected branch/office
-            allowedLoanOfficers = this.staffReadPlatformService.retrieveAllLoanOfficersInOfficeById(selectedOfficeId);
+            allowedLoanOfficers = this.staffReadPlatformService.retrieveLoanOfficersServingOffice(selectedOfficeId);
         } else {
             // by default bring back all loan officers in selected
             // branch/office as well as loan officers in officer above

@@ -489,6 +489,11 @@ public class AppUser extends AbstractPersistableCustom implements PlatformUser {
         return OfficeAccessScope.exact(hierarchies);
     }
 
+    public boolean canServeAsLoanOfficerFor(final String officeHierarchy, final boolean strictOfficeScopeEnabled) {
+        return this.staff != null && this.staff.isLoanOfficer() && this.staff.isActive()
+                && officeAccessScope(strictOfficeScopeEnabled).covers(officeHierarchy);
+    }
+
     public void updateAdditionalOffices(final Collection<Office> offices) {
         final Set<AppUserOfficeMapping> newMappings = new HashSet<>();
         if (offices != null) {
