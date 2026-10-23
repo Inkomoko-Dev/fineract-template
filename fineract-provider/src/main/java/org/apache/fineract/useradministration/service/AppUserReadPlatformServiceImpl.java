@@ -122,10 +122,27 @@ public class AppUserReadPlatformServiceImpl implements AppUserReadPlatformServic
            order by u.username
         """;
 
-        return this.jdbcTemplate.query(sql,
-                new AppUserMapper(roleReadPlatformService, staffReadPlatformService), hierarchy, permissionCode);
+        return this.jdbcTemplate.query(sql, new ApproverMapper(roleReadPlatformService), hierarchy, permissionCode);
     }
 
+    private static final class ApproverMapper implements RowMapper<AppUserData> {
+
+        private final RoleReadPlatformService roleReadPlatformService;
+
+        ApproverMapper(final RoleReadPlatformService roleReadPlatformService) {
+            this.roleReadPlatformService = roleReadPlatformService;
+        }
+
+        @Override
+        public AppUserData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
+
+            final Long id = rs.getLong("id");
+            final Collection<RoleData> selectedRoles = this.roleReadPlatformService.retrieveAppUserRoles(id);
+            return AppUserData.instance(id, rs.getString("username"), rs.getString("email"), JdbcSupport.getLong(rs, "officeId"),
+                    rs.getString("officeName"), rs.getString("firstname"), rs.getString("lastname"), null, null, selectedRoles, null,
+                    rs.getBoolean("passwordNeverExpires"), rs.getBoolean("isSelfServiceUser"));
+        }
+    }
 
 
     @Override
