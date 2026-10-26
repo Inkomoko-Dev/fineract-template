@@ -111,6 +111,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.LoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.exception.ExceedingTrancheCountException;
+import org.apache.fineract.portfolio.loanaccount.exception.IncompatibleLoanTermAndFrequencyException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactionTypeException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidRefundDateException;
@@ -127,6 +128,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleD
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.DefaultScheduledDateGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.TrancheDisbursementAfterMaturityException;
@@ -8150,8 +8152,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         if (icReviewTermFrequency != null) {
+            final Integer numberOfRepayments = numberOfRepaymentsForReviewedTerm(icReviewTermFrequency);
             this.termFrequency = icReviewTermFrequency;
-            this.loanRepaymentScheduleDetail.updateNumberOfRepayments(icReviewTermFrequency);
+            this.loanRepaymentScheduleDetail.updateNumberOfRepayments(numberOfRepayments);
             actualChanges.put(LoanApiConstants.icReviewTermFrequency, icReviewTermFrequency);
         }
 
@@ -8162,6 +8165,27 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         return actualChanges;
+    }
+
+    /**
+     * IC review stores the loan term in months. Installment count is that term divided by the repayment interval.
+     * Monthly loans ({@code repayEvery} 1) stay one installment per month. Quarterly and semi-annual loans keep
+     * 3- and 6-month steps instead of treating the term as the installment count.
+     */
+    private Integer numberOfRepaymentsForReviewedTerm(final Integer termFrequency) {
+        final Integer repaymentEvery = this.loanRepaymentScheduleDetail.getRepayEvery();
+        final PeriodFrequencyType frequencyType = this.loanRepaymentScheduleDetail.getRepaymentPeriodFrequencyType();
+        final Integer frequencyTypeValue = frequencyType == null ? null : frequencyType.getValue();
+        if (!LoanRepaymentFrequency.isMonths(frequencyTypeValue) || repaymentEvery == null) {
+            return termFrequency;
+        }
+        LoanRepaymentFrequency.assertCompatibleTerm(termFrequency, repaymentEvery, frequencyTypeValue);
+        final Integer installments = LoanRepaymentFrequency.installmentCount(termFrequency, repaymentEvery);
+        if (installments == null) {
+            throw new IncompatibleLoanTermAndFrequencyException("error.msg.loan.loanTermFrequency.not.a.multiple.of.repayment.interval",
+                    "Loan term must be a multiple of the repayment interval.", termFrequency, repaymentEvery);
+        }
+        return installments;
     }
 
     public void setLoanWithAnotherInstitutionAmount(BigDecimal loanWithAnotherInstitutionAmont) {
