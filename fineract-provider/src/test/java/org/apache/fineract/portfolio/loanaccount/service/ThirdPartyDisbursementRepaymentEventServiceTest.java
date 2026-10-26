@@ -19,20 +19,41 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.security.service.TenantDetailsService;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
+import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.ThirdPartyDisbursementRepaymentEventRepository;
+import org.apache.fineract.portfolio.loanproduct.event.DisbursementPartnerWebhookPublisher;
+import org.apache.fineract.useradministration.domain.AppUser;
+import org.apache.fineract.useradministration.domain.AppUserRepositoryWrapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 class ThirdPartyDisbursementRepaymentEventServiceTest {
 
@@ -40,6 +61,9 @@ class ThirdPartyDisbursementRepaymentEventServiceTest {
 
     @Test
     void eventPayloadIncludesLoanExternalId() {
+        ReflectionTestUtils.setField(MoneyHelper.class, "roundingMode", RoundingMode.HALF_EVEN);
+        ReflectionTestUtils.setField(MoneyHelper.class, "mathContext", new MathContext(12, RoundingMode.HALF_EVEN));
+
         final Loan loan = mock(Loan.class);
         when(loan.getId()).thenReturn(501L);
         when(loan.getAccountNumber()).thenReturn("000000501");
@@ -75,5 +99,45 @@ class ThirdPartyDisbursementRepaymentEventServiceTest {
         assertTrue(payload.get("amount").getAsBigDecimal().compareTo(new BigDecimal("1500.00")) == 0);
         assertEquals("2026-10-02", payload.get("transactionDate").getAsString());
         assertEquals(false, payload.get("reversed").getAsBoolean());
+    }
+
+    @Test
+    void deliverPendingAuthenticatesAsSystemUserThenClearsContext() {
+        SecurityContextHolder.clearContext();
+        ThreadLocalContextUtil.clearTenant();
+
+        final AppUser systemUser = mock(AppUser.class);
+        when(systemUser.getPassword()).thenReturn("secret");
+        when(systemUser.getAuthorities()).thenReturn(Collections.emptyList());
+
+        final AppUserRepositoryWrapper users = mock(AppUserRepositoryWrapper.class);
+        when(users.fetchSystemUser()).thenAnswer(invocation -> {
+            assertEquals("default", ThreadLocalContextUtil.getTenant().getTenantIdentifier());
+            return systemUser;
+        });
+
+        final TenantDetailsService tenants = mock(TenantDetailsService.class);
+        when(tenants.findAllTenants())
+                .thenReturn(List.of(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null)));
+
+        final ThirdPartyDisbursementRepaymentEventRepository events = mock(ThirdPartyDisbursementRepaymentEventRepository.class);
+        when(events.findPending(any())).thenReturn(Collections.emptyList());
+
+        final AtomicReference<Object> principalDuringDelivery = new AtomicReference<>();
+        final PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        when(transactionManager.getTransaction(any())).thenAnswer(invocation -> {
+            principalDuringDelivery.set(SecurityContextHolder.getContext().getAuthentication().getPrincipal());
+            return mock(TransactionStatus.class);
+        });
+
+        final ThirdPartyDisbursementRepaymentEventService service = new ThirdPartyDisbursementRepaymentEventService(
+                mock(BusinessEventNotifierService.class), events, mock(DisbursementPartnerWebhookPublisher.class), tenants,
+                new TransactionTemplate(transactionManager), users);
+
+        service.deliverPending();
+
+        assertSame(systemUser, principalDuringDelivery.get());
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        assertNull(ThreadLocalContextUtil.getTenant());
     }
 }
