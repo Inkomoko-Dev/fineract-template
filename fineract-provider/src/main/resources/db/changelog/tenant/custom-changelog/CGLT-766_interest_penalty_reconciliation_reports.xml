@@ -2064,4 +2064,2445 @@ order by 1, 2, 3]]></column>
             <where>report_name = 'Interest and Penalty Received - GL Summary'</where>
         </update>
     </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-1-param-startDate" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report_parameter rp JOIN stretchy_report r ON r.id = rp.report_id JOIN stretchy_parameter p ON p.id = rp.parameter_id WHERE r.report_name = 'Interest and Penalty Receivable - Loan Summary' AND p.parameter_name = 'startDateSelect'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Receivable - Loan Summary')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'startDateSelect')"/>
+            <column name="report_parameter_name" value="startDate"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-1" author="wmnjugunaink">
+        <update tableName="stretchy_report">
+            <column name="description" value="Per loan for the period: opening interest and penalty receivable, accruals and charges, accrual and receipt reversals, net receipts, waivers, write-offs and adjustments, closing receivable (penalty on charged and on accrual basis), the receivable GL balances, GL and posting variances and a balance validation status."/>
+            <column name="report_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name,
+        max(case when m.financial_account_type = 7 then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = 9 then m.gl_account_id end) as pen_gl
+    from m_product_loan p
+    join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where p.accounting_type in (3, 4)
+        and (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.disbursedon_date,
+        case when l.closedon_date <= '${asOn}' then l.closedon_date end as closedon_date,
+        case l.loan_status_id when 300 then 'Active' when 600 then 'Closed' when 601 then 'Written Off' when 602 then 'Rescheduled'
+            when 700 then 'Overpaid' else cast(l.loan_status_id as char) end as loan_status,
+        coalesce(l.total_overpaid_derived, 0) as total_overpaid,
+        l.client_id, coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, pr.product_name, pr.int_gl, pr.pen_gl
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and l.disbursedon_date is not null
+        and l.disbursedon_date <= '${asOn}'
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date as event_date, t.transaction_type_enum as tt, t.is_reversed,
+        case
+            when t.transaction_type_enum = 10 then 'Accrual'
+            when t.transaction_type_enum in (2, 5, 8, 17, 28) then 'Receipt'
+            when t.transaction_type_enum in (4, 9) then 'Waiver'
+            when t.transaction_type_enum in (6, 31) then 'Write-off'
+            when t.transaction_type_enum = 33 then 'Write-off Reversal'
+            when t.transaction_type_enum = 32 then 'Residual Adjustment'
+            when t.transaction_type_enum = 30 then 'Interest Cancellation'
+        end as category,
+        if(t.transaction_type_enum = 30, 0, coalesce(t.interest_portion_derived, 0)) as int_amt,
+        if(t.transaction_type_enum = 30, coalesce(t.interest_portion_derived, 0), 0) as int_cancelled_amt,
+        case when t.transaction_type_enum = 4 and t.interest_portion_derived is null then t.amount else 0 end as int_unposted,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt,
+        case when t.transaction_type_enum = 9 and t.penalty_charges_portion_derived is null then coalesce((
+            select sum(cpb.amount)
+            from m_loan_charge_paid_by cpb
+            join m_loan_charge lc on lc.id = cpb.loan_charge_id
+            where cpb.loan_transaction_id = t.id and lc.is_penalty = 1), 0) else 0 end as pen_unposted
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    where t.transaction_type_enum in (2, 4, 5, 6, 8, 9, 10, 17, 28, 30, 31, 32, 33)
+        and t.transaction_date <= '${asOn}'
+),
+chg as (
+    select lc.id as charge_id, lc.loan_id, lc.due_for_collection_as_of_date as event_date, lc.amount,
+        if(lc.due_for_collection_as_of_date >= '${startDate}', 1, 0) as in_period
+    from ln
+    join m_loan_charge lc on lc.loan_id = ln.loan_id
+    where lc.is_penalty = 1 and lc.is_active = 1 and lc.due_for_collection_as_of_date <= '${asOn}'
+),
+mv0 as (
+    select e.*,
+        case when e.category = 'Accrual' then e.int_amt else 0 end as int_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.int_amt else 0 end as int_accrual_rev,
+        case when e.category = 'Receipt' then e.int_amt else 0 end as int_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.int_amt else 0 end as int_receipt_rev,
+        case when e.category = 'Waiver' then e.int_amt + e.int_unposted else 0 end as int_waived,
+        case when e.category = 'Write-off' then e.int_amt else 0 end as int_written_off,
+        case when e.category = 'Residual Adjustment' then e.int_amt else 0 end as int_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.int_amt + e.int_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.int_amt else 0 end as int_relief_rev,
+        case when e.is_reversed = 0 then e.int_unposted else 0 end as int_waived_unposted,
+        case when e.is_reversed = 0 then e.int_cancelled_amt else 0 end as int_cancelled,
+        case when e.category = 'Accrual' then e.pen_amt else 0 end as pen_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_accrual_rev,
+        case when e.category = 'Receipt' then e.pen_amt else 0 end as pen_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_receipt_rev,
+        case when e.category = 'Waiver' then e.pen_amt + e.pen_unposted else 0 end as pen_waived,
+        case when e.category = 'Write-off' then e.pen_amt else 0 end as pen_written_off,
+        case when e.category = 'Residual Adjustment' then e.pen_amt else 0 end as pen_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.pen_amt + e.pen_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.pen_amt else 0 end as pen_relief_rev,
+        case when e.is_reversed = 0 then e.pen_unposted else 0 end as pen_waived_unposted
+    from tx e
+),
+mv as (
+    select m.*,
+        m.int_accrued - m.int_accrual_rev - m.int_received + m.int_receipt_rev - m.int_waived - m.int_written_off - m.int_adjusted + m.int_relief_rev as int_mv,
+        -m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv,
+        m.pen_accrued - m.pen_accrual_rev - m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv_posted,
+        if(m.event_date >= '${startDate}', 1, 0) as in_period
+    from mv0 m
+),
+gl as (
+    select je.loan_transaction_id as txn_id, t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.transaction_id) as je_ref,
+        min(je.entry_date) as gl_date
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by je.loan_transaction_id, t.loan_id
+),
+gl_loan as (
+    select t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        sum(case when je.account_id = ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int_open,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen_open,
+        sum(case when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date < '${startDate}' and je.entry_date >= '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount)
+            when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date >= '${startDate}' and je.entry_date < '${startDate}' then if(je.type_enum = 2, -je.amount, je.amount)
+            else 0 end) as gl_timing
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by t.loan_id
+),
+s_loan as (
+    select ln.loan_id, ln.total_overpaid,
+        coalesce(a.txn_count, 0) as txn_count, a.last_txn_id,
+        coalesce(a.int_open, 0) as int_open, coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) as pen_open, coalesce(a.pen_open_posted, 0) as pen_open_posted,
+        coalesce(a.int_accrued, 0) as int_accrued, coalesce(a.int_accrual_rev, 0) as int_accrual_rev,
+        coalesce(a.int_received, 0) as int_received, coalesce(a.int_receipt_rev, 0) as int_receipt_rev,
+        coalesce(a.int_waived, 0) as int_waived, coalesce(a.int_written_off, 0) as int_written_off,
+        coalesce(a.int_adjusted, 0) as int_adjusted, coalesce(a.int_relief_rev, 0) as int_relief_rev,
+        coalesce(a.int_waived_unposted, 0) as int_waived_unposted, coalesce(a.int_cancelled, 0) as int_cancelled,
+        coalesce(c.pen_charged, 0) as pen_charged, coalesce(a.pen_accrued, 0) as pen_accrued, coalesce(a.pen_accrual_rev, 0) as pen_accrual_rev,
+        coalesce(a.pen_received, 0) as pen_received, coalesce(a.pen_receipt_rev, 0) as pen_receipt_rev,
+        coalesce(a.pen_waived, 0) as pen_waived, coalesce(a.pen_written_off, 0) as pen_written_off,
+        coalesce(a.pen_adjusted, 0) as pen_adjusted, coalesce(a.pen_relief_rev, 0) as pen_relief_rev,
+        coalesce(a.pen_waived_unposted, 0) as pen_waived_unposted,
+        coalesce(a.int_open, 0) + coalesce(a.int_mv, 0) as int_close,
+        coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) + coalesce(c.pen_charged, 0) + coalesce(a.pen_mv, 0) as pen_close,
+        coalesce(a.pen_open_posted, 0) + coalesce(a.pen_mv_posted, 0) as pen_close_posted,
+        coalesce(a.c_int_accrued_net, 0) as c_int_accrued_net, coalesce(a.c_int_received_net, 0) as c_int_received_net,
+        coalesce(c.c_pen_charged, 0) as c_pen_charged, coalesce(a.c_pen_accrued_net, 0) as c_pen_accrued_net,
+        coalesce(a.c_pen_received_net, 0) as c_pen_received_net, coalesce(a.c_pen_waived, 0) as c_pen_waived,
+        coalesce(a.c_unposted, 0) as c_unposted,
+        coalesce(g.gl_int, 0) as gl_int, coalesce(g.gl_pen, 0) as gl_pen,
+        coalesce(g.gl_int_open, 0) as gl_int_open, coalesce(g.gl_pen_open, 0) as gl_pen_open, coalesce(g.gl_timing, 0) as gl_timing
+    from ln
+    left join (
+        select g0.loan_id,
+            sum(if(g0.in_period = 1, g0.txn_count, 0)) as txn_count,
+            max(if(g0.in_period = 1, g0.last_txn_id, null)) as last_txn_id,
+            sum(if(g0.in_period = 0, g0.int_mv, 0)) as int_open,
+            sum(if(g0.in_period = 0, g0.pen_mv, 0)) as pen_open,
+            sum(if(g0.in_period = 0, g0.pen_mv_posted, 0)) as pen_open_posted,
+            sum(if(g0.in_period = 1, g0.int_accrued, 0)) as int_accrued,
+            sum(if(g0.in_period = 1, g0.int_accrual_rev, 0)) as int_accrual_rev,
+            sum(if(g0.in_period = 1, g0.int_received, 0)) as int_received,
+            sum(if(g0.in_period = 1, g0.int_receipt_rev, 0)) as int_receipt_rev,
+            sum(if(g0.in_period = 1, g0.int_waived, 0)) as int_waived,
+            sum(if(g0.in_period = 1, g0.int_written_off, 0)) as int_written_off,
+            sum(if(g0.in_period = 1, g0.int_adjusted, 0)) as int_adjusted,
+            sum(if(g0.in_period = 1, g0.int_relief_rev, 0)) as int_relief_rev,
+            sum(if(g0.in_period = 1, g0.int_waived_unposted, 0)) as int_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_cancelled, 0)) as int_cancelled,
+            sum(if(g0.in_period = 1, g0.pen_accrued, 0)) as pen_accrued,
+            sum(if(g0.in_period = 1, g0.pen_accrual_rev, 0)) as pen_accrual_rev,
+            sum(if(g0.in_period = 1, g0.pen_received, 0)) as pen_received,
+            sum(if(g0.in_period = 1, g0.pen_receipt_rev, 0)) as pen_receipt_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived, 0)) as pen_waived,
+            sum(if(g0.in_period = 1, g0.pen_written_off, 0)) as pen_written_off,
+            sum(if(g0.in_period = 1, g0.pen_adjusted, 0)) as pen_adjusted,
+            sum(if(g0.in_period = 1, g0.pen_relief_rev, 0)) as pen_relief_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived_unposted, 0)) as pen_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_mv, 0)) as int_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv, 0)) as pen_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv_posted, 0)) as pen_mv_posted,
+            sum(g0.int_accrued - g0.int_accrual_rev) as c_int_accrued_net,
+            sum(g0.int_received - g0.int_receipt_rev) as c_int_received_net,
+            sum(g0.pen_accrued - g0.pen_accrual_rev) as c_pen_accrued_net,
+            sum(g0.pen_received - g0.pen_receipt_rev) as c_pen_received_net,
+            sum(g0.pen_waived) as c_pen_waived,
+            sum(g0.int_waived_unposted + g0.pen_waived_unposted) as c_unposted
+        from (
+            select m.loan_id, m.in_period, count(*) as txn_count, max(m.txn_id) as last_txn_id,
+                sum(m.int_accrued) as int_accrued, sum(m.int_accrual_rev) as int_accrual_rev,
+                sum(m.int_received) as int_received, sum(m.int_receipt_rev) as int_receipt_rev,
+                sum(m.int_waived) as int_waived, sum(m.int_written_off) as int_written_off,
+                sum(m.int_adjusted) as int_adjusted, sum(m.int_relief_rev) as int_relief_rev,
+                sum(m.int_waived_unposted) as int_waived_unposted, sum(m.int_cancelled) as int_cancelled,
+                sum(m.pen_accrued) as pen_accrued, sum(m.pen_accrual_rev) as pen_accrual_rev,
+                sum(m.pen_received) as pen_received, sum(m.pen_receipt_rev) as pen_receipt_rev,
+                sum(m.pen_waived) as pen_waived, sum(m.pen_written_off) as pen_written_off,
+                sum(m.pen_adjusted) as pen_adjusted, sum(m.pen_relief_rev) as pen_relief_rev,
+                sum(m.pen_waived_unposted) as pen_waived_unposted,
+                sum(m.int_mv) as int_mv, sum(m.pen_mv) as pen_mv, sum(m.pen_mv_posted) as pen_mv_posted
+            from mv m
+            group by m.loan_id, m.in_period
+        ) g0
+        group by g0.loan_id
+    ) a on a.loan_id = ln.loan_id
+    left join (
+        select ch.loan_id, sum(if(ch.in_period = 1, ch.amount, 0)) as pen_charged, sum(if(ch.in_period = 0, ch.amount, 0)) as pen_charged_open, sum(ch.amount) as c_pen_charged
+        from chg ch
+        group by ch.loan_id
+    ) c on c.loan_id = ln.loan_id
+    left join gl_loan g on g.loan_id = ln.loan_id
+),
+sl as (
+    select s.*,
+        s.pen_close - s.pen_close_posted as accrual_gap,
+        s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen as posting_var,
+        s.int_close + s.pen_close - s.gl_int - s.gl_pen as gl_var,
+        coalesce(nullif(concat_ws('; ',
+            case when s.int_close < -0.005 then concat('NEGATIVE INTEREST RECEIVABLE (',
+                case when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_int_received_net > s.c_int_accrued_net + 0.005 then 'receipts exceed accruals'
+                    else 'waivers/write-offs exceed accruals' end, ')') end,
+            case when s.pen_close < -0.005 then concat('NEGATIVE PENALTY RECEIVABLE (',
+                case when s.c_pen_charged < 0.005 and s.c_pen_waived > 0.005 then 'waiver without charge'
+                    when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_pen_received_net > s.c_pen_charged + 0.005 then 'receipts exceed charges'
+                    else 'waivers/write-offs exceed charges' end, ')') end,
+            case when s.pen_close - s.pen_close_posted > 0.005 then 'PENALTY CHARGED NOT ACCRUED'
+                when s.pen_close - s.pen_close_posted < -0.005 then 'PENALTY ACCRUED EXCEEDS CHARGED' end,
+            case when s.c_unposted > 0.005 then 'WAIVER NOT POSTED' end,
+            case when abs(s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen + s.c_unposted) >= 0.005 then 'POSTING VARIANCE' end,
+            case when abs(s.gl_timing) >= 0.005 then 'GL TIMING DIFFERENCE' end
+        ), ''), 'OK') as validation_status
+    from s_loan s
+    limit 18446744073709551615
+)
+select
+    '${startDate}' as `From`,
+    '${asOn}' as `Cut-off Date`,
+    ln.office_name as `Office`,
+    ln.client_id as `Client ID`,
+    ln.client_name as `Client Name`,
+    ln.loan_id as `Loan ID`,
+    ln.account_no as `Loan Account No`,
+    ln.product_name as `Product`,
+    ln.currency_code as `Currency`,
+    ln.loan_status as `Loan Status`,
+    ln.disbursedon_date as `Disbursement Date`,
+    ln.closedon_date as `Closure Date`,
+    s.txn_count as `Transactions`,
+    s.last_txn_id as `Last Transaction ID`,
+    round(s.int_open, 2) as `Opening Interest Receivable`,
+    round(s.int_accrued, 2) as `Interest Accrued`,
+    round(s.int_accrual_rev, 2) as `Interest Accrual Reversals`,
+    round(s.int_received, 2) as `Interest Received`,
+    round(s.int_receipt_rev, 2) as `Interest Receipt Reversals`,
+    round(s.int_received - s.int_receipt_rev, 2) as `Net Interest Received`,
+    round(s.int_waived, 2) as `Interest Waived`,
+    round(s.int_written_off, 2) as `Interest Written Off`,
+    round(s.int_adjusted, 2) as `Interest Adjustments`,
+    round(s.int_relief_rev, 2) as `Interest Waiver/Write-off Reversals`,
+    round(s.int_close, 2) as `Closing Interest Receivable`,
+    round(s.int_waived_unposted, 2) as `Interest Waived - Not Posted`,
+    round(s.int_cancelled, 2) as `Interest Cancelled - Not Accrued`,
+    round(s.pen_open, 2) as `Opening Penalty Receivable`,
+    round(s.pen_open_posted, 2) as `Opening Penalty Receivable (Accrual Basis)`,
+    round(s.pen_charged, 2) as `Penalty Charged`,
+    round(s.pen_accrued, 2) as `Penalty Accrued`,
+    round(s.pen_accrual_rev, 2) as `Penalty Accrual Reversals`,
+    round(s.pen_received, 2) as `Penalty Received`,
+    round(s.pen_receipt_rev, 2) as `Penalty Receipt Reversals`,
+    round(s.pen_received - s.pen_receipt_rev, 2) as `Net Penalty Received`,
+    round(s.pen_waived, 2) as `Penalty Waived`,
+    round(s.pen_written_off, 2) as `Penalty Written Off`,
+    round(s.pen_adjusted, 2) as `Penalty Adjustments`,
+    round(s.pen_relief_rev, 2) as `Penalty Waiver/Write-off Reversals`,
+    round(s.pen_close, 2) as `Closing Penalty Receivable`,
+    round(s.pen_close_posted, 2) as `Closing Penalty Receivable (Accrual Basis)`,
+    round(s.accrual_gap, 2) as `Penalty Accrual Gap`,
+    round(s.pen_waived_unposted, 2) as `Penalty Waived - Not Posted`,
+    round(s.int_close + s.pen_close, 2) as `Combined Subledger Balance`,
+    ig.gl_code as `Interest Receivable GL`,
+    round(s.gl_int, 2) as `GL Interest Receivable Balance`,
+    if(ln.pen_gl = ln.int_gl, 'Shared with interest', pg.gl_code) as `Penalty Receivable GL`,
+    round(s.gl_pen, 2) as `GL Penalty Receivable Balance`,
+    round(s.gl_int_open + s.gl_pen_open, 2) as `Combined GL Opening Balance`,
+    round(s.gl_timing, 2) as `GL Timing Differences`,
+    round(s.gl_int + s.gl_pen, 2) as `Combined GL Balance`,
+    round(if(ln.pen_gl = ln.int_gl, s.int_close + s.pen_close, s.int_close) - s.gl_int, 2) as `Interest GL Variance`,
+    if(ln.pen_gl = ln.int_gl, null, round(s.pen_close - s.gl_pen, 2)) as `Penalty GL Variance`,
+    round(s.gl_var, 2) as `GL Variance (Subledger - GL)`,
+    round(s.posting_var, 2) as `Posting Variance`,
+    s.validation_status as `Balance Validation Status`
+from sl s
+join ln on ln.loan_id = s.loan_id
+left join acc_gl_account ig on ig.id = ln.int_gl
+left join acc_gl_account pg on pg.id = ln.pen_gl
+order by ln.loan_id
+limit ${limit} offset ${offset}]]></column>
+            <where>report_name = 'Interest and Penalty Receivable - Loan Summary'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-1-count" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="stretchy_report" columnName="report_count_sql"/>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_count_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name,
+        max(case when m.financial_account_type = 7 then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = 9 then m.gl_account_id end) as pen_gl
+    from m_product_loan p
+    join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where p.accounting_type in (3, 4)
+        and (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.disbursedon_date,
+        case when l.closedon_date <= '${asOn}' then l.closedon_date end as closedon_date,
+        case l.loan_status_id when 300 then 'Active' when 600 then 'Closed' when 601 then 'Written Off' when 602 then 'Rescheduled'
+            when 700 then 'Overpaid' else cast(l.loan_status_id as char) end as loan_status,
+        coalesce(l.total_overpaid_derived, 0) as total_overpaid,
+        l.client_id, coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, pr.product_name, pr.int_gl, pr.pen_gl
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and l.disbursedon_date is not null
+        and l.disbursedon_date <= '${asOn}'
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date as event_date, t.transaction_type_enum as tt, t.is_reversed,
+        case
+            when t.transaction_type_enum = 10 then 'Accrual'
+            when t.transaction_type_enum in (2, 5, 8, 17, 28) then 'Receipt'
+            when t.transaction_type_enum in (4, 9) then 'Waiver'
+            when t.transaction_type_enum in (6, 31) then 'Write-off'
+            when t.transaction_type_enum = 33 then 'Write-off Reversal'
+            when t.transaction_type_enum = 32 then 'Residual Adjustment'
+            when t.transaction_type_enum = 30 then 'Interest Cancellation'
+        end as category,
+        if(t.transaction_type_enum = 30, 0, coalesce(t.interest_portion_derived, 0)) as int_amt,
+        if(t.transaction_type_enum = 30, coalesce(t.interest_portion_derived, 0), 0) as int_cancelled_amt,
+        case when t.transaction_type_enum = 4 and t.interest_portion_derived is null then t.amount else 0 end as int_unposted,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt,
+        case when t.transaction_type_enum = 9 and t.penalty_charges_portion_derived is null then coalesce((
+            select sum(cpb.amount)
+            from m_loan_charge_paid_by cpb
+            join m_loan_charge lc on lc.id = cpb.loan_charge_id
+            where cpb.loan_transaction_id = t.id and lc.is_penalty = 1), 0) else 0 end as pen_unposted
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    where t.transaction_type_enum in (2, 4, 5, 6, 8, 9, 10, 17, 28, 30, 31, 32, 33)
+        and t.transaction_date <= '${asOn}'
+),
+chg as (
+    select lc.id as charge_id, lc.loan_id, lc.due_for_collection_as_of_date as event_date, lc.amount,
+        if(lc.due_for_collection_as_of_date >= '${startDate}', 1, 0) as in_period
+    from ln
+    join m_loan_charge lc on lc.loan_id = ln.loan_id
+    where lc.is_penalty = 1 and lc.is_active = 1 and lc.due_for_collection_as_of_date <= '${asOn}'
+),
+mv0 as (
+    select e.*,
+        case when e.category = 'Accrual' then e.int_amt else 0 end as int_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.int_amt else 0 end as int_accrual_rev,
+        case when e.category = 'Receipt' then e.int_amt else 0 end as int_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.int_amt else 0 end as int_receipt_rev,
+        case when e.category = 'Waiver' then e.int_amt + e.int_unposted else 0 end as int_waived,
+        case when e.category = 'Write-off' then e.int_amt else 0 end as int_written_off,
+        case when e.category = 'Residual Adjustment' then e.int_amt else 0 end as int_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.int_amt + e.int_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.int_amt else 0 end as int_relief_rev,
+        case when e.is_reversed = 0 then e.int_unposted else 0 end as int_waived_unposted,
+        case when e.is_reversed = 0 then e.int_cancelled_amt else 0 end as int_cancelled,
+        case when e.category = 'Accrual' then e.pen_amt else 0 end as pen_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_accrual_rev,
+        case when e.category = 'Receipt' then e.pen_amt else 0 end as pen_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_receipt_rev,
+        case when e.category = 'Waiver' then e.pen_amt + e.pen_unposted else 0 end as pen_waived,
+        case when e.category = 'Write-off' then e.pen_amt else 0 end as pen_written_off,
+        case when e.category = 'Residual Adjustment' then e.pen_amt else 0 end as pen_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.pen_amt + e.pen_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.pen_amt else 0 end as pen_relief_rev,
+        case when e.is_reversed = 0 then e.pen_unposted else 0 end as pen_waived_unposted
+    from tx e
+),
+mv as (
+    select m.*,
+        m.int_accrued - m.int_accrual_rev - m.int_received + m.int_receipt_rev - m.int_waived - m.int_written_off - m.int_adjusted + m.int_relief_rev as int_mv,
+        -m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv,
+        m.pen_accrued - m.pen_accrual_rev - m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv_posted,
+        if(m.event_date >= '${startDate}', 1, 0) as in_period
+    from mv0 m
+),
+gl as (
+    select je.loan_transaction_id as txn_id, t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.transaction_id) as je_ref,
+        min(je.entry_date) as gl_date
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by je.loan_transaction_id, t.loan_id
+),
+gl_loan as (
+    select t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        sum(case when je.account_id = ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int_open,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen_open,
+        sum(case when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date < '${startDate}' and je.entry_date >= '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount)
+            when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date >= '${startDate}' and je.entry_date < '${startDate}' then if(je.type_enum = 2, -je.amount, je.amount)
+            else 0 end) as gl_timing
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by t.loan_id
+),
+s_loan as (
+    select ln.loan_id, ln.total_overpaid,
+        coalesce(a.txn_count, 0) as txn_count, a.last_txn_id,
+        coalesce(a.int_open, 0) as int_open, coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) as pen_open, coalesce(a.pen_open_posted, 0) as pen_open_posted,
+        coalesce(a.int_accrued, 0) as int_accrued, coalesce(a.int_accrual_rev, 0) as int_accrual_rev,
+        coalesce(a.int_received, 0) as int_received, coalesce(a.int_receipt_rev, 0) as int_receipt_rev,
+        coalesce(a.int_waived, 0) as int_waived, coalesce(a.int_written_off, 0) as int_written_off,
+        coalesce(a.int_adjusted, 0) as int_adjusted, coalesce(a.int_relief_rev, 0) as int_relief_rev,
+        coalesce(a.int_waived_unposted, 0) as int_waived_unposted, coalesce(a.int_cancelled, 0) as int_cancelled,
+        coalesce(c.pen_charged, 0) as pen_charged, coalesce(a.pen_accrued, 0) as pen_accrued, coalesce(a.pen_accrual_rev, 0) as pen_accrual_rev,
+        coalesce(a.pen_received, 0) as pen_received, coalesce(a.pen_receipt_rev, 0) as pen_receipt_rev,
+        coalesce(a.pen_waived, 0) as pen_waived, coalesce(a.pen_written_off, 0) as pen_written_off,
+        coalesce(a.pen_adjusted, 0) as pen_adjusted, coalesce(a.pen_relief_rev, 0) as pen_relief_rev,
+        coalesce(a.pen_waived_unposted, 0) as pen_waived_unposted,
+        coalesce(a.int_open, 0) + coalesce(a.int_mv, 0) as int_close,
+        coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) + coalesce(c.pen_charged, 0) + coalesce(a.pen_mv, 0) as pen_close,
+        coalesce(a.pen_open_posted, 0) + coalesce(a.pen_mv_posted, 0) as pen_close_posted,
+        coalesce(a.c_int_accrued_net, 0) as c_int_accrued_net, coalesce(a.c_int_received_net, 0) as c_int_received_net,
+        coalesce(c.c_pen_charged, 0) as c_pen_charged, coalesce(a.c_pen_accrued_net, 0) as c_pen_accrued_net,
+        coalesce(a.c_pen_received_net, 0) as c_pen_received_net, coalesce(a.c_pen_waived, 0) as c_pen_waived,
+        coalesce(a.c_unposted, 0) as c_unposted,
+        coalesce(g.gl_int, 0) as gl_int, coalesce(g.gl_pen, 0) as gl_pen,
+        coalesce(g.gl_int_open, 0) as gl_int_open, coalesce(g.gl_pen_open, 0) as gl_pen_open, coalesce(g.gl_timing, 0) as gl_timing
+    from ln
+    left join (
+        select g0.loan_id,
+            sum(if(g0.in_period = 1, g0.txn_count, 0)) as txn_count,
+            max(if(g0.in_period = 1, g0.last_txn_id, null)) as last_txn_id,
+            sum(if(g0.in_period = 0, g0.int_mv, 0)) as int_open,
+            sum(if(g0.in_period = 0, g0.pen_mv, 0)) as pen_open,
+            sum(if(g0.in_period = 0, g0.pen_mv_posted, 0)) as pen_open_posted,
+            sum(if(g0.in_period = 1, g0.int_accrued, 0)) as int_accrued,
+            sum(if(g0.in_period = 1, g0.int_accrual_rev, 0)) as int_accrual_rev,
+            sum(if(g0.in_period = 1, g0.int_received, 0)) as int_received,
+            sum(if(g0.in_period = 1, g0.int_receipt_rev, 0)) as int_receipt_rev,
+            sum(if(g0.in_period = 1, g0.int_waived, 0)) as int_waived,
+            sum(if(g0.in_period = 1, g0.int_written_off, 0)) as int_written_off,
+            sum(if(g0.in_period = 1, g0.int_adjusted, 0)) as int_adjusted,
+            sum(if(g0.in_period = 1, g0.int_relief_rev, 0)) as int_relief_rev,
+            sum(if(g0.in_period = 1, g0.int_waived_unposted, 0)) as int_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_cancelled, 0)) as int_cancelled,
+            sum(if(g0.in_period = 1, g0.pen_accrued, 0)) as pen_accrued,
+            sum(if(g0.in_period = 1, g0.pen_accrual_rev, 0)) as pen_accrual_rev,
+            sum(if(g0.in_period = 1, g0.pen_received, 0)) as pen_received,
+            sum(if(g0.in_period = 1, g0.pen_receipt_rev, 0)) as pen_receipt_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived, 0)) as pen_waived,
+            sum(if(g0.in_period = 1, g0.pen_written_off, 0)) as pen_written_off,
+            sum(if(g0.in_period = 1, g0.pen_adjusted, 0)) as pen_adjusted,
+            sum(if(g0.in_period = 1, g0.pen_relief_rev, 0)) as pen_relief_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived_unposted, 0)) as pen_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_mv, 0)) as int_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv, 0)) as pen_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv_posted, 0)) as pen_mv_posted,
+            sum(g0.int_accrued - g0.int_accrual_rev) as c_int_accrued_net,
+            sum(g0.int_received - g0.int_receipt_rev) as c_int_received_net,
+            sum(g0.pen_accrued - g0.pen_accrual_rev) as c_pen_accrued_net,
+            sum(g0.pen_received - g0.pen_receipt_rev) as c_pen_received_net,
+            sum(g0.pen_waived) as c_pen_waived,
+            sum(g0.int_waived_unposted + g0.pen_waived_unposted) as c_unposted
+        from (
+            select m.loan_id, m.in_period, count(*) as txn_count, max(m.txn_id) as last_txn_id,
+                sum(m.int_accrued) as int_accrued, sum(m.int_accrual_rev) as int_accrual_rev,
+                sum(m.int_received) as int_received, sum(m.int_receipt_rev) as int_receipt_rev,
+                sum(m.int_waived) as int_waived, sum(m.int_written_off) as int_written_off,
+                sum(m.int_adjusted) as int_adjusted, sum(m.int_relief_rev) as int_relief_rev,
+                sum(m.int_waived_unposted) as int_waived_unposted, sum(m.int_cancelled) as int_cancelled,
+                sum(m.pen_accrued) as pen_accrued, sum(m.pen_accrual_rev) as pen_accrual_rev,
+                sum(m.pen_received) as pen_received, sum(m.pen_receipt_rev) as pen_receipt_rev,
+                sum(m.pen_waived) as pen_waived, sum(m.pen_written_off) as pen_written_off,
+                sum(m.pen_adjusted) as pen_adjusted, sum(m.pen_relief_rev) as pen_relief_rev,
+                sum(m.pen_waived_unposted) as pen_waived_unposted,
+                sum(m.int_mv) as int_mv, sum(m.pen_mv) as pen_mv, sum(m.pen_mv_posted) as pen_mv_posted
+            from mv m
+            group by m.loan_id, m.in_period
+        ) g0
+        group by g0.loan_id
+    ) a on a.loan_id = ln.loan_id
+    left join (
+        select ch.loan_id, sum(if(ch.in_period = 1, ch.amount, 0)) as pen_charged, sum(if(ch.in_period = 0, ch.amount, 0)) as pen_charged_open, sum(ch.amount) as c_pen_charged
+        from chg ch
+        group by ch.loan_id
+    ) c on c.loan_id = ln.loan_id
+    left join gl_loan g on g.loan_id = ln.loan_id
+),
+sl as (
+    select s.*,
+        s.pen_close - s.pen_close_posted as accrual_gap,
+        s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen as posting_var,
+        s.int_close + s.pen_close - s.gl_int - s.gl_pen as gl_var,
+        coalesce(nullif(concat_ws('; ',
+            case when s.int_close < -0.005 then concat('NEGATIVE INTEREST RECEIVABLE (',
+                case when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_int_received_net > s.c_int_accrued_net + 0.005 then 'receipts exceed accruals'
+                    else 'waivers/write-offs exceed accruals' end, ')') end,
+            case when s.pen_close < -0.005 then concat('NEGATIVE PENALTY RECEIVABLE (',
+                case when s.c_pen_charged < 0.005 and s.c_pen_waived > 0.005 then 'waiver without charge'
+                    when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_pen_received_net > s.c_pen_charged + 0.005 then 'receipts exceed charges'
+                    else 'waivers/write-offs exceed charges' end, ')') end,
+            case when s.pen_close - s.pen_close_posted > 0.005 then 'PENALTY CHARGED NOT ACCRUED'
+                when s.pen_close - s.pen_close_posted < -0.005 then 'PENALTY ACCRUED EXCEEDS CHARGED' end,
+            case when s.c_unposted > 0.005 then 'WAIVER NOT POSTED' end,
+            case when abs(s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen + s.c_unposted) >= 0.005 then 'POSTING VARIANCE' end,
+            case when abs(s.gl_timing) >= 0.005 then 'GL TIMING DIFFERENCE' end
+        ), ''), 'OK') as validation_status
+    from s_loan s
+    limit 18446744073709551615
+)
+select count(*) from ln]]></column>
+            <where>report_name = 'Interest and Penalty Receivable - Loan Summary'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-2-param-startDate" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report_parameter rp JOIN stretchy_report r ON r.id = rp.report_id JOIN stretchy_parameter p ON p.id = rp.parameter_id WHERE r.report_name = 'Interest and Penalty Receivable - Transactions' AND p.parameter_name = 'startDateSelect'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Receivable - Transactions')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'startDateSelect')"/>
+            <column name="report_parameter_name" value="startDate"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-2" author="wmnjugunaink">
+        <update tableName="stretchy_report">
+            <column name="description" value="Every accrual, penalty charge, receipt, waiver, write-off, adjustment and reversal in the period with its effect on the interest and penalty receivable, the matching GL posting and journal reference; sums to the loan summary."/>
+            <column name="report_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name,
+        max(case when m.financial_account_type = 7 then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = 9 then m.gl_account_id end) as pen_gl
+    from m_product_loan p
+    join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where p.accounting_type in (3, 4)
+        and (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.disbursedon_date,
+        case when l.closedon_date <= '${asOn}' then l.closedon_date end as closedon_date,
+        case l.loan_status_id when 300 then 'Active' when 600 then 'Closed' when 601 then 'Written Off' when 602 then 'Rescheduled'
+            when 700 then 'Overpaid' else cast(l.loan_status_id as char) end as loan_status,
+        coalesce(l.total_overpaid_derived, 0) as total_overpaid,
+        l.client_id, coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, pr.product_name, pr.int_gl, pr.pen_gl
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and l.disbursedon_date is not null
+        and l.disbursedon_date <= '${asOn}'
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date as event_date, t.transaction_type_enum as tt, t.is_reversed,
+        case
+            when t.transaction_type_enum = 10 then 'Accrual'
+            when t.transaction_type_enum in (2, 5, 8, 17, 28) then 'Receipt'
+            when t.transaction_type_enum in (4, 9) then 'Waiver'
+            when t.transaction_type_enum in (6, 31) then 'Write-off'
+            when t.transaction_type_enum = 33 then 'Write-off Reversal'
+            when t.transaction_type_enum = 32 then 'Residual Adjustment'
+            when t.transaction_type_enum = 30 then 'Interest Cancellation'
+        end as category,
+        if(t.transaction_type_enum = 30, 0, coalesce(t.interest_portion_derived, 0)) as int_amt,
+        if(t.transaction_type_enum = 30, coalesce(t.interest_portion_derived, 0), 0) as int_cancelled_amt,
+        case when t.transaction_type_enum = 4 and t.interest_portion_derived is null then t.amount else 0 end as int_unposted,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt,
+        case when t.transaction_type_enum = 9 and t.penalty_charges_portion_derived is null then coalesce((
+            select sum(cpb.amount)
+            from m_loan_charge_paid_by cpb
+            join m_loan_charge lc on lc.id = cpb.loan_charge_id
+            where cpb.loan_transaction_id = t.id and lc.is_penalty = 1), 0) else 0 end as pen_unposted
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    where t.transaction_type_enum in (2, 4, 5, 6, 8, 9, 10, 17, 28, 30, 31, 32, 33)
+        and t.transaction_date <= '${asOn}'
+),
+chg as (
+    select lc.id as charge_id, lc.loan_id, lc.due_for_collection_as_of_date as event_date, lc.amount,
+        if(lc.due_for_collection_as_of_date >= '${startDate}', 1, 0) as in_period
+    from ln
+    join m_loan_charge lc on lc.loan_id = ln.loan_id
+    where lc.is_penalty = 1 and lc.is_active = 1 and lc.due_for_collection_as_of_date <= '${asOn}'
+),
+mv0 as (
+    select e.*,
+        case when e.category = 'Accrual' then e.int_amt else 0 end as int_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.int_amt else 0 end as int_accrual_rev,
+        case when e.category = 'Receipt' then e.int_amt else 0 end as int_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.int_amt else 0 end as int_receipt_rev,
+        case when e.category = 'Waiver' then e.int_amt + e.int_unposted else 0 end as int_waived,
+        case when e.category = 'Write-off' then e.int_amt else 0 end as int_written_off,
+        case when e.category = 'Residual Adjustment' then e.int_amt else 0 end as int_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.int_amt + e.int_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.int_amt else 0 end as int_relief_rev,
+        case when e.is_reversed = 0 then e.int_unposted else 0 end as int_waived_unposted,
+        case when e.is_reversed = 0 then e.int_cancelled_amt else 0 end as int_cancelled,
+        case when e.category = 'Accrual' then e.pen_amt else 0 end as pen_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_accrual_rev,
+        case when e.category = 'Receipt' then e.pen_amt else 0 end as pen_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_receipt_rev,
+        case when e.category = 'Waiver' then e.pen_amt + e.pen_unposted else 0 end as pen_waived,
+        case when e.category = 'Write-off' then e.pen_amt else 0 end as pen_written_off,
+        case when e.category = 'Residual Adjustment' then e.pen_amt else 0 end as pen_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.pen_amt + e.pen_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.pen_amt else 0 end as pen_relief_rev,
+        case when e.is_reversed = 0 then e.pen_unposted else 0 end as pen_waived_unposted
+    from tx e
+),
+mv as (
+    select m.*,
+        m.int_accrued - m.int_accrual_rev - m.int_received + m.int_receipt_rev - m.int_waived - m.int_written_off - m.int_adjusted + m.int_relief_rev as int_mv,
+        -m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv,
+        m.pen_accrued - m.pen_accrual_rev - m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv_posted,
+        if(m.event_date >= '${startDate}', 1, 0) as in_period
+    from mv0 m
+),
+gl as (
+    select je.loan_transaction_id as txn_id, t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.transaction_id) as je_ref,
+        min(je.entry_date) as gl_date
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by je.loan_transaction_id, t.loan_id
+),
+gl_loan as (
+    select t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        sum(case when je.account_id = ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int_open,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen_open,
+        sum(case when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date < '${startDate}' and je.entry_date >= '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount)
+            when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date >= '${startDate}' and je.entry_date < '${startDate}' then if(je.type_enum = 2, -je.amount, je.amount)
+            else 0 end) as gl_timing
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by t.loan_id
+),
+s_loan as (
+    select ln.loan_id, ln.total_overpaid,
+        coalesce(a.txn_count, 0) as txn_count, a.last_txn_id,
+        coalesce(a.int_open, 0) as int_open, coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) as pen_open, coalesce(a.pen_open_posted, 0) as pen_open_posted,
+        coalesce(a.int_accrued, 0) as int_accrued, coalesce(a.int_accrual_rev, 0) as int_accrual_rev,
+        coalesce(a.int_received, 0) as int_received, coalesce(a.int_receipt_rev, 0) as int_receipt_rev,
+        coalesce(a.int_waived, 0) as int_waived, coalesce(a.int_written_off, 0) as int_written_off,
+        coalesce(a.int_adjusted, 0) as int_adjusted, coalesce(a.int_relief_rev, 0) as int_relief_rev,
+        coalesce(a.int_waived_unposted, 0) as int_waived_unposted, coalesce(a.int_cancelled, 0) as int_cancelled,
+        coalesce(c.pen_charged, 0) as pen_charged, coalesce(a.pen_accrued, 0) as pen_accrued, coalesce(a.pen_accrual_rev, 0) as pen_accrual_rev,
+        coalesce(a.pen_received, 0) as pen_received, coalesce(a.pen_receipt_rev, 0) as pen_receipt_rev,
+        coalesce(a.pen_waived, 0) as pen_waived, coalesce(a.pen_written_off, 0) as pen_written_off,
+        coalesce(a.pen_adjusted, 0) as pen_adjusted, coalesce(a.pen_relief_rev, 0) as pen_relief_rev,
+        coalesce(a.pen_waived_unposted, 0) as pen_waived_unposted,
+        coalesce(a.int_open, 0) + coalesce(a.int_mv, 0) as int_close,
+        coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) + coalesce(c.pen_charged, 0) + coalesce(a.pen_mv, 0) as pen_close,
+        coalesce(a.pen_open_posted, 0) + coalesce(a.pen_mv_posted, 0) as pen_close_posted,
+        coalesce(a.c_int_accrued_net, 0) as c_int_accrued_net, coalesce(a.c_int_received_net, 0) as c_int_received_net,
+        coalesce(c.c_pen_charged, 0) as c_pen_charged, coalesce(a.c_pen_accrued_net, 0) as c_pen_accrued_net,
+        coalesce(a.c_pen_received_net, 0) as c_pen_received_net, coalesce(a.c_pen_waived, 0) as c_pen_waived,
+        coalesce(a.c_unposted, 0) as c_unposted,
+        coalesce(g.gl_int, 0) as gl_int, coalesce(g.gl_pen, 0) as gl_pen,
+        coalesce(g.gl_int_open, 0) as gl_int_open, coalesce(g.gl_pen_open, 0) as gl_pen_open, coalesce(g.gl_timing, 0) as gl_timing
+    from ln
+    left join (
+        select g0.loan_id,
+            sum(if(g0.in_period = 1, g0.txn_count, 0)) as txn_count,
+            max(if(g0.in_period = 1, g0.last_txn_id, null)) as last_txn_id,
+            sum(if(g0.in_period = 0, g0.int_mv, 0)) as int_open,
+            sum(if(g0.in_period = 0, g0.pen_mv, 0)) as pen_open,
+            sum(if(g0.in_period = 0, g0.pen_mv_posted, 0)) as pen_open_posted,
+            sum(if(g0.in_period = 1, g0.int_accrued, 0)) as int_accrued,
+            sum(if(g0.in_period = 1, g0.int_accrual_rev, 0)) as int_accrual_rev,
+            sum(if(g0.in_period = 1, g0.int_received, 0)) as int_received,
+            sum(if(g0.in_period = 1, g0.int_receipt_rev, 0)) as int_receipt_rev,
+            sum(if(g0.in_period = 1, g0.int_waived, 0)) as int_waived,
+            sum(if(g0.in_period = 1, g0.int_written_off, 0)) as int_written_off,
+            sum(if(g0.in_period = 1, g0.int_adjusted, 0)) as int_adjusted,
+            sum(if(g0.in_period = 1, g0.int_relief_rev, 0)) as int_relief_rev,
+            sum(if(g0.in_period = 1, g0.int_waived_unposted, 0)) as int_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_cancelled, 0)) as int_cancelled,
+            sum(if(g0.in_period = 1, g0.pen_accrued, 0)) as pen_accrued,
+            sum(if(g0.in_period = 1, g0.pen_accrual_rev, 0)) as pen_accrual_rev,
+            sum(if(g0.in_period = 1, g0.pen_received, 0)) as pen_received,
+            sum(if(g0.in_period = 1, g0.pen_receipt_rev, 0)) as pen_receipt_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived, 0)) as pen_waived,
+            sum(if(g0.in_period = 1, g0.pen_written_off, 0)) as pen_written_off,
+            sum(if(g0.in_period = 1, g0.pen_adjusted, 0)) as pen_adjusted,
+            sum(if(g0.in_period = 1, g0.pen_relief_rev, 0)) as pen_relief_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived_unposted, 0)) as pen_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_mv, 0)) as int_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv, 0)) as pen_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv_posted, 0)) as pen_mv_posted,
+            sum(g0.int_accrued - g0.int_accrual_rev) as c_int_accrued_net,
+            sum(g0.int_received - g0.int_receipt_rev) as c_int_received_net,
+            sum(g0.pen_accrued - g0.pen_accrual_rev) as c_pen_accrued_net,
+            sum(g0.pen_received - g0.pen_receipt_rev) as c_pen_received_net,
+            sum(g0.pen_waived) as c_pen_waived,
+            sum(g0.int_waived_unposted + g0.pen_waived_unposted) as c_unposted
+        from (
+            select m.loan_id, m.in_period, count(*) as txn_count, max(m.txn_id) as last_txn_id,
+                sum(m.int_accrued) as int_accrued, sum(m.int_accrual_rev) as int_accrual_rev,
+                sum(m.int_received) as int_received, sum(m.int_receipt_rev) as int_receipt_rev,
+                sum(m.int_waived) as int_waived, sum(m.int_written_off) as int_written_off,
+                sum(m.int_adjusted) as int_adjusted, sum(m.int_relief_rev) as int_relief_rev,
+                sum(m.int_waived_unposted) as int_waived_unposted, sum(m.int_cancelled) as int_cancelled,
+                sum(m.pen_accrued) as pen_accrued, sum(m.pen_accrual_rev) as pen_accrual_rev,
+                sum(m.pen_received) as pen_received, sum(m.pen_receipt_rev) as pen_receipt_rev,
+                sum(m.pen_waived) as pen_waived, sum(m.pen_written_off) as pen_written_off,
+                sum(m.pen_adjusted) as pen_adjusted, sum(m.pen_relief_rev) as pen_relief_rev,
+                sum(m.pen_waived_unposted) as pen_waived_unposted,
+                sum(m.int_mv) as int_mv, sum(m.pen_mv) as pen_mv, sum(m.pen_mv_posted) as pen_mv_posted
+            from mv m
+            group by m.loan_id, m.in_period
+        ) g0
+        group by g0.loan_id
+    ) a on a.loan_id = ln.loan_id
+    left join (
+        select ch.loan_id, sum(if(ch.in_period = 1, ch.amount, 0)) as pen_charged, sum(if(ch.in_period = 0, ch.amount, 0)) as pen_charged_open, sum(ch.amount) as c_pen_charged
+        from chg ch
+        group by ch.loan_id
+    ) c on c.loan_id = ln.loan_id
+    left join gl_loan g on g.loan_id = ln.loan_id
+),
+sl as (
+    select s.*,
+        s.pen_close - s.pen_close_posted as accrual_gap,
+        s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen as posting_var,
+        s.int_close + s.pen_close - s.gl_int - s.gl_pen as gl_var,
+        coalesce(nullif(concat_ws('; ',
+            case when s.int_close < -0.005 then concat('NEGATIVE INTEREST RECEIVABLE (',
+                case when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_int_received_net > s.c_int_accrued_net + 0.005 then 'receipts exceed accruals'
+                    else 'waivers/write-offs exceed accruals' end, ')') end,
+            case when s.pen_close < -0.005 then concat('NEGATIVE PENALTY RECEIVABLE (',
+                case when s.c_pen_charged < 0.005 and s.c_pen_waived > 0.005 then 'waiver without charge'
+                    when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_pen_received_net > s.c_pen_charged + 0.005 then 'receipts exceed charges'
+                    else 'waivers/write-offs exceed charges' end, ')') end,
+            case when s.pen_close - s.pen_close_posted > 0.005 then 'PENALTY CHARGED NOT ACCRUED'
+                when s.pen_close - s.pen_close_posted < -0.005 then 'PENALTY ACCRUED EXCEEDS CHARGED' end,
+            case when s.c_unposted > 0.005 then 'WAIVER NOT POSTED' end,
+            case when abs(s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen + s.c_unposted) >= 0.005 then 'POSTING VARIANCE' end,
+            case when abs(s.gl_timing) >= 0.005 then 'GL TIMING DIFFERENCE' end
+        ), ''), 'OK') as validation_status
+    from s_loan s
+    limit 18446744073709551615
+)
+select
+    '${startDate}' as `From`,
+    '${asOn}' as `Cut-off Date`,
+    ln.office_name as `Office`,
+    ln.client_id as `Client ID`,
+    ln.client_name as `Client Name`,
+    ln.loan_id as `Loan ID`,
+    ln.account_no as `Loan Account No`,
+    ln.product_name as `Product`,
+    ln.currency_code as `Currency`,
+    r.rec_type as `Record`,
+    r.rec_id as `Transaction ID`,
+    r.receipt_number as `Receipt Reference`,
+    r.payment_type as `Payment Type`,
+    r.event_date as `Transaction Date`,
+    r.category as `Transaction Type`,
+    if(r.is_reversed = 1, 'Yes', 'No') as `Reversed`,
+    round(r.int_accrued, 2) as `Interest Accrued`,
+    round(r.int_accrual_rev, 2) as `Interest Accrual Reversals`,
+    round(r.int_received, 2) as `Interest Received`,
+    round(r.int_receipt_rev, 2) as `Interest Receipt Reversals`,
+    round(r.int_waived, 2) as `Interest Waived`,
+    round(r.int_written_off, 2) as `Interest Written Off`,
+    round(r.int_adjusted, 2) as `Interest Adjustments`,
+    round(r.int_relief_rev, 2) as `Interest Waiver/Write-off Reversals`,
+    round(r.int_waived_unposted, 2) as `Interest Waived - Not Posted`,
+    round(r.int_cancelled, 2) as `Interest Cancelled - Not Accrued`,
+    round(r.int_mv, 2) as `Interest Receivable Movement`,
+    round(r.pen_charged, 2) as `Penalty Charged`,
+    round(r.pen_accrued, 2) as `Penalty Accrued`,
+    round(r.pen_accrual_rev, 2) as `Penalty Accrual Reversals`,
+    round(r.pen_received, 2) as `Penalty Received`,
+    round(r.pen_receipt_rev, 2) as `Penalty Receipt Reversals`,
+    round(r.pen_waived, 2) as `Penalty Waived`,
+    round(r.pen_written_off, 2) as `Penalty Written Off`,
+    round(r.pen_adjusted, 2) as `Penalty Adjustments`,
+    round(r.pen_relief_rev, 2) as `Penalty Waiver/Write-off Reversals`,
+    round(r.pen_waived_unposted, 2) as `Penalty Waived - Not Posted`,
+    round(r.pen_mv, 2) as `Penalty Receivable Movement`,
+    round(r.pen_mv_posted, 2) as `Penalty Receivable Movement (Accrual Basis)`,
+    ig.gl_code as `Interest Receivable GL`,
+    round(r.gl_int, 2) as `GL Interest Receivable Movement`,
+    if(ln.pen_gl = ln.int_gl, 'Shared with interest', pg.gl_code) as `Penalty Receivable GL`,
+    round(r.gl_pen, 2) as `GL Penalty Receivable Movement`,
+    r.je_ref as `Journal Reference`,
+    r.gl_date as `GL Posting Date`,
+    round(r.int_mv + r.pen_mv_posted - r.gl_int - r.gl_pen, 2) as `Posting Variance`
+from (
+    select m.loan_id, 'Transaction' as rec_type, m.txn_id as rec_id, m.event_date, m.category, m.is_reversed, pd.receipt_number, pt.value as payment_type,
+        m.int_accrued, m.int_accrual_rev, m.int_received, m.int_receipt_rev, m.int_waived, m.int_written_off, m.int_adjusted, m.int_relief_rev,
+        m.int_waived_unposted, m.int_cancelled, m.int_mv,
+        0 as pen_charged, m.pen_accrued, m.pen_accrual_rev, m.pen_received, m.pen_receipt_rev, m.pen_waived, m.pen_written_off, m.pen_adjusted, m.pen_relief_rev,
+        m.pen_waived_unposted, m.pen_mv, m.pen_mv_posted,
+        coalesce(gl.gl_int, 0) as gl_int, coalesce(gl.gl_pen, 0) as gl_pen, gl.je_ref, gl.gl_date
+    from mv m
+    join m_loan_transaction t on t.id = m.txn_id
+    left join m_payment_detail pd on pd.id = t.payment_detail_id
+    left join m_payment_type pt on pt.id = pd.payment_type_id
+    left join gl on gl.txn_id = m.txn_id
+    where m.in_period = 1
+    union all
+    select ch.loan_id, 'Charge', ch.charge_id, ch.event_date, 'Penalty Charge', 0, null, null,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ch.amount, 0, 0, 0, 0, 0, 0, 0, 0, 0, ch.amount, 0,
+        0, 0, null, null
+    from chg ch
+    where ch.in_period = 1
+    union all
+    select t.loan_id, 'Transaction', t.id, t.transaction_date, 'Other', t.is_reversed, null, null,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        gl.gl_int, gl.gl_pen, gl.je_ref, gl.gl_date
+    from gl
+    join m_loan_transaction t on t.id = gl.txn_id
+    where t.transaction_date >= '${startDate}'
+        and t.transaction_type_enum not in (2, 4, 5, 6, 8, 9, 10, 17, 28, 30, 31, 32, 33)
+) r
+join ln on ln.loan_id = r.loan_id
+left join acc_gl_account ig on ig.id = ln.int_gl
+left join acc_gl_account pg on pg.id = ln.pen_gl
+order by ln.loan_id, r.event_date, r.rec_type desc, r.rec_id
+limit ${limit} offset ${offset}]]></column>
+            <where>report_name = 'Interest and Penalty Receivable - Transactions'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-2-count" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="stretchy_report" columnName="report_count_sql"/>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_count_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name,
+        max(case when m.financial_account_type = 7 then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = 9 then m.gl_account_id end) as pen_gl
+    from m_product_loan p
+    join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where p.accounting_type in (3, 4)
+        and (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.disbursedon_date,
+        case when l.closedon_date <= '${asOn}' then l.closedon_date end as closedon_date,
+        case l.loan_status_id when 300 then 'Active' when 600 then 'Closed' when 601 then 'Written Off' when 602 then 'Rescheduled'
+            when 700 then 'Overpaid' else cast(l.loan_status_id as char) end as loan_status,
+        coalesce(l.total_overpaid_derived, 0) as total_overpaid,
+        l.client_id, coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, pr.product_name, pr.int_gl, pr.pen_gl
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and l.disbursedon_date is not null
+        and l.disbursedon_date <= '${asOn}'
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date as event_date, t.transaction_type_enum as tt, t.is_reversed,
+        case
+            when t.transaction_type_enum = 10 then 'Accrual'
+            when t.transaction_type_enum in (2, 5, 8, 17, 28) then 'Receipt'
+            when t.transaction_type_enum in (4, 9) then 'Waiver'
+            when t.transaction_type_enum in (6, 31) then 'Write-off'
+            when t.transaction_type_enum = 33 then 'Write-off Reversal'
+            when t.transaction_type_enum = 32 then 'Residual Adjustment'
+            when t.transaction_type_enum = 30 then 'Interest Cancellation'
+        end as category,
+        if(t.transaction_type_enum = 30, 0, coalesce(t.interest_portion_derived, 0)) as int_amt,
+        if(t.transaction_type_enum = 30, coalesce(t.interest_portion_derived, 0), 0) as int_cancelled_amt,
+        case when t.transaction_type_enum = 4 and t.interest_portion_derived is null then t.amount else 0 end as int_unposted,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt,
+        case when t.transaction_type_enum = 9 and t.penalty_charges_portion_derived is null then coalesce((
+            select sum(cpb.amount)
+            from m_loan_charge_paid_by cpb
+            join m_loan_charge lc on lc.id = cpb.loan_charge_id
+            where cpb.loan_transaction_id = t.id and lc.is_penalty = 1), 0) else 0 end as pen_unposted
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    where t.transaction_type_enum in (2, 4, 5, 6, 8, 9, 10, 17, 28, 30, 31, 32, 33)
+        and t.transaction_date <= '${asOn}'
+),
+chg as (
+    select lc.id as charge_id, lc.loan_id, lc.due_for_collection_as_of_date as event_date, lc.amount,
+        if(lc.due_for_collection_as_of_date >= '${startDate}', 1, 0) as in_period
+    from ln
+    join m_loan_charge lc on lc.loan_id = ln.loan_id
+    where lc.is_penalty = 1 and lc.is_active = 1 and lc.due_for_collection_as_of_date <= '${asOn}'
+),
+mv0 as (
+    select e.*,
+        case when e.category = 'Accrual' then e.int_amt else 0 end as int_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.int_amt else 0 end as int_accrual_rev,
+        case when e.category = 'Receipt' then e.int_amt else 0 end as int_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.int_amt else 0 end as int_receipt_rev,
+        case when e.category = 'Waiver' then e.int_amt + e.int_unposted else 0 end as int_waived,
+        case when e.category = 'Write-off' then e.int_amt else 0 end as int_written_off,
+        case when e.category = 'Residual Adjustment' then e.int_amt else 0 end as int_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.int_amt + e.int_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.int_amt else 0 end as int_relief_rev,
+        case when e.is_reversed = 0 then e.int_unposted else 0 end as int_waived_unposted,
+        case when e.is_reversed = 0 then e.int_cancelled_amt else 0 end as int_cancelled,
+        case when e.category = 'Accrual' then e.pen_amt else 0 end as pen_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_accrual_rev,
+        case when e.category = 'Receipt' then e.pen_amt else 0 end as pen_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_receipt_rev,
+        case when e.category = 'Waiver' then e.pen_amt + e.pen_unposted else 0 end as pen_waived,
+        case when e.category = 'Write-off' then e.pen_amt else 0 end as pen_written_off,
+        case when e.category = 'Residual Adjustment' then e.pen_amt else 0 end as pen_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.pen_amt + e.pen_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.pen_amt else 0 end as pen_relief_rev,
+        case when e.is_reversed = 0 then e.pen_unposted else 0 end as pen_waived_unposted
+    from tx e
+),
+mv as (
+    select m.*,
+        m.int_accrued - m.int_accrual_rev - m.int_received + m.int_receipt_rev - m.int_waived - m.int_written_off - m.int_adjusted + m.int_relief_rev as int_mv,
+        -m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv,
+        m.pen_accrued - m.pen_accrual_rev - m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv_posted,
+        if(m.event_date >= '${startDate}', 1, 0) as in_period
+    from mv0 m
+),
+gl as (
+    select je.loan_transaction_id as txn_id, t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.transaction_id) as je_ref,
+        min(je.entry_date) as gl_date
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by je.loan_transaction_id, t.loan_id
+),
+gl_loan as (
+    select t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        sum(case when je.account_id = ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int_open,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen_open,
+        sum(case when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date < '${startDate}' and je.entry_date >= '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount)
+            when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date >= '${startDate}' and je.entry_date < '${startDate}' then if(je.type_enum = 2, -je.amount, je.amount)
+            else 0 end) as gl_timing
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by t.loan_id
+),
+s_loan as (
+    select ln.loan_id, ln.total_overpaid,
+        coalesce(a.txn_count, 0) as txn_count, a.last_txn_id,
+        coalesce(a.int_open, 0) as int_open, coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) as pen_open, coalesce(a.pen_open_posted, 0) as pen_open_posted,
+        coalesce(a.int_accrued, 0) as int_accrued, coalesce(a.int_accrual_rev, 0) as int_accrual_rev,
+        coalesce(a.int_received, 0) as int_received, coalesce(a.int_receipt_rev, 0) as int_receipt_rev,
+        coalesce(a.int_waived, 0) as int_waived, coalesce(a.int_written_off, 0) as int_written_off,
+        coalesce(a.int_adjusted, 0) as int_adjusted, coalesce(a.int_relief_rev, 0) as int_relief_rev,
+        coalesce(a.int_waived_unposted, 0) as int_waived_unposted, coalesce(a.int_cancelled, 0) as int_cancelled,
+        coalesce(c.pen_charged, 0) as pen_charged, coalesce(a.pen_accrued, 0) as pen_accrued, coalesce(a.pen_accrual_rev, 0) as pen_accrual_rev,
+        coalesce(a.pen_received, 0) as pen_received, coalesce(a.pen_receipt_rev, 0) as pen_receipt_rev,
+        coalesce(a.pen_waived, 0) as pen_waived, coalesce(a.pen_written_off, 0) as pen_written_off,
+        coalesce(a.pen_adjusted, 0) as pen_adjusted, coalesce(a.pen_relief_rev, 0) as pen_relief_rev,
+        coalesce(a.pen_waived_unposted, 0) as pen_waived_unposted,
+        coalesce(a.int_open, 0) + coalesce(a.int_mv, 0) as int_close,
+        coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) + coalesce(c.pen_charged, 0) + coalesce(a.pen_mv, 0) as pen_close,
+        coalesce(a.pen_open_posted, 0) + coalesce(a.pen_mv_posted, 0) as pen_close_posted,
+        coalesce(a.c_int_accrued_net, 0) as c_int_accrued_net, coalesce(a.c_int_received_net, 0) as c_int_received_net,
+        coalesce(c.c_pen_charged, 0) as c_pen_charged, coalesce(a.c_pen_accrued_net, 0) as c_pen_accrued_net,
+        coalesce(a.c_pen_received_net, 0) as c_pen_received_net, coalesce(a.c_pen_waived, 0) as c_pen_waived,
+        coalesce(a.c_unposted, 0) as c_unposted,
+        coalesce(g.gl_int, 0) as gl_int, coalesce(g.gl_pen, 0) as gl_pen,
+        coalesce(g.gl_int_open, 0) as gl_int_open, coalesce(g.gl_pen_open, 0) as gl_pen_open, coalesce(g.gl_timing, 0) as gl_timing
+    from ln
+    left join (
+        select g0.loan_id,
+            sum(if(g0.in_period = 1, g0.txn_count, 0)) as txn_count,
+            max(if(g0.in_period = 1, g0.last_txn_id, null)) as last_txn_id,
+            sum(if(g0.in_period = 0, g0.int_mv, 0)) as int_open,
+            sum(if(g0.in_period = 0, g0.pen_mv, 0)) as pen_open,
+            sum(if(g0.in_period = 0, g0.pen_mv_posted, 0)) as pen_open_posted,
+            sum(if(g0.in_period = 1, g0.int_accrued, 0)) as int_accrued,
+            sum(if(g0.in_period = 1, g0.int_accrual_rev, 0)) as int_accrual_rev,
+            sum(if(g0.in_period = 1, g0.int_received, 0)) as int_received,
+            sum(if(g0.in_period = 1, g0.int_receipt_rev, 0)) as int_receipt_rev,
+            sum(if(g0.in_period = 1, g0.int_waived, 0)) as int_waived,
+            sum(if(g0.in_period = 1, g0.int_written_off, 0)) as int_written_off,
+            sum(if(g0.in_period = 1, g0.int_adjusted, 0)) as int_adjusted,
+            sum(if(g0.in_period = 1, g0.int_relief_rev, 0)) as int_relief_rev,
+            sum(if(g0.in_period = 1, g0.int_waived_unposted, 0)) as int_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_cancelled, 0)) as int_cancelled,
+            sum(if(g0.in_period = 1, g0.pen_accrued, 0)) as pen_accrued,
+            sum(if(g0.in_period = 1, g0.pen_accrual_rev, 0)) as pen_accrual_rev,
+            sum(if(g0.in_period = 1, g0.pen_received, 0)) as pen_received,
+            sum(if(g0.in_period = 1, g0.pen_receipt_rev, 0)) as pen_receipt_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived, 0)) as pen_waived,
+            sum(if(g0.in_period = 1, g0.pen_written_off, 0)) as pen_written_off,
+            sum(if(g0.in_period = 1, g0.pen_adjusted, 0)) as pen_adjusted,
+            sum(if(g0.in_period = 1, g0.pen_relief_rev, 0)) as pen_relief_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived_unposted, 0)) as pen_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_mv, 0)) as int_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv, 0)) as pen_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv_posted, 0)) as pen_mv_posted,
+            sum(g0.int_accrued - g0.int_accrual_rev) as c_int_accrued_net,
+            sum(g0.int_received - g0.int_receipt_rev) as c_int_received_net,
+            sum(g0.pen_accrued - g0.pen_accrual_rev) as c_pen_accrued_net,
+            sum(g0.pen_received - g0.pen_receipt_rev) as c_pen_received_net,
+            sum(g0.pen_waived) as c_pen_waived,
+            sum(g0.int_waived_unposted + g0.pen_waived_unposted) as c_unposted
+        from (
+            select m.loan_id, m.in_period, count(*) as txn_count, max(m.txn_id) as last_txn_id,
+                sum(m.int_accrued) as int_accrued, sum(m.int_accrual_rev) as int_accrual_rev,
+                sum(m.int_received) as int_received, sum(m.int_receipt_rev) as int_receipt_rev,
+                sum(m.int_waived) as int_waived, sum(m.int_written_off) as int_written_off,
+                sum(m.int_adjusted) as int_adjusted, sum(m.int_relief_rev) as int_relief_rev,
+                sum(m.int_waived_unposted) as int_waived_unposted, sum(m.int_cancelled) as int_cancelled,
+                sum(m.pen_accrued) as pen_accrued, sum(m.pen_accrual_rev) as pen_accrual_rev,
+                sum(m.pen_received) as pen_received, sum(m.pen_receipt_rev) as pen_receipt_rev,
+                sum(m.pen_waived) as pen_waived, sum(m.pen_written_off) as pen_written_off,
+                sum(m.pen_adjusted) as pen_adjusted, sum(m.pen_relief_rev) as pen_relief_rev,
+                sum(m.pen_waived_unposted) as pen_waived_unposted,
+                sum(m.int_mv) as int_mv, sum(m.pen_mv) as pen_mv, sum(m.pen_mv_posted) as pen_mv_posted
+            from mv m
+            group by m.loan_id, m.in_period
+        ) g0
+        group by g0.loan_id
+    ) a on a.loan_id = ln.loan_id
+    left join (
+        select ch.loan_id, sum(if(ch.in_period = 1, ch.amount, 0)) as pen_charged, sum(if(ch.in_period = 0, ch.amount, 0)) as pen_charged_open, sum(ch.amount) as c_pen_charged
+        from chg ch
+        group by ch.loan_id
+    ) c on c.loan_id = ln.loan_id
+    left join gl_loan g on g.loan_id = ln.loan_id
+),
+sl as (
+    select s.*,
+        s.pen_close - s.pen_close_posted as accrual_gap,
+        s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen as posting_var,
+        s.int_close + s.pen_close - s.gl_int - s.gl_pen as gl_var,
+        coalesce(nullif(concat_ws('; ',
+            case when s.int_close < -0.005 then concat('NEGATIVE INTEREST RECEIVABLE (',
+                case when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_int_received_net > s.c_int_accrued_net + 0.005 then 'receipts exceed accruals'
+                    else 'waivers/write-offs exceed accruals' end, ')') end,
+            case when s.pen_close < -0.005 then concat('NEGATIVE PENALTY RECEIVABLE (',
+                case when s.c_pen_charged < 0.005 and s.c_pen_waived > 0.005 then 'waiver without charge'
+                    when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_pen_received_net > s.c_pen_charged + 0.005 then 'receipts exceed charges'
+                    else 'waivers/write-offs exceed charges' end, ')') end,
+            case when s.pen_close - s.pen_close_posted > 0.005 then 'PENALTY CHARGED NOT ACCRUED'
+                when s.pen_close - s.pen_close_posted < -0.005 then 'PENALTY ACCRUED EXCEEDS CHARGED' end,
+            case when s.c_unposted > 0.005 then 'WAIVER NOT POSTED' end,
+            case when abs(s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen + s.c_unposted) >= 0.005 then 'POSTING VARIANCE' end,
+            case when abs(s.gl_timing) >= 0.005 then 'GL TIMING DIFFERENCE' end
+        ), ''), 'OK') as validation_status
+    from s_loan s
+    limit 18446744073709551615
+)
+select (select count(*) from tx where tx.event_date >= '${startDate}') + (select count(*) from chg where chg.in_period = 1)]]></column>
+            <where>report_name = 'Interest and Penalty Receivable - Transactions'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-3-param-startDate" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report_parameter rp JOIN stretchy_report r ON r.id = rp.report_id JOIN stretchy_parameter p ON p.id = rp.parameter_id WHERE r.report_name = 'Interest and Penalty Receivable - GL Reconciliation' AND p.parameter_name = 'startDateSelect'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Receivable - GL Reconciliation')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'startDateSelect')"/>
+            <column name="report_parameter_name" value="startDate"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-3" author="wmnjugunaink">
+        <update tableName="stretchy_report">
+            <column name="description" value="Per receivable GL account for the period: CBS opening and closing receivable (charged and accrual basis) against the GL balances from loan postings, GL and posting variances, the penalty accrual gap, loans with variances, negative balances or exceptions, and a validation status."/>
+            <column name="report_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name,
+        max(case when m.financial_account_type = 7 then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = 9 then m.gl_account_id end) as pen_gl
+    from m_product_loan p
+    join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where p.accounting_type in (3, 4)
+        and (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.disbursedon_date,
+        case when l.closedon_date <= '${asOn}' then l.closedon_date end as closedon_date,
+        case l.loan_status_id when 300 then 'Active' when 600 then 'Closed' when 601 then 'Written Off' when 602 then 'Rescheduled'
+            when 700 then 'Overpaid' else cast(l.loan_status_id as char) end as loan_status,
+        coalesce(l.total_overpaid_derived, 0) as total_overpaid,
+        l.client_id, coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, pr.product_name, pr.int_gl, pr.pen_gl
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and l.disbursedon_date is not null
+        and l.disbursedon_date <= '${asOn}'
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date as event_date, t.transaction_type_enum as tt, t.is_reversed,
+        case
+            when t.transaction_type_enum = 10 then 'Accrual'
+            when t.transaction_type_enum in (2, 5, 8, 17, 28) then 'Receipt'
+            when t.transaction_type_enum in (4, 9) then 'Waiver'
+            when t.transaction_type_enum in (6, 31) then 'Write-off'
+            when t.transaction_type_enum = 33 then 'Write-off Reversal'
+            when t.transaction_type_enum = 32 then 'Residual Adjustment'
+            when t.transaction_type_enum = 30 then 'Interest Cancellation'
+        end as category,
+        if(t.transaction_type_enum = 30, 0, coalesce(t.interest_portion_derived, 0)) as int_amt,
+        if(t.transaction_type_enum = 30, coalesce(t.interest_portion_derived, 0), 0) as int_cancelled_amt,
+        case when t.transaction_type_enum = 4 and t.interest_portion_derived is null then t.amount else 0 end as int_unposted,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt,
+        case when t.transaction_type_enum = 9 and t.penalty_charges_portion_derived is null then coalesce((
+            select sum(cpb.amount)
+            from m_loan_charge_paid_by cpb
+            join m_loan_charge lc on lc.id = cpb.loan_charge_id
+            where cpb.loan_transaction_id = t.id and lc.is_penalty = 1), 0) else 0 end as pen_unposted
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    where t.transaction_type_enum in (2, 4, 5, 6, 8, 9, 10, 17, 28, 30, 31, 32, 33)
+        and t.transaction_date <= '${asOn}'
+),
+chg as (
+    select lc.id as charge_id, lc.loan_id, lc.due_for_collection_as_of_date as event_date, lc.amount,
+        if(lc.due_for_collection_as_of_date >= '${startDate}', 1, 0) as in_period
+    from ln
+    join m_loan_charge lc on lc.loan_id = ln.loan_id
+    where lc.is_penalty = 1 and lc.is_active = 1 and lc.due_for_collection_as_of_date <= '${asOn}'
+),
+mv0 as (
+    select e.*,
+        case when e.category = 'Accrual' then e.int_amt else 0 end as int_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.int_amt else 0 end as int_accrual_rev,
+        case when e.category = 'Receipt' then e.int_amt else 0 end as int_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.int_amt else 0 end as int_receipt_rev,
+        case when e.category = 'Waiver' then e.int_amt + e.int_unposted else 0 end as int_waived,
+        case when e.category = 'Write-off' then e.int_amt else 0 end as int_written_off,
+        case when e.category = 'Residual Adjustment' then e.int_amt else 0 end as int_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.int_amt + e.int_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.int_amt else 0 end as int_relief_rev,
+        case when e.is_reversed = 0 then e.int_unposted else 0 end as int_waived_unposted,
+        case when e.is_reversed = 0 then e.int_cancelled_amt else 0 end as int_cancelled,
+        case when e.category = 'Accrual' then e.pen_amt else 0 end as pen_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_accrual_rev,
+        case when e.category = 'Receipt' then e.pen_amt else 0 end as pen_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_receipt_rev,
+        case when e.category = 'Waiver' then e.pen_amt + e.pen_unposted else 0 end as pen_waived,
+        case when e.category = 'Write-off' then e.pen_amt else 0 end as pen_written_off,
+        case when e.category = 'Residual Adjustment' then e.pen_amt else 0 end as pen_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.pen_amt + e.pen_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.pen_amt else 0 end as pen_relief_rev,
+        case when e.is_reversed = 0 then e.pen_unposted else 0 end as pen_waived_unposted
+    from tx e
+),
+mv as (
+    select m.*,
+        m.int_accrued - m.int_accrual_rev - m.int_received + m.int_receipt_rev - m.int_waived - m.int_written_off - m.int_adjusted + m.int_relief_rev as int_mv,
+        -m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv,
+        m.pen_accrued - m.pen_accrual_rev - m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv_posted,
+        if(m.event_date >= '${startDate}', 1, 0) as in_period
+    from mv0 m
+),
+gl as (
+    select je.loan_transaction_id as txn_id, t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.transaction_id) as je_ref,
+        min(je.entry_date) as gl_date
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by je.loan_transaction_id, t.loan_id
+),
+gl_loan as (
+    select t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        sum(case when je.account_id = ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int_open,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen_open,
+        sum(case when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date < '${startDate}' and je.entry_date >= '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount)
+            when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date >= '${startDate}' and je.entry_date < '${startDate}' then if(je.type_enum = 2, -je.amount, je.amount)
+            else 0 end) as gl_timing
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by t.loan_id
+),
+s_loan as (
+    select ln.loan_id, ln.total_overpaid,
+        coalesce(a.txn_count, 0) as txn_count, a.last_txn_id,
+        coalesce(a.int_open, 0) as int_open, coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) as pen_open, coalesce(a.pen_open_posted, 0) as pen_open_posted,
+        coalesce(a.int_accrued, 0) as int_accrued, coalesce(a.int_accrual_rev, 0) as int_accrual_rev,
+        coalesce(a.int_received, 0) as int_received, coalesce(a.int_receipt_rev, 0) as int_receipt_rev,
+        coalesce(a.int_waived, 0) as int_waived, coalesce(a.int_written_off, 0) as int_written_off,
+        coalesce(a.int_adjusted, 0) as int_adjusted, coalesce(a.int_relief_rev, 0) as int_relief_rev,
+        coalesce(a.int_waived_unposted, 0) as int_waived_unposted, coalesce(a.int_cancelled, 0) as int_cancelled,
+        coalesce(c.pen_charged, 0) as pen_charged, coalesce(a.pen_accrued, 0) as pen_accrued, coalesce(a.pen_accrual_rev, 0) as pen_accrual_rev,
+        coalesce(a.pen_received, 0) as pen_received, coalesce(a.pen_receipt_rev, 0) as pen_receipt_rev,
+        coalesce(a.pen_waived, 0) as pen_waived, coalesce(a.pen_written_off, 0) as pen_written_off,
+        coalesce(a.pen_adjusted, 0) as pen_adjusted, coalesce(a.pen_relief_rev, 0) as pen_relief_rev,
+        coalesce(a.pen_waived_unposted, 0) as pen_waived_unposted,
+        coalesce(a.int_open, 0) + coalesce(a.int_mv, 0) as int_close,
+        coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) + coalesce(c.pen_charged, 0) + coalesce(a.pen_mv, 0) as pen_close,
+        coalesce(a.pen_open_posted, 0) + coalesce(a.pen_mv_posted, 0) as pen_close_posted,
+        coalesce(a.c_int_accrued_net, 0) as c_int_accrued_net, coalesce(a.c_int_received_net, 0) as c_int_received_net,
+        coalesce(c.c_pen_charged, 0) as c_pen_charged, coalesce(a.c_pen_accrued_net, 0) as c_pen_accrued_net,
+        coalesce(a.c_pen_received_net, 0) as c_pen_received_net, coalesce(a.c_pen_waived, 0) as c_pen_waived,
+        coalesce(a.c_unposted, 0) as c_unposted,
+        coalesce(g.gl_int, 0) as gl_int, coalesce(g.gl_pen, 0) as gl_pen,
+        coalesce(g.gl_int_open, 0) as gl_int_open, coalesce(g.gl_pen_open, 0) as gl_pen_open, coalesce(g.gl_timing, 0) as gl_timing
+    from ln
+    left join (
+        select g0.loan_id,
+            sum(if(g0.in_period = 1, g0.txn_count, 0)) as txn_count,
+            max(if(g0.in_period = 1, g0.last_txn_id, null)) as last_txn_id,
+            sum(if(g0.in_period = 0, g0.int_mv, 0)) as int_open,
+            sum(if(g0.in_period = 0, g0.pen_mv, 0)) as pen_open,
+            sum(if(g0.in_period = 0, g0.pen_mv_posted, 0)) as pen_open_posted,
+            sum(if(g0.in_period = 1, g0.int_accrued, 0)) as int_accrued,
+            sum(if(g0.in_period = 1, g0.int_accrual_rev, 0)) as int_accrual_rev,
+            sum(if(g0.in_period = 1, g0.int_received, 0)) as int_received,
+            sum(if(g0.in_period = 1, g0.int_receipt_rev, 0)) as int_receipt_rev,
+            sum(if(g0.in_period = 1, g0.int_waived, 0)) as int_waived,
+            sum(if(g0.in_period = 1, g0.int_written_off, 0)) as int_written_off,
+            sum(if(g0.in_period = 1, g0.int_adjusted, 0)) as int_adjusted,
+            sum(if(g0.in_period = 1, g0.int_relief_rev, 0)) as int_relief_rev,
+            sum(if(g0.in_period = 1, g0.int_waived_unposted, 0)) as int_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_cancelled, 0)) as int_cancelled,
+            sum(if(g0.in_period = 1, g0.pen_accrued, 0)) as pen_accrued,
+            sum(if(g0.in_period = 1, g0.pen_accrual_rev, 0)) as pen_accrual_rev,
+            sum(if(g0.in_period = 1, g0.pen_received, 0)) as pen_received,
+            sum(if(g0.in_period = 1, g0.pen_receipt_rev, 0)) as pen_receipt_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived, 0)) as pen_waived,
+            sum(if(g0.in_period = 1, g0.pen_written_off, 0)) as pen_written_off,
+            sum(if(g0.in_period = 1, g0.pen_adjusted, 0)) as pen_adjusted,
+            sum(if(g0.in_period = 1, g0.pen_relief_rev, 0)) as pen_relief_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived_unposted, 0)) as pen_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_mv, 0)) as int_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv, 0)) as pen_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv_posted, 0)) as pen_mv_posted,
+            sum(g0.int_accrued - g0.int_accrual_rev) as c_int_accrued_net,
+            sum(g0.int_received - g0.int_receipt_rev) as c_int_received_net,
+            sum(g0.pen_accrued - g0.pen_accrual_rev) as c_pen_accrued_net,
+            sum(g0.pen_received - g0.pen_receipt_rev) as c_pen_received_net,
+            sum(g0.pen_waived) as c_pen_waived,
+            sum(g0.int_waived_unposted + g0.pen_waived_unposted) as c_unposted
+        from (
+            select m.loan_id, m.in_period, count(*) as txn_count, max(m.txn_id) as last_txn_id,
+                sum(m.int_accrued) as int_accrued, sum(m.int_accrual_rev) as int_accrual_rev,
+                sum(m.int_received) as int_received, sum(m.int_receipt_rev) as int_receipt_rev,
+                sum(m.int_waived) as int_waived, sum(m.int_written_off) as int_written_off,
+                sum(m.int_adjusted) as int_adjusted, sum(m.int_relief_rev) as int_relief_rev,
+                sum(m.int_waived_unposted) as int_waived_unposted, sum(m.int_cancelled) as int_cancelled,
+                sum(m.pen_accrued) as pen_accrued, sum(m.pen_accrual_rev) as pen_accrual_rev,
+                sum(m.pen_received) as pen_received, sum(m.pen_receipt_rev) as pen_receipt_rev,
+                sum(m.pen_waived) as pen_waived, sum(m.pen_written_off) as pen_written_off,
+                sum(m.pen_adjusted) as pen_adjusted, sum(m.pen_relief_rev) as pen_relief_rev,
+                sum(m.pen_waived_unposted) as pen_waived_unposted,
+                sum(m.int_mv) as int_mv, sum(m.pen_mv) as pen_mv, sum(m.pen_mv_posted) as pen_mv_posted
+            from mv m
+            group by m.loan_id, m.in_period
+        ) g0
+        group by g0.loan_id
+    ) a on a.loan_id = ln.loan_id
+    left join (
+        select ch.loan_id, sum(if(ch.in_period = 1, ch.amount, 0)) as pen_charged, sum(if(ch.in_period = 0, ch.amount, 0)) as pen_charged_open, sum(ch.amount) as c_pen_charged
+        from chg ch
+        group by ch.loan_id
+    ) c on c.loan_id = ln.loan_id
+    left join gl_loan g on g.loan_id = ln.loan_id
+),
+sl as (
+    select s.*,
+        s.pen_close - s.pen_close_posted as accrual_gap,
+        s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen as posting_var,
+        s.int_close + s.pen_close - s.gl_int - s.gl_pen as gl_var,
+        coalesce(nullif(concat_ws('; ',
+            case when s.int_close < -0.005 then concat('NEGATIVE INTEREST RECEIVABLE (',
+                case when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_int_received_net > s.c_int_accrued_net + 0.005 then 'receipts exceed accruals'
+                    else 'waivers/write-offs exceed accruals' end, ')') end,
+            case when s.pen_close < -0.005 then concat('NEGATIVE PENALTY RECEIVABLE (',
+                case when s.c_pen_charged < 0.005 and s.c_pen_waived > 0.005 then 'waiver without charge'
+                    when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_pen_received_net > s.c_pen_charged + 0.005 then 'receipts exceed charges'
+                    else 'waivers/write-offs exceed charges' end, ')') end,
+            case when s.pen_close - s.pen_close_posted > 0.005 then 'PENALTY CHARGED NOT ACCRUED'
+                when s.pen_close - s.pen_close_posted < -0.005 then 'PENALTY ACCRUED EXCEEDS CHARGED' end,
+            case when s.c_unposted > 0.005 then 'WAIVER NOT POSTED' end,
+            case when abs(s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen + s.c_unposted) >= 0.005 then 'POSTING VARIANCE' end,
+            case when abs(s.gl_timing) >= 0.005 then 'GL TIMING DIFFERENCE' end
+        ), ''), 'OK') as validation_status
+    from s_loan s
+    limit 18446744073709551615
+)
+select
+    '${startDate}' as `From`,
+    '${asOn}' as `Cut-off Date`,
+    g.gl_code as `GL Code`,
+    g.name as `GL Account`,
+    x.currency_code as `Currency`,
+    x.gl_role as `GL Role`,
+    x.loans as `Loans`,
+    round(x.cbs_open, 2) as `CBS Opening Receivable`,
+    round(x.cbs_close, 2) as `CBS Closing Receivable`,
+    round(x.cbs_close_posted, 2) as `CBS Closing Receivable (Accrual Basis)`,
+    round(x.cbs_close - x.cbs_close_posted, 2) as `Penalty Accrual Gap`,
+    round(x.gl_open, 2) as `GL Opening Balance (Loan Postings)`,
+    round(x.gl_close, 2) as `GL Closing Balance (Loan Postings)`,
+    round(x.cbs_close - x.gl_close, 2) as `GL Variance (Subledger - GL)`,
+    round(x.cbs_close_posted - x.gl_close, 2) as `Posting Variance`,
+    round(x.unposted, 2) as `Waivers Not Posted To GL`,
+    x.loans_with_variance as `Loans With Variance`,
+    x.loans_negative as `Loans With Negative Balance`,
+    x.loans_flagged as `Loans With Exceptions`,
+    round(coalesce(tb.balance, 0), 2) as `GL Account Balance (All Postings)`,
+    round(coalesce(tb.balance, 0) - x.gl_close, 2) as `GL Postings Outside Report Scope`,
+    coalesce(nullif(concat_ws('; ',
+        if(abs(x.cbs_close - x.gl_close) >= 0.005, 'GL VARIANCE', null),
+        if(x.loans_negative > 0, 'NEGATIVE BALANCES', null),
+        if(abs(x.cbs_close - x.cbs_close_posted) >= 0.005, 'PENALTY ACCRUAL GAP', null),
+        if(x.unposted >= 0.005, 'WAIVERS NOT POSTED', null),
+        if(abs(coalesce(tb.balance, 0) - x.gl_close) >= 0.005, 'POSTINGS OUTSIDE SCOPE', null)
+    ), ''), 'RECONCILED') as `Validation Status`
+from (
+    select y.gl_id, y.currency_code,
+        case when max(y.shared) = 1 then 'Interest + Penalty Receivable' when max(y.is_pen) = 1 then 'Penalty Receivable' else 'Interest Receivable' end as gl_role,
+        count(distinct y.loan_id) as loans,
+        sum(y.cbs_open) as cbs_open, sum(y.cbs_close) as cbs_close, sum(y.cbs_close_posted) as cbs_close_posted,
+        sum(y.gl_open) as gl_open, sum(y.gl_close) as gl_close, sum(y.unposted) as unposted,
+        count(distinct case when abs(y.cbs_close - y.gl_close) >= 0.005 then y.loan_id end) as loans_with_variance,
+        count(distinct case when y.negative = 1 then y.loan_id end) as loans_negative,
+        count(distinct case when y.validation_status <> 'OK' then y.loan_id end) as loans_flagged
+    from (
+        select ln.int_gl as gl_id, ln.currency_code, ln.loan_id, if(ln.pen_gl = ln.int_gl, 1, 0) as shared, 0 as is_pen,
+            s.int_open + if(ln.pen_gl = ln.int_gl, s.pen_open, 0) as cbs_open,
+            s.int_close + if(ln.pen_gl = ln.int_gl, s.pen_close, 0) as cbs_close,
+            s.int_close + if(ln.pen_gl = ln.int_gl, s.pen_close_posted, 0) as cbs_close_posted,
+            s.gl_int_open as gl_open, s.gl_int as gl_close,
+            s.int_waived_unposted + if(ln.pen_gl = ln.int_gl, s.pen_waived_unposted, 0) as unposted,
+            if(s.int_close < -0.005 or (ln.pen_gl = ln.int_gl and s.pen_close < -0.005), 1, 0) as negative,
+            s.validation_status
+        from sl s
+        join ln on ln.loan_id = s.loan_id
+        union all
+        select ln.pen_gl, ln.currency_code, ln.loan_id, 0, 1,
+            s.pen_open, s.pen_close, s.pen_close_posted, s.gl_pen_open, s.gl_pen, s.pen_waived_unposted,
+            if(s.pen_close < -0.005, 1, 0), s.validation_status
+        from sl s
+        join ln on ln.loan_id = s.loan_id
+        where ln.pen_gl <> ln.int_gl
+    ) y
+    group by y.gl_id, y.currency_code
+) x
+join acc_gl_account g on g.id = x.gl_id
+left join (
+    select je.account_id, je.currency_code,
+        sum(if(je.type_enum = 2, je.amount, -je.amount)) as balance
+    from acc_gl_journal_entry je force index (idx_acc_gl_journal_entry_account_entry_date)
+    join m_office jo on jo.id = je.office_id
+    where je.account_id in (select int_gl from prod union select pen_gl from prod)
+        and je.entry_date <= '${asOn}'
+        and jo.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or jo.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and ('${currencyId}' in ('-1', '0') or je.currency_code = '${currencyId}')
+    group by je.account_id, je.currency_code
+) tb on tb.account_id = x.gl_id and tb.currency_code = x.currency_code
+order by g.gl_code, x.currency_code]]></column>
+            <where>report_name = 'Interest and Penalty Receivable - GL Reconciliation'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-4" author="wmnjugunaink">
+        <update tableName="stretchy_report">
+            <column name="description" value="Every interest and penalty receipt in the date range with payment type, reversals, net amounts, the GL credit posted, the cash/clearing GL debited, the income GLs of the product, the journal reference and a reconciliation status."/>
+            <column name="report_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name, p.accounting_type,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 7, 3) then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 9, 5) then m.gl_account_id end) as pen_gl,
+        max(case when m.financial_account_type = 3 then m.gl_account_id end) as int_inc,
+        max(case when m.financial_account_type = 5 then m.gl_account_id end) as pen_inc
+    from m_product_loan p
+    left join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name, p.accounting_type
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.client_id,
+        coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, coalesce(ent.name, ounder.name) as entity_name,
+        pr.product_name, pr.accounting_type, pr.int_gl, pr.pen_gl, pr.int_inc, pr.pen_inc
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    left join m_office ent on ent.id = cast(substring_index(substring_index(ounder.hierarchy, '.', 2), '.', -1) as unsigned)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date, t.transaction_type_enum as tt, t.is_reversed,
+        pd.receipt_number, pt.value as payment_type,
+        coalesce(t.interest_portion_derived, 0) as int_amt,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt
+    from m_loan_transaction t
+    join ln on ln.loan_id = t.loan_id
+    left join m_payment_detail pd on pd.id = t.payment_detail_id
+    left join m_payment_type pt on pt.id = pd.payment_type_id
+    where t.transaction_type_enum in (2, 5, 8, 17, 28)
+        and t.transaction_date between '${startDate}' and '${endDate}'
+        and (coalesce(t.interest_portion_derived, 0) <> 0 or coalesce(t.penalty_charges_portion_derived, 0) <> 0)
+),
+gl as (
+    select tx.txn_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.entry_date) as gl_posting_date,
+        min(je.transaction_id) as je_ref,
+        group_concat(distinct if(je.type_enum = 2 and je.account_id not in (ln.int_gl, ln.pen_gl), ga.gl_code, null) order by ga.gl_code separator ', ') as gl_debited
+    from tx
+    join ln on ln.loan_id = tx.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = tx.txn_id
+    left join acc_gl_account ga on ga.id = je.account_id
+    group by tx.txn_id
+),
+mv as (
+    select tx.*,
+        case when tx.is_reversed = 1 then tx.int_amt else 0 end as int_reversed,
+        case when tx.is_reversed = 1 then tx.pen_amt else 0 end as pen_reversed,
+        coalesce(gl.gl_int, 0) as gl_int, coalesce(gl.gl_pen, 0) as gl_pen, gl.gl_posting_date, gl.je_ref, gl.gl_debited,
+        case
+            when tx.is_reversed = 1 and abs(coalesce(gl.gl_int, 0) + coalesce(gl.gl_pen, 0)) >= 0.005 then 'Reversal not posted'
+            when tx.is_reversed = 1 then 'Reversed'
+            when gl.txn_id is null then 'Not posted'
+            when abs(tx.int_amt + tx.pen_amt - gl.gl_int - gl.gl_pen) >= 0.005 then 'Amount mismatch'
+            when gl.gl_posting_date not between '${startDate}' and '${endDate}' then 'Matched - posted outside period'
+            else 'Matched' end as recon_status
+    from tx
+    left join gl on gl.txn_id = tx.txn_id
+)
+select
+    mv.transaction_date as `Transaction Date`,
+    ln.entity_name as `Entity`,
+    ln.office_name as `Office`,
+    ln.client_id as `Client ID`,
+    ln.client_name as `Client Name`,
+    ln.loan_id as `Loan ID`,
+    ln.account_no as `Loan Account No`,
+    ln.product_name as `Product`,
+    case ln.accounting_type when 2 then 'Cash' when 3 then 'Accrual' when 4 then 'Accrual' else 'None' end as `Accounting`,
+    ln.currency_code as `Currency`,
+    mv.txn_id as `Transaction ID`,
+    mv.receipt_number as `Receipt Reference`,
+    mv.payment_type as `Payment Type`,
+    case mv.tt when 2 then 'Repayment' when 5 then 'Repayment at Disbursement' when 8 then 'Recovery Repayment'
+        when 17 then 'Charge Payment' when 28 then 'Pay Off' end as `Transaction Type`,
+    if(mv.is_reversed = 1, 'Yes', 'No') as `Reversed`,
+    round(mv.int_amt, 2) as `Interest Received`,
+    round(mv.int_reversed, 2) as `Interest Reversals`,
+    round(mv.int_amt - mv.int_reversed, 2) as `Net Interest Received`,
+    round(mv.pen_amt, 2) as `Penalty Received`,
+    round(mv.pen_reversed, 2) as `Penalty Reversals`,
+    round(mv.pen_amt - mv.pen_reversed, 2) as `Net Penalty Received`,
+    if(ln.accounting_type in (3, 4), 'Receivable', 'Income') as `Matched Entry`,
+    ig.gl_code as `Interest GL`,
+    round(mv.gl_int, 2) as `GL Interest Credited`,
+    if(ln.pen_gl = ln.int_gl, 'Shared with interest', pg.gl_code) as `Penalty GL`,
+    round(mv.gl_pen, 2) as `GL Penalty Credited`,
+    mv.gl_debited as `GL Debited (Cash/Clearing)`,
+    ii.gl_code as `Interest Income GL`,
+    pi.gl_code as `Penalty Income GL`,
+    mv.je_ref as `Journal Reference`,
+    mv.gl_posting_date as `GL Posting Date`,
+    round((mv.int_amt - mv.int_reversed) + (mv.pen_amt - mv.pen_reversed) - mv.gl_int - mv.gl_pen, 2) as `Variance (CBS - GL)`,
+    mv.recon_status as `Reconciliation Status`
+from mv
+join ln on ln.loan_id = mv.loan_id
+left join acc_gl_account ig on ig.id = ln.int_gl
+left join acc_gl_account pg on pg.id = ln.pen_gl
+left join acc_gl_account ii on ii.id = ln.int_inc
+left join acc_gl_account pi on pi.id = ln.pen_inc
+order by mv.transaction_date, mv.txn_id
+limit ${limit} offset ${offset}]]></column>
+            <where>report_name = 'Interest and Penalty Received - Transactions'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-4-count" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="stretchy_report" columnName="report_count_sql"/>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_count_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name, p.accounting_type,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 7, 3) then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 9, 5) then m.gl_account_id end) as pen_gl,
+        max(case when m.financial_account_type = 3 then m.gl_account_id end) as int_inc,
+        max(case when m.financial_account_type = 5 then m.gl_account_id end) as pen_inc
+    from m_product_loan p
+    left join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name, p.accounting_type
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.client_id,
+        coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, coalesce(ent.name, ounder.name) as entity_name,
+        pr.product_name, pr.accounting_type, pr.int_gl, pr.pen_gl, pr.int_inc, pr.pen_inc
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    left join m_office ent on ent.id = cast(substring_index(substring_index(ounder.hierarchy, '.', 2), '.', -1) as unsigned)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date, t.transaction_type_enum as tt, t.is_reversed,
+        pd.receipt_number, pt.value as payment_type,
+        coalesce(t.interest_portion_derived, 0) as int_amt,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt
+    from m_loan_transaction t
+    join ln on ln.loan_id = t.loan_id
+    left join m_payment_detail pd on pd.id = t.payment_detail_id
+    left join m_payment_type pt on pt.id = pd.payment_type_id
+    where t.transaction_type_enum in (2, 5, 8, 17, 28)
+        and t.transaction_date between '${startDate}' and '${endDate}'
+        and (coalesce(t.interest_portion_derived, 0) <> 0 or coalesce(t.penalty_charges_portion_derived, 0) <> 0)
+),
+gl as (
+    select tx.txn_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.entry_date) as gl_posting_date,
+        min(je.transaction_id) as je_ref,
+        group_concat(distinct if(je.type_enum = 2 and je.account_id not in (ln.int_gl, ln.pen_gl), ga.gl_code, null) order by ga.gl_code separator ', ') as gl_debited
+    from tx
+    join ln on ln.loan_id = tx.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = tx.txn_id
+    left join acc_gl_account ga on ga.id = je.account_id
+    group by tx.txn_id
+),
+mv as (
+    select tx.*,
+        case when tx.is_reversed = 1 then tx.int_amt else 0 end as int_reversed,
+        case when tx.is_reversed = 1 then tx.pen_amt else 0 end as pen_reversed,
+        coalesce(gl.gl_int, 0) as gl_int, coalesce(gl.gl_pen, 0) as gl_pen, gl.gl_posting_date, gl.je_ref, gl.gl_debited,
+        case
+            when tx.is_reversed = 1 and abs(coalesce(gl.gl_int, 0) + coalesce(gl.gl_pen, 0)) >= 0.005 then 'Reversal not posted'
+            when tx.is_reversed = 1 then 'Reversed'
+            when gl.txn_id is null then 'Not posted'
+            when abs(tx.int_amt + tx.pen_amt - gl.gl_int - gl.gl_pen) >= 0.005 then 'Amount mismatch'
+            when gl.gl_posting_date not between '${startDate}' and '${endDate}' then 'Matched - posted outside period'
+            else 'Matched' end as recon_status
+    from tx
+    left join gl on gl.txn_id = tx.txn_id
+)
+select count(*) from tx]]></column>
+            <where>report_name = 'Interest and Penalty Received - Transactions'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-5" author="wmnjugunaink">
+        <update tableName="stretchy_report">
+            <column name="description" value="Interest and penalty received, reversed and net per loan for the date range, with the GL credit posted, the income GLs and the number of unreconciled receipts."/>
+            <column name="report_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name, p.accounting_type,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 7, 3) then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 9, 5) then m.gl_account_id end) as pen_gl,
+        max(case when m.financial_account_type = 3 then m.gl_account_id end) as int_inc,
+        max(case when m.financial_account_type = 5 then m.gl_account_id end) as pen_inc
+    from m_product_loan p
+    left join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name, p.accounting_type
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.client_id,
+        coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, coalesce(ent.name, ounder.name) as entity_name,
+        pr.product_name, pr.accounting_type, pr.int_gl, pr.pen_gl, pr.int_inc, pr.pen_inc
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    left join m_office ent on ent.id = cast(substring_index(substring_index(ounder.hierarchy, '.', 2), '.', -1) as unsigned)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date, t.transaction_type_enum as tt, t.is_reversed,
+        pd.receipt_number, pt.value as payment_type,
+        coalesce(t.interest_portion_derived, 0) as int_amt,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt
+    from m_loan_transaction t
+    join ln on ln.loan_id = t.loan_id
+    left join m_payment_detail pd on pd.id = t.payment_detail_id
+    left join m_payment_type pt on pt.id = pd.payment_type_id
+    where t.transaction_type_enum in (2, 5, 8, 17, 28)
+        and t.transaction_date between '${startDate}' and '${endDate}'
+        and (coalesce(t.interest_portion_derived, 0) <> 0 or coalesce(t.penalty_charges_portion_derived, 0) <> 0)
+),
+gl as (
+    select tx.txn_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.entry_date) as gl_posting_date,
+        min(je.transaction_id) as je_ref,
+        group_concat(distinct if(je.type_enum = 2 and je.account_id not in (ln.int_gl, ln.pen_gl), ga.gl_code, null) order by ga.gl_code separator ', ') as gl_debited
+    from tx
+    join ln on ln.loan_id = tx.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = tx.txn_id
+    left join acc_gl_account ga on ga.id = je.account_id
+    group by tx.txn_id
+),
+mv as (
+    select tx.*,
+        case when tx.is_reversed = 1 then tx.int_amt else 0 end as int_reversed,
+        case when tx.is_reversed = 1 then tx.pen_amt else 0 end as pen_reversed,
+        coalesce(gl.gl_int, 0) as gl_int, coalesce(gl.gl_pen, 0) as gl_pen, gl.gl_posting_date, gl.je_ref, gl.gl_debited,
+        case
+            when tx.is_reversed = 1 and abs(coalesce(gl.gl_int, 0) + coalesce(gl.gl_pen, 0)) >= 0.005 then 'Reversal not posted'
+            when tx.is_reversed = 1 then 'Reversed'
+            when gl.txn_id is null then 'Not posted'
+            when abs(tx.int_amt + tx.pen_amt - gl.gl_int - gl.gl_pen) >= 0.005 then 'Amount mismatch'
+            when gl.gl_posting_date not between '${startDate}' and '${endDate}' then 'Matched - posted outside period'
+            else 'Matched' end as recon_status
+    from tx
+    left join gl on gl.txn_id = tx.txn_id
+)
+select
+    '${startDate}' as `From`,
+    '${endDate}' as `To`,
+    ln.entity_name as `Entity`,
+    ln.office_name as `Office`,
+    ln.client_id as `Client ID`,
+    ln.client_name as `Client Name`,
+    ln.loan_id as `Loan ID`,
+    ln.account_no as `Loan Account No`,
+    ln.product_name as `Product`,
+    case ln.accounting_type when 2 then 'Cash' when 3 then 'Accrual' when 4 then 'Accrual' else 'None' end as `Accounting`,
+    ln.currency_code as `Currency`,
+    s.txn_count as `Transactions`,
+    round(s.int_amt, 2) as `Interest Received`,
+    round(s.int_reversed, 2) as `Interest Reversals`,
+    round(s.int_amt - s.int_reversed, 2) as `Net Interest Received`,
+    round(s.pen_amt, 2) as `Penalty Received`,
+    round(s.pen_reversed, 2) as `Penalty Reversals`,
+    round(s.pen_amt - s.pen_reversed, 2) as `Net Penalty Received`,
+    if(ln.accounting_type in (3, 4), 'Receivable', 'Income') as `Matched Entry`,
+    ig.gl_code as `Interest GL`,
+    round(s.gl_int, 2) as `GL Interest Credited`,
+    if(ln.pen_gl = ln.int_gl, 'Shared with interest', pg.gl_code) as `Penalty GL`,
+    round(s.gl_pen, 2) as `GL Penalty Credited`,
+    ii.gl_code as `Interest Income GL`,
+    pi.gl_code as `Penalty Income GL`,
+    round((s.int_amt - s.int_reversed) + (s.pen_amt - s.pen_reversed) - s.gl_int - s.gl_pen, 2) as `Variance (CBS - GL)`,
+    s.unmatched as `Unreconciled Transactions`,
+    if(s.unmatched = 0, 'RECONCILED', 'EXCEPTIONS') as `Reconciliation Status`
+from (
+    select mv.loan_id, count(*) as txn_count,
+        sum(mv.int_amt) as int_amt, sum(mv.int_reversed) as int_reversed,
+        sum(mv.pen_amt) as pen_amt, sum(mv.pen_reversed) as pen_reversed,
+        sum(mv.gl_int) as gl_int, sum(mv.gl_pen) as gl_pen,
+        sum(if(mv.recon_status in ('Not posted', 'Amount mismatch', 'Reversal not posted'), 1, 0)) as unmatched
+    from mv
+    group by mv.loan_id
+) s
+join ln on ln.loan_id = s.loan_id
+left join acc_gl_account ig on ig.id = ln.int_gl
+left join acc_gl_account pg on pg.id = ln.pen_gl
+left join acc_gl_account ii on ii.id = ln.int_inc
+left join acc_gl_account pi on pi.id = ln.pen_inc
+order by ln.loan_id
+limit ${limit} offset ${offset}]]></column>
+            <where>report_name = 'Interest and Penalty Received - Loan Summary'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-5-count" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="stretchy_report" columnName="report_count_sql"/>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_count_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name, p.accounting_type,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 7, 3) then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 9, 5) then m.gl_account_id end) as pen_gl,
+        max(case when m.financial_account_type = 3 then m.gl_account_id end) as int_inc,
+        max(case when m.financial_account_type = 5 then m.gl_account_id end) as pen_inc
+    from m_product_loan p
+    left join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name, p.accounting_type
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.client_id,
+        coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, coalesce(ent.name, ounder.name) as entity_name,
+        pr.product_name, pr.accounting_type, pr.int_gl, pr.pen_gl, pr.int_inc, pr.pen_inc
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    left join m_office ent on ent.id = cast(substring_index(substring_index(ounder.hierarchy, '.', 2), '.', -1) as unsigned)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date, t.transaction_type_enum as tt, t.is_reversed,
+        pd.receipt_number, pt.value as payment_type,
+        coalesce(t.interest_portion_derived, 0) as int_amt,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt
+    from m_loan_transaction t
+    join ln on ln.loan_id = t.loan_id
+    left join m_payment_detail pd on pd.id = t.payment_detail_id
+    left join m_payment_type pt on pt.id = pd.payment_type_id
+    where t.transaction_type_enum in (2, 5, 8, 17, 28)
+        and t.transaction_date between '${startDate}' and '${endDate}'
+        and (coalesce(t.interest_portion_derived, 0) <> 0 or coalesce(t.penalty_charges_portion_derived, 0) <> 0)
+),
+gl as (
+    select tx.txn_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.entry_date) as gl_posting_date,
+        min(je.transaction_id) as je_ref,
+        group_concat(distinct if(je.type_enum = 2 and je.account_id not in (ln.int_gl, ln.pen_gl), ga.gl_code, null) order by ga.gl_code separator ', ') as gl_debited
+    from tx
+    join ln on ln.loan_id = tx.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = tx.txn_id
+    left join acc_gl_account ga on ga.id = je.account_id
+    group by tx.txn_id
+),
+mv as (
+    select tx.*,
+        case when tx.is_reversed = 1 then tx.int_amt else 0 end as int_reversed,
+        case when tx.is_reversed = 1 then tx.pen_amt else 0 end as pen_reversed,
+        coalesce(gl.gl_int, 0) as gl_int, coalesce(gl.gl_pen, 0) as gl_pen, gl.gl_posting_date, gl.je_ref, gl.gl_debited,
+        case
+            when tx.is_reversed = 1 and abs(coalesce(gl.gl_int, 0) + coalesce(gl.gl_pen, 0)) >= 0.005 then 'Reversal not posted'
+            when tx.is_reversed = 1 then 'Reversed'
+            when gl.txn_id is null then 'Not posted'
+            when abs(tx.int_amt + tx.pen_amt - gl.gl_int - gl.gl_pen) >= 0.005 then 'Amount mismatch'
+            when gl.gl_posting_date not between '${startDate}' and '${endDate}' then 'Matched - posted outside period'
+            else 'Matched' end as recon_status
+    from tx
+    left join gl on gl.txn_id = tx.txn_id
+)
+select count(distinct tx.loan_id) from tx]]></column>
+            <where>report_name = 'Interest and Penalty Received - Loan Summary'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-6" author="wmnjugunaink">
+        <update tableName="stretchy_report">
+            <column name="description" value="Net interest and penalty received per month, entity, currency and GL account, against the GL receipt credits by posting date, the timing bridge and the net movement of the GL account from all postings."/>
+            <column name="report_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name, p.accounting_type,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 7, 3) then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = if(p.accounting_type in (3, 4), 9, 5) then m.gl_account_id end) as pen_gl,
+        max(case when m.financial_account_type = 3 then m.gl_account_id end) as int_inc,
+        max(case when m.financial_account_type = 5 then m.gl_account_id end) as pen_inc
+    from m_product_loan p
+    left join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name, p.accounting_type
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.client_id,
+        coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, coalesce(ent.name, ounder.name) as entity_name,
+        pr.product_name, pr.accounting_type, pr.int_gl, pr.pen_gl, pr.int_inc, pr.pen_inc
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    left join m_office ent on ent.id = cast(substring_index(substring_index(ounder.hierarchy, '.', 2), '.', -1) as unsigned)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date, t.transaction_type_enum as tt, t.is_reversed,
+        pd.receipt_number, pt.value as payment_type,
+        coalesce(t.interest_portion_derived, 0) as int_amt,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt
+    from m_loan_transaction t
+    join ln on ln.loan_id = t.loan_id
+    left join m_payment_detail pd on pd.id = t.payment_detail_id
+    left join m_payment_type pt on pt.id = pd.payment_type_id
+    where t.transaction_type_enum in (2, 5, 8, 17, 28)
+        and t.transaction_date between '${startDate}' and '${endDate}'
+        and (coalesce(t.interest_portion_derived, 0) <> 0 or coalesce(t.penalty_charges_portion_derived, 0) <> 0)
+),
+gl as (
+    select tx.txn_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 1, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.entry_date) as gl_posting_date,
+        min(je.transaction_id) as je_ref,
+        group_concat(distinct if(je.type_enum = 2 and je.account_id not in (ln.int_gl, ln.pen_gl), ga.gl_code, null) order by ga.gl_code separator ', ') as gl_debited
+    from tx
+    join ln on ln.loan_id = tx.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = tx.txn_id
+    left join acc_gl_account ga on ga.id = je.account_id
+    group by tx.txn_id
+),
+mv as (
+    select tx.*,
+        case when tx.is_reversed = 1 then tx.int_amt else 0 end as int_reversed,
+        case when tx.is_reversed = 1 then tx.pen_amt else 0 end as pen_reversed,
+        coalesce(gl.gl_int, 0) as gl_int, coalesce(gl.gl_pen, 0) as gl_pen, gl.gl_posting_date, gl.je_ref, gl.gl_debited,
+        case
+            when tx.is_reversed = 1 and abs(coalesce(gl.gl_int, 0) + coalesce(gl.gl_pen, 0)) >= 0.005 then 'Reversal not posted'
+            when tx.is_reversed = 1 then 'Reversed'
+            when gl.txn_id is null then 'Not posted'
+            when abs(tx.int_amt + tx.pen_amt - gl.gl_int - gl.gl_pen) >= 0.005 then 'Amount mismatch'
+            when gl.gl_posting_date not between '${startDate}' and '${endDate}' then 'Matched - posted outside period'
+            else 'Matched' end as recon_status
+    from tx
+    left join gl on gl.txn_id = tx.txn_id
+)
+,
+roles as (
+    select r.gl_id,
+        concat(if(max(r.accrual) = 1, 'Receivable', 'Income'),
+            case when max(r.shared) = 1 then ' (interest + penalty)' when max(r.is_pen) = 1 and max(r.is_int) = 1 then ' (interest / penalty)'
+                when max(r.is_pen) = 1 then ' (penalty)' else ' (interest)' end) as gl_role
+    from (
+        select int_gl as gl_id, if(accounting_type in (3, 4), 1, 0) as accrual, if(pen_gl = int_gl, 1, 0) as shared, 1 as is_int, 0 as is_pen
+        from prod where int_gl is not null
+        union all
+        select pen_gl, if(accounting_type in (3, 4), 1, 0), 0, 0, 1
+        from prod where pen_gl is not null and pen_gl <> int_gl
+    ) r
+    group by r.gl_id
+),
+cbs as (
+    select date_format(tx.transaction_date, '%Y-%m') as period, ln.entity_name, ln.currency_code, ln.int_gl as gl_id, tx.txn_id,
+        tx.int_amt + if(ln.pen_gl = ln.int_gl, tx.pen_amt, 0) as cbs_gross,
+        if(tx.is_reversed = 1, tx.int_amt + if(ln.pen_gl = ln.int_gl, tx.pen_amt, 0), 0) as cbs_reversed
+    from tx
+    join ln on ln.loan_id = tx.loan_id
+    union all
+    select date_format(tx.transaction_date, '%Y-%m'), ln.entity_name, ln.currency_code, ln.pen_gl, tx.txn_id, tx.pen_amt, if(tx.is_reversed = 1, tx.pen_amt, 0)
+    from tx
+    join ln on ln.loan_id = tx.loan_id
+    where ln.pen_gl <> ln.int_gl
+),
+gl_rcpt as (
+    select date_format(je.entry_date, '%Y-%m') as period, ln.entity_name, je.currency_code, je.account_id as gl_id,
+        sum(if(je.type_enum = 1, je.amount, -je.amount)) as amt,
+        sum(if(date_format(t.transaction_date, '%Y-%m') <> date_format(je.entry_date, '%Y-%m'), if(je.type_enum = 1, je.amount, -je.amount), 0)) as dated_elsewhere
+    from acc_gl_journal_entry je force index (idx_acc_gl_journal_entry_account_entry_date)
+    join m_loan_transaction t on t.id = je.loan_transaction_id and t.transaction_type_enum in (2, 5, 8, 17, 28)
+        and (coalesce(t.interest_portion_derived, 0) <> 0 or coalesce(t.penalty_charges_portion_derived, 0) <> 0)
+    join ln on ln.loan_id = t.loan_id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.account_id in (select gl_id from roles)
+        and je.entry_date between '${startDate}' and '${endDate}'
+    group by date_format(je.entry_date, '%Y-%m'), ln.entity_name, je.currency_code, je.account_id
+),
+gl_late as (
+    select date_format(tx.transaction_date, '%Y-%m') as period, ln.entity_name, je.currency_code, je.account_id as gl_id,
+        sum(if(je.type_enum = 1, je.amount, -je.amount)) as amt
+    from tx
+    join ln on ln.loan_id = tx.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = tx.txn_id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where date_format(je.entry_date, '%Y-%m') <> date_format(tx.transaction_date, '%Y-%m')
+    group by date_format(tx.transaction_date, '%Y-%m'), ln.entity_name, je.currency_code, je.account_id
+),
+gl_all as (
+    select date_format(je.entry_date, '%Y-%m') as period, coalesce(ent.name, jo.name) as entity_name, je.currency_code, je.account_id as gl_id,
+        sum(if(je.type_enum = 1, je.amount, -je.amount)) as amt
+    from acc_gl_journal_entry je force index (idx_acc_gl_journal_entry_account_entry_date)
+    join m_office jo on jo.id = je.office_id
+    left join m_office ent on ent.id = cast(substring_index(substring_index(jo.hierarchy, '.', 2), '.', -1) as unsigned)
+    where je.account_id in (select gl_id from roles)
+        and je.entry_date between '${startDate}' and '${endDate}'
+        and jo.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or jo.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and ('${currencyId}' in ('-1', '0') or je.currency_code = '${currencyId}')
+    group by date_format(je.entry_date, '%Y-%m'), coalesce(ent.name, jo.name), je.currency_code, je.account_id
+)
+select
+    x.period as `Period`,
+    x.entity_name as `Entity`,
+    x.currency_code as `Currency`,
+    g.gl_code as `GL Code`,
+    g.name as `GL Account`,
+    coalesce(rl.gl_role, 'No GL mapping') as `GL Role`,
+    sum(x.txns) as `Transactions`,
+    round(sum(x.cbs_gross), 2) as `CBS Received`,
+    round(sum(x.cbs_reversed), 2) as `CBS Reversals`,
+    round(sum(x.cbs_gross - x.cbs_reversed), 2) as `CBS Net Received`,
+    round(sum(x.gl_rcpt), 2) as `GL Receipt Credits (Posting Date)`,
+    round(sum(x.gl_dated_elsewhere), 2) as `Timing - Posted This Period, Dated Other Periods`,
+    round(sum(x.gl_late), 2) as `Timing - Dated This Period, Posted Other Periods`,
+    round(sum(x.cbs_gross - x.cbs_reversed - x.gl_rcpt + x.gl_dated_elsewhere - x.gl_late), 2) as `Unexplained Variance (CBS - GL)`,
+    round(sum(x.gl_all), 2) as `GL Net Credits (All Postings)`,
+    round(sum(x.gl_all - x.gl_rcpt), 2) as `GL Other Postings`,
+    if(abs(sum(x.cbs_gross - x.cbs_reversed - x.gl_rcpt + x.gl_dated_elsewhere - x.gl_late)) < 0.005, 'RECONCILED', 'UNEXPLAINED VARIANCE') as `Reconciliation Status`
+from (
+    select cbs.period, cbs.entity_name, cbs.currency_code, cbs.gl_id, count(distinct case when cbs.cbs_gross <> 0 then cbs.txn_id end) as txns,
+        sum(cbs.cbs_gross) as cbs_gross, sum(cbs.cbs_reversed) as cbs_reversed, 0 as gl_rcpt, 0 as gl_dated_elsewhere, 0 as gl_late, 0 as gl_all
+    from cbs
+    group by cbs.period, cbs.entity_name, cbs.currency_code, cbs.gl_id
+    union all
+    select period, entity_name, currency_code, gl_id, 0, 0, 0, amt, dated_elsewhere, 0, 0 from gl_rcpt
+    union all
+    select period, entity_name, currency_code, gl_id, 0, 0, 0, 0, 0, amt, 0 from gl_late
+    union all
+    select period, entity_name, currency_code, gl_id, 0, 0, 0, 0, 0, 0, amt from gl_all
+) x
+left join acc_gl_account g on g.id = x.gl_id
+left join roles rl on rl.gl_id = x.gl_id
+group by x.period, x.entity_name, x.currency_code, g.gl_code, g.name, rl.gl_role
+order by 1, 2, 3, 4]]></column>
+            <where>report_name = 'Interest and Penalty Received - GL Summary'</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-7" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Interest and Penalty Reconciliation - Exceptions'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report">
+            <column name="report_name" value="Interest and Penalty Reconciliation - Exceptions"/>
+            <column name="report_type" value="Table"/>
+            <column name="report_category" value="Accounting"/>
+            <column name="description" value="Every balance or posting exception behind the interest and penalty receivable reconciliation as at the cut-off date: negative receivables, penalty charges not accrued, waivers and transactions not posted, posting mismatches, reversals not posted, postings after the cut-off and journal entries without a loan transaction."/>
+            <column name="core_report" valueBoolean="false"/>
+            <column name="use_report" valueBoolean="true"/>
+            <column name="self_service_user_report" valueBoolean="false"/>
+            <column name="report_sql"><![CDATA[with prod as (
+    select p.id as product_id, p.name as product_name,
+        max(case when m.financial_account_type = 7 then m.gl_account_id end) as int_gl,
+        max(case when m.financial_account_type = 9 then m.gl_account_id end) as pen_gl
+    from m_product_loan p
+    join acc_product_mapping m on m.product_id = p.id and m.product_type = 1 and m.charge_id is null
+    where p.accounting_type in (3, 4)
+        and (${loanProductId} in (-1, 0) or p.id = ${loanProductId})
+    group by p.id, p.name
+),
+ln as (
+    select l.id as loan_id, l.account_no, l.currency_code, l.disbursedon_date,
+        case when l.closedon_date <= '${asOn}' then l.closedon_date end as closedon_date,
+        case l.loan_status_id when 300 then 'Active' when 600 then 'Closed' when 601 then 'Written Off' when 602 then 'Rescheduled'
+            when 700 then 'Overpaid' else cast(l.loan_status_id as char) end as loan_status,
+        coalesce(l.total_overpaid_derived, 0) as total_overpaid,
+        l.client_id, coalesce(c.display_name, g.display_name) as client_name,
+        ounder.name as office_name, pr.product_name, pr.int_gl, pr.pen_gl
+    from m_loan l
+    join prod pr on pr.product_id = l.product_id
+    left join m_client c on c.id = l.client_id
+    left join m_group g on g.id = l.group_id
+    join m_office ounder on ounder.id = coalesce(l.office_id, c.office_id, g.office_id)
+    where ounder.hierarchy like concat('${currentUserHierarchy}', '%')
+        and (${officeId} in (-1, 0) or ounder.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+        and l.disbursedon_date is not null
+        and l.disbursedon_date <= '${asOn}'
+        and ('${currencyId}' in ('-1', '0') or l.currency_code = '${currencyId}')
+        and ('${filterClientId}' in ('-1', '0') or l.client_id = '${filterClientId}')
+        and ('${filterLoanId}' in ('-1', '0') or l.id = '${filterLoanId}')
+),
+tx as (
+    select t.id as txn_id, t.loan_id, t.transaction_date as event_date, t.transaction_type_enum as tt, t.is_reversed,
+        case
+            when t.transaction_type_enum = 10 then 'Accrual'
+            when t.transaction_type_enum in (2, 5, 8, 17, 28) then 'Receipt'
+            when t.transaction_type_enum in (4, 9) then 'Waiver'
+            when t.transaction_type_enum in (6, 31) then 'Write-off'
+            when t.transaction_type_enum = 33 then 'Write-off Reversal'
+            when t.transaction_type_enum = 32 then 'Residual Adjustment'
+            when t.transaction_type_enum = 30 then 'Interest Cancellation'
+        end as category,
+        if(t.transaction_type_enum = 30, 0, coalesce(t.interest_portion_derived, 0)) as int_amt,
+        if(t.transaction_type_enum = 30, coalesce(t.interest_portion_derived, 0), 0) as int_cancelled_amt,
+        case when t.transaction_type_enum = 4 and t.interest_portion_derived is null then t.amount else 0 end as int_unposted,
+        coalesce(t.penalty_charges_portion_derived, 0) as pen_amt,
+        case when t.transaction_type_enum = 9 and t.penalty_charges_portion_derived is null then coalesce((
+            select sum(cpb.amount)
+            from m_loan_charge_paid_by cpb
+            join m_loan_charge lc on lc.id = cpb.loan_charge_id
+            where cpb.loan_transaction_id = t.id and lc.is_penalty = 1), 0) else 0 end as pen_unposted
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    where t.transaction_type_enum in (2, 4, 5, 6, 8, 9, 10, 17, 28, 30, 31, 32, 33)
+        and t.transaction_date <= '${asOn}'
+),
+chg as (
+    select lc.id as charge_id, lc.loan_id, lc.due_for_collection_as_of_date as event_date, lc.amount,
+        if(lc.due_for_collection_as_of_date >= '${startDate}', 1, 0) as in_period
+    from ln
+    join m_loan_charge lc on lc.loan_id = ln.loan_id
+    where lc.is_penalty = 1 and lc.is_active = 1 and lc.due_for_collection_as_of_date <= '${asOn}'
+),
+mv0 as (
+    select e.*,
+        case when e.category = 'Accrual' then e.int_amt else 0 end as int_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.int_amt else 0 end as int_accrual_rev,
+        case when e.category = 'Receipt' then e.int_amt else 0 end as int_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.int_amt else 0 end as int_receipt_rev,
+        case when e.category = 'Waiver' then e.int_amt + e.int_unposted else 0 end as int_waived,
+        case when e.category = 'Write-off' then e.int_amt else 0 end as int_written_off,
+        case when e.category = 'Residual Adjustment' then e.int_amt else 0 end as int_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.int_amt + e.int_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.int_amt else 0 end as int_relief_rev,
+        case when e.is_reversed = 0 then e.int_unposted else 0 end as int_waived_unposted,
+        case when e.is_reversed = 0 then e.int_cancelled_amt else 0 end as int_cancelled,
+        case when e.category = 'Accrual' then e.pen_amt else 0 end as pen_accrued,
+        case when e.category = 'Accrual' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_accrual_rev,
+        case when e.category = 'Receipt' then e.pen_amt else 0 end as pen_received,
+        case when e.category = 'Receipt' and e.is_reversed = 1 then e.pen_amt else 0 end as pen_receipt_rev,
+        case when e.category = 'Waiver' then e.pen_amt + e.pen_unposted else 0 end as pen_waived,
+        case when e.category = 'Write-off' then e.pen_amt else 0 end as pen_written_off,
+        case when e.category = 'Residual Adjustment' then e.pen_amt else 0 end as pen_adjusted,
+        case when e.category in ('Waiver', 'Write-off', 'Residual Adjustment') and e.is_reversed = 1 then e.pen_amt + e.pen_unposted
+            when e.category = 'Write-off Reversal' and e.is_reversed = 0 then e.pen_amt else 0 end as pen_relief_rev,
+        case when e.is_reversed = 0 then e.pen_unposted else 0 end as pen_waived_unposted
+    from tx e
+),
+mv as (
+    select m.*,
+        m.int_accrued - m.int_accrual_rev - m.int_received + m.int_receipt_rev - m.int_waived - m.int_written_off - m.int_adjusted + m.int_relief_rev as int_mv,
+        -m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv,
+        m.pen_accrued - m.pen_accrual_rev - m.pen_received + m.pen_receipt_rev - m.pen_waived - m.pen_written_off - m.pen_adjusted + m.pen_relief_rev as pen_mv_posted,
+        if(m.event_date >= '${startDate}', 1, 0) as in_period
+    from mv0 m
+),
+gl as (
+    select je.loan_transaction_id as txn_id, t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        min(je.transaction_id) as je_ref,
+        min(je.entry_date) as gl_date
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by je.loan_transaction_id, t.loan_id
+),
+gl_loan as (
+    select t.loan_id,
+        sum(case when je.account_id = ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen,
+        sum(case when je.account_id = ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_int_open,
+        sum(case when je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl and je.entry_date < '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount) else 0 end) as gl_pen_open,
+        sum(case when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date < '${startDate}' and je.entry_date >= '${startDate}' then if(je.type_enum = 2, je.amount, -je.amount)
+            when (je.account_id = ln.int_gl or (je.account_id = ln.pen_gl and ln.pen_gl <> ln.int_gl))
+                and t.transaction_date >= '${startDate}' and je.entry_date < '${startDate}' then if(je.type_enum = 2, -je.amount, je.amount)
+            else 0 end) as gl_timing
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date <= '${asOn}'
+    group by t.loan_id
+),
+s_loan as (
+    select ln.loan_id, ln.total_overpaid,
+        coalesce(a.txn_count, 0) as txn_count, a.last_txn_id,
+        coalesce(a.int_open, 0) as int_open, coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) as pen_open, coalesce(a.pen_open_posted, 0) as pen_open_posted,
+        coalesce(a.int_accrued, 0) as int_accrued, coalesce(a.int_accrual_rev, 0) as int_accrual_rev,
+        coalesce(a.int_received, 0) as int_received, coalesce(a.int_receipt_rev, 0) as int_receipt_rev,
+        coalesce(a.int_waived, 0) as int_waived, coalesce(a.int_written_off, 0) as int_written_off,
+        coalesce(a.int_adjusted, 0) as int_adjusted, coalesce(a.int_relief_rev, 0) as int_relief_rev,
+        coalesce(a.int_waived_unposted, 0) as int_waived_unposted, coalesce(a.int_cancelled, 0) as int_cancelled,
+        coalesce(c.pen_charged, 0) as pen_charged, coalesce(a.pen_accrued, 0) as pen_accrued, coalesce(a.pen_accrual_rev, 0) as pen_accrual_rev,
+        coalesce(a.pen_received, 0) as pen_received, coalesce(a.pen_receipt_rev, 0) as pen_receipt_rev,
+        coalesce(a.pen_waived, 0) as pen_waived, coalesce(a.pen_written_off, 0) as pen_written_off,
+        coalesce(a.pen_adjusted, 0) as pen_adjusted, coalesce(a.pen_relief_rev, 0) as pen_relief_rev,
+        coalesce(a.pen_waived_unposted, 0) as pen_waived_unposted,
+        coalesce(a.int_open, 0) + coalesce(a.int_mv, 0) as int_close,
+        coalesce(c.pen_charged_open, 0) + coalesce(a.pen_open, 0) + coalesce(c.pen_charged, 0) + coalesce(a.pen_mv, 0) as pen_close,
+        coalesce(a.pen_open_posted, 0) + coalesce(a.pen_mv_posted, 0) as pen_close_posted,
+        coalesce(a.c_int_accrued_net, 0) as c_int_accrued_net, coalesce(a.c_int_received_net, 0) as c_int_received_net,
+        coalesce(c.c_pen_charged, 0) as c_pen_charged, coalesce(a.c_pen_accrued_net, 0) as c_pen_accrued_net,
+        coalesce(a.c_pen_received_net, 0) as c_pen_received_net, coalesce(a.c_pen_waived, 0) as c_pen_waived,
+        coalesce(a.c_unposted, 0) as c_unposted,
+        coalesce(g.gl_int, 0) as gl_int, coalesce(g.gl_pen, 0) as gl_pen,
+        coalesce(g.gl_int_open, 0) as gl_int_open, coalesce(g.gl_pen_open, 0) as gl_pen_open, coalesce(g.gl_timing, 0) as gl_timing
+    from ln
+    left join (
+        select g0.loan_id,
+            sum(if(g0.in_period = 1, g0.txn_count, 0)) as txn_count,
+            max(if(g0.in_period = 1, g0.last_txn_id, null)) as last_txn_id,
+            sum(if(g0.in_period = 0, g0.int_mv, 0)) as int_open,
+            sum(if(g0.in_period = 0, g0.pen_mv, 0)) as pen_open,
+            sum(if(g0.in_period = 0, g0.pen_mv_posted, 0)) as pen_open_posted,
+            sum(if(g0.in_period = 1, g0.int_accrued, 0)) as int_accrued,
+            sum(if(g0.in_period = 1, g0.int_accrual_rev, 0)) as int_accrual_rev,
+            sum(if(g0.in_period = 1, g0.int_received, 0)) as int_received,
+            sum(if(g0.in_period = 1, g0.int_receipt_rev, 0)) as int_receipt_rev,
+            sum(if(g0.in_period = 1, g0.int_waived, 0)) as int_waived,
+            sum(if(g0.in_period = 1, g0.int_written_off, 0)) as int_written_off,
+            sum(if(g0.in_period = 1, g0.int_adjusted, 0)) as int_adjusted,
+            sum(if(g0.in_period = 1, g0.int_relief_rev, 0)) as int_relief_rev,
+            sum(if(g0.in_period = 1, g0.int_waived_unposted, 0)) as int_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_cancelled, 0)) as int_cancelled,
+            sum(if(g0.in_period = 1, g0.pen_accrued, 0)) as pen_accrued,
+            sum(if(g0.in_period = 1, g0.pen_accrual_rev, 0)) as pen_accrual_rev,
+            sum(if(g0.in_period = 1, g0.pen_received, 0)) as pen_received,
+            sum(if(g0.in_period = 1, g0.pen_receipt_rev, 0)) as pen_receipt_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived, 0)) as pen_waived,
+            sum(if(g0.in_period = 1, g0.pen_written_off, 0)) as pen_written_off,
+            sum(if(g0.in_period = 1, g0.pen_adjusted, 0)) as pen_adjusted,
+            sum(if(g0.in_period = 1, g0.pen_relief_rev, 0)) as pen_relief_rev,
+            sum(if(g0.in_period = 1, g0.pen_waived_unposted, 0)) as pen_waived_unposted,
+            sum(if(g0.in_period = 1, g0.int_mv, 0)) as int_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv, 0)) as pen_mv,
+            sum(if(g0.in_period = 1, g0.pen_mv_posted, 0)) as pen_mv_posted,
+            sum(g0.int_accrued - g0.int_accrual_rev) as c_int_accrued_net,
+            sum(g0.int_received - g0.int_receipt_rev) as c_int_received_net,
+            sum(g0.pen_accrued - g0.pen_accrual_rev) as c_pen_accrued_net,
+            sum(g0.pen_received - g0.pen_receipt_rev) as c_pen_received_net,
+            sum(g0.pen_waived) as c_pen_waived,
+            sum(g0.int_waived_unposted + g0.pen_waived_unposted) as c_unposted
+        from (
+            select m.loan_id, m.in_period, count(*) as txn_count, max(m.txn_id) as last_txn_id,
+                sum(m.int_accrued) as int_accrued, sum(m.int_accrual_rev) as int_accrual_rev,
+                sum(m.int_received) as int_received, sum(m.int_receipt_rev) as int_receipt_rev,
+                sum(m.int_waived) as int_waived, sum(m.int_written_off) as int_written_off,
+                sum(m.int_adjusted) as int_adjusted, sum(m.int_relief_rev) as int_relief_rev,
+                sum(m.int_waived_unposted) as int_waived_unposted, sum(m.int_cancelled) as int_cancelled,
+                sum(m.pen_accrued) as pen_accrued, sum(m.pen_accrual_rev) as pen_accrual_rev,
+                sum(m.pen_received) as pen_received, sum(m.pen_receipt_rev) as pen_receipt_rev,
+                sum(m.pen_waived) as pen_waived, sum(m.pen_written_off) as pen_written_off,
+                sum(m.pen_adjusted) as pen_adjusted, sum(m.pen_relief_rev) as pen_relief_rev,
+                sum(m.pen_waived_unposted) as pen_waived_unposted,
+                sum(m.int_mv) as int_mv, sum(m.pen_mv) as pen_mv, sum(m.pen_mv_posted) as pen_mv_posted
+            from mv m
+            group by m.loan_id, m.in_period
+        ) g0
+        group by g0.loan_id
+    ) a on a.loan_id = ln.loan_id
+    left join (
+        select ch.loan_id, sum(if(ch.in_period = 1, ch.amount, 0)) as pen_charged, sum(if(ch.in_period = 0, ch.amount, 0)) as pen_charged_open, sum(ch.amount) as c_pen_charged
+        from chg ch
+        group by ch.loan_id
+    ) c on c.loan_id = ln.loan_id
+    left join gl_loan g on g.loan_id = ln.loan_id
+),
+sl as (
+    select s.*,
+        s.pen_close - s.pen_close_posted as accrual_gap,
+        s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen as posting_var,
+        s.int_close + s.pen_close - s.gl_int - s.gl_pen as gl_var,
+        coalesce(nullif(concat_ws('; ',
+            case when s.int_close < -0.005 then concat('NEGATIVE INTEREST RECEIVABLE (',
+                case when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_int_received_net > s.c_int_accrued_net + 0.005 then 'receipts exceed accruals'
+                    else 'waivers/write-offs exceed accruals' end, ')') end,
+            case when s.pen_close < -0.005 then concat('NEGATIVE PENALTY RECEIVABLE (',
+                case when s.c_pen_charged < 0.005 and s.c_pen_waived > 0.005 then 'waiver without charge'
+                    when s.total_overpaid > 0 then 'overpaid loan'
+                    when s.c_pen_received_net > s.c_pen_charged + 0.005 then 'receipts exceed charges'
+                    else 'waivers/write-offs exceed charges' end, ')') end,
+            case when s.pen_close - s.pen_close_posted > 0.005 then 'PENALTY CHARGED NOT ACCRUED'
+                when s.pen_close - s.pen_close_posted < -0.005 then 'PENALTY ACCRUED EXCEEDS CHARGED' end,
+            case when s.c_unposted > 0.005 then 'WAIVER NOT POSTED' end,
+            case when abs(s.int_close + s.pen_close_posted - s.gl_int - s.gl_pen + s.c_unposted) >= 0.005 then 'POSTING VARIANCE' end,
+            case when abs(s.gl_timing) >= 0.005 then 'GL TIMING DIFFERENCE' end
+        ), ''), 'OK') as validation_status
+    from s_loan s
+    limit 18446744073709551615
+)
+,
+gl_after as (
+    select je.loan_transaction_id as txn_id, min(je.entry_date) as gl_date, min(je.transaction_id) as je_ref,
+        sum(if(je.type_enum = 2, je.amount, -je.amount)) as amt
+    from ln
+    join m_loan_transaction t on t.loan_id = ln.loan_id and t.transaction_date <= '${asOn}'
+    join acc_gl_journal_entry je on je.loan_transaction_id = t.id and je.account_id in (ln.int_gl, ln.pen_gl)
+    where je.entry_date > '${asOn}'
+    group by je.loan_transaction_id
+),
+ex as (
+    select s.loan_id, 'Negative interest receivable' as exception_type, 'Interest' as component, s.int_close as amount,
+        'Loan' as rec_type, null as rec_id, null as rec_date, null as txn_type, null as je_ref,
+        concat('Accrued ', round(s.c_int_accrued_net, 2), ', net received ', round(s.c_int_received_net, 2), ', closing ', round(s.int_close, 2),
+            case when s.total_overpaid > 0 then ' - overpaid loan (credit balance)'
+                when s.c_int_received_net > s.c_int_accrued_net + 0.005 then ' - receipts exceed accruals'
+                else ' - waivers/write-offs exceed accruals' end) as detail
+    from sl s
+    where s.int_close < -0.005
+    union all
+    select s.loan_id, 'Negative penalty receivable', 'Penalty', s.pen_close, 'Loan', null, null, null, null,
+        concat('Charged ', round(s.c_pen_charged, 2), ', net received ', round(s.c_pen_received_net, 2), ', waived ', round(s.c_pen_waived, 2), ', closing ', round(s.pen_close, 2),
+            case when s.c_pen_charged < 0.005 and s.c_pen_waived > 0.005 then ' - waiver without charge'
+                when s.total_overpaid > 0 then ' - overpaid loan (credit balance)'
+                when s.c_pen_received_net > s.c_pen_charged + 0.005 then ' - receipts exceed charges'
+                else ' - waivers/write-offs exceed charges' end)
+    from sl s
+    where s.pen_close < -0.005
+    union all
+    select s.loan_id, if(s.accrual_gap > 0, 'Penalty charged not accrued', 'Penalty accrued exceeds charged'), 'Penalty', s.accrual_gap, 'Loan', null, null, null, null,
+        concat('Charged ', round(s.c_pen_charged, 2), ', accrued ', round(s.c_pen_accrued_net, 2), ' - receivable GL not debited for the difference')
+    from sl s
+    where abs(s.accrual_gap) >= 0.005
+    union all
+    select s.loan_id, 'GL timing difference', 'Interest + Penalty', s.gl_timing, 'Loan', null, null, null, null,
+        concat('Journal entries dated in the period for transactions dated before it (or the reverse): ', round(s.gl_timing, 2))
+    from sl s
+    where abs(s.gl_timing) >= 0.005
+    union all
+    select x.loan_id,
+        case
+            when x.neg = 1 then 'Negative transaction amount'
+            when x.unposted > 0.005 then 'Waiver not posted to GL'
+            when x.is_reversed = 1 then 'Reversal not posted to GL'
+            when x.no_gl = 1 then 'Transaction not posted to GL'
+            else 'Posting amount mismatch' end,
+        case
+            when x.neg = 1 then if(x.int_amt < 0 and x.pen_amt < 0, 'Interest + Penalty', if(x.int_amt < 0, 'Interest', 'Penalty'))
+            when x.unposted > 0.005 then if(x.int_waived_unposted > 0, 'Interest', 'Penalty')
+            when abs(x.int_var) >= 0.005 and abs(x.pen_var) >= 0.005 then 'Interest + Penalty'
+            when abs(x.int_var) >= 0.005 then 'Interest' else 'Penalty' end,
+        case when x.neg = 1 then x.int_amt + x.pen_amt when x.unposted > 0.005 then x.unposted else x.int_var + x.pen_var end,
+        'Transaction', x.txn_id, x.event_date, x.category, x.je_ref,
+        case
+            when x.neg = 1 then concat('Transaction carries a negative interest/penalty portion (', round(x.int_amt, 2), ' / ', round(x.pen_amt, 2), '), so its reversal or receipt reads negative')
+            when x.unposted > 0.005 then 'Waiver recorded without an interest/penalty portion, so no journal entry was created'
+            when x.is_reversed = 1 then concat('Transaction is reversed but the receivable GL still carries ', round(-(x.int_var + x.pen_var), 2))
+            when x.no_gl = 1 then 'No journal entry on the receivable GL for this transaction'
+            else concat('CBS movement ', round(x.int_mv + x.pen_mv_posted, 2), ', GL movement ', round(x.gl_int + x.gl_pen, 2)) end
+    from (
+        select m.loan_id, m.txn_id, m.event_date, m.category, m.is_reversed, m.int_mv, m.pen_mv_posted, m.int_amt, m.pen_amt,
+            if(m.int_amt < 0 or m.pen_amt < 0, 1, 0) as neg,
+            m.int_waived_unposted, m.int_waived_unposted + m.pen_waived_unposted as unposted,
+            coalesce(gl.gl_int, 0) as gl_int, coalesce(gl.gl_pen, 0) as gl_pen, gl.je_ref, if(gl.txn_id is null, 1, 0) as no_gl,
+            m.int_mv - coalesce(gl.gl_int, 0) as int_var, m.pen_mv_posted - coalesce(gl.gl_pen, 0) as pen_var
+        from mv m
+        left join gl on gl.txn_id = m.txn_id
+    ) x
+    where x.neg = 1 or x.unposted > 0.005 or abs(x.int_var + x.pen_var) >= 0.005
+    union all
+    select t.loan_id, 'Posting from unmodelled transaction type', 'Interest + Penalty', gl.gl_int + gl.gl_pen, 'Transaction', t.id, t.transaction_date,
+        concat('Type ', t.transaction_type_enum), gl.je_ref, 'Receivable GL posting from a transaction type the report does not model'
+    from gl
+    join m_loan_transaction t on t.id = gl.txn_id
+    where t.transaction_type_enum not in (2, 4, 5, 6, 8, 9, 10, 17, 28, 30, 31, 32, 33)
+)
+select
+    '${asOn}' as `Cut-off Date`,
+    ex.exception_type as `Exception`,
+    ex.component as `Component`,
+    ln.office_name as `Office`,
+    ln.client_id as `Client ID`,
+    ln.client_name as `Client Name`,
+    ln.loan_id as `Loan ID`,
+    ln.account_no as `Loan Account No`,
+    ln.product_name as `Product`,
+    ln.currency_code as `Currency`,
+    ln.loan_status as `Loan Status`,
+    round(ex.amount, 2) as `Amount`,
+    ex.rec_type as `Record`,
+    ex.rec_id as `Transaction ID`,
+    ex.rec_date as `Transaction Date`,
+    ex.txn_type as `Transaction Type`,
+    ig.gl_code as `Interest Receivable GL`,
+    if(ln.pen_gl = ln.int_gl, 'Shared with interest', pg.gl_code) as `Penalty Receivable GL`,
+    ex.je_ref as `Journal Reference`,
+    ex.detail as `Detail`
+from ex
+join ln on ln.loan_id = ex.loan_id
+left join acc_gl_account ig on ig.id = ln.int_gl
+left join acc_gl_account pg on pg.id = ln.pen_gl
+union all
+select
+    '${asOn}', 'Journal entry without loan transaction', 'Interest + Penalty', jo.name, null, null, null, null, null, je.currency_code, null,
+    round(sum(if(je.type_enum = 2, je.amount, -je.amount)), 2), 'Journal', null, min(je.entry_date), if(max(je.manual_entry) = 1, 'Manual journal', 'System journal'),
+    g.gl_code, null, je.transaction_id, 'Journal entry on a receivable GL that is not linked to a loan transaction'
+from acc_gl_journal_entry je
+join acc_gl_account g on g.id = je.account_id
+join m_office jo on jo.id = je.office_id
+where je.account_id in (select int_gl from prod union select pen_gl from prod)
+    and je.entry_date <= '${asOn}'
+    and (je.loan_transaction_id is null or je.manual_entry = 1)
+    and jo.hierarchy like concat('${currentUserHierarchy}', '%')
+    and (${officeId} in (-1, 0) or jo.hierarchy like concat((select ho.hierarchy from m_office ho where ho.id = ${officeId}), '%'))
+    and ('${currencyId}' in ('-1', '0') or je.currency_code = '${currencyId}')
+    and '${filterClientId}' in ('-1', '0') and '${filterLoanId}' in ('-1', '0')
+group by jo.name, je.currency_code, g.gl_code, je.transaction_id
+order by 7, 2, 15, 14
+limit ${limit} offset ${offset}]]></column>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Reconciliation - Exceptions')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'startDateSelect')"/>
+            <column name="report_parameter_name" value="startDate"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Reconciliation - Exceptions')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'asOnDate')"/>
+            <column name="report_parameter_name" value="asOn"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Reconciliation - Exceptions')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'OfficeIdSelectOne')"/>
+            <column name="report_parameter_name" value="officeId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Reconciliation - Exceptions')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'currencyIdSelectAll')"/>
+            <column name="report_parameter_name" value="currencyId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Reconciliation - Exceptions')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'loanProductIdSelectAll')"/>
+            <column name="report_parameter_name" value="loanProductId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Reconciliation - Exceptions')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'filterClientIdText')"/>
+            <column name="report_parameter_name" value="filterClientId"/>
+        </insert>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Interest and Penalty Reconciliation - Exceptions')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'filterLoanIdText')"/>
+            <column name="report_parameter_name" value="filterLoanId"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-766-v3-report-7-permission" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'READ_Interest and Penalty Reconciliation - Exceptions'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="report"/>
+            <column name="code" value="READ_Interest and Penalty Reconciliation - Exceptions"/>
+            <column name="entity_name" value="Interest and Penalty Reconciliation - Exceptions"/>
+            <column name="action_name" value="READ"/>
+            <column name="can_maker_checker" valueBoolean="false"/>
+        </insert>
+    </changeSet>
 </databaseChangeLog>

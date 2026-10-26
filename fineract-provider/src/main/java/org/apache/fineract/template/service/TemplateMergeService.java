@@ -29,6 +29,8 @@ import java.io.StringWriter;
 import java.net.HttpURLConnection;
 import java.net.Inet6Address;
 import java.net.InetAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
@@ -82,6 +84,10 @@ public class TemplateMergeService {
 
         for (final Map.Entry<String, String> mapper : template.getMappersAsMap().entrySet()) {
             final String url = resolveMapperUrl(mapper.getValue(), mergeScopes);
+            if (url == null) {
+                log.info("Template mapper {} skipped because a placeholder in {} rendered blank", mapper.getKey(), mapper.getValue());
+                continue;
+            }
             try {
                 final Map<String, Object> data = getMapFromUrl(url, authorization);
                 formatDates(data);
@@ -109,11 +115,23 @@ public class TemplateMergeService {
         final StringWriter stringWriter = new StringWriter();
         TemplateSyntax.compile(mapperValue, "mapper").execute(stringWriter, scopes);
         final String url = stringWriter.toString().trim();
+        if (mapperValue.contains("{{") && hasBlankPathSegment(url)) {
+            return null;
+        }
         if (url.startsWith("http://") || url.startsWith("https://")) {
             assertWhitelisted(url);
             return url;
         }
         return localApiBase() + StringUtils.removeStart(url, "/");
+    }
+
+    private static boolean hasBlankPathSegment(final String url) {
+        try {
+            final String path = StringUtils.defaultString(new URI(url).getRawPath());
+            return path.isEmpty() || path.endsWith("/") || path.contains("//");
+        } catch (final URISyntaxException e) {
+            return false;
+        }
     }
 
     private String localApiBase() {

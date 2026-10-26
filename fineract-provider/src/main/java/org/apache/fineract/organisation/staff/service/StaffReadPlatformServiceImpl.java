@@ -23,19 +23,26 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.UnrecognizedQueryParamException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.infrastructure.security.utils.SQLBuilder;
 import org.apache.fineract.organisation.office.domain.OfficeAccessPredicate;
+import org.apache.fineract.organisation.office.domain.OfficeRepositoryWrapper;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.organisation.staff.exception.StaffNotFoundException;
 import org.apache.fineract.portfolio.client.domain.ClientStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.savings.domain.SavingsAccountStatusType;
+import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -50,13 +57,20 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
     private final StaffLookupMapper lookupMapper = new StaffLookupMapper();
     private final StaffInOfficeHierarchyMapper staffInOfficeHierarchyMapper = new StaffInOfficeHierarchyMapper();
     private final ColumnValidator columnValidator;
+    private final AppUserRepository appUserRepository;
+    private final OfficeRepositoryWrapper officeRepositoryWrapper;
+    private final ConfigurationDomainService configurationDomainService;
 
     @Autowired
     public StaffReadPlatformServiceImpl(final PlatformSecurityContext context, final JdbcTemplate jdbcTemplate,
-            final ColumnValidator columnValidator) {
+            final ColumnValidator columnValidator, final AppUserRepository appUserRepository,
+            final OfficeRepositoryWrapper officeRepositoryWrapper, final ConfigurationDomainService configurationDomainService) {
         this.context = context;
         this.jdbcTemplate = jdbcTemplate;
         this.columnValidator = columnValidator;
+        this.appUserRepository = appUserRepository;
+        this.officeRepositoryWrapper = officeRepositoryWrapper;
+        this.configurationDomainService = configurationDomainService;
     }
 
     private static final class StaffMapper implements RowMapper<StaffData> {
@@ -163,6 +177,28 @@ public class StaffReadPlatformServiceImpl implements StaffReadPlatformService {
         extraCriteria.addCriteria(" office_id = ", officeId);
         extraCriteria.addCriteria(" is_loan_officer = ", true);
         return retrieveAllStaff(extraCriteria);
+    }
+
+    @Override
+    public Collection<StaffData> retrieveLoanOfficersServingOffice(final Long officeId) {
+        final List<StaffData> officers = new ArrayList<>(retrieveAllLoanOfficersInOfficeById(officeId));
+        final Set<Long> listed = officers.stream().map(StaffData::getId).collect(Collectors.toCollection(HashSet::new));
+        final String officeHierarchy = this.officeRepositoryWrapper.findOneWithNotFoundDetection(officeId).getHierarchy();
+        final boolean strictOfficeScope = this.configurationDomainService.isStrictOfficeScopeEnabled();
+
+        final List<Long> assigned = this.appUserRepository.findEnabledUsersLinkedToActiveLoanOfficers().stream()
+                .filter(user -> user.canServeAsLoanOfficerFor(officeHierarchy, strictOfficeScope)).map(user -> user.getStaffId())
+                .filter(staffId -> !listed.contains(staffId)).distinct().collect(Collectors.toList());
+
+        if (!assigned.isEmpty()) {
+            final StaffMapper rm = new StaffMapper();
+            final String placeholders = assigned.stream().map(staffId -> "?").collect(Collectors.joining(","));
+            final String sql = "select " + rm.schema() + " where s.id in (" + placeholders + ")";
+            officers.addAll(this.jdbcTemplate.query(sql, rm, assigned.toArray())); // NOSONAR
+        }
+
+        officers.sort(Comparator.comparing(StaffData::getDisplayName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        return officers;
     }
 
     @Override
