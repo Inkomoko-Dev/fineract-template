@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -41,7 +42,10 @@ import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.audit.AuditChangeRecorder;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
+import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.documentmanagement.data.DocumentData;
 import org.apache.fineract.infrastructure.documentmanagement.service.DocumentReadPlatformService;
@@ -1849,6 +1853,15 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     public CommandProcessingResult rejectPrepareAndSignContract(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
 
+        final String noteText = StringUtils.trimToNull(command.stringValueOfParameterNamed("note"));
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        new DataValidatorBuilder(dataValidationErrors).resource("loan.prepareandsigncontract.reject").parameter("note").value(noteText)
+                .notBlank().notExceedingLengthOf(960);
+        if (!dataValidationErrors.isEmpty()) {
+            throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                    dataValidationErrors);
+        }
+
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
 
@@ -1867,7 +1880,6 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         }
 
         Note note = null;
-        final String noteText = command.stringValueOfParameterNamed("note");
 
         if (isApprovalStage) {
             // Return from Approval stage back to Prepare and Sign Contract step
@@ -1886,8 +1898,8 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 note = Note.loanNote(loan, "Returned to Prepare and Sign Contract : " + noteText);
                 this.noteRepository.save(note);
             }
-            log.info("Loan {} (ID: {}) returned to Prepare and Sign Contract stage by user {} (ID: {})",
-                    loan.getAccountNumber(), loan.getId(),
+            log.info("Loan {} (ID: {}) returned from approval to stage {} with Prepare and Sign Contract pending by user {} (ID: {})",
+                    loan.getAccountNumber(), loan.getId(), previousLoanDecisionState,
                     currentUser != null ? currentUser.getUsername() : "system",
                     currentUser != null ? currentUser.getId() : "null");
         } else {

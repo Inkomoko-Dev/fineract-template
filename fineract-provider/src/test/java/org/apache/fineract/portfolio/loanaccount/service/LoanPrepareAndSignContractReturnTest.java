@@ -34,6 +34,7 @@ import com.google.gson.JsonParser;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
@@ -254,6 +255,35 @@ class LoanPrepareAndSignContractReturnTest {
         assertEquals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue(), loanDecision.getNextLoanIcReviewDecisionState());
         verify(loan).setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
         verify(loanDecisionRepository).saveAndFlush(loanDecision);
+    }
+
+    @Test
+    void testReturn_WithoutNote_IsRejectedAndNothingIsSaved() {
+        command = jsonCommand("{\"note\":\"   \"}");
+        when(loan.status()).thenReturn(LoanStatus.APPROVED);
+        loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
+        loanDecision.setPreviousLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
+        when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+
+        PlatformApiDataValidationException exception = assertThrows(PlatformApiDataValidationException.class,
+                () -> loanDecisionService.rejectPrepareAndSignContract(loanId, command));
+
+        assertEquals("note", exception.getErrors().get(0).getParameterName());
+        verify(loan, never()).undoApproval(any());
+        verify(loan, never()).setLoanDecisionState(any());
+        verify(loanDecisionRepository, never()).saveAndFlush(any());
+        verify(noteRepository, never()).save(any());
+    }
+
+    @Test
+    void testReturn_WithNoteLongerThanTheNoteColumnAllows_IsRejected() {
+        command = jsonCommand("{\"note\":\"" + "x".repeat(961) + "\"}");
+        when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+        when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+
+        assertThrows(PlatformApiDataValidationException.class, () -> loanDecisionService.rejectPrepareAndSignContract(loanId, command));
+
+        verify(loanDecisionRepository, never()).saveAndFlush(any());
     }
 
     @Test
