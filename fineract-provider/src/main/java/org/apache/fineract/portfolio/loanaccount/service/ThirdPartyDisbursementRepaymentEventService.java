@@ -29,6 +29,8 @@ import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.security.service.TenantDetailsService;
+import org.apache.fineract.useradministration.domain.AppUser;
+import org.apache.fineract.useradministration.domain.AppUserRepositoryWrapper;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanAdjustTransactionBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanTransactionMakeRepaymentPostBusinessEvent;
@@ -42,6 +44,10 @@ import org.apache.fineract.portfolio.loanproduct.domain.ThirdPartyDisbursementPr
 import org.apache.fineract.portfolio.loanproduct.event.DisbursementPartnerWebhookPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
+import org.springframework.security.core.authority.mapping.NullAuthoritiesMapper;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -60,6 +66,8 @@ public class ThirdPartyDisbursementRepaymentEventService {
     private final DisbursementPartnerWebhookPublisher webhookPublisher;
     private final TenantDetailsService tenantDetailsService;
     private final TransactionTemplate transactionTemplate;
+    private final AppUserRepositoryWrapper appUserRepositoryWrapper;
+    private GrantedAuthoritiesMapper authoritiesMapper = new NullAuthoritiesMapper();
 
     @PostConstruct
     public void subscribe() {
@@ -102,6 +110,7 @@ public class ThirdPartyDisbursementRepaymentEventService {
         final JsonObject payload = new JsonObject();
         payload.addProperty("loanId", loan.getId());
         payload.addProperty("loanAccountNo", loan.getAccountNumber());
+        payload.addProperty("externalId", loan.getExternalId());
         payload.addProperty("clientId", loan.getClient() == null ? null : loan.getClient().getId());
         payload.addProperty("transactionId", transaction.getId());
         payload.addProperty("originalTransactionId", transaction.getOriginalTransactionId());
@@ -135,11 +144,16 @@ public class ThirdPartyDisbursementRepaymentEventService {
         for (final FineractPlatformTenant tenant : this.tenantDetailsService.findAllTenants()) {
             try {
                 ThreadLocalContextUtil.setTenant(tenant);
+                // Config reads require an authenticated user; scheduler threads have none (same as Quartz jobs).
+                final AppUser user = this.appUserRepositoryWrapper.fetchSystemUser();
+                SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, user.getPassword(),
+                        this.authoritiesMapper.mapAuthorities(user.getAuthorities())));
                 this.transactionTemplate.executeWithoutResult(status -> deliverPendingForCurrentTenant());
             } catch (final Exception e) {
                 LOG.error("Delivering pending partner repayment events failed for tenant {}: {}", tenant.getTenantIdentifier(),
                         e.getMessage(), e);
             } finally {
+                SecurityContextHolder.clearContext();
                 ThreadLocalContextUtil.clearTenant();
             }
         }
