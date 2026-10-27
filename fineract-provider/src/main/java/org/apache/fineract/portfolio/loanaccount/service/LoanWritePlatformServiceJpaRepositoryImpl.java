@@ -187,6 +187,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidByRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDueDiligenceInfo;
@@ -316,6 +318,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final PostDatedChecksRepository postDatedChecksRepository;
     private final LoanRepaymentReminderRepository loanRepaymentReminderRepository;
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
+    private final LoanDecisionRepository loanDecisionRepository;
     private final DisbursementRequestService disbursementRequestService;
     private final LoanApplicationCommandFromApiJsonHelper fromApiJsonDeserializer;
     private final JournalEntryRepository journalEntryRepository;
@@ -4389,6 +4392,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final Map<String, Object> changes = loan.undoApproval(defaultLoanLifecycleStateMachine());
         if (!changes.isEmpty()) {
 
+            alignLoanStageToDecisionRecord(loan, changes);
+
             this.noteRepository.save(Note.loanNote(loan, noteText));
 
             saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
@@ -4405,6 +4410,24 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .with(changes) //
                 .build();
 
+    }
+
+    /**
+     * Rejecting a disbursement returns the loan to pending approval. The stage on {@code m_loan_decision} is the
+     * stage for that return, so {@code m_loan.loan_decision_state} is set to the same value. Previous and next stage
+     * columns are left as they are.
+     */
+    private void alignLoanStageToDecisionRecord(final Loan loan, final Map<String, Object> changes) {
+        final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
+        if (loanDecision == null || loanDecision.getLoanDecisionState() == null) {
+            return;
+        }
+        final Integer decisionState = loanDecision.getLoanDecisionState();
+        if (decisionState.equals(loan.getLoanDecisionState())) {
+            return;
+        }
+        loan.setLoanDecisionState(decisionState);
+        changes.put("loanDecisionState", decisionState);
     }
 
     @Override
