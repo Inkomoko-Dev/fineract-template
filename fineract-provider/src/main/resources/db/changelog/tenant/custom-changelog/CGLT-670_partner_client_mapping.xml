@@ -365,4 +365,28 @@
               AND status_enum = 0;
         </sql>
     </changeSet>
+
+    <!--
+        Status 100 is client CREATE. Partner assignment is a later screen, and the
+        create-client form does not write x_partner_client_mapping, so this check
+        rejects every new client. Status 0 is not a workflow stage. StatusEnum
+        already renders an unknown code without failing the disbursement page.
+    -->
+    <changeSet id="CGLT-670_partner_mapping_is_not_required_on_client_create" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(1) FROM m_entity_datatable_check
+                WHERE application_table_name = 'm_client'
+                  AND x_registered_table_name = 'x_partner_client_mapping'
+                  AND status_enum = 100
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE m_entity_datatable_check
+            SET status_enum = 0
+            WHERE application_table_name = 'm_client'
+              AND x_registered_table_name = 'x_partner_client_mapping'
+              AND status_enum = 100;
+        </sql>
+    </changeSet>
 </databaseChangeLog>
