@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.infrastructure.entityaccess.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Collection;
 import javax.ws.rs.Consumes;
@@ -75,9 +79,11 @@ public class FineractEntityApiResource {
         this.toApiJsonSerializerOfficeToLoanProducts = toApiJsonSerializerOfficeToLoanProducts;
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAll(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(FineractEntityApiResourceConstants.FINERACT_ENTITY_RESOURCE_NAME);
@@ -87,11 +93,13 @@ public class FineractEntityApiResource {
         return this.toApiJsonSerializer.serialize(settings, entityMappings, FineractEntityApiResourceConstants.RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve One", description = "Retrieve One.")
     @GET
     @Path("/{mapId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveOne(@PathParam("mapId") final Long mapId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveOne(@PathParam("mapId") @Parameter(description = "mapId") final Long mapId, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(FineractEntityApiResourceConstants.FINERACT_ENTITY_RESOURCE_NAME);
 
@@ -101,12 +109,15 @@ public class FineractEntityApiResource {
                 FineractEntityApiResourceConstants.FETCH_ENTITY_TO_ENTITY_MAPPINGS);
     }
 
+    @Operation(summary = "Get Entity To Entity Mappings", description = "Get Entity To Entity Mappings.")
     @GET
     @Path("/{mapId}/{fromId}/{toId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getEntityToEntityMappings(@PathParam("mapId") final Long mapId, @PathParam("fromId") final Long fromId,
-            @PathParam("toId") final Long toId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getEntityToEntityMappings(@PathParam("mapId") @Parameter(description = "mapId") final Long mapId,
+            @PathParam("fromId") @Parameter(description = "fromId") final Long fromId,
+            @PathParam("toId") @Parameter(description = "toId") final Long toId, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(FineractEntityApiResourceConstants.FINERACT_ENTITY_RESOURCE_NAME);
 
@@ -117,11 +128,13 @@ public class FineractEntityApiResource {
                 FineractEntityApiResourceConstants.FETCH_ENTITY_TO_ENTITY_MAPPINGS);
     }
 
+    @Operation(summary = "Create Map", description = "Create Map.")
     @POST
     @Path("/{relId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createMap(@PathParam("relId") final Long relId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createMap(@PathParam("relId") @Parameter(description = "relId") final Long relId, final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder() //
                 .createMap(relId) //
@@ -134,11 +147,13 @@ public class FineractEntityApiResource {
 
     }
 
+    @Operation(summary = "Update Map", description = "Update Map.")
     @PUT
     @Path("/{mapId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateMap(@PathParam("mapId") final Long mapId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateMap(@PathParam("mapId") @Parameter(description = "mapId") final Long mapId, final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder() //
                 .updateMap(mapId) //
@@ -151,11 +166,13 @@ public class FineractEntityApiResource {
 
     }
 
+    @Operation(summary = "Delete", description = "Delete.")
     @DELETE
     @Path("{mapId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String delete(@PathParam("mapId") final Long mapId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String delete(@PathParam("mapId") @Parameter(description = "mapId") final Long mapId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder() //
                 .deleteMap(mapId) //

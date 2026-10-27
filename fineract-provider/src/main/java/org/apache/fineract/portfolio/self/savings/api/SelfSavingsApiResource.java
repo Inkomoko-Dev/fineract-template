@@ -166,11 +166,13 @@ public class SelfSavingsApiResource {
         }
     }
 
+    @Operation(summary = "Template", description = "Template.")
     @GET
     @Path("template")
     @Produces({ MediaType.APPLICATION_JSON })
-    public String template(@QueryParam("clientId") final Long clientId, @QueryParam("productId") final Long productId,
-            @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String template(@QueryParam("clientId") @Parameter(description = "clientId") final Long clientId,
+            @QueryParam("productId") @Parameter(description = "productId") final Long productId, @Context final UriInfo uriInfo) {
 
         validateAppuserClientsMapping(clientId);
         Long groupId = null;
@@ -179,11 +181,13 @@ public class SelfSavingsApiResource {
 
     }
 
+    @Operation(summary = "Submit Savings Account Application", description = "Submit Savings Account Application.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String submitSavingsAccountApplication(@QueryParam("command") final String commandParam, @Context final UriInfo uriInfo,
-            final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String submitSavingsAccountApplication(@QueryParam("command") @Parameter(description = "command") final String commandParam,
+            @Context final UriInfo uriInfo, final String apiRequestBodyAsJson) {
 
         HashMap<String, Object> parameterMap = this.dataValidator.validateSavingsApplication(apiRequestBodyAsJson);
         final Long clientId = (Long) parameterMap.get(SelfSavingsAccountConstants.clientIdParameterName);
@@ -191,12 +195,14 @@ public class SelfSavingsApiResource {
         return this.savingsAccountsApiResource.submitApplication(apiRequestBodyAsJson);
     }
 
+    @Operation(summary = "Modify Savings Account Application", description = "Modify Savings Account Application.")
     @PUT
     @Path("{accountId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String modifySavingsAccountApplication(@PathParam("accountId") final Long accountId,
-            @QueryParam("command") final String commandParam, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String modifySavingsAccountApplication(@PathParam("accountId") @Parameter(description = "accountId") final Long accountId,
+            @QueryParam("command") @Parameter(description = "command") final String commandParam, final String apiRequestBodyAsJson) {
 
         validateAppuserSavingsAccountMapping(accountId);
         this.dataValidator.validateSavingsApplication(apiRequestBodyAsJson);

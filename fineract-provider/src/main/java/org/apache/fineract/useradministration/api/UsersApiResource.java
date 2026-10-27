@@ -212,8 +212,7 @@ public class UsersApiResource {
     @DELETE
     @Path("{userId}")
     @Operation(summary = "Delete a User", description = "Removes the user and the associated roles and permissions.")
-    @RequestBody(required = true, content = @Content(
-            schema = @Schema(implementation = UsersApiResourceSwagger.DeleteUsersUserIdRequest.class)))
+    @RequestBody(required = true, content = @Content(schema = @Schema(implementation = UsersApiResourceSwagger.DeleteUsersUserIdRequest.class)))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = UsersApiResourceSwagger.DeleteUsersUserIdResponse.class))) })
     @Consumes({ MediaType.APPLICATION_JSON })
@@ -231,19 +230,24 @@ public class UsersApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Get User Template", description = "Get User Template.")
     @GET
     @Path("downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getUserTemplate(@QueryParam("officeId") final Long officeId, @QueryParam("staffId") final Long staffId,
-            @QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getUserTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("staffId") @Parameter(description = "staffId") final Long staffId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.USERS.toString(), officeId, staffId, dateFormat);
     }
 
+    @Operation(summary = "Post Users Template", description = "Post Users Template.")
     @POST
     @Path("uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload users template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postUsersTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
             @FormDataParam("dateFormat") final String dateFormat) {

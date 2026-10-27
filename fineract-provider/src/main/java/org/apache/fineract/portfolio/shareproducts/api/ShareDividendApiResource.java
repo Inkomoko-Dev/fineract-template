@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.shareproducts.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
@@ -77,12 +81,17 @@ public class ShareDividendApiResource {
         this.shareProductDividendReadPlatformService = shareProductDividendReadPlatformService;
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAll(@PathParam("productId") final Long productId, @QueryParam("offset") final Integer offset,
-            @QueryParam("limit") final Integer limit, @QueryParam("orderBy") final String orderBy,
-            @QueryParam("sortOrder") final String sortOrder, @QueryParam("status") final Integer status) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAll(@PathParam("productId") @Parameter(description = "productId") final Long productId,
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy,
+            @QueryParam("sortOrder") @Parameter(description = "sortOrder") final String sortOrder,
+            @QueryParam("status") @Parameter(description = "status") final Integer status) {
 
         this.platformSecurityContext.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         final SearchParameters searchParameters = SearchParameters.forPagination(offset, limit, orderBy, sortOrder);
@@ -91,14 +100,19 @@ public class ShareDividendApiResource {
         return this.toApiJsonSerializer.serialize(dividendPayoutDetails);
     }
 
+    @Operation(summary = "Retrieve Dividend Details", description = "Retrieve Dividend Details.")
     @GET
     @Path("{dividendId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveDividendDetails(@PathParam("dividendId") final Long dividendId, @QueryParam("offset") final Integer offset,
-            @QueryParam("limit") final Integer limit, @QueryParam("orderBy") final String orderBy,
-            @QueryParam("sortOrder") final String sortOrder, @QueryParam("accountNo") final String accountNo,
-            @PathParam("productId") final Long productId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveDividendDetails(@PathParam("dividendId") @Parameter(description = "dividendId") final Long dividendId,
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy,
+            @QueryParam("sortOrder") @Parameter(description = "sortOrder") final String sortOrder,
+            @QueryParam("accountNo") @Parameter(description = "accountNo") final String accountNo,
+            @PathParam("productId") @Parameter(description = "productId") final Long productId) {
 
         this.platformSecurityContext.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         final SearchParameters searchParameters = SearchParameters.forPaginationAndAccountNumberSearch(offset, limit, orderBy, sortOrder,
@@ -108,10 +122,13 @@ public class ShareDividendApiResource {
         return this.toApiAccountDetailJsonSerializer.serialize(dividendDetails);
     }
 
+    @Operation(summary = "Create Dividend Detail", description = "Create Dividend Detail.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createDividendDetail(@PathParam("productId") final Long productId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createDividendDetail(@PathParam("productId") @Parameter(description = "productId") final Long productId,
+            final String apiRequestBodyAsJson) {
         this.platformSecurityContext.authenticatedUser();
         CommandWrapper commandWrapper = new CommandWrapperBuilder().createShareProductDividendPayoutCommand(productId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -119,12 +136,15 @@ public class ShareDividendApiResource {
         return this.toApiJsonSerializer.serialize(commandProcessingResult);
     }
 
+    @Operation(summary = "Update Dividend Detail", description = "Update Dividend Detail.")
     @PUT
     @Path("{dividendId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateDividendDetail(@PathParam("productId") final Long productId, @PathParam("dividendId") final Long dividendId,
-            @QueryParam("command") final String commandParam, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateDividendDetail(@PathParam("productId") @Parameter(description = "productId") final Long productId,
+            @PathParam("dividendId") @Parameter(description = "dividendId") final Long dividendId,
+            @QueryParam("command") @Parameter(description = "command") final String commandParam, final String apiRequestBodyAsJson) {
         CommandWrapper commandWrapper = null;
         this.platformSecurityContext.authenticatedUser();
         if (is(commandParam, "approve")) {
@@ -137,11 +157,14 @@ public class ShareDividendApiResource {
         return this.toApiJsonSerializer.serialize(commandProcessingResult);
     }
 
+    @Operation(summary = "Delete Dividend Detail", description = "Delete Dividend Detail.")
     @DELETE
     @Path("{dividendId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteDividendDetail(@PathParam("productId") final Long productId, @PathParam("dividendId") final Long dividendId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteDividendDetail(@PathParam("productId") @Parameter(description = "productId") final Long productId,
+            @PathParam("dividendId") @Parameter(description = "dividendId") final Long dividendId) {
         this.platformSecurityContext.authenticatedUser();
         final CommandWrapper commandWrapper = new CommandWrapperBuilder().deleteShareProductDividendPayoutCommand(productId, dividendId)
                 .build();

@@ -431,20 +431,26 @@ public class ClientsApiResource {
         return this.clientAccountSummaryToApiJsonSerializer.serialize(clientAccount);
     }
 
+    @Operation(summary = "Get Client Template", description = "Get Client Template.")
     @GET
     @Path("downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getClientTemplate(@QueryParam("legalFormType") final String legalFormType, @QueryParam("officeId") final Long officeId,
-            @QueryParam("staffId") final Long staffId, @QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getClientTemplate(@QueryParam("legalFormType") @Parameter(description = "legalFormType") final String legalFormType,
+            @QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("staffId") @Parameter(description = "staffId") final Long staffId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(legalFormType, officeId, staffId, dateFormat);
     }
 
+    @Operation(summary = "Post Client Template", description = "Post Client Template.")
     @POST
     @Path("uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload client template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
-    public String postClientTemplate(@QueryParam("legalFormType") final String legalFormType,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String postClientTemplate(@QueryParam("legalFormType") @Parameter(description = "legalFormType") final String legalFormType,
             @FormDataParam("file") InputStream uploadedInputStream, @FormDataParam("file") FormDataContentDisposition fileDetail,
             @FormDataParam("locale") final String locale, @FormDataParam("dateFormat") final String dateFormat) {
         final Long importDocumentId = bulkImportWorkbookService.importWorkbook(legalFormType, uploadedInputStream, fileDetail, locale,
@@ -452,11 +458,14 @@ public class ClientsApiResource {
         return this.toApiJsonSerializer.serialize(importDocumentId);
     }
 
+    @Operation(summary = "Retrieve Obligee Details", description = "Retrieve Obligee Details.")
     @GET
     @Path("{clientId}/obligeedetails")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveObligeeDetails(@PathParam("clientId") final Long clientId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveObligeeDetails(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(ClientApiConstants.CLIENT_RESOURCE_NAME);
 
@@ -465,11 +474,14 @@ public class ClientsApiResource {
         return this.toApiJsonSerializer.serialize(ObligeeList);
     }
 
+    @Operation(summary = "Retrieve Transfer Template", description = "Retrieve Transfer Template.")
     @GET
     @Path("{clientId}/transferproposaldate")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveTransferTemplate(@PathParam("clientId") final Long clientId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveTransferTemplate(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(ClientApiConstants.CLIENT_RESOURCE_NAME);
         final LocalDate transferDate = this.clientReadPlatformService.retrieveClientTransferProposalDate(clientId);

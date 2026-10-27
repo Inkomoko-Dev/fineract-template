@@ -224,10 +224,12 @@ public class HolidaysApiResource {
         return this.toApiJsonSerializer.serialize(settings, holidays, HOLIDAY_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve Repayment Schedule Updation Tye Options", description = "Retrieve Repayment Schedule Updation Tye Options.")
     @GET
     @Path("/template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveRepaymentScheduleUpdationTyeOptions(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(HOLIDAY_RESOURCE_NAME);
         return this.toApiJsonSerializer.serialize(this.holidayReadPlatformService.retrieveRepaymentScheduleUpdationTyeOptions());

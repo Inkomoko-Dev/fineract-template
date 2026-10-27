@@ -256,12 +256,16 @@ public class DatatablesApiResource {
         return json;
     }
 
+    @Operation(summary = "Get Datatable Many Entry", description = "Get Datatable Many Entry.")
     @GET
     @Path("{datatable}/{apptableId}/{datatableId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getDatatableManyEntry(@PathParam("datatable") final String datatable, @PathParam("apptableId") final Long apptableId,
-            @PathParam("datatableId") final Long datatableId, @QueryParam("order") final String order,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getDatatableManyEntry(@PathParam("datatable") @Parameter(description = "datatable") final String datatable,
+            @PathParam("apptableId") @Parameter(description = "apptableId") final Long apptableId,
+            @PathParam("datatableId") @Parameter(description = "datatableId") final Long datatableId,
+            @QueryParam("order") @Parameter(description = "order") final String order,
             @DefaultValue("false") @QueryParam("genericResultSet") @Parameter(in = ParameterIn.QUERY, name = "genericResultSet", description = "Optional flag to format the response", required = false) final boolean genericResultSet,
             @Context final UriInfo uriInfo) {
 
