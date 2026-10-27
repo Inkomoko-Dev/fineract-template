@@ -177,6 +177,18 @@ public class DatabaseSpecificSQLGenerator {
         }
     }
 
+    /**
+     * Compare a numeric id, cast to text, with a varchar column. MySQL rejects the comparison when the
+     * cast expression and the column use different collations, which is what happens with
+     * utf8mb4_unicode_ci and utf8mb4_0900_ai_ci on this schema.
+     */
+    public String castCharEquals(final String castSource, final String otherSql) {
+        if (databaseTypeResolver.isMySQL()) {
+            return format("%s COLLATE utf8mb4_unicode_ci = %s COLLATE utf8mb4_unicode_ci", castChar(castSource), otherSql);
+        }
+        return format("%s = %s", castChar(castSource), otherSql);
+    }
+
     public String currentSchema() {
         if (databaseTypeResolver.isMySQL()) {
             return "SCHEMA()";

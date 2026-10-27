@@ -147,7 +147,7 @@ public class InterestRateChartSlabReadPlatformServiceImpl implements InterestRat
                     .append(" iri.incentive_type as incentiveType, iri.amount as amount, ").append("code.code_value as attributeValueDesc ")
                     .append("from ").append("m_interest_rate_slab ircd ")
                     .append(" left join m_interest_incentives iri on iri.interest_rate_slab_id = ircd.id ")
-                    .append(" left join m_code_value code on " + sqlGenerator.castChar("code.id") + " = iri.attribute_value ")
+                    .append(" left join m_code_value code on " + sqlGenerator.castCharEquals("code.id", "iri.attribute_value") + " ")
                     .append("left join m_currency curr on ircd.currency_code= curr.code ");
             this.schemaSql = sqlBuilder.toString();
         }
