@@ -20,11 +20,13 @@ package org.apache.fineract.portfolio.loanaccount.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -35,8 +37,10 @@ import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRu
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
+import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfig;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecision;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionLevel;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDecisionState;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
@@ -101,6 +105,7 @@ class LoanPrepareAndSignContractReturnTest {
     void testReturnToPrepareAndSignContractFromApprovalStage_WhenLoanApproved() {
         when(loan.status()).thenReturn(LoanStatus.APPROVED);
         loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
+        loanDecision.setPreviousLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
         loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
         when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
 
@@ -109,8 +114,9 @@ class LoanPrepareAndSignContractReturnTest {
         assertNotNull(result);
         verify(loan).undoApproval(any());
         assertFalse(loanDecision.getPrepareAndSignContractSigned());
-        assertEquals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue(), loanDecision.getLoanDecisionState());
+        assertEquals(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue(), loanDecision.getLoanDecisionState());
         assertEquals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue(), loanDecision.getNextLoanIcReviewDecisionState());
+        verify(loan).setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
         assertTrue(loanDecision.getRejectPrepareAndSignContractSigned());
         verify(loanRepositoryWrapper).saveAndFlush(loan);
         verify(loanDecisionRepository).saveAndFlush(loanDecision);
@@ -119,19 +125,84 @@ class LoanPrepareAndSignContractReturnTest {
     }
 
     @Test
-    void testReturnToPrepareAndSignContractFromApprovalStage_WhenPendingApproval() {
+    void testReturnToPrepareAndSignContractAfterDisbursementRejected_LeavesThePrepareAndSignContractStepPending() {
+        when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+        loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
+        loanDecision.setPreviousLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+        loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+
+        loanDecisionService.rejectPrepareAndSignContract(loanId, command);
+
+        verify(loan, never()).undoApproval(any());
+        assertFalse(loanDecision.getPrepareAndSignContractSigned());
+        assertNotEquals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue(), loanDecision.getLoanDecisionState(),
+                "Approve is offered while the loan sits at PREPARE_AND_SIGN_CONTRACT, so the return would look like it did nothing");
+        assertEquals(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue(), loanDecision.getLoanDecisionState());
+        assertEquals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue(), loanDecision.getNextLoanIcReviewDecisionState());
+        verify(loan).setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+    }
+
+    @Test
+    void testReturnFromApprovalStage_ExistingLoanWithoutRecordedPreviousStage_UsesHighestSignedIcLevel() {
+        when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+        loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
+        loanDecision.setIcReviewDecisionLevelOneSigned(Boolean.TRUE);
+        loanDecision.setIcReviewDecisionLevelTwoSigned(Boolean.TRUE);
+        loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+
+        loanDecisionService.rejectPrepareAndSignContract(loanId, command);
+
+        assertEquals(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue(), loanDecision.getLoanDecisionState());
+        assertEquals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue(), loanDecision.getNextLoanIcReviewDecisionState());
+        verify(loan).setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue());
+    }
+
+    @Test
+    void testReturnFromApprovalStage_PreviousStageRecordedAsTheContractStageItself_UsesHighestSignedIcLevel() {
+        when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+        loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
+        loanDecision.setPreviousLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        loanDecision.setIcReviewDecisionLevelOneSigned(Boolean.TRUE);
+        loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+
+        loanDecisionService.rejectPrepareAndSignContract(loanId, command);
+
+        assertEquals(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue(), loanDecision.getLoanDecisionState());
+        verify(loan).setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+    }
+
+    @Test
+    void testReturnFromApprovalStage_WithoutRecordedPreviousStage_UsesHighestSignedDynamicIcLevel() {
+        when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+        loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
+        loanDecision.setIcReviewDecisionLevelOneSigned(Boolean.TRUE);
+        loanDecision.getDecisionLevels().add(decisionLevel(5, 1800, true, false));
+        loanDecision.getDecisionLevels().add(decisionLevel(6, 1801, true, false));
+        loanDecision.getDecisionLevels().add(decisionLevel(7, 1802, false, true));
+        loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+
+        loanDecisionService.rejectPrepareAndSignContract(loanId, command);
+
+        assertEquals(1801, loanDecision.getLoanDecisionState());
+        verify(loan).setLoanDecisionState(1801);
+    }
+
+    @Test
+    void testReturnFromApprovalStage_WithNoIcLevelRecordedAtAll_FallsBackToIcLevelOne() {
         when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
         loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
         loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
         when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
 
-        CommandProcessingResult result = loanDecisionService.rejectPrepareAndSignContract(loanId, command);
+        loanDecisionService.rejectPrepareAndSignContract(loanId, command);
 
-        assertNotNull(result);
-        assertFalse(loanDecision.getPrepareAndSignContractSigned());
-        assertEquals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue(), loanDecision.getLoanDecisionState());
-        verify(loanRepositoryWrapper).saveAndFlush(loan);
-        verify(loanDecisionRepository).saveAndFlush(loanDecision);
+        assertEquals(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue(), loanDecision.getLoanDecisionState());
+        verify(loan).setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
     }
 
     @Test
@@ -148,6 +219,34 @@ class LoanPrepareAndSignContractReturnTest {
         assertEquals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue(), loanDecision.getNextLoanIcReviewDecisionState());
         assertTrue(loanDecision.getRejectPrepareAndSignContractSigned());
         verify(loan).setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue());
+    }
+
+    @Test
+    void testRejectPrepareAndSignContractFromContractStage_ExistingLoanWithoutRecordedPreviousStage_UsesHighestSignedIcLevel() {
+        when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+        loanDecision.setPrepareAndSignContractSigned(Boolean.FALSE);
+        loanDecision.setIcReviewDecisionLevelOneSigned(Boolean.TRUE);
+        when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+
+        loanDecisionService.rejectPrepareAndSignContract(loanId, command);
+
+        assertEquals(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue(), loanDecision.getLoanDecisionState());
+        verify(loan).setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+    }
+
+    @Test
+    void testRejectPrepareAndSignContract_WhenContractFlagIsStaleButLoanIsBackAtAnIcLevel_ThrowsDomainException() {
+        when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+        loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
+        loanDecision.setPreviousLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+        when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue());
+
+        GeneralPlatformDomainRuleException exception = assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> loanDecisionService.rejectPrepareAndSignContract(loanId, command));
+
+        assertEquals("error.msg.loan.decision.state.invalid.for.reject", exception.getGlobalisationMessageCode());
+        verify(loan, never()).setLoanDecisionState(any());
+        verify(loanDecisionRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -174,5 +273,13 @@ class LoanPrepareAndSignContractReturnTest {
         );
 
         assertEquals("error.msg.loan.decision.state.invalid.for.reject", exception.getGlobalisationMessageCode());
+    }
+
+    private LoanDecisionLevel decisionLevel(final int levelNumber, final int decisionStateValue, final boolean signed,
+            final boolean rejected) {
+        final IcReviewLevelConfig config = new IcReviewLevelConfig();
+        config.setLevelNumber(levelNumber);
+        config.setDecisionStateValue(decisionStateValue);
+        return new LoanDecisionLevel(loanDecision, config, levelNumber, null, signed, rejected, null, null, null, null, null);
     }
 }

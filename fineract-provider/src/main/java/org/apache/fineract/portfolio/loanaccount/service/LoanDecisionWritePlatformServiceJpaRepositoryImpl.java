@@ -26,6 +26,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.persistence.PersistenceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -1856,8 +1857,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                     "Loan Account not found in decision engine. Operation [Return to Prepare and Sign Contract] is not allowed");
         }
 
-        final boolean isApprovalStage = Boolean.TRUE.equals(loanDecision.getPrepareAndSignContractSigned()) || loan.status().isApproved();
         final boolean isPrepareAndSignStage = LoanDecisionState.fromInt(loan.getLoanDecisionState()).isPrepareAndSignContract();
+        final boolean isApprovalStage = loan.status().isApproved()
+                || (isPrepareAndSignStage && Boolean.TRUE.equals(loanDecision.getPrepareAndSignContractSigned()));
 
         if (!isApprovalStage && !isPrepareAndSignStage) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
@@ -1873,9 +1875,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 loan.undoApproval(defaultLoanLifecycleStateMachine());
             }
 
+            final Integer previousLoanDecisionState = resolvePreviousIcReviewDecisionState(loanDecision);
             loanDecision.setPrepareAndSignContractSigned(Boolean.FALSE);
-            loan.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
-            loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+            loan.setLoanDecisionState(previousLoanDecisionState);
+            loanDecision.setLoanDecisionState(previousLoanDecisionState);
             loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
             loanDecision.setRejectPrepareAndSignContractSigned(Boolean.TRUE);
 
@@ -1889,10 +1892,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                     currentUser != null ? currentUser.getId() : "null");
         } else {
             // Revert from Prepare & Sign Contract stage back to previous IC stage
-            Integer previousLoanDecisionState = loanDecision.getPreviousLoanIcReviewDecisionState();
-            if (previousLoanDecisionState == null) {
-                previousLoanDecisionState = LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue();
-            }
+            final Integer previousLoanDecisionState = resolvePreviousIcReviewDecisionState(loanDecision);
 
             loan.setLoanDecisionState(previousLoanDecisionState);
             loanDecision.setLoanDecisionState(previousLoanDecisionState);
@@ -1925,6 +1925,37 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 .withLoanId(loanId)
                 .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
+    }
+
+    private Integer resolvePreviousIcReviewDecisionState(final LoanDecision loanDecision) {
+        final Integer recorded = loanDecision.getPreviousLoanIcReviewDecisionState();
+        if (recorded != null && recorded >= LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue()
+                && recorded < LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue()) {
+            return recorded;
+        }
+
+        final Optional<Integer> highestSignedDynamicLevel = loanDecision.getDecisionLevels() == null ? Optional.empty()
+                : loanDecision.getDecisionLevels().stream()
+                        .filter(level -> Boolean.TRUE.equals(level.getIsSigned()) && !Boolean.TRUE.equals(level.getIsRejected()))
+                        .filter(level -> level.getIcReviewLevel() != null && level.getIcReviewLevel().getDecisionStateValue() != null)
+                        .map(level -> level.getIcReviewLevel().getDecisionStateValue()).max(Integer::compareTo);
+        if (highestSignedDynamicLevel.isPresent()) {
+            return highestSignedDynamicLevel.get();
+        }
+
+        if (Boolean.TRUE.equals(loanDecision.getIcReviewDecisionLevelFiveSigned())) {
+            return LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue();
+        }
+        if (Boolean.TRUE.equals(loanDecision.getIcReviewDecisionLevelFourSigned())) {
+            return LoanDecisionState.IC_REVIEW_LEVEL_FOUR.getValue();
+        }
+        if (Boolean.TRUE.equals(loanDecision.getIcReviewDecisionLevelThreeSigned())) {
+            return LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue();
+        }
+        if (Boolean.TRUE.equals(loanDecision.getIcReviewDecisionLevelTwoSigned())) {
+            return LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue();
+        }
+        return LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue();
     }
 
     private void validateDueDiligenceBusinessRule(JsonCommand command, Loan loan, LoanDecision loanDecision) {
