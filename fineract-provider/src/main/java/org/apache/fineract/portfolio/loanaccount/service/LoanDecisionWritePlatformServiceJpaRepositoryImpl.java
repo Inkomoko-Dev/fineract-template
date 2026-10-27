@@ -1863,7 +1863,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         if (!isApprovalStage && !isPrepareAndSignStage) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
-                    "Loan Decision state is invalid for reject operation. Expected PREPARE_AND_SIGN_CONTRACT or Approval stage.");
+                    "This loan is no longer at the Prepare and Sign Contract or Approval stage, so it cannot be returned. Refresh the loan to see its current stage.");
         }
 
         Note note = null;

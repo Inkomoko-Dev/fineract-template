@@ -235,6 +235,28 @@ class LoanPrepareAndSignContractReturnTest {
     }
 
     @Test
+    void testReturn_LoanAlreadyStuckByEarlierReturn_MovesBackToHighestSignedIcLevelWithContractPending() {
+        when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
+        loanDecision.setPrepareAndSignContractSigned(Boolean.FALSE);
+        loanDecision.setRejectPrepareAndSignContractSigned(Boolean.TRUE);
+        loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+        loanDecision.setIcReviewDecisionLevelOneSigned(Boolean.TRUE);
+        loanDecision.setIcReviewDecisionLevelTwoSigned(Boolean.TRUE);
+        loanDecision.setIcReviewDecisionLevelThreeSigned(Boolean.TRUE);
+        when(loan.getLoanDecisionState()).thenReturn(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+
+        loanDecisionService.rejectPrepareAndSignContract(loanId, command);
+
+        verify(loan, never()).undoApproval(any());
+        assertFalse(loanDecision.getPrepareAndSignContractSigned());
+        assertEquals(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue(), loanDecision.getLoanDecisionState());
+        assertEquals(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue(), loanDecision.getNextLoanIcReviewDecisionState());
+        verify(loan).setLoanDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue());
+        verify(loanDecisionRepository).saveAndFlush(loanDecision);
+    }
+
+    @Test
     void testRejectPrepareAndSignContract_WhenContractFlagIsStaleButLoanIsBackAtAnIcLevel_ThrowsDomainException() {
         when(loan.status()).thenReturn(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL);
         loanDecision.setPrepareAndSignContractSigned(Boolean.TRUE);
