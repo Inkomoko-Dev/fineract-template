@@ -4402,7 +4402,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     @Transactional
     public CommandProcessingResult rejectDisbursement(final Long loanId, final JsonCommand command) {
 
-        this.fromApiJsonDeserializer.validateForUndo(command.json());
+        this.fromApiJsonDeserializer.validateForRejectDisbursement(command.json());
+        final String noteText = command.stringValueOfParameterNamed("note").trim();
 
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
         checkClientOrGroupActive(loan);
@@ -4422,11 +4423,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             // Final IC may have synced the single undisbursed tranche down; realign to restored approved/proposed.
             loan.alignUndisbursedTranchesToApprovedPrincipal();
 
-            final String noteText = command.stringValueOfParameterNamed("note");
-            if (StringUtils.isNotBlank(noteText)) {
-                final Note note = Note.loanNote(loan, noteText);
-                this.noteRepository.save(note);
-            }
+            this.noteRepository.save(Note.loanNote(loan, noteText));
 
             saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
             businessEventNotifierService.notifyPostBusinessEvent(new LoanUndoApprovalBusinessEvent(loan));
