@@ -1253,6 +1253,30 @@ public final class LoanApplicationCommandFromApiJsonHelper {
         }
     }
 
+    public void validateForRejectDisbursement(final String json) {
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> supportedParameters = new HashSet<>(Arrays.asList("note"));
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, supportedParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors)
+                .resource("loan.disbursement.reject");
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        final String noteText = this.fromApiJsonHelper.parameterExists("note", element)
+                ? this.fromApiJsonHelper.extractStringNamed("note", element)
+                : null;
+        baseDataValidator.reset().parameter("note").value(noteText).notBlank().notExceedingLengthOf(1000);
+
+        if (!dataValidationErrors.isEmpty()) {
+            throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                    dataValidationErrors);
+        }
+    }
+
     public void validateMinMaxConstraintValues(final JsonElement element, final LoanProduct loanProduct) {
 
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
