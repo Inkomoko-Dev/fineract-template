@@ -26,9 +26,12 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
+import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
+import org.apache.fineract.portfolio.loanaccount.excessrefund.repository.LoanExcessRefundRepository;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.data.repository.query.Param;
@@ -48,6 +51,7 @@ public class LoanRepositoryWrapper {
 
     private final LoanRedrawAccountRepository loanRedrawAccountRepository;
     private final LoanTransactionRepository loanTransactionRepository;
+    private final LoanExcessRefundRepository loanExcessRefundRepository;
 
     @Transactional(readOnly = true)
     public Loan findOneWithNotFoundDetection(final Long id) {
@@ -261,6 +265,11 @@ public class LoanRepositoryWrapper {
 
     public void updateRedrawAmount(Loan loan, AppUser user, Long loanId, BigDecimal transactionAmount, final boolean isDeposit,
             LocalDate transactionDate, PaymentDetail paymentDetail) {
+        if (isDeposit && this.loanExcessRefundRepository.existsByLoanIdAndStatusEnumIn(loanId,
+                LoanExcessRefundStatus.openStatusEnumValues())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.blocks.deposit.redraw",
+                    "An open excess refund exists for this loan; overpayment cannot be deposited to redraw until it is resolved.");
+        }
         final var loanRedrawAccountOptional = loanRedrawAccountRepository.findByLoanId(loanId);
         final Loan existingLoanApplication = findOneWithNotFoundDetection(loanId);
         final var withdrawAmount = Money.of(loan.getCurrency(), transactionAmount);
