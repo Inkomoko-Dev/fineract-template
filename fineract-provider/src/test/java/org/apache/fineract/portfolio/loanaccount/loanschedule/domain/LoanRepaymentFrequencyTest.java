@@ -161,4 +161,16 @@ class LoanRepaymentFrequencyTest {
         assertThrows(IncompatibleLoanTermAndFrequencyException.class,
                 () -> LoanRepaymentFrequency.assertCompatibleRecommendedTerm(24, PeriodFrequencyType.WEEKS.getValue(), 6, MONTHS));
     }
+
+    @Test
+    void dueDiligenceRejectsWeeksTermForMonthlyRepayment() {
+        assertThrows(IncompatibleLoanTermAndFrequencyException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleRecommendedTerm(24, PeriodFrequencyType.WEEKS.getValue(), 1, MONTHS));
+    }
+
+    @Test
+    void dueDiligenceRejectsDaysTermForMonthlyRepayment() {
+        assertThrows(IncompatibleLoanTermAndFrequencyException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleRecommendedTerm(24, PeriodFrequencyType.DAYS.getValue(), 1, MONTHS));
+    }
 }

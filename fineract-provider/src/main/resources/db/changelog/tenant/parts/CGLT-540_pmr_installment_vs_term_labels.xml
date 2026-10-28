@@ -25,22 +25,28 @@
                    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
     <!--
-        CGLT-540: Portfolio Management must not present installment count as the repayment term.
-        number_of_repayments is the installment count; term_frequency remains Terms Duration.
+        After FSI-233/FSI-231, Portfolio Management labels a repayment_period_frequency_enum CASE
+        as 'Re-payment Term' and does not select number_of_repayments. Rename that CASE to
+        'Repayment Frequency' and add installment count separately from Terms Duration.
     -->
     <changeSet id="CGLT-540-pmr-installment-vs-term-labels" author="felixm@inkomoko.com">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
                 SELECT COUNT(*) FROM stretchy_report
                 WHERE report_name = 'Portfolio Management'
-                  AND report_sql LIKE '%as ''Re-payment Term''%'
+                  AND report_sql LIKE '%END AS ''Re-payment Term''%'
+                  AND report_sql NOT LIKE '%Number of Installments%'
             </sqlCheck>
         </preConditions>
         <sql>
             UPDATE stretchy_report
-            SET report_sql = REPLACE(report_sql, 'as ''Re-payment Term''', 'as ''Number of Installments''')
+            SET report_sql = REPLACE(
+                report_sql,
+                'END AS ''Re-payment Term''',
+                'END AS ''Repayment Frequency'', l.number_of_repayments AS ''Number of Installments''')
             WHERE report_name = 'Portfolio Management'
-              AND report_sql LIKE '%as ''Re-payment Term''%';
+              AND report_sql LIKE '%END AS ''Re-payment Term''%'
+              AND report_sql NOT LIKE '%Number of Installments%';
         </sql>
     </changeSet>
 
