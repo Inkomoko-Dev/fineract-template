@@ -22,19 +22,27 @@ import java.util.Properties;
 import javax.mail.internet.MimeMessage;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.configuration.data.SMTPCredentialsData;
 import org.apache.fineract.infrastructure.configuration.service.ExternalServicesPropertiesReadPlatformService;
 import org.apache.fineract.infrastructure.core.domain.EmailDetail;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
 
 @Service
 @Slf4j
 public class GmailBackedPlatformEmailService implements PlatformEmailService {
 
+    private static final String DEFAULT_SYSTEM_ACCESS_LINK = "https://cbs.inkomoko.com";
+
     private final ExternalServicesPropertiesReadPlatformService externalServicesReadPlatformService;
+
+    @Value("${mifos.system.base-url:}")
+    private String baseUrl;
 
     @Autowired
     public GmailBackedPlatformEmailService(final ExternalServicesPropertiesReadPlatformService externalServicesReadPlatformService) {
@@ -46,10 +54,12 @@ public class GmailBackedPlatformEmailService implements PlatformEmailService {
 
         final String subject = "Welcome to Inkomoko Core Banking System";
 
+        final String systemAccessLink = HtmlUtils.htmlEscape(systemAccessLink(this.baseUrl));
         final StringBuilder builder = new StringBuilder(10);
         builder.append("<html>").append("<body>").append("<p>Dear <strong>").append(contactName).append("</strong>,</p>")
                 .append("<p>Your CBS account has been created. Below are your access credentials:</p>")
-                .append("<ul><li><strong>System access link:</strong> <a href=\"https://www.cbs.inkomoko.com\">https://www.cbs.inkomoko.com</a></li>")
+                .append("<ul><li><strong>System access link:</strong> <a href=\"").append(systemAccessLink).append("\">")
+                .append(systemAccessLink).append("</a></li>")
                 .append("<li><strong>Username:</strong> <em>").append(username).append("</em></li><li><strong>Password:</strong> <em>")
                 .append(unencodedPassword).append("</em></li>").append("</ul>").append("<p>Please log in and change your password.</p>")
                 .append("<p><strong>Note:</strong> Your password has to include uppercase letters, lowercase letters, numbers, and special characters.</p>")
@@ -59,6 +69,11 @@ public class GmailBackedPlatformEmailService implements PlatformEmailService {
         final EmailDetail emailDetail = new EmailDetail(subject, builder.toString(), address, contactName);
         sendDefinedEmail(emailDetail);
 
+    }
+
+    static String systemAccessLink(final String baseUrl) {
+        final String root = StringUtils.removeEnd(StringUtils.substringBefore(StringUtils.trimToEmpty(baseUrl), "#"), "/");
+        return StringUtils.isBlank(root) ? DEFAULT_SYSTEM_ACCESS_LINK : root;
     }
 
     @Override

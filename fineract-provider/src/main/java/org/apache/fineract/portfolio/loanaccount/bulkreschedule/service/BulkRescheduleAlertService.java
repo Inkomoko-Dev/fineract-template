@@ -42,7 +42,7 @@ import org.springframework.web.util.HtmlUtils;
 public class BulkRescheduleAlertService {
 
     private static final String OBJECT_TYPE = "BULK_RESCHEDULE";
-    private static final String DEFAULT_UI_ROOT = "https://www.cbs.inkomoko.com/#";
+    private static final String DEFAULT_UI_ROOT = "https://cbs.inkomoko.com/#";
 
     private final NotificationWritePlatformService notificationService;
     private final ApplicationEventPublisher eventPublisher;
