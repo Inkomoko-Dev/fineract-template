@@ -1005,17 +1005,27 @@ public class LoanTest {
 
     @Test
     public void icReviewSemiAnnualTermKeepsInstallmentCount() {
-        assertIcReviewKeepsInstallmentCount(6, 24, 4);
+        assertIcReviewKeepsInstallmentCount(6, 24, PeriodFrequencyType.MONTHS.getValue(), 4);
     }
 
     @Test
     public void icReviewQuarterlyTermKeepsInstallmentCount() {
-        assertIcReviewKeepsInstallmentCount(3, 12, 4);
+        assertIcReviewKeepsInstallmentCount(3, 12, PeriodFrequencyType.MONTHS.getValue(), 4);
     }
 
     @Test
     public void icReviewMonthlyTermKeepsOneInstallmentPerMonth() {
-        assertIcReviewKeepsInstallmentCount(1, 24, 24);
+        assertIcReviewKeepsInstallmentCount(1, 24, PeriodFrequencyType.MONTHS.getValue(), 24);
+    }
+
+    @Test
+    public void icReviewOneYearSemiAnnualTermYieldsTwoInstallments() {
+        assertIcReviewKeepsInstallmentCount(6, 1, PeriodFrequencyType.YEARS.getValue(), 2);
+    }
+
+    @Test
+    public void icReviewTwelveYearSemiAnnualTermYieldsTwentyFourInstallments() {
+        assertIcReviewKeepsInstallmentCount(6, 12, PeriodFrequencyType.YEARS.getValue(), 24);
     }
 
     @Test
@@ -1024,7 +1034,8 @@ public class LoanTest {
         stubRepaymentInterval(loan, 6);
 
         assertThrows(IncompatibleLoanTermAndFrequencyException.class,
-                () -> loan.loanApplicationICReview(null, jsonCommand("{\"icReviewTermFrequency\":10,\"locale\":\"en\"}")));
+                () -> loan.loanApplicationICReview(null, jsonCommand(
+                        "{\"icReviewTermFrequency\":10,\"icReviewTermPeriodFrequencyEnum\":2,\"locale\":\"en\"}")));
 
         final LoanProductRelatedDetail scheduleDetail = (LoanProductRelatedDetail) ReflectionTestUtils.getField(loan,
                 "loanRepaymentScheduleDetail");
@@ -1032,16 +1043,49 @@ public class LoanTest {
         assertNull(ReflectionTestUtils.getField(loan, "termFrequency"));
     }
 
-    private void assertIcReviewKeepsInstallmentCount(final int repayEvery, final int termMonths, final int expectedInstallments) {
+    @Test
+    public void icReviewRejectsWeeksTermForSemiAnnualRepayment() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("50000.00"));
+        final LoanProductRelatedDetail scheduleDetail = stubRepaymentInterval(loan, 6);
+
+        assertThrows(IncompatibleLoanTermAndFrequencyException.class,
+                () -> loan.loanApplicationICReview(null, jsonCommand(
+                        "{\"icReviewTermFrequency\":24,\"icReviewTermPeriodFrequencyEnum\":1,\"locale\":\"en\"}")));
+
+        verify(scheduleDetail, never()).updateNumberOfRepayments(any());
+        verify(scheduleDetail, never()).setRepaymentPeriodFrequencyType(any());
+        assertNull(ReflectionTestUtils.getField(loan, "termFrequency"));
+    }
+
+    @Test
+    public void icReviewDoesNotOverwriteRepaymentPeriodFrequencyType() {
+        final Loan loan = newLoanForIcReview(new BigDecimal("50000.00"));
+        final LoanProductRelatedDetail scheduleDetail = stubRepaymentInterval(loan, 6);
+
+        loan.loanApplicationICReview(null, jsonCommand(
+                "{\"icReviewTermFrequency\":1,\"icReviewTermPeriodFrequencyEnum\":3,\"locale\":\"en\"}"));
+
+        verify(scheduleDetail).updateNumberOfRepayments(2);
+        verify(scheduleDetail, never()).setRepaymentPeriodFrequencyType(any());
+        assertEquals(PeriodFrequencyType.YEARS.getValue(), ReflectionTestUtils.getField(loan, "termPeriodFrequencyType"));
+        assertEquals(PeriodFrequencyType.MONTHS, scheduleDetail.getRepaymentPeriodFrequencyType());
+    }
+
+    private void assertIcReviewKeepsInstallmentCount(final int repayEvery, final int termFrequency, final int termFrequencyType,
+            final int expectedInstallments) {
         final Loan loan = newLoanForIcReview(new BigDecimal("50000.00"));
         final LoanProductRelatedDetail scheduleDetail = stubRepaymentInterval(loan, repayEvery);
 
-        loan.loanApplicationICReview(null, jsonCommand("{\"icReviewTermFrequency\":" + termMonths + ",\"locale\":\"en\"}"));
+        loan.loanApplicationICReview(null, jsonCommand("{\"icReviewTermFrequency\":" + termFrequency
+                + ",\"icReviewTermPeriodFrequencyEnum\":" + termFrequencyType + ",\"locale\":\"en\"}"));
 
         verify(scheduleDetail).updateNumberOfRepayments(expectedInstallments);
         verify(scheduleDetail, never()).setRepayEvery(any());
-        assertEquals(termMonths, ReflectionTestUtils.getField(loan, "termFrequency"));
+        verify(scheduleDetail, never()).setRepaymentPeriodFrequencyType(any());
+        assertEquals(termFrequency, ReflectionTestUtils.getField(loan, "termFrequency"));
+        assertEquals(termFrequencyType, ReflectionTestUtils.getField(loan, "termPeriodFrequencyType"));
         assertEquals(repayEvery, scheduleDetail.getRepayEvery());
+        assertEquals(PeriodFrequencyType.MONTHS, scheduleDetail.getRepaymentPeriodFrequencyType());
     }
 
     private LoanProductRelatedDetail stubRepaymentInterval(final Loan loan, final int repayEvery) {

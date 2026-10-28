@@ -59,6 +59,7 @@ import org.apache.fineract.portfolio.loanaccount.api.LoanApprovalMatrixConstants
 import org.apache.fineract.portfolio.loanaccount.data.LoanCashFlowReport;
 import org.apache.fineract.portfolio.loanaccount.data.LoanFinancialRatioData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfig;
 import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfigRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -908,6 +909,12 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final Integer termFrequency = command.integerValueOfParameterNamed(LoanApiConstants.recommendedLoanTermFrequencyParameterName);
         final Integer termPeriodFrequencyEnum = command
                 .integerValueOfParameterNamed(LoanApiConstants.recommendedLoanTermFrequencyTypeParameterName);
+
+        final Integer repaymentEvery = loan.repaymentScheduleDetail().getRepayEvery();
+        final PeriodFrequencyType repaymentFrequencyType = loan.repaymentScheduleDetail().getRepaymentPeriodFrequencyType();
+        final Integer repaymentFrequencyTypeValue = repaymentFrequencyType == null ? null : repaymentFrequencyType.getValue();
+        LoanRepaymentFrequency.assertCompatibleRecommendedTerm(termFrequency, termPeriodFrequencyEnum, repaymentEvery,
+                repaymentFrequencyTypeValue);
 
         if (!isIdeaClient) {
             loanDecision.setIdeaClient(false);

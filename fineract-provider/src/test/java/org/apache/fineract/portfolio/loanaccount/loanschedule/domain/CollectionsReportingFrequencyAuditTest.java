@@ -35,6 +35,8 @@ class CollectionsReportingFrequencyAuditTest {
 
     private static final String LOAN_PAYMENTS_DUE_CHANGELOG = "src/main/resources/db/changelog/tenant/custom-changelog/CGLT-539-8-fix-written-off-loans-in-loan-payments-due.xml";
     private static final String PAYMENT_DUE_TODAY_TPLUSX_CHANGELOG = "src/main/resources/db/changelog/tenant/custom-changelog/CGLT-431_add_language_parameter.xml";
+    private static final String PMR_LABEL_CHANGELOG = "src/main/resources/db/changelog/tenant/custom-changelog/CGLT-540-pmr-installment-vs-term-labels.xml";
+    private static final String PMR_REPORT_SQL = "src/main/resources/db/changelog/tenant/commands/INKO-546-update_portfolio_management_table_reports.sql";
 
     @Test
     void loanPaymentsDueReportUsesInstallmentDueDatesAndDayGrace() throws IOException {
@@ -66,6 +68,20 @@ class CollectionsReportingFrequencyAuditTest {
         assertTrue(source.contains("mr.duedate"));
         assertNoMonthlyPeriodicityAssumptions(source);
         assertFalse(source.contains("repay_every = 1"));
+    }
+
+    @Test
+    void portfolioManagementReportSeparatesInstallmentCountFromTermDuration() throws IOException {
+        final String pmrSql = Files.readString(resolveSource(PMR_REPORT_SQL), StandardCharsets.UTF_8);
+        assertTrue(pmrSql.contains("lrs.duedate"), "PMR next-payment logic must use installment due dates");
+        assertTrue(pmrSql.contains("as 'Terms Duration'"), "PMR must keep term_frequency as Terms Duration");
+        assertTrue(pmrSql.contains("l.number_of_repayments"), "PMR still selects installment count");
+
+        final String labelFix = Files.readString(resolveSource(PMR_LABEL_CHANGELOG), StandardCharsets.UTF_8);
+        assertTrue(labelFix.contains("Number of Installments"),
+                "CGLT-540 changelog must rename Re-payment Term to Number of Installments");
+        assertTrue(labelFix.contains("Portfolio Management"));
+        assertFalse(labelFix.contains("interval 1 month"));
     }
 
     private static void assertNoMonthlyPeriodicityAssumptions(final String sql) {

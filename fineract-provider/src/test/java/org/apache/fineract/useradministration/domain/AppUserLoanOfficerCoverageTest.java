@@ -172,7 +172,7 @@ public class AppUserLoanOfficerCoverageTest {
                 List.of(new SimpleGrantedAuthority("DUMMY_ROLE_NOT_USED_OR_PERSISTED_TO_AVOID_EXCEPTION")));
         final AppUser user = new AppUser(office, springUser, roleSet, "jdoe@example.com", "Jane", "Doe", staff, false, false,
                 Collections.emptyList(), false);
-        ReflectionTestUtils.setField(user, "lastTimePasswordUpdated", LocalDate.now());
+        ReflectionTestUtils.setField(user, "lastTimePasswordUpdated", LocalDate.of(2026, 1, 1));
         return user;
     }
 }
