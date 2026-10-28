@@ -91,4 +91,7 @@ public interface LoanAccountDomainService {
 
     CommandProcessingResultBuilder creditBalanceRefund(Long loanId, LocalDate transactionDate, BigDecimal transactionAmount,
             String noteText, String externalId);
+
+    CommandProcessingResultBuilder creditBalanceRefund(Long loanId, LocalDate transactionDate, BigDecimal transactionAmount,
+            String noteText, String externalId, PaymentDetail paymentDetail);
 }

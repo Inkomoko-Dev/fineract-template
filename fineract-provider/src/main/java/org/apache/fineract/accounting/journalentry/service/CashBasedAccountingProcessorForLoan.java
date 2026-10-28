@@ -404,8 +404,9 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
         final boolean isReversal = loanTransactionDTO.isReversed();
         final Long paymentTypeId = loanTransactionDTO.getPaymentTypeId();
 
-        this.helper.createCashBasedJournalEntriesAndReversalsForLoan(office, currencyCode, CashAccountsForLoan.LOAN_PORTFOLIO.getValue(),
-                CashAccountsForLoan.OVERPAYMENT.getValue(), loanProductId, paymentTypeId, loanId, transactionId, transactionDate,
+        // CGLT-394: cash leaving the institution — Dr overpayment liability, Cr fund source (bank / M-Pesa).
+        this.helper.createCashBasedJournalEntriesAndReversalsForLoan(office, currencyCode, CashAccountsForLoan.OVERPAYMENT.getValue(),
+                CashAccountsForLoan.FUND_SOURCE.getValue(), loanProductId, paymentTypeId, loanId, transactionId, transactionDate,
                 refundAmount, isReversal, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
     }
 

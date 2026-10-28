@@ -93,6 +93,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
+import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetailRepository;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.data.PostDatedChecksStatus;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecks;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecksRepository;
@@ -129,6 +130,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanRedrawAccountRepository loanRedrawAccountRepository;
 
     private final LoanExcessRefundRepository loanExcessRefundRepository;
+    private final PaymentDetailRepository paymentDetailRepository;
 
     @Transactional
     @Override
@@ -720,7 +722,14 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     @Override
     public CommandProcessingResultBuilder creditBalanceRefund(Long loanId, LocalDate transactionDate, BigDecimal transactionAmount,
             String noteText, String externalId) {
-        if (this.loanExcessRefundRepository.existsByLoanIdAndStatusEnumIn(loanId, LoanExcessRefundStatus.openStatusEnumValues())) {
+        return creditBalanceRefund(loanId, transactionDate, transactionAmount, noteText, externalId, null);
+    }
+
+    @Override
+    public CommandProcessingResultBuilder creditBalanceRefund(Long loanId, LocalDate transactionDate, BigDecimal transactionAmount,
+            String noteText, String externalId, PaymentDetail paymentDetail) {
+        if (this.loanExcessRefundRepository.existsByLoanIdAndStatusEnumIn(loanId,
+                LoanExcessRefundStatus.prePaymentOpenStatusEnumValues())) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.blocks.credit.balance.refund",
                     "An open excess refund exists for this loan; credit balance refund is not allowed until it is resolved.");
         }
@@ -730,8 +739,12 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         final List<Long> existingReversedTransactionIds = new ArrayList<>();
 
         final Money refundAmount = Money.of(loan.getCurrency(), transactionAmount);
+        PaymentDetail persistedPaymentDetail = paymentDetail;
+        if (persistedPaymentDetail != null && persistedPaymentDetail.getId() == null) {
+            persistedPaymentDetail = this.paymentDetailRepository.save(persistedPaymentDetail);
+        }
         final LoanTransaction newCreditBalanceRefundTransaction = LoanTransaction.creditBalanceRefund(loan, loan.getOffice(), refundAmount,
-                transactionDate, externalId);
+                transactionDate, externalId, persistedPaymentDetail);
 
         loan.creditBalanceRefund(newCreditBalanceRefundTransaction, defaultLoanLifecycleStateMachine(), existingTransactionIds,
                 existingReversedTransactionIds);
