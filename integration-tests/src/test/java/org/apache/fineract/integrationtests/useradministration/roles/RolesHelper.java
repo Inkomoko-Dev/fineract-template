@@ -70,6 +70,16 @@ public final class RolesHelper {
         return Utils.performServerDelete(requestSpec, responseSpec, createRoleOperationURL(ENABLE_ROLE_COMMAND, roleId), "resourceId");
     }
 
+    /**
+     * Updates role permissions. JSON body shape:
+     * {@code {"permissions":{"PERMISSION_CODE":true,"OTHER_CODE":false}}}
+     */
+    public static Integer updatePermissions(final RequestSpecification requestSpec, final ResponseSpecification responseSpec,
+            final Integer roleId, final String permissionsJson) {
+        final String url = ROLE_URL + "/" + roleId + "/permissions?" + Utils.TENANT_IDENTIFIER;
+        return Utils.performServerPut(requestSpec, responseSpec, url, permissionsJson, "resourceId");
+    }
+
     private static String createRoleOperationURL(final String command, final Integer roleId) {
         return ROLE_URL + "/" + roleId + "?command=" + command + "&" + Utils.TENANT_IDENTIFIER;
     }

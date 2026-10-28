@@ -57,6 +57,8 @@ import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlat
 import org.apache.fineract.accounting.producttoaccountmapping.domain.PortfolioProductType;
 import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMapping;
 import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMappingRepository;
+import org.apache.fineract.commands.domain.CommandSource;
+import org.apache.fineract.commands.domain.CommandSourceRepository;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepositoryWrapper;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -333,6 +335,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final PartialWriteOffAuditRepository partialWriteOffAuditRepository;
     private final ResidualLoanAdjustmentAuditRepository residualLoanAdjustmentAuditRepository;
     private final ClientAddressLocationValidator clientAddressLocationValidator;
+    private final CommandSourceRepository commandSourceRepository;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -1825,11 +1828,22 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     "Partial write-off cannot close the loan. Loan must remain active.");
         }
 
-        // Create audit record
+        // Create audit record — on checker approve, initiatedBy is the maker from CommandSource
+        AppUser initiatedBy = currentUser;
+        if (command.commandId() != null) {
+            final Optional<CommandSource> commandSource = this.commandSourceRepository.findById(command.commandId());
+            if (commandSource.isPresent() && commandSource.get().getMaker() != null) {
+                initiatedBy = commandSource.get().getMaker();
+            }
+        }
+
         final PartialWriteOffAudit audit = PartialWriteOffAudit.create(loan, partialWriteOffTransaction, writeOffDate, principalPortion,
                 interestPortion, feeChargesPortion, penaltyChargesPortion, totalWriteOffAmount, loanBalanceBefore.getAmount(),
-                loanBalanceAfter.getAmount(), reason, currentUser, loan.getOffice(), command.stringValueOfParameterNamed("note"),
+                loanBalanceAfter.getAmount(), reason, initiatedBy, loan.getOffice(), command.stringValueOfParameterNamed("note"),
                 txnExternalId);
+        if (command.commandId() != null) {
+            audit.markAsApproved(currentUser);
+        }
 
         this.partialWriteOffAuditRepository.save(audit);
 

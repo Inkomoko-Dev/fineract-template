@@ -24,6 +24,9 @@ import io.restassured.specification.RequestSpecification;
 import io.restassured.specification.ResponseSpecification;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.apache.fineract.client.models.GetMakerCheckerResponse;
 import org.apache.fineract.client.util.JSON;
 import org.apache.fineract.integrationtests.common.Utils;
@@ -48,4 +51,44 @@ public class MakercheckersHelper {
         return GSON.fromJson(response, makerCheckerList);
     }
 
+    public List<Map<String, Object>> getMakerCheckerListAsMaps() {
+        final String response = Utils.performServerGet(this.requestSpec, this.responseSpec, MAKERCHECKER_URL);
+        Type listType = new TypeToken<ArrayList<Map<String, Object>>>() {}.getType();
+        return GSON.fromJson(response, listType);
+    }
+
+    public Map<String, Object> findPendingPartialWriteOff(final Integer loanId) {
+        final List<Map<String, Object>> entries = getMakerCheckerListAsMaps();
+        for (final Map<String, Object> entry : entries) {
+            final Object actionName = entry.get("actionName");
+            final Object loanIdValue = entry.get("loanId");
+            if ("PARTIALWRITEOFF".equals(String.valueOf(actionName)) && loanIdValue != null
+                    && loanId.longValue() == ((Number) loanIdValue).longValue()) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    public HashMap approveMakerCheckerEntry(final Long id, final String noteJson) {
+        return Utils.performServerPost(this.requestSpec, this.responseSpec, makerCheckerCommandUrl(id, "approve"), noteJson, "");
+    }
+
+    public HashMap rejectMakerCheckerEntry(final Long id, final String noteJson) {
+        return Utils.performServerPost(this.requestSpec, this.responseSpec, makerCheckerCommandUrl(id, "reject"), noteJson, "");
+    }
+
+    public HashMap approveMakerCheckerEntry(final RequestSpecification requestSpec, final ResponseSpecification responseSpec,
+            final Long id, final String noteJson) {
+        return Utils.performServerPost(requestSpec, responseSpec, makerCheckerCommandUrl(id, "approve"), noteJson, "");
+    }
+
+    public HashMap rejectMakerCheckerEntry(final RequestSpecification requestSpec, final ResponseSpecification responseSpec,
+            final Long id, final String noteJson) {
+        return Utils.performServerPost(requestSpec, responseSpec, makerCheckerCommandUrl(id, "reject"), noteJson, "");
+    }
+
+    private static String makerCheckerCommandUrl(final Long id, final String command) {
+        return "/fineract-provider/api/v1/makercheckers/" + id + "?command=" + command + "&" + Utils.TENANT_IDENTIFIER;
+    }
 }
