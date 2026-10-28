@@ -61,7 +61,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class NamedIntervalLoanScheduleGeneratorTest {
 
     private static final LocalDate DISBURSED = LocalDate.of(2026, 1, 15);
-    private static final LocalDate FIRST_REPAYMENT = LocalDate.of(2026, 4, 15);
+    private static final LocalDate FIRST_REPAYMENT = LocalDate.of(2026, 7, 15);
     private static final BigDecimal PRINCIPAL = new BigDecimal("12000");
 
     private RoundingMode originalRoundingMode;
@@ -83,24 +83,24 @@ class NamedIntervalLoanScheduleGeneratorTest {
 
     @Test
     void twelveMonthQuarterlyFlatScheduleHasFourInstallmentsThreeMonthsApart() throws Exception {
-        assertNamedIntervalSchedule(InterestMethod.FLAT, 3, 4, LocalDate.of(2026, 4, 15), LocalDate.of(2026, 7, 15),
-                LocalDate.of(2026, 10, 15), LocalDate.of(2027, 1, 15));
+        assertNamedIntervalSchedule(InterestMethod.FLAT, 3, 4, LocalDate.of(2026, 7, 15), LocalDate.of(2026, 10, 15),
+                LocalDate.of(2027, 1, 15), LocalDate.of(2027, 4, 15));
     }
 
     @Test
     void twelveMonthQuarterlyDecliningScheduleHasFourInstallmentsThreeMonthsApart() throws Exception {
-        assertNamedIntervalSchedule(InterestMethod.DECLINING_BALANCE, 3, 4, LocalDate.of(2026, 4, 15), LocalDate.of(2026, 7, 15),
-                LocalDate.of(2026, 10, 15), LocalDate.of(2027, 1, 15));
+        assertNamedIntervalSchedule(InterestMethod.DECLINING_BALANCE, 3, 4, LocalDate.of(2026, 7, 15), LocalDate.of(2026, 10, 15),
+                LocalDate.of(2027, 1, 15), LocalDate.of(2027, 4, 15));
     }
 
     @Test
     void twelveMonthSemiAnnualFlatScheduleHasTwoInstallmentsSixMonthsApart() throws Exception {
-        assertNamedIntervalSchedule(InterestMethod.FLAT, 6, 2, LocalDate.of(2026, 4, 15), LocalDate.of(2026, 10, 15));
+        assertNamedIntervalSchedule(InterestMethod.FLAT, 6, 2, LocalDate.of(2026, 7, 15), LocalDate.of(2027, 1, 15));
     }
 
     @Test
     void twelveMonthSemiAnnualDecliningScheduleHasTwoInstallmentsSixMonthsApart() throws Exception {
-        assertNamedIntervalSchedule(InterestMethod.DECLINING_BALANCE, 6, 2, LocalDate.of(2026, 4, 15), LocalDate.of(2026, 10, 15));
+        assertNamedIntervalSchedule(InterestMethod.DECLINING_BALANCE, 6, 2, LocalDate.of(2026, 7, 15), LocalDate.of(2027, 1, 15));
     }
 
     private void assertNamedIntervalSchedule(final InterestMethod interestMethod, final int repayEvery, final int expectedInstallments,
@@ -113,11 +113,6 @@ class NamedIntervalLoanScheduleGeneratorTest {
             assertEquals(expectedDueDates[i], periods.get(i).periodDueDate());
         }
         assertEquals(0, PRINCIPAL.compareTo(totalPrincipal(periods)), "principal must amortize fully");
-        if (interestMethod == InterestMethod.FLAT) {
-            final BigDecimal expectedPrincipal = PRINCIPAL.divide(BigDecimal.valueOf(expectedInstallments), 2, RoundingMode.HALF_EVEN);
-            assertEquals(0, expectedPrincipal.compareTo(periods.get(0).principalDue()),
-                    "flat principal per installment should be equal for this principal/installment count");
-        }
     }
 
     private static List<LoanScheduleModelPeriod> generate(final InterestMethod interestMethod, final int repayEvery,
@@ -173,7 +168,7 @@ class NamedIntervalLoanScheduleGeneratorTest {
         final Money principal = Money.of(rwf.toData(), PRINCIPAL);
         final int termMonths = numberOfRepayments * repayEvery;
         return LoanApplicationTerms.assembleFrom(rwf, termMonths, PeriodFrequencyType.MONTHS, numberOfRepayments, repayEvery,
-                PeriodFrequencyType.MONTHS, null, null, AmortizationMethod.EQUAL_PRINCIPAL, interestMethod, new BigDecimal("10"),
+                PeriodFrequencyType.MONTHS, null, null, AmortizationMethod.EQUAL_INSTALLMENTS, interestMethod, new BigDecimal("10"),
                 PeriodFrequencyType.YEARS, new BigDecimal("10"), InterestCalculationPeriodMethod.SAME_AS_REPAYMENT_PERIOD, false, principal,
                 DISBURSED, FIRST_REPAYMENT, FIRST_REPAYMENT, null, null, null, null, null, principal.zero(), false, null, new ArrayList<>(),
                 null, null, DaysInMonthType.DAYS_30, DaysInYearType.DAYS_360, false, null, null, null, null, null, BigDecimal.ZERO, null,

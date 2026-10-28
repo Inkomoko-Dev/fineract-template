@@ -136,7 +136,7 @@ public final class LoanRepaymentFrequency {
 
     /**
      * Validates a recommended term (IC / due diligence) against the loan's repayment interval.
-     * Converts Years to months; Days and Weeks are rejected for quarterly and semi-annual repayments.
+     * Converts Years to months. Days and Weeks are rejected whenever repayment frequency is Months.
      */
     public static void assertCompatibleRecommendedTerm(final Integer termFrequency, final Integer termFrequencyType,
             final Integer repaymentEvery, final Integer repaymentFrequencyType) {
@@ -145,13 +145,10 @@ public final class LoanRepaymentFrequency {
         }
         final Integer termMonths = resolveTermMonths(termFrequency, termFrequencyType);
         if (termMonths == null) {
-            if (isNamedInterval(repaymentEvery)) {
-                throw new IncompatibleLoanTermAndFrequencyException(
-                        "error.msg.loan.repaymentFrequency.incompatible.with.loan.term",
-                        "Repayment frequency is incompatible with loan term. For quarterly and semi-annual repayments, the term must be in months or years.",
-                        termFrequency);
-            }
-            return;
+            throw new IncompatibleLoanTermAndFrequencyException(
+                    "error.msg.loan.repaymentFrequency.incompatible.with.loan.term",
+                    "Repayment frequency is incompatible with loan term. For monthly, quarterly, and semi-annual repayments, the term must be in months or years.",
+                    termFrequency);
         }
         assertCompatibleTerm(termMonths, repaymentEvery, repaymentFrequencyType);
     }
@@ -167,9 +164,6 @@ public final class LoanRepaymentFrequency {
         }
         assertCompatibleRecommendedTerm(termFrequency, termFrequencyType, repaymentEvery, repaymentFrequencyType);
         final Integer termMonths = resolveTermMonths(termFrequency, termFrequencyType);
-        if (termMonths == null) {
-            return termFrequency;
-        }
         final Integer installments = installmentCount(termMonths, repaymentEvery);
         if (installments == null) {
             throw new IncompatibleLoanTermAndFrequencyException("error.msg.loan.loanTermFrequency.not.a.multiple.of.repayment.interval",
