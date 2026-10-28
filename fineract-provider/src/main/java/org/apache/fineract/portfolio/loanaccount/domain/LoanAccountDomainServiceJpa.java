@@ -85,6 +85,8 @@ import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleAccrualData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
+import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
+import org.apache.fineract.portfolio.loanaccount.excessrefund.repository.LoanExcessRefundRepository;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAccrualPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAssembler;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
@@ -125,6 +127,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanCollateralManagementRepository loanCollateralManagementRepository;
 
     private final LoanRedrawAccountRepository loanRedrawAccountRepository;
+
+    private final LoanExcessRefundRepository loanExcessRefundRepository;
 
     @Transactional
     @Override
@@ -716,6 +720,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     @Override
     public CommandProcessingResultBuilder creditBalanceRefund(Long loanId, LocalDate transactionDate, BigDecimal transactionAmount,
             String noteText, String externalId) {
+        if (this.loanExcessRefundRepository.existsByLoanIdAndStatusEnumIn(loanId, LoanExcessRefundStatus.openStatusEnumValues())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.blocks.credit.balance.refund",
+                    "An open excess refund exists for this loan; credit balance refund is not allowed until it is resolved.");
+        }
         final Loan loan = this.loanAccountAssembler.assembleFrom(loanId);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanCreditBalanceRefundPreBusinessEvent(loan));
         final List<Long> existingTransactionIds = new ArrayList<>();
