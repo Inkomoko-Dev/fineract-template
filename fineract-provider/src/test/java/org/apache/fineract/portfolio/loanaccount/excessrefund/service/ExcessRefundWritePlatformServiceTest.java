@@ -67,6 +67,8 @@ class ExcessRefundWritePlatformServiceTest {
     @Mock
     private OfficeHierarchyService officeHierarchyService;
     @Mock
+    private ClientBankDetailsResolver clientBankDetailsResolver;
+    @Mock
     private AppUser checker;
 
     @InjectMocks
