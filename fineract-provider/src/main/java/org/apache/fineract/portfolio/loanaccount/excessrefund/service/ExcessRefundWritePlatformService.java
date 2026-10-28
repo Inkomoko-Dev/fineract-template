@@ -52,11 +52,9 @@ import com.google.gson.JsonObject;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
@@ -85,8 +83,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class ExcessRefundWritePlatformService {
 
-    private static final List<Integer> OPEN_STATUS_VALUES = Arrays.stream(LoanExcessRefundStatus.values())
-            .filter(LoanExcessRefundStatus::isOpen).map(LoanExcessRefundStatus::getValue).collect(Collectors.toList());
+    private static final List<Integer> OPEN_STATUS_VALUES = LoanExcessRefundStatus.openStatusEnumValues();
 
     private final PlatformSecurityContext context;
     private final LoanRepositoryWrapper loanRepository;
@@ -147,6 +144,7 @@ public class ExcessRefundWritePlatformService {
         assertMakerChecker(refund, user);
         final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         assertOfficeAccess(user, loan);
+        validateOverpaymentAmount(loan, refund.getAmount());
 
         final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
         refund.setStatus(APPROVED);
@@ -205,6 +203,8 @@ public class ExcessRefundWritePlatformService {
         if (!(refund.getStatus() == APPROVED || refund.getStatus() == PAYMENT_FAILED)) {
             throw invalidStatus(refund);
         }
+        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        validateOverpaymentAmount(loan, refund.getAmount());
         final String paymentRef = command.stringValueOfParameterNamed(PAYMENT_REF_PARAM);
         if (StringUtils.isBlank(paymentRef)) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.payment.reference.required",
@@ -218,7 +218,6 @@ public class ExcessRefundWritePlatformService {
         refund.setFailureReason(null);
         refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
         saveRefund(refund);
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " marked paid (manual ref " + paymentRef + ")");
         return result(refund, loan);
     }
@@ -228,17 +227,34 @@ public class ExcessRefundWritePlatformService {
         final AppUser user = this.context.authenticatedUser();
         user.validateHasPermissionTo("SEND_TO_PAYMENTHUB_EXCESS_REFUND");
         final LoanExcessRefund refund = findRefund(command.entityId());
+        assertMaySendToPaymentHub(refund);
         if (!(refund.getStatus() == APPROVED || refund.getStatus() == PAYMENT_FAILED)) {
             throw invalidStatus(refund);
         }
         final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
-        final String requestId = this.paymentHubService.submitRefund(loan, refund);
+        validateOverpaymentAmount(loan, refund.getAmount());
+
+        final String requestId = StringUtils.isNotBlank(refund.getHubRequestId()) ? refund.getHubRequestId()
+                : "cbs_refund_" + refund.getId();
+        final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
         refund.setHubRequestId(requestId);
         refund.setStatus(PAYMENT_SUBMITTED);
         refund.setPaymentMode(LoanExcessRefundPaymentMode.PAYMENT_HUB);
         refund.setFailureReason(null);
-        refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
+        refund.setUpdatedAt(now);
         saveRefund(refund);
+
+        try {
+            this.paymentHubService.submitRefund(loan, refund, requestId);
+        } catch (GeneralPlatformDomainRuleException ex) {
+            refund.setStatus(PAYMENT_FAILED);
+            refund.setFailureReason(StringUtils.abbreviate(ex.getDefaultUserMessage(), 500));
+            refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
+            saveRefund(refund);
+            throw ex;
+        }
+        // TODO CGLT-394: register Payment Hub status poll when poll infrastructure lands — mirror
+        // DisbursementRequestServiceImpl.registerPendingPaymentHubDisbursement and wire callback to applyHubCallback.
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " sent to Payment Hub requestId=" + requestId);
         return result(refund, loan);
     }
@@ -303,6 +319,17 @@ public class ExcessRefundWritePlatformService {
         } catch (RuntimeException ex) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.post.failed",
                     "Failed to post excess refund: " + ex.getMessage());
+        }
+    }
+
+    private void assertMaySendToPaymentHub(final LoanExcessRefund refund) {
+        if (refund.getStatus() == PAYMENT_SUBMITTED || refund.getStatus() == PAID || refund.getStatus() == POSTED) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.already.submitted.hub",
+                    "Excess refund was already submitted to Payment Hub (status " + refund.getStatus() + ").");
+        }
+        if (StringUtils.isNotBlank(refund.getHubRequestId()) && refund.getStatus() == PAYMENT_SUBMITTED) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.already.submitted.hub",
+                    "Excess refund was already submitted to Payment Hub (requestId " + refund.getHubRequestId() + ").");
         }
     }
 
