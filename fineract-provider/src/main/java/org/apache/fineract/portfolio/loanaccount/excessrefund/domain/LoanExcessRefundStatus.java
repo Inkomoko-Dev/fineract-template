@@ -66,4 +66,13 @@ public enum LoanExcessRefundStatus {
         return Arrays.stream(values()).filter(LoanExcessRefundStatus::isOpen).map(LoanExcessRefundStatus::getValue)
                 .collect(Collectors.toList());
     }
+
+    /**
+     * Open refunds that still hold the excess before GL post. PAID is excluded so
+     * {@code ExcessRefundGlPoster} can call credit-balance-refund to clear the liability.
+     */
+    public static List<Integer> prePaymentOpenStatusEnumValues() {
+        return Arrays.stream(values()).filter(s -> s.isOpen() && s != PAID).map(LoanExcessRefundStatus::getValue)
+                .collect(Collectors.toList());
+    }
 }

@@ -324,7 +324,11 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
 
     public static LoanTransaction creditBalanceRefund(final Loan loan, final Office office, final Money amount, final LocalDate paymentDate,
             final String externalId) {
-        final PaymentDetail paymentDetail = null;
+        return creditBalanceRefund(loan, office, amount, paymentDate, externalId, null);
+    }
+
+    public static LoanTransaction creditBalanceRefund(final Loan loan, final Office office, final Money amount, final LocalDate paymentDate,
+            final String externalId, final PaymentDetail paymentDetail) {
         return new LoanTransaction(loan, office, LoanTransactionType.CREDIT_BALANCE_REFUND, paymentDetail, amount.getAmount(), paymentDate,
                 externalId);
     }
