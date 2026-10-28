@@ -135,6 +135,59 @@ public final class LoanRepaymentFrequency {
     }
 
     /**
+     * Validates a recommended term (IC / due diligence) against the loan's repayment interval.
+     * Converts Years to months. Days and Weeks are rejected whenever repayment frequency is Months.
+     */
+    public static void assertCompatibleRecommendedTerm(final Integer termFrequency, final Integer termFrequencyType,
+            final Integer repaymentEvery, final Integer repaymentFrequencyType) {
+        if (!isMonths(repaymentFrequencyType) || repaymentEvery == null || termFrequency == null) {
+            return;
+        }
+        final Integer termMonths = resolveTermMonths(termFrequency, termFrequencyType);
+        if (termMonths == null) {
+            throw new IncompatibleLoanTermAndFrequencyException(
+                    "error.msg.loan.repaymentFrequency.incompatible.with.loan.term",
+                    "Repayment frequency is incompatible with loan term. For monthly, quarterly, and semi-annual repayments, the term must be in months or years.",
+                    termFrequency);
+        }
+        assertCompatibleTerm(termMonths, repaymentEvery, repaymentFrequencyType);
+    }
+
+    /**
+     * Installment count for a recommended term. For month-based repayments this is {@code termInMonths / repayEvery}.
+     * Non-month repayment frequencies keep the submitted term value as the installment count.
+     */
+    public static Integer installmentsForRecommendedTerm(final Integer termFrequency, final Integer termFrequencyType,
+            final Integer repaymentEvery, final Integer repaymentFrequencyType) {
+        if (!isMonths(repaymentFrequencyType) || repaymentEvery == null || termFrequency == null) {
+            return termFrequency;
+        }
+        assertCompatibleRecommendedTerm(termFrequency, termFrequencyType, repaymentEvery, repaymentFrequencyType);
+        final Integer termMonths = resolveTermMonths(termFrequency, termFrequencyType);
+        final Integer installments = installmentCount(termMonths, repaymentEvery);
+        if (installments == null) {
+            throw new IncompatibleLoanTermAndFrequencyException("error.msg.loan.loanTermFrequency.not.a.multiple.of.repayment.interval",
+                    "Loan term must be a multiple of the repayment interval. For " + intervalName(repaymentEvery)
+                            + " repayments, loan term must be a multiple of " + repaymentEvery + " months.",
+                    termMonths, repaymentEvery);
+        }
+        return installments;
+    }
+
+    /**
+     * When the term unit is omitted, treat the value as months (legacy IC payloads). Days and Weeks yield null.
+     */
+    public static Integer resolveTermMonths(final Integer termFrequency, final Integer termFrequencyType) {
+        if (termFrequency == null) {
+            return null;
+        }
+        if (termFrequencyType == null) {
+            return termFrequency;
+        }
+        return termInMonths(termFrequency, termFrequencyType);
+    }
+
+    /**
      * Product write-service guard: products have no separate term field, so implied term is
      * {@code numberOfRepayments * repaymentEvery} months.
      */
@@ -228,7 +281,7 @@ public final class LoanRepaymentFrequency {
         }
     }
 
-    private static boolean isNamedInterval(final int repaymentEvery) {
+    public static boolean isNamedInterval(final int repaymentEvery) {
         return repaymentEvery == QUARTERLY_INTERVAL || repaymentEvery == SEMI_ANNUAL_INTERVAL;
     }
 
