@@ -19,8 +19,10 @@
 package org.apache.fineract.portfolio.loanaccount.excessrefund.service;
 
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundApiConstants.ITEMS_PARAM;
+import static org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundApiConstants.LOAN_ID_PARAM;
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundApiConstants.NOTE_PARAM;
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundApiConstants.OFFICE_ID_PARAM;
+import static org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundApiConstants.REFUND_IDS_PARAM;
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundBatch.STATUS_APPROVED;
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundBatch.STATUS_PARTIALLY_COMPLETED;
 import static org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundBatch.STATUS_PENDING_APPROVAL;
@@ -32,8 +34,10 @@ import com.google.gson.JsonObject;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
@@ -45,6 +49,8 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.OfficeHierarchyService;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefund;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundBatch;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
@@ -66,6 +72,7 @@ public class ExcessRefundBatchService {
     private final ExcessRefundWritePlatformService writePlatformService;
     private final FromJsonHelper fromJsonHelper;
     private final OfficeHierarchyService officeHierarchyService;
+    private final LoanRepositoryWrapper loanRepository;
     private final PlatformTransactionManager transactionManager;
 
     public CommandProcessingResult createBatch(final JsonCommand command) {
@@ -111,6 +118,7 @@ public class ExcessRefundBatchService {
                 if (!item.has("dateFormat")) {
                     item.addProperty("dateFormat", "dd MMMM yyyy");
                 }
+                assertBatchLineOfficeAccess(user, officeId, item);
                 requiresNew.execute(status -> {
                     final JsonCommand itemCommand = JsonCommand.from(item.toString(), item, this.fromJsonHelper, "EXCESS_REFUND", null,
                             null, null, null, null, null, null, null, null, null, null);
@@ -170,12 +178,16 @@ public class ExcessRefundBatchService {
         }
 
         final TransactionTemplate requiresNew = newRequiresNewTemplate();
+        final Set<Long> refundIds = parseRefundIds(command);
         final List<LoanExcessRefund> lines = this.refundRepository.findByBatchId(batch.getId());
         int approved = 0;
         int failed = 0;
         final List<String> lineErrors = new ArrayList<>();
         for (final LoanExcessRefund line : lines) {
             if (line.getStatus() != LoanExcessRefundStatus.PENDING_APPROVAL) {
+                continue;
+            }
+            if (refundIds != null && !refundIds.contains(line.getId())) {
                 continue;
             }
             try {
@@ -197,9 +209,17 @@ public class ExcessRefundBatchService {
         final int finalFailed = failed;
         requiresNew.execute(status -> {
             final LoanExcessRefundBatch managed = this.batchRepository.findById(batch.getId()).orElseThrow();
-            managed.setStatusEnum(finalFailed > 0 && finalApproved > 0 ? STATUS_PARTIALLY_COMPLETED : STATUS_APPROVED);
-            managed.setApprover(user);
-            managed.setApprovedAt(DateUtils.getLocalDateTimeOfTenant());
+            if (finalApproved == 0) {
+                managed.setStatusEnum(STATUS_PENDING_APPROVAL);
+            } else if (finalFailed > 0) {
+                managed.setStatusEnum(STATUS_PARTIALLY_COMPLETED);
+            } else {
+                managed.setStatusEnum(STATUS_APPROVED);
+            }
+            if (finalApproved > 0) {
+                managed.setApprover(user);
+                managed.setApprovedAt(DateUtils.getLocalDateTimeOfTenant());
+            }
             String note = command.stringValueOfParameterNamedAllowingNull(NOTE_PARAM);
             if (!lineErrors.isEmpty()) {
                 note = StringUtils.abbreviate(StringUtils.defaultString(note) + "\nLine errors:\n" + String.join("\n", lineErrors), 4000);
@@ -270,6 +290,42 @@ public class ExcessRefundBatchService {
         final TransactionTemplate template = new TransactionTemplate(this.transactionManager);
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return template;
+    }
+
+    private void assertBatchLineOfficeAccess(final AppUser user, final Long batchOfficeId, final JsonObject item) {
+        if (!item.has(LOAN_ID_PARAM)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.batch.line.invalid", "Batch line loanId is required.");
+        }
+        final Long loanId = item.get(LOAN_ID_PARAM).getAsLong();
+        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(loanId);
+        Long loanOfficeId = loan.getOfficeId();
+        if (loanOfficeId == null && loan.getClient() != null && loan.getClient().getOffice() != null) {
+            loanOfficeId = loan.getClient().getOffice().getId();
+        }
+        if (loanOfficeId != null && !batchOfficeId.equals(loanOfficeId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.batch.office.mismatch",
+                    "Loan office does not match the batch office for loan " + loanId);
+        }
+        if (loanOfficeId == null || !this.officeHierarchyService.validateUserAccessToOffice(user, loanOfficeId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.office.denied",
+                    "User does not have access to the loan office for loan " + loanId);
+        }
+    }
+
+    private Set<Long> parseRefundIds(final JsonCommand command) {
+        final JsonElement parsed = command.parsedJson();
+        if (parsed == null || !parsed.isJsonObject() || !parsed.getAsJsonObject().has(REFUND_IDS_PARAM)) {
+            return null;
+        }
+        final JsonArray array = parsed.getAsJsonObject().getAsJsonArray(REFUND_IDS_PARAM);
+        if (array == null || array.size() == 0) {
+            return null;
+        }
+        final Set<Long> ids = new HashSet<>();
+        for (final JsonElement element : array) {
+            ids.add(element.getAsLong());
+        }
+        return ids;
     }
 
     private void assertBatchMakerChecker(final LoanExcessRefundBatch batch, final AppUser user) {
