@@ -26,6 +26,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.businessdate.service.BusinessDateReadPlatformService;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.ingestion.LogReporter;
 import org.apache.fineract.infrastructure.jobs.domain.ScheduledJobDetail;
 import org.apache.fineract.infrastructure.jobs.domain.ScheduledJobRunHistory;
 import org.apache.fineract.portfolio.account.api.StandingInstructionApiConstants;
@@ -55,6 +56,7 @@ public class SchedulerJobListener implements JobListener {
     private final AppUserRepositoryWrapper userRepository;
     private final GrantedAuthoritiesMapper authoritiesMapper = new NullAuthoritiesMapper();
     private final BusinessDateReadPlatformService businessDateReadPlatformService;
+    private final LogReporter logReporter;
     private int stackTraceLevel = 0;
 
     @Override
@@ -87,10 +89,12 @@ public class SchedulerJobListener implements JobListener {
         String status = SchedulerServiceConstants.STATUS_SUCCESS;
         String errorMessage = null;
         String errorLog = null;
+        Throwable failure = null;
         if (jobException != null) {
             status = SchedulerServiceConstants.STATUS_FAILED;
             this.stackTraceLevel = 0;
             final Throwable throwable = getCauseFromException(jobException);
+            failure = throwable;
             this.stackTraceLevel = 0;
             StackTraceElement[] stackTraceElements = null;
             errorMessage = throwable.getMessage();
@@ -107,6 +111,9 @@ public class SchedulerJobListener implements JobListener {
         // If error due to InsufficientAccountBalance then mark job status as success
         if (StringUtils.isNotBlank(errorLog) && errorLog.contains(StandingInstructionApiConstants.insufficientBalanceExceptionMessage)) {
             status = SchedulerServiceConstants.STATUS_SUCCESS;
+        }
+        if (SchedulerServiceConstants.STATUS_FAILED.equals(status)) {
+            this.logReporter.jobFailed(scheduledJobDetails.getJobName(), failure);
         }
 
         String triggerType = SchedulerServiceConstants.TRIGGER_TYPE_CRON;
