@@ -24,6 +24,7 @@ public interface SchedulerServiceConstants {
     String TRIGGER_TYPE_CRON = "cron";
     String TRIGGER_TYPE_APPLICATION = "application";
     String TRIGGER_TYPE_REFERENCE = "TRIGGER_TYPE_REFERENCE";
+    String TRIGGERED_BY_USER_ID = "TRIGGERED_BY_USER_ID";
     String SCHEDULER_EXCEPTION = "SchedulerException";
     String JOB_EXECUTION_EXCEPTION = "JobExecutionException";
     String JOB_METHOD_INVOCATION_FAILED_EXCEPTION = "JobMethodInvocationFailedException";
