@@ -1091,11 +1091,15 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return amount;
     }
 
-    public LoanTransaction waiveLoanCharge(final LoanCharge loanCharge, final LoanLifecycleStateMachine loanLifecycleStateMachine,
+    public HistoricalPenaltyWaiverResult waiveLoanCharge(final LoanCharge loanCharge, final LoanLifecycleStateMachine loanLifecycleStateMachine,
             final Map<String, Object> changes, final List<Long> existingTransactionIds, final List<Long> existingReversedTransactionIds,
             final Integer loanInstallmentNumber, final ScheduleGeneratorDTO scheduleGeneratorDTO, final Money accruedCharge) {
 
         validateLoanIsNotClosed(loanCharge);
+
+        // isPaidOrPartiallyPaid counts a waived amount as paid. Read it before waive(), otherwise every waiver
+        // reprocesses repayments, reverses the ones whose split changed, and the caller never saves the replacement.
+        final boolean repaymentsNeedReplay = !loanCharge.isDueAtDisbursement() && loanCharge.isPaidOrPartiallyPaid(loanCurrency());
 
         final Money amountWaived = loanCharge.waive(loanCurrency(), loanInstallmentNumber);
 
@@ -1154,38 +1158,35 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 && (loanCharge.getDueLocalDate() == null || DateUtils.getBusinessLocalDate().isAfter(loanCharge.getDueLocalDate()))) {
             regenerateRepaymentScheduleWithInterestRecalculation(scheduleGeneratorDTO);
         }
-        // Waive of charges whose due date falls after latest 'repayment'
-        // transaction dont require entire loan schedule to be reprocessed.
-        final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
-                .determineProcessor(this.transactionProcessingStrategy);
-        if (!loanCharge.isDueAtDisbursement() && loanCharge.isPaidOrPartiallyPaid(loanCurrency())) {
-            /****
-             * TODO Vishwas Currently we do not allow waiving fully paid loan charge and waiving partially paid loan
-             * charges only waives the remaining amount.
-             *
-             * Consider removing this block of code or logically completing it for the future by getting the list of
-             * affected Transactions
-             ***/
+        ChangedTransactionDetail changedTransactionDetail = null;
+        if (repaymentsNeedReplay) {
+            final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
+                    .determineProcessor(this.transactionProcessingStrategy);
             final List<LoanTransaction> allNonContraTransactionsPostDisbursement = retreiveListOfTransactionsPostDisbursement();
-            loanRepaymentScheduleTransactionProcessor.handleTransaction(getDisbursementDate(), allNonContraTransactionsPostDisbursement,
-                    getCurrency(), getRepaymentScheduleInstallments(), charges());
+            changedTransactionDetail = loanRepaymentScheduleTransactionProcessor.handleTransaction(getDisbursementDate(),
+                    allNonContraTransactionsPostDisbursement, getCurrency(), getRepaymentScheduleInstallments(), charges());
+            // Replacements must be visible to the summary. The caller persists them.
+            for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
+                mapEntry.getValue().updateLoan(this);
+            }
+            this.loanTransactions.addAll(changedTransactionDetail.getNewTransactionMappings().values());
+            updateLoanSummaryDerivedFields();
+            this.loanTransactions.removeAll(changedTransactionDetail.getNewTransactionMappings().values());
         } else {
-            // reprocess loan schedule based on charge been waived.
             final LoanRepaymentScheduleProcessingWrapper wrapper = new LoanRepaymentScheduleProcessingWrapper();
             wrapper.reprocess(getCurrency(), getDisbursementDate(), getRepaymentScheduleInstallments(), charges());
+            updateLoanSummaryDerivedFields();
         }
-
-        updateLoanSummaryDerivedFields();
 
         doPostLoanTransactionChecks(waiveLoanChargeTransaction.getTransactionDate(), loanLifecycleStateMachine);
 
-        return waiveLoanChargeTransaction;
+        return new HistoricalPenaltyWaiverResult(waiveLoanChargeTransaction, changedTransactionDetail);
     }
 
     /**
      * Waives a penalty an earlier repayment already settled, reprocessing every dependent repayment in the same action.
-     * Unlike {@link #waiveLoanCharge}, the replay's {@link ChangedTransactionDetail} is returned rather than discarded,
-     * so the caller can persist the replacements and post the correcting journal entries.
+     * The replay's {@link ChangedTransactionDetail} is returned so the caller can persist the replacements and post the
+     * correcting journal entries. {@link #waiveLoanCharge} does the same when the charge was already paid.
      *
      * @param waiverAmount
      *            portion to waive, or {@code null} for all of it

@@ -183,6 +183,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail
 import org.apache.fineract.portfolio.loanaccount.domain.DefaultLoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.GLIMAccountInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.GroupLoanIndividualMonitoringAccount;
+import org.apache.fineract.portfolio.loanaccount.domain.HistoricalPenaltyWaiverResult;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
@@ -2445,10 +2446,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
         deleteLoanRepaymentRemindersAssociatedToThisLoanAccount(loan);
 
-        final LoanTransaction waiveTransaction = loan.waiveLoanCharge(loanCharge, defaultLoanLifecycleStateMachine(), changes,
+        final HistoricalPenaltyWaiverResult waiverResult = loan.waiveLoanCharge(loanCharge, defaultLoanLifecycleStateMachine(), changes,
                 existingTransactionIds, existingReversedTransactionIds, loanInstallmentNumber, scheduleGeneratorDTO, accruedCharge);
+        final LoanTransaction waiveTransaction = waiverResult.getWaiveTransaction();
 
         this.loanTransactionRepository.saveAndFlush(waiveTransaction);
+        final ChangedTransactionDetail changedTransactionDetail = waiverResult.getChangedTransactionDetail();
+        if (changedTransactionDetail != null) {
+            for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
+                this.loanTransactionRepository.saveAndFlush(mapEntry.getValue());
+                loan.addLoanTransaction(mapEntry.getValue());
+            }
+        }
         if (residualPenaltyWaiver) {
             changes.put("residualPenaltyWaiver", true);
             changes.put("previousAmountWaived", previousAmountWaived.getAmount());
