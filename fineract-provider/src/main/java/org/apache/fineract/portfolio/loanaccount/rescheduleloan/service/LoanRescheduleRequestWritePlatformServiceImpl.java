@@ -820,10 +820,12 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     history.getDueDate(), history.getPrincipal(), history.getInterestCharged(), history.getFeeChargesCharged(),
                     history.getPenaltyCharges(), false, null));
         }
+        restoreChargesAfterRescheduleUndo(loan, loanRescheduleRequest);
         loan.updateLoanSchedule(restored);
         if (originalInterestRatePerPeriod != null) {
             loan.repaymentScheduleDetail().updateNominalInterestRate(originalInterestRatePerPeriod, this.aprCalculator);
         }
+        loan.recalculateAllCharges();
         final ChangedTransactionDetail changedTransactionDetail = loan.processTransactions();
         loanRescheduleRequest.undo();
         loan.updateRescheduledOnDate(null);
@@ -838,6 +840,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             }
         }
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+        this.loanAccountDomainService.recalculateAccruals(loan, true);
         if (noteText != null && !noteText.isBlank()) {
             this.noteRepository.save(Note.loanNote(loan, noteText));
         }
@@ -859,6 +862,54 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                 ? mostSpecificCause.getMessage() : dve.getMessage();
         throw new PlatformDataIntegrityException("error.msg.loan.reschedule.unknown.data.integrity.issue",
                 "Unable to persist loan reschedule request: " + causeMessage);
+    }
+
+    /**
+     * Approve inactivates overdue charges after the reschedule-from date and may add a carry-forward charge. Undo must
+     * reverse that before the archived schedule is restored, otherwise restored fee amounts have no matching active
+     * charges and journal reversal fails with an advanced-accounting charge-sum mismatch.
+     */
+    private void restoreChargesAfterRescheduleUndo(final Loan loan, final LoanRescheduleRequest request) {
+        if (request.getChargeHandling() == ChargeHandlingOption.CARRY) {
+            inactivateCarryForwardChargeCreatedByReschedule(loan, request);
+        }
+        reactivateOverdueChargesInactivatedByReschedule(loan, request.getRescheduleFromDate());
+    }
+
+    private void inactivateCarryForwardChargeCreatedByReschedule(final Loan loan, final LoanRescheduleRequest request) {
+        if (request.getCarryForwardChargeId() == null || loan.getLoanCharges() == null) {
+            return;
+        }
+        for (final LoanCharge charge : loan.getLoanCharges()) {
+            if (charge == null || !charge.isActive() || charge.isOverdueInstallmentCharge() || charge.getCharge() == null) {
+                continue;
+            }
+            if (!request.getCarryForwardChargeId().equals(charge.getCharge().getId())) {
+                continue;
+            }
+            if (request.getCarryForwardChargeDueDate() != null && charge.getDueLocalDate() != null
+                    && !request.getCarryForwardChargeDueDate().equals(charge.getDueLocalDate())) {
+                continue;
+            }
+            charge.markAsInactive();
+            this.loanChargeRepository.save(charge);
+        }
+    }
+
+    private void reactivateOverdueChargesInactivatedByReschedule(final Loan loan, final LocalDate rescheduleFromDate) {
+        if (rescheduleFromDate == null || loan.getLoanCharges() == null) {
+            return;
+        }
+        for (final LoanCharge charge : loan.getLoanCharges()) {
+            if (charge == null || charge.isActive() || !charge.isOverdueInstallmentCharge()) {
+                continue;
+            }
+            if (charge.getDueLocalDate() == null || !charge.getDueLocalDate().isAfter(rescheduleFromDate)) {
+                continue;
+            }
+            charge.setActive(true);
+            this.loanChargeRepository.save(charge);
+        }
     }
 
     private BigDecimal getTotalOutstandingOverdueCharges(Loan loan, LocalDate rescheduleDate) {
