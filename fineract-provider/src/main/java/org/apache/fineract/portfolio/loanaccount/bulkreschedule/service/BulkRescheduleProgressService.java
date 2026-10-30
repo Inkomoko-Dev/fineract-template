@@ -54,7 +54,7 @@ public class BulkRescheduleProgressService {
         if (executionRepository.claimIncomplete(executionId, BulkRescheduleExecutionStatus.FAILED,
                 BulkRescheduleExecutionStatus.PARTIAL_SUCCESS, BulkRescheduleExecutionStatus.EXECUTING, workerToken,
                 leaseExpiresAt) == 1) {
-            return ClaimResult.RECOVERED;
+            return ClaimResult.RESUMED;
         }
         return ClaimResult.NONE;
     }
@@ -196,6 +196,7 @@ public class BulkRescheduleProgressService {
     public enum ClaimResult {
         NONE,
         INITIAL,
-        RECOVERED
+        RECOVERED,
+        RESUMED
     }
 }

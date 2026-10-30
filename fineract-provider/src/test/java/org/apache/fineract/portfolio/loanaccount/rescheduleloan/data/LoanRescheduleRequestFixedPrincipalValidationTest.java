@@ -85,6 +85,20 @@ class LoanRescheduleRequestFixedPrincipalValidationTest {
         assertRejected("\"newPrincipalDueFixedAmount\":\"30000\",\"emi\":\"40000\",\"endDate\":\"01 October 2026\"", "emi");
     }
 
+    @Test
+    void rejectsPaidInstallmentUnlessRecalculateEvenIfObligationsMet() {
+        PlatformApiDataValidationException e = assertThrows(PlatformApiDataValidationException.class,
+                () -> validate("\"newInterestRate\":\"15\"", true));
+        List<String> codes = e.getErrors().stream().map(error -> error.getUserMessageGlobalisationCode()).collect(Collectors.toList());
+        assertTrue(codes.stream().anyMatch(code -> code != null && code.contains("obligation.met")),
+                "expected an obligations-met error but got " + codes);
+    }
+
+    @Test
+    void acceptsPaidInstallmentWhenRecalculateEvenIfObligationsMet() {
+        assertDoesNotThrow(() -> validate("\"newInterestRate\":\"15\",\"recalculateEvenIfObligationsMet\":true", true));
+    }
+
     private void assertRejected(String fields, String parameter) {
         PlatformApiDataValidationException e = assertThrows(PlatformApiDataValidationException.class, () -> validate(fields));
         List<String> parameters = e.getErrors().stream().map(error -> error.getParameterName()).collect(Collectors.toList());
@@ -92,20 +106,25 @@ class LoanRescheduleRequestFixedPrincipalValidationTest {
     }
 
     private void validate(String fields) {
+        validate(fields, false);
+    }
+
+    private void validate(String fields, boolean obligationsMet) {
         String json = "{\"submittedOnDate\":\"28 September 2026\",\"rescheduleFromDate\":\"01 July 2026\",\"rescheduleReasonId\":693,"
                 + "\"overdueChargeHandling\":{\"id\":1326,\"name\":\"Ignore Charges\"},\"loanId\":\"422415\","
                 + "\"dateFormat\":\"dd MMMM yyyy\",\"locale\":\"en\"," + fields + "}";
         JsonCommand command = JsonCommand.from(json, JsonParser.parseString(json), new FromJsonHelper(), null, null, null, null, null,
                 null, null, null, null, null, null, null);
-        this.validator.validateForCreateAction(command, loan());
+        this.validator.validateForCreateAction(command, loan(obligationsMet));
     }
 
-    private static Loan loan() {
+    private static Loan loan(boolean obligationsMet) {
         Loan loan = mock(Loan.class);
         when(loan.status()).thenReturn(LoanStatus.ACTIVE);
         when(loan.getDisbursementDate()).thenReturn(LocalDate.of(2025, 12, 1));
         LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 7, LocalDate.of(2026, 6, 1),
                 LocalDate.of(2026, 7, 1), new BigDecimal("70000"), new BigDecimal("5833.33"), BigDecimal.ZERO, BigDecimal.ZERO, false, new HashSet<>());
+        installment.updateObligationMet(obligationsMet);
         when(loan.getRepaymentScheduleInstallment(any(LocalDate.class))).thenReturn(installment);
         when(loan.getLoanCharges()).thenReturn(new ArrayList<>());
         when(loan.getTotal_extensions()).thenReturn(null);

@@ -48,6 +48,7 @@ public class RescheduleLoansApiConstants {
     public static final String extraTermsParamName = "extraTerms";
     public static final String rescheduleFromDateParamName = "rescheduleFromDate";
     public static final String recalculateInterestParamName = "recalculateInterest";
+    public static final String recalculateEvenIfObligationsMetParamName = "recalculateEvenIfObligationsMet";
     public static final String newInterestRateParamName = "newInterestRate";
     public static final String rescheduleReasonIdParamName = "rescheduleReasonId";
     public static final String rescheduleReasonCommentParamName = "rescheduleReasonComment";

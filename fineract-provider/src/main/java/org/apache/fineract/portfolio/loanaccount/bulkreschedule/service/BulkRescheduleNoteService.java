@@ -20,10 +20,12 @@ package org.apache.fineract.portfolio.loanaccount.bulkreschedule.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleExecution;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class BulkRescheduleNoteService {
 
     private final NoteRepository noteRepository;
+    private final PlatformSecurityContext securityContext;
 
     /**
      * Adds a reschedule note to a loan for audit and reference purposes.
@@ -57,6 +60,20 @@ public class BulkRescheduleNoteService {
                 + valueOrDash(execution.getApprovalNote()) + "; approved at: " + valueOrDash(execution.getApprovedAt()) + ".";
         noteRepository.save(Note.loanNote(loan, noteText));
         log.info("Added bulk reschedule note to loan {} for execution {}", loan.getId(), execution.getId());
+    }
+
+    /** Records that an approved bulk reschedule was rolled back on this loan. */
+    @Transactional
+    public void addRollbackNoteToLoan(final Loan loan, final BulkRescheduleExecution execution, final String rollbackReason) {
+        final String marker = "[Bulk reschedule rollback #" + execution.getId() + "]";
+        if (noteRepository.existsLoanNoteContaining(loan.getId(), "%" + marker + "%")) {
+            return;
+        }
+        final AppUser currentUser = securityContext.getAuthenticatedUserIfPresent();
+        final String rolledBackBy = currentUser == null ? "unknown" : currentUser.getUsername();
+        final String noteText = marker + " Rolled back by: " + rolledBackBy + "; reason: " + valueOrDash(rollbackReason) + ".";
+        noteRepository.save(Note.loanNote(loan, noteText));
+        log.info("Added bulk reschedule rollback note to loan {} for execution {}", loan.getId(), execution.getId());
     }
 
     private String valueOrDash(final Object value) {

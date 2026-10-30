@@ -66,6 +66,9 @@ public class LoanRescheduleRequest extends AbstractPersistableCustom {
     @Column(name = "recalculate_interest")
     private Boolean recalculateInterest;
 
+    @Column(name = "recalculate_even_if_obligations_met")
+    private Boolean recalculateEvenIfObligationsMet;
+
     @ManyToOne
     @JoinColumn(name = "reschedule_reason_cv_id")
     private CodeValue rescheduleReasonCodeValue;
@@ -168,6 +171,10 @@ public class LoanRescheduleRequest extends AbstractPersistableCustom {
         }
 
         return recalculateInterest;
+    }
+
+    public boolean isRecalculateEvenIfObligationsMet() {
+        return Boolean.TRUE.equals(this.recalculateEvenIfObligationsMet);
     }
 
     /**
