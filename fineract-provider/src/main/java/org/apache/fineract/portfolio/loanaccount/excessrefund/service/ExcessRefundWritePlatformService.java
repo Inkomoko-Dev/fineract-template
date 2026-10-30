@@ -55,6 +55,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
@@ -65,9 +66,12 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.OfficeHierarchyService;
+import org.apache.fineract.portfolio.loanaccount.data.PaymentHubTransactionStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
+import org.apache.fineract.portfolio.loanaccount.domain.PaymentHubDisbursementPoll;
+import org.apache.fineract.portfolio.loanaccount.domain.PaymentHubDisbursementPollRepository;
 import org.apache.fineract.portfolio.loanaccount.service.ClientBankDetailsResolver;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefund;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundPaymentMode;
@@ -76,15 +80,21 @@ import org.apache.fineract.portfolio.loanaccount.excessrefund.repository.LoanExc
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
 public class ExcessRefundWritePlatformService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ExcessRefundWritePlatformService.class);
     private static final List<Integer> OPEN_STATUS_VALUES = LoanExcessRefundStatus.openStatusEnumValues();
 
     private final PlatformSecurityContext context;
@@ -96,6 +106,8 @@ public class ExcessRefundWritePlatformService {
     private final ExcessRefundPaymentHubService paymentHubService;
     private final OfficeHierarchyService officeHierarchyService;
     private final ClientBankDetailsResolver clientBankDetailsResolver;
+    private final PlatformTransactionManager transactionManager;
+    private final PaymentHubDisbursementPollRepository paymentHubDisbursementPollRepository;
 
     @Transactional
     public CommandProcessingResult create(final JsonCommand command) {
@@ -243,27 +255,78 @@ public class ExcessRefundWritePlatformService {
 
         final String requestId = StringUtils.isNotBlank(refund.getHubRequestId()) ? refund.getHubRequestId()
                 : "cbs_refund_" + refund.getId();
-        final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
-        refund.setHubRequestId(requestId);
-        refund.setStatus(PAYMENT_SUBMITTED);
-        refund.setPaymentMode(LoanExcessRefundPaymentMode.PAYMENT_HUB);
-        refund.setFailureReason(null);
-        refund.setUpdatedAt(now);
-        saveRefund(refund);
+        persistPaymentHubSubmission(refund.getId(), requestId);
 
+        final String responseBody;
         try {
-            this.paymentHubService.submitRefund(loan, refund, requestId);
+            responseBody = this.paymentHubService.submitRefund(loan, refund, requestId);
         } catch (GeneralPlatformDomainRuleException ex) {
-            refund.setStatus(PAYMENT_FAILED);
-            refund.setFailureReason(StringUtils.abbreviate(ex.getDefaultUserMessage(), 500));
-            refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-            saveRefund(refund);
+            persistPaymentHubFailure(refund.getId(), ex.getDefaultUserMessage());
             throw ex;
         }
-        // TODO CGLT-394: register Payment Hub status poll when poll infrastructure lands — mirror
-        // DisbursementRequestServiceImpl.registerPendingPaymentHubDisbursement and wire callback to applyHubCallback.
+        registerPendingPaymentHubRefund(loan, refund, requestId, responseBody);
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " sent to Payment Hub requestId=" + requestId);
-        return result(refund, loan);
+        return result(findRefund(refund.getId()), loan);
+    }
+
+    private void persistPaymentHubSubmission(final Long refundId, final String requestId) {
+        newRequiresNewTemplate().execute(status -> {
+            final LoanExcessRefund managed = findRefund(refundId);
+            final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
+            managed.setHubRequestId(requestId);
+            managed.setStatus(PAYMENT_SUBMITTED);
+            managed.setPaymentMode(LoanExcessRefundPaymentMode.PAYMENT_HUB);
+            managed.setFailureReason(null);
+            managed.setUpdatedAt(now);
+            saveRefund(managed);
+            return null;
+        });
+    }
+
+    private void persistPaymentHubFailure(final Long refundId, final String userMessage) {
+        newRequiresNewTemplate().execute(status -> {
+            final LoanExcessRefund managed = findRefund(refundId);
+            managed.setStatus(PAYMENT_FAILED);
+            managed.setFailureReason(StringUtils.abbreviate(userMessage, 500));
+            managed.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
+            saveRefund(managed);
+            return null;
+        });
+    }
+
+    private void registerPendingPaymentHubRefund(final Loan loan, final LoanExcessRefund refund, final String requestId,
+            final String responseBody) {
+        final PaymentHubTransactionStatus hubStatus = PaymentHubTransactionStatus.parse(responseBody);
+        if (!shouldPollPaymentHubStatus(hubStatus)) {
+            return;
+        }
+        final String transactionId = hubStatus == null ? null : hubStatus.getTransactionId();
+        final Long paymentTypeId = refund.getPaymentTypeId();
+        final LocalDate businessDate = DateUtils.getBusinessLocalDate();
+        final Optional<PaymentHubDisbursementPoll> existing = this.paymentHubDisbursementPollRepository.findByRequestId(requestId);
+        if (existing.isPresent()) {
+            final PaymentHubDisbursementPoll poll = existing.get();
+            poll.reopenPending(transactionId, paymentTypeId, businessDate, null);
+            this.paymentHubDisbursementPollRepository.save(poll);
+        } else {
+            this.paymentHubDisbursementPollRepository.save(PaymentHubDisbursementPoll.pending(loan.getId(), null, requestId, transactionId,
+                    paymentTypeId, businessDate));
+        }
+        LOG.info("Registered pending Payment Hub excess refund for status polling loanId={}, refundId={}, requestId={}, transactionId={}",
+                loan.getId(), refund.getId(), requestId, transactionId);
+    }
+
+    private static boolean shouldPollPaymentHubStatus(final PaymentHubTransactionStatus status) {
+        if (status == null || StringUtils.isBlank(status.getStatus())) {
+            return true;
+        }
+        return status.isPending();
+    }
+
+    private TransactionTemplate newRequiresNewTemplate() {
+        final TransactionTemplate template = new TransactionTemplate(this.transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template;
     }
 
     @Transactional

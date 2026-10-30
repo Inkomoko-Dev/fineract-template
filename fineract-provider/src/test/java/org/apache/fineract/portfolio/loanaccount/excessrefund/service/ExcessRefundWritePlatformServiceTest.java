@@ -35,6 +35,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.OfficeHierarchyService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
+import org.apache.fineract.portfolio.loanaccount.domain.PaymentHubDisbursementPollRepository;
 import org.apache.fineract.portfolio.loanaccount.service.ClientBankDetailsResolver;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefund;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
@@ -47,6 +48,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 
 @ExtendWith(MockitoExtension.class)
 class ExcessRefundWritePlatformServiceTest {
@@ -70,6 +73,10 @@ class ExcessRefundWritePlatformServiceTest {
     @Mock
     private ClientBankDetailsResolver clientBankDetailsResolver;
     @Mock
+    private PlatformTransactionManager transactionManager;
+    @Mock
+    private PaymentHubDisbursementPollRepository paymentHubDisbursementPollRepository;
+    @Mock
     private AppUser checker;
 
     @InjectMocks
@@ -79,6 +86,7 @@ class ExcessRefundWritePlatformServiceTest {
     void setUp() {
         when(this.context.authenticatedUser()).thenReturn(this.checker);
         lenient().when(this.checker.getId()).thenReturn(2L);
+        lenient().when(this.transactionManager.getTransaction(any())).thenReturn(org.mockito.Mockito.mock(TransactionStatus.class));
     }
 
     @Test
