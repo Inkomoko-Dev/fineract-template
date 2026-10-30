@@ -153,11 +153,16 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
     }
 
     private void validateNotDuplicate(CommandWrapper wrapper) {
-        Optional<CommandSource> existingPending = commandSourceRepository.findPendingCommand(
-                wrapper.getEntityName(),
-                wrapper.getEntityId(),
-                wrapper.actionName()
-        );
+        final Optional<CommandSource> existingPending;
+        if (wrapper.getEntityId() != null) {
+            existingPending = commandSourceRepository.findPendingCommand(wrapper.getEntityName(), wrapper.getEntityId(),
+                    wrapper.actionName());
+        } else if (wrapper.getLoanId() != null) {
+            existingPending = commandSourceRepository.findPendingCommandByLoanId(wrapper.getEntityName(), wrapper.getLoanId(),
+                    wrapper.actionName());
+        } else {
+            existingPending = Optional.empty();
+        }
 
         if (existingPending.isPresent()) {
             CommandSource pending = existingPending.get();
