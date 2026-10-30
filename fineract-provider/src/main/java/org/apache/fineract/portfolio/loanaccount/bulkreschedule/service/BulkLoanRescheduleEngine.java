@@ -139,6 +139,9 @@ public class BulkLoanRescheduleEngine {
         if (details.getRecalculateInterest() != null) {
             jsonObject.addProperty("recalculateInterest", details.getRecalculateInterest());
         }
+        if (Boolean.TRUE.equals(details.getRecalculateEvenIfObligationsMet())) {
+            jsonObject.addProperty("recalculateEvenIfObligationsMet", true);
+        }
         if (details.getEndDate() != null) {
             jsonObject.addProperty("endDate", details.getEndDate().toString());
         }

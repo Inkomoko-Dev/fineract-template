@@ -259,10 +259,14 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             final Integer repaymentFrequencyType = jsonCommand.integerValueOfParameterNamed(RescheduleLoansApiConstants.repaymentFrequencyTypeParamName);
             final Boolean preserveLoanTermDuration = jsonCommand.booleanPrimitiveValueOfParameterNamed(RescheduleLoansApiConstants.preserveLoanTermDurationParamName);
 
+            final Boolean recalculateEvenIfObligationsMet = jsonCommand
+                    .booleanObjectValueOfParameterNamed(RescheduleLoansApiConstants.recalculateEvenIfObligationsMetParamName);
+
             final LoanRescheduleRequest loanRescheduleRequest = LoanRescheduleRequest.instance(loan,
                     LoanStatus.SUBMITTED_AND_PENDING_APPROVAL.getValue(), rescheduleFromInstallment, rescheduleFromDate,
                     recalculateInterest, rescheduleReasonCodeValue, rescheduleReasonComment, submittedOnDate,
                     this.platformSecurityContext.authenticatedUser(), null, null, null, null);
+            loanRescheduleRequest.setRecalculateEvenIfObligationsMet(Boolean.TRUE.equals(recalculateEvenIfObligationsMet));
 
             // update reschedule request to term variations mapping
             List<LoanRescheduleRequestToTermVariationMapping> loanRescheduleRequestToTermVariationMappings = new ArrayList<>();
