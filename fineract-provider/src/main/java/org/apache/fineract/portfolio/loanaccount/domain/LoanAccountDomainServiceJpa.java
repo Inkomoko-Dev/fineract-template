@@ -85,12 +85,15 @@ import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleAccrualData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
+import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
+import org.apache.fineract.portfolio.loanaccount.excessrefund.repository.LoanExcessRefundRepository;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAccrualPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAssembler;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
+import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetailRepository;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.data.PostDatedChecksStatus;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecks;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecksRepository;
@@ -125,6 +128,9 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanCollateralManagementRepository loanCollateralManagementRepository;
 
     private final LoanRedrawAccountRepository loanRedrawAccountRepository;
+
+    private final LoanExcessRefundRepository loanExcessRefundRepository;
+    private final PaymentDetailRepository paymentDetailRepository;
 
     @Transactional
     @Override
@@ -716,14 +722,29 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     @Override
     public CommandProcessingResultBuilder creditBalanceRefund(Long loanId, LocalDate transactionDate, BigDecimal transactionAmount,
             String noteText, String externalId) {
+        return creditBalanceRefund(loanId, transactionDate, transactionAmount, noteText, externalId, null);
+    }
+
+    @Override
+    public CommandProcessingResultBuilder creditBalanceRefund(Long loanId, LocalDate transactionDate, BigDecimal transactionAmount,
+            String noteText, String externalId, PaymentDetail paymentDetail) {
+        if (this.loanExcessRefundRepository.existsByLoanIdAndStatusEnumIn(loanId,
+                LoanExcessRefundStatus.prePaymentOpenStatusEnumValues())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.blocks.credit.balance.refund",
+                    "An open excess refund exists for this loan; credit balance refund is not allowed until it is resolved.");
+        }
         final Loan loan = this.loanAccountAssembler.assembleFrom(loanId);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanCreditBalanceRefundPreBusinessEvent(loan));
         final List<Long> existingTransactionIds = new ArrayList<>();
         final List<Long> existingReversedTransactionIds = new ArrayList<>();
 
         final Money refundAmount = Money.of(loan.getCurrency(), transactionAmount);
+        PaymentDetail persistedPaymentDetail = paymentDetail;
+        if (persistedPaymentDetail != null && persistedPaymentDetail.getId() == null) {
+            persistedPaymentDetail = this.paymentDetailRepository.save(persistedPaymentDetail);
+        }
         final LoanTransaction newCreditBalanceRefundTransaction = LoanTransaction.creditBalanceRefund(loan, loan.getOffice(), refundAmount,
-                transactionDate, externalId);
+                transactionDate, externalId, persistedPaymentDetail);
 
         loan.creditBalanceRefund(newCreditBalanceRefundTransaction, defaultLoanLifecycleStateMachine(), existingTransactionIds,
                 existingReversedTransactionIds);

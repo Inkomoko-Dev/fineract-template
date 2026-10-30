@@ -22,7 +22,6 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
@@ -59,8 +58,7 @@ public class ExcessRefundPaymentHubService {
     private final OkHttpClient client = new OkHttpClient();
     private final Gson gson = new Gson();
 
-    public String submitRefund(final Loan loan, final LoanExcessRefund refund) {
-        final String requestId = "cbs_refund_" + refund.getId() + "_" + UUID.randomUUID().toString().substring(0, 8);
+    public String submitRefund(final Loan loan, final LoanExcessRefund refund, final String requestId) {
         final String token = authenticate();
         final DisbursementRequestData payload = buildPayload(loan, refund, requestId);
         final String requestJson = this.gson.toJson(payload);
@@ -75,7 +73,7 @@ public class ExcessRefundPaymentHubService {
             String responseBody = response.body() != null ? response.body().string() : null;
             if (response.isSuccessful()) {
                 LOG.info("Payment Hub refund accepted loanId={}, refundId={}, requestId={}", loan.getId(), refund.getId(), requestId);
-                return requestId;
+                return responseBody;
             }
             final int code = response.code();
             final DisbursementRequestServiceImpl.PaymentHubErrorResponse parsed = DisbursementRequestServiceImpl

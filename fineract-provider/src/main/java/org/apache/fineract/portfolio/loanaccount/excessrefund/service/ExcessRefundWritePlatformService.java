@@ -52,11 +52,10 @@ import com.google.gson.JsonObject;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
@@ -67,8 +66,13 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.OfficeHierarchyService;
+import org.apache.fineract.portfolio.loanaccount.data.PaymentHubTransactionStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
+import org.apache.fineract.portfolio.loanaccount.domain.PaymentHubDisbursementPoll;
+import org.apache.fineract.portfolio.loanaccount.domain.PaymentHubDisbursementPollRepository;
+import org.apache.fineract.portfolio.loanaccount.service.ClientBankDetailsResolver;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefund;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundPaymentMode;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
@@ -76,17 +80,22 @@ import org.apache.fineract.portfolio.loanaccount.excessrefund.repository.LoanExc
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
 public class ExcessRefundWritePlatformService {
 
-    private static final List<Integer> OPEN_STATUS_VALUES = Arrays.stream(LoanExcessRefundStatus.values())
-            .filter(LoanExcessRefundStatus::isOpen).map(LoanExcessRefundStatus::getValue).collect(Collectors.toList());
+    private static final Logger LOG = LoggerFactory.getLogger(ExcessRefundWritePlatformService.class);
+    private static final List<Integer> OPEN_STATUS_VALUES = LoanExcessRefundStatus.openStatusEnumValues();
 
     private final PlatformSecurityContext context;
     private final LoanRepositoryWrapper loanRepository;
@@ -96,6 +105,9 @@ public class ExcessRefundWritePlatformService {
     private final ExcessRefundGlPoster glPoster;
     private final ExcessRefundPaymentHubService paymentHubService;
     private final OfficeHierarchyService officeHierarchyService;
+    private final ClientBankDetailsResolver clientBankDetailsResolver;
+    private final PlatformTransactionManager transactionManager;
+    private final PaymentHubDisbursementPollRepository paymentHubDisbursementPollRepository;
 
     @Transactional
     public CommandProcessingResult create(final JsonCommand command) {
@@ -103,12 +115,18 @@ public class ExcessRefundWritePlatformService {
         user.validateHasPermissionTo("CREATE_EXCESS_REFUND");
 
         final Long loanId = command.longValueOfParameterNamed(LOAN_ID_PARAM);
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(loanId);
+        final Loan loan = this.loanRepository.findOneForUpdate(loanId);
+        assertOfficeAccess(user, loan);
         validateOverpaymentAmount(loan, command.bigDecimalValueOfParameterNamed(AMOUNT_PARAM));
         assertNoOpenRefund(loanId);
 
-        final String beneficiaryJson = validateAndSnapshotBeneficiary(command);
+        final String beneficiaryJson = validateAndSnapshotBeneficiary(loan, command);
         final LoanExcessRefundPaymentMode paymentMode = resolvePaymentMode(command.stringValueOfParameterNamed(PAYMENT_MODE_PARAM));
+        final Long paymentTypeId = command.longValueOfParameterNamed(PAYMENT_TYPE_ID_PARAM);
+        if (paymentTypeId == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.payment.type.required",
+                    "Payment type is required so the refund credits the correct fund source.");
+        }
         final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
 
         final LoanExcessRefund refund = new LoanExcessRefund();
@@ -117,7 +135,7 @@ public class ExcessRefundWritePlatformService {
         refund.setAmount(command.bigDecimalValueOfParameterNamed(AMOUNT_PARAM));
         refund.setCurrencyCode(loan.getCurrencyCode());
         refund.setPaymentMode(paymentMode);
-        refund.setPaymentTypeId(command.longValueOfParameterNamed(PAYMENT_TYPE_ID_PARAM));
+        refund.setPaymentTypeId(paymentTypeId);
         refund.setStatus(PENDING_APPROVAL);
         refund.setBeneficiaryJson(beneficiaryJson);
         refund.setSubmittedBy(user);
@@ -145,8 +163,9 @@ public class ExcessRefundWritePlatformService {
         final LoanExcessRefund refund = findRefund(command.entityId());
         assertStatus(refund, PENDING_APPROVAL);
         assertMakerChecker(refund, user);
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        final Loan loan = this.loanRepository.findOneForUpdate(refund.getLoanId());
         assertOfficeAccess(user, loan);
+        validateOverpaymentAmount(loan, refund.getAmount());
 
         final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
         refund.setStatus(APPROVED);
@@ -189,10 +208,11 @@ public class ExcessRefundWritePlatformService {
         if (!(refund.getStatus() == PENDING_APPROVAL || refund.getStatus() == APPROVED || refund.getStatus() == PAYMENT_FAILED)) {
             throw invalidStatus(refund);
         }
+        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        assertOfficeAccess(user, loan);
         refund.setStatus(CANCELLED);
         refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
         saveRefund(refund);
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " cancelled");
         return result(refund, loan);
     }
@@ -205,6 +225,9 @@ public class ExcessRefundWritePlatformService {
         if (!(refund.getStatus() == APPROVED || refund.getStatus() == PAYMENT_FAILED)) {
             throw invalidStatus(refund);
         }
+        final Loan loan = this.loanRepository.findOneForUpdate(refund.getLoanId());
+        assertOfficeAccess(user, loan);
+        validateOverpaymentAmount(loan, refund.getAmount());
         final String paymentRef = command.stringValueOfParameterNamed(PAYMENT_REF_PARAM);
         if (StringUtils.isBlank(paymentRef)) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.payment.reference.required",
@@ -218,7 +241,6 @@ public class ExcessRefundWritePlatformService {
         refund.setFailureReason(null);
         refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
         saveRefund(refund);
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " marked paid (manual ref " + paymentRef + ")");
         return result(refund, loan);
     }
@@ -228,19 +250,88 @@ public class ExcessRefundWritePlatformService {
         final AppUser user = this.context.authenticatedUser();
         user.validateHasPermissionTo("SEND_TO_PAYMENTHUB_EXCESS_REFUND");
         final LoanExcessRefund refund = findRefund(command.entityId());
+        assertMaySendToPaymentHub(refund);
         if (!(refund.getStatus() == APPROVED || refund.getStatus() == PAYMENT_FAILED)) {
             throw invalidStatus(refund);
         }
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
-        final String requestId = this.paymentHubService.submitRefund(loan, refund);
-        refund.setHubRequestId(requestId);
-        refund.setStatus(PAYMENT_SUBMITTED);
-        refund.setPaymentMode(LoanExcessRefundPaymentMode.PAYMENT_HUB);
-        refund.setFailureReason(null);
-        refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-        saveRefund(refund);
+        final Loan loan = this.loanRepository.findOneForUpdate(refund.getLoanId());
+        assertOfficeAccess(user, loan);
+        validateOverpaymentAmount(loan, refund.getAmount());
+
+        final String requestId = StringUtils.isNotBlank(refund.getHubRequestId()) ? refund.getHubRequestId()
+                : "cbs_refund_" + refund.getId();
+        persistPaymentHubSubmission(refund.getId(), requestId);
+
+        final String responseBody;
+        try {
+            responseBody = this.paymentHubService.submitRefund(loan, refund, requestId);
+        } catch (GeneralPlatformDomainRuleException ex) {
+            persistPaymentHubFailure(refund.getId(), ex.getDefaultUserMessage());
+            throw ex;
+        }
+        registerPendingPaymentHubRefund(loan, refund, requestId, responseBody);
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " sent to Payment Hub requestId=" + requestId);
-        return result(refund, loan);
+        return result(findRefund(refund.getId()), loan);
+    }
+
+    private void persistPaymentHubSubmission(final Long refundId, final String requestId) {
+        newRequiresNewTemplate().execute(status -> {
+            final LoanExcessRefund managed = findRefund(refundId);
+            final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
+            managed.setHubRequestId(requestId);
+            managed.setStatus(PAYMENT_SUBMITTED);
+            managed.setPaymentMode(LoanExcessRefundPaymentMode.PAYMENT_HUB);
+            managed.setFailureReason(null);
+            managed.setUpdatedAt(now);
+            saveRefund(managed);
+            return null;
+        });
+    }
+
+    private void persistPaymentHubFailure(final Long refundId, final String userMessage) {
+        newRequiresNewTemplate().execute(status -> {
+            final LoanExcessRefund managed = findRefund(refundId);
+            managed.setStatus(PAYMENT_FAILED);
+            managed.setFailureReason(StringUtils.abbreviate(userMessage, 500));
+            managed.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
+            saveRefund(managed);
+            return null;
+        });
+    }
+
+    private void registerPendingPaymentHubRefund(final Loan loan, final LoanExcessRefund refund, final String requestId,
+            final String responseBody) {
+        final PaymentHubTransactionStatus hubStatus = PaymentHubTransactionStatus.parse(responseBody);
+        if (!shouldPollPaymentHubStatus(hubStatus)) {
+            return;
+        }
+        final String transactionId = hubStatus == null ? null : hubStatus.getTransactionId();
+        final Long paymentTypeId = refund.getPaymentTypeId();
+        final LocalDate businessDate = DateUtils.getBusinessLocalDate();
+        final Optional<PaymentHubDisbursementPoll> existing = this.paymentHubDisbursementPollRepository.findByRequestId(requestId);
+        if (existing.isPresent()) {
+            final PaymentHubDisbursementPoll poll = existing.get();
+            poll.reopenPending(transactionId, paymentTypeId, businessDate, null);
+            this.paymentHubDisbursementPollRepository.save(poll);
+        } else {
+            this.paymentHubDisbursementPollRepository.save(PaymentHubDisbursementPoll.pending(loan.getId(), null, requestId, transactionId,
+                    paymentTypeId, businessDate));
+        }
+        LOG.info("Registered pending Payment Hub excess refund for status polling loanId={}, refundId={}, requestId={}, transactionId={}",
+                loan.getId(), refund.getId(), requestId, transactionId);
+    }
+
+    private static boolean shouldPollPaymentHubStatus(final PaymentHubTransactionStatus status) {
+        if (status == null || StringUtils.isBlank(status.getStatus())) {
+            return true;
+        }
+        return status.isPending();
+    }
+
+    private TransactionTemplate newRequiresNewTemplate() {
+        final TransactionTemplate template = new TransactionTemplate(this.transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template;
     }
 
     @Transactional
@@ -284,7 +375,8 @@ public class ExcessRefundWritePlatformService {
             return result(refund, loan);
         }
 
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        final Loan loan = this.loanRepository.findOneForUpdate(refund.getLoanId());
+        assertOfficeAccess(user, loan);
         validateOverpaymentAmount(loan, refund.getAmount());
 
         LocalDate transactionDate = command.hasParameter(TRANSACTION_DATE_PARAM)
@@ -293,7 +385,8 @@ public class ExcessRefundWritePlatformService {
         final String externalId = command.stringValueOfParameterNamedAllowingNull(EXTERNAL_ID_PARAM);
         final String note = "Excess refund #" + refund.getId() + " posted";
         try {
-            final Long transactionId = this.glPoster.post(loan.getId(), transactionDate, refund.getAmount(), note, externalId);
+            final Long transactionId = this.glPoster.post(loan.getId(), transactionDate, refund.getAmount(), note, externalId,
+                    refund.getPaymentTypeId());
             refund.setPostedTransactionId(transactionId);
             refund.setStatus(POSTED);
             refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
@@ -303,6 +396,17 @@ public class ExcessRefundWritePlatformService {
         } catch (RuntimeException ex) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.post.failed",
                     "Failed to post excess refund: " + ex.getMessage());
+        }
+    }
+
+    private void assertMaySendToPaymentHub(final LoanExcessRefund refund) {
+        if (refund.getStatus() == PAYMENT_SUBMITTED || refund.getStatus() == PAID || refund.getStatus() == POSTED) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.already.submitted.hub",
+                    "Excess refund was already submitted to Payment Hub (status " + refund.getStatus() + ").");
+        }
+        if (StringUtils.isNotBlank(refund.getHubRequestId()) && refund.getStatus() == PAYMENT_SUBMITTED) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.already.submitted.hub",
+                    "Excess refund was already submitted to Payment Hub (requestId " + refund.getHubRequestId() + ").");
         }
     }
 
@@ -321,42 +425,106 @@ public class ExcessRefundWritePlatformService {
         }
     }
 
-    private String validateAndSnapshotBeneficiary(final JsonCommand command) {
+    private String validateAndSnapshotBeneficiary(final Loan loan, final JsonCommand command) {
         final JsonElement element = command.parsedJson();
         if (element == null || !element.isJsonObject() || !element.getAsJsonObject().has(BENEFICIARY_PARAM)) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.invalid",
                     "Beneficiary details are required.");
         }
-        final JsonObject beneficiary = element.getAsJsonObject().getAsJsonObject(BENEFICIARY_PARAM);
-        final String channel = this.fromJsonHelper.extractStringNamed(CHANNEL_PARAM, beneficiary);
-        if (CHANNEL_BANK.equalsIgnoreCase(channel)) {
-            final String account = this.fromJsonHelper.extractStringNamed(ACCOUNT_NUMBER_PARAM, beneficiary);
-            final String bankCode = this.fromJsonHelper.extractStringNamed(BANK_CODE_PARAM, beneficiary);
-            final String bankName = this.fromJsonHelper.extractStringNamed(BANK_NAME_PARAM, beneficiary);
-            if (StringUtils.isAnyBlank(account, bankCode) && StringUtils.isBlank(bankName)) {
-                throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.invalid",
-                        "Bank transfer requires account number and bank details.");
-            }
-            if (StringUtils.isBlank(account) || (StringUtils.isBlank(bankCode) && StringUtils.isBlank(bankName))) {
-                throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.invalid",
-                        "Bank transfer requires account number and bank details.");
-            }
-        } else if (CHANNEL_MOBILE.equalsIgnoreCase(channel)) {
-            final String msisdn = this.fromJsonHelper.extractStringNamed(MSISDN_PARAM, beneficiary);
-            if (StringUtils.isBlank(msisdn)) {
-                throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.invalid",
-                        "Mobile money requires MSISDN.");
-            }
-        } else {
+        final JsonObject submitted = element.getAsJsonObject().getAsJsonObject(BENEFICIARY_PARAM).deepCopy();
+        final String channel = this.fromJsonHelper.extractStringNamed(CHANNEL_PARAM, submitted);
+        if (StringUtils.isBlank(channel)) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.invalid",
                     "Beneficiary channel must be BANK_TRANSFER or MOBILE_MONEY.");
         }
-        if (!beneficiary.has(BENEFICIARY_NAME_PARAM)
-                || StringUtils.isBlank(this.fromJsonHelper.extractStringNamed(BENEFICIARY_NAME_PARAM, beneficiary))) {
+        if (!beneficiaryNamePresent(submitted)) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.invalid",
                     "Beneficiary name is required.");
         }
-        return beneficiary.toString();
+
+        final ClientBankDetailsResolver.ResolvedClientPaymentDetails stored = this.clientBankDetailsResolver.resolve(loan.getClientId(),
+                LoanDisbursementDetails.PaymentToType.CLIENT.getValue(), null, null, null);
+
+        if (CHANNEL_BANK.equalsIgnoreCase(channel)) {
+            if (StringUtils.isAnyBlank(stored.getClientAccountNumber(), stored.getClientBankName())) {
+                throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.stored.missing",
+                        "Client has no stored bank account details for bank transfer refunds.");
+            }
+            final String account = StringUtils.trimToNull(this.fromJsonHelper.extractStringNamed(ACCOUNT_NUMBER_PARAM, submitted));
+            final String bankName = StringUtils.trimToNull(this.fromJsonHelper.extractStringNamed(BANK_NAME_PARAM, submitted));
+            final String bankCode = StringUtils.trimToNull(this.fromJsonHelper.extractStringNamed(BANK_CODE_PARAM, submitted));
+            final String effectiveAccount = StringUtils.defaultIfBlank(account, stored.getClientAccountNumber());
+            final String effectiveBankName = StringUtils.defaultIfBlank(bankName, stored.getClientBankName());
+            submitted.addProperty(ACCOUNT_NUMBER_PARAM, effectiveAccount);
+            submitted.addProperty(BANK_NAME_PARAM, effectiveBankName);
+            if (StringUtils.isNotBlank(bankCode)) {
+                submitted.addProperty(BANK_CODE_PARAM, bankCode);
+            }
+            if (StringUtils.isAnyBlank(effectiveAccount, effectiveBankName)) {
+                throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.invalid",
+                        "Bank transfer requires account number and bank details.");
+            }
+            return snapshotBeneficiary(channel, submitted, buildStoredBankBeneficiary(stored));
+        }
+        if (CHANNEL_MOBILE.equalsIgnoreCase(channel)) {
+            if (StringUtils.isBlank(stored.getClientPhoneNumber())) {
+                throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.stored.missing",
+                        "Client has no stored mobile number for mobile money refunds.");
+            }
+            final String msisdn = StringUtils.trimToNull(this.fromJsonHelper.extractStringNamed(MSISDN_PARAM, submitted));
+            final String effectiveMsisdn = StringUtils.defaultIfBlank(msisdn, stored.getClientPhoneNumber());
+            submitted.addProperty(MSISDN_PARAM, effectiveMsisdn);
+            if (StringUtils.isBlank(effectiveMsisdn)) {
+                throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.invalid",
+                        "Mobile money requires MSISDN.");
+            }
+            return snapshotBeneficiary(channel, submitted, buildStoredMobileBeneficiary(stored));
+        }
+        throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.beneficiary.invalid",
+                "Beneficiary channel must be BANK_TRANSFER or MOBILE_MONEY.");
+    }
+
+    private static JsonObject buildStoredMobileBeneficiary(final ClientBankDetailsResolver.ResolvedClientPaymentDetails stored) {
+        final JsonObject original = new JsonObject();
+        original.addProperty(CHANNEL_PARAM, CHANNEL_MOBILE);
+        original.addProperty(MSISDN_PARAM, stored.getClientPhoneNumber());
+        return original;
+    }
+
+    private static JsonObject buildStoredBankBeneficiary(final ClientBankDetailsResolver.ResolvedClientPaymentDetails stored) {
+        final JsonObject original = new JsonObject();
+        original.addProperty(CHANNEL_PARAM, CHANNEL_BANK);
+        original.addProperty(ACCOUNT_NUMBER_PARAM, stored.getClientAccountNumber());
+        original.addProperty(BANK_NAME_PARAM, stored.getClientBankName());
+        return original;
+    }
+
+    private String snapshotBeneficiary(final String channel, final JsonObject submitted, final JsonObject original) {
+        submitted.addProperty(CHANNEL_PARAM, channel);
+        if (beneficiaryValuesMatch(channel, submitted, original)) {
+            return submitted.toString();
+        }
+        final JsonObject wrapper = new JsonObject();
+        wrapper.add("original", original);
+        wrapper.add("submitted", submitted.deepCopy());
+        wrapper.addProperty("override", true);
+        return wrapper.toString();
+    }
+
+    private boolean beneficiaryValuesMatch(final String channel, final JsonObject submitted, final JsonObject original) {
+        if (CHANNEL_BANK.equalsIgnoreCase(channel)) {
+            return StringUtils.equals(StringUtils.trimToEmpty(this.fromJsonHelper.extractStringNamed(ACCOUNT_NUMBER_PARAM, submitted)),
+                    StringUtils.trimToEmpty(this.fromJsonHelper.extractStringNamed(ACCOUNT_NUMBER_PARAM, original)))
+                    && StringUtils.equals(StringUtils.trimToEmpty(this.fromJsonHelper.extractStringNamed(BANK_NAME_PARAM, submitted)),
+                            StringUtils.trimToEmpty(this.fromJsonHelper.extractStringNamed(BANK_NAME_PARAM, original)));
+        }
+        return StringUtils.equals(StringUtils.trimToEmpty(this.fromJsonHelper.extractStringNamed(MSISDN_PARAM, submitted)),
+                StringUtils.trimToEmpty(this.fromJsonHelper.extractStringNamed(MSISDN_PARAM, original)));
+    }
+
+    private boolean beneficiaryNamePresent(final JsonObject beneficiary) {
+        return beneficiary.has(BENEFICIARY_NAME_PARAM)
+                && StringUtils.isNotBlank(this.fromJsonHelper.extractStringNamed(BENEFICIARY_NAME_PARAM, beneficiary));
     }
 
     private LoanExcessRefundPaymentMode resolvePaymentMode(final String mode) {

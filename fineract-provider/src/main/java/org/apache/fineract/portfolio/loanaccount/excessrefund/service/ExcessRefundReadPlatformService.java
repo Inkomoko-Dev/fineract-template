@@ -18,6 +18,9 @@
  */
 package org.apache.fineract.portfolio.loanaccount.excessrefund.service;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -29,14 +32,20 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRedrawAccount;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRedrawAccountRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundData;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundPaymentMode;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
+import org.apache.fineract.portfolio.loanaccount.service.ClientBankDetailsResolver;
+import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatformService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -48,6 +57,9 @@ public class ExcessRefundReadPlatformService {
     private final PlatformSecurityContext context;
     private final JdbcTemplate jdbcTemplate;
     private final LoanRepositoryWrapper loanRepository;
+    private final LoanRedrawAccountRepository loanRedrawAccountRepository;
+    private final ClientBankDetailsResolver clientBankDetailsResolver;
+    private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
 
     public ExcessRefundData retrieveOne(final Long id) {
         this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
@@ -84,14 +96,44 @@ public class ExcessRefundReadPlatformService {
     public Map<String, Object> retrieveTemplate(final Long loanId) {
         this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
         final Loan loan = this.loanRepository.findOneWithNotFoundDetection(loanId);
+        return buildTemplate(loan);
+    }
+
+    public Map<String, Object> retrieveTemplateByAccountNo(final String accountNo) {
+        this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
+        if (StringUtils.isBlank(accountNo)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.id.invalid", "Loan account number is required.");
+        }
+        final Loan loan = this.loanRepository.findNonClosedLoanByAccountNumber(StringUtils.trim(accountNo));
+        if (loan == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.id.invalid",
+                    "Loan with account number " + accountNo + " does not exist.");
+        }
+        return buildTemplate(loan);
+    }
+
+    private Map<String, Object> buildTemplate(final Loan loan) {
         final Map<String, Object> template = new HashMap<>();
         template.put("loanId", loan.getId());
         template.put("accountNo", loan.getAccountNumber());
         template.put("clientId", loan.getClientId());
         template.put("currencyCode", loan.getCurrencyCode());
-        template.put("totalOverpaid", loan.getTotalOverpaid() == null ? BigDecimal.ZERO : loan.getTotalOverpaid());
+        final BigDecimal totalOverpaid = loan.getTotalOverpaid() == null ? BigDecimal.ZERO : loan.getTotalOverpaid();
+        final BigDecimal redrawBalance = this.loanRedrawAccountRepository.findByLoanId(loan.getId()).map(LoanRedrawAccount::getRedrawBalance)
+                .orElse(BigDecimal.ZERO);
+        template.put("totalOverpaid", totalOverpaid);
+        template.put("redrawBalance", redrawBalance);
         template.put("paymentModeOptions", List.of("MANUAL", "PAYMENT_HUB"));
         template.put("channelOptions", List.of("BANK_TRANSFER", "MOBILE_MONEY"));
+        template.put("paymentTypeOptions", this.paymentTypeReadPlatformService.retrieveAllPaymentTypes());
+        if (loan.getClient() != null) {
+            template.put("clientDisplayName", loan.getClient().getDisplayName());
+        }
+        final ClientBankDetailsResolver.ResolvedClientPaymentDetails stored = this.clientBankDetailsResolver.resolve(loan.getClientId(),
+                LoanDisbursementDetails.PaymentToType.CLIENT.getValue(), null, null, null);
+        template.put("clientPhoneNumber", stored.getClientPhoneNumber());
+        template.put("clientAccountNumber", stored.getClientAccountNumber());
+        template.put("clientBankName", stored.getClientBankName());
         return template;
     }
 
@@ -99,16 +141,63 @@ public class ExcessRefundReadPlatformService {
         this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
         final Collection<ExcessRefundData> rows = retrieveAll(null, status, null);
         final StringBuilder csv = new StringBuilder(
-                "id,loanId,loanAccountNo,clientId,amount,currency,status,paymentMode,hubRequestId,manualPaymentRef,paidOn,submittedAt\n");
+                "id,loanId,loanAccountNo,clientId,clientDisplayName,amount,currency,status,paymentMode,channel,accountOrMsisdn,paymentReference,hubRequestId,manualPaymentRef,paidOn,submittedAt\n");
         for (final ExcessRefundData row : rows) {
+            final BeneficiaryExportFields beneficiary = parseBeneficiaryExportFields(row.getBeneficiaryJson());
+            final String paymentReference = StringUtils.defaultIfBlank(row.getManualPaymentRef(), row.getHubTransactionRef());
             csv.append(row.getId()).append(',').append(row.getLoanId()).append(',').append(nullToEmpty(row.getLoanAccountNo())).append(',')
-                    .append(row.getClientId()).append(',').append(row.getAmount()).append(',').append(row.getCurrencyCode()).append(',')
-                    .append(row.getStatusLabel()).append(',').append(row.getPaymentModeLabel()).append(',')
+                    .append(row.getClientId()).append(',').append(nullToEmpty(row.getClientDisplayName())).append(',')
+                    .append(row.getAmount()).append(',').append(row.getCurrencyCode()).append(',').append(row.getStatusLabel()).append(',')
+                    .append(row.getPaymentModeLabel()).append(',').append(nullToEmpty(beneficiary.channel)).append(',')
+                    .append(nullToEmpty(beneficiary.accountOrMsisdn)).append(',').append(nullToEmpty(paymentReference)).append(',')
                     .append(nullToEmpty(row.getHubRequestId())).append(',').append(nullToEmpty(row.getManualPaymentRef())).append(',')
                     .append(row.getPaidOn() == null ? "" : row.getPaidOn()).append(',')
                     .append(row.getSubmittedAt() == null ? "" : row.getSubmittedAt()).append('\n');
         }
         return csv.toString();
+    }
+
+    private static BeneficiaryExportFields parseBeneficiaryExportFields(final String beneficiaryJson) {
+        if (StringUtils.isBlank(beneficiaryJson)) {
+            return new BeneficiaryExportFields(null, null);
+        }
+        try {
+            final JsonElement parsed = JsonParser.parseString(beneficiaryJson);
+            if (!parsed.isJsonObject()) {
+                return new BeneficiaryExportFields(null, null);
+            }
+            final JsonObject root = parsed.getAsJsonObject();
+            final JsonObject payload = root.has("submitted") && root.get("submitted").isJsonObject() ? root.getAsJsonObject("submitted")
+                    : root;
+            final String channel = jsonString(payload, "channel");
+            String accountOrMsisdn = null;
+            if ("MOBILE_MONEY".equalsIgnoreCase(channel)) {
+                accountOrMsisdn = jsonString(payload, "msisdn");
+            } else if ("BANK_TRANSFER".equalsIgnoreCase(channel)) {
+                accountOrMsisdn = jsonString(payload, "accountNumber");
+            }
+            return new BeneficiaryExportFields(channel, accountOrMsisdn);
+        } catch (RuntimeException ex) {
+            return new BeneficiaryExportFields(null, null);
+        }
+    }
+
+    private static String jsonString(final JsonObject object, final String field) {
+        if (object == null || !object.has(field) || object.get(field).isJsonNull()) {
+            return null;
+        }
+        return StringUtils.trimToNull(object.get(field).getAsString());
+    }
+
+    private static final class BeneficiaryExportFields {
+
+        private final String channel;
+        private final String accountOrMsisdn;
+
+        private BeneficiaryExportFields(final String channel, final String accountOrMsisdn) {
+            this.channel = channel;
+            this.accountOrMsisdn = accountOrMsisdn;
+        }
     }
 
     private static String nullToEmpty(final String value) {
