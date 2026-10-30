@@ -257,8 +257,13 @@ public class ExcessRefundBatchService {
 
         final TransactionTemplate requiresNew = newRequiresNewTemplate();
         final String rejectionNote = command.stringValueOfParameterNamedAllowingNull(NOTE_PARAM);
+        final Set<Long> refundIds = parseRefundIds(command);
+        int rejected = 0;
         for (final LoanExcessRefund line : this.refundRepository.findByBatchId(batch.getId())) {
             if (line.getStatus() != LoanExcessRefundStatus.PENDING_APPROVAL) {
+                continue;
+            }
+            if (refundIds != null && !refundIds.contains(line.getId())) {
                 continue;
             }
             requiresNew.execute(status -> {
@@ -271,13 +276,21 @@ public class ExcessRefundBatchService {
                 this.writePlatformService.reject(rejectCommand);
                 return null;
             });
+            rejected++;
         }
 
+        final int finalRejected = rejected;
         requiresNew.execute(status -> {
             final LoanExcessRefundBatch managed = this.batchRepository.findById(batch.getId()).orElseThrow();
-            managed.setStatusEnum(STATUS_REJECTED);
-            managed.setApprover(user);
-            managed.setApprovedAt(DateUtils.getLocalDateTimeOfTenant());
+            final boolean anyPendingLeft = this.refundRepository.findByBatchId(batch.getId()).stream()
+                    .anyMatch(line -> line.getStatus() == LoanExcessRefundStatus.PENDING_APPROVAL);
+            if (!anyPendingLeft && finalRejected > 0) {
+                managed.setStatusEnum(STATUS_REJECTED);
+            }
+            if (finalRejected > 0) {
+                managed.setApprover(user);
+                managed.setApprovedAt(DateUtils.getLocalDateTimeOfTenant());
+            }
             managed.setApprovalNote(rejectionNote);
             managed.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
             this.batchRepository.saveAndFlush(managed);

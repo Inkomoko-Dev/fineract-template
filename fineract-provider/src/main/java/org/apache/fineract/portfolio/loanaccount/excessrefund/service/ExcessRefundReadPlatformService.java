@@ -37,7 +37,6 @@ import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
-import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRedrawAccount;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRedrawAccountRepository;
@@ -46,6 +45,7 @@ import org.apache.fineract.portfolio.loanaccount.excessrefund.data.ExcessRefundD
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundPaymentMode;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
 import org.apache.fineract.portfolio.loanaccount.service.ClientBankDetailsResolver;
+import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatformService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -59,6 +59,7 @@ public class ExcessRefundReadPlatformService {
     private final LoanRepositoryWrapper loanRepository;
     private final LoanRedrawAccountRepository loanRedrawAccountRepository;
     private final ClientBankDetailsResolver clientBankDetailsResolver;
+    private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
 
     public ExcessRefundData retrieveOne(final Long id) {
         this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
@@ -124,6 +125,7 @@ public class ExcessRefundReadPlatformService {
         template.put("redrawBalance", redrawBalance);
         template.put("paymentModeOptions", List.of("MANUAL", "PAYMENT_HUB"));
         template.put("channelOptions", List.of("BANK_TRANSFER", "MOBILE_MONEY"));
+        template.put("paymentTypeOptions", this.paymentTypeReadPlatformService.retrieveAllPaymentTypes());
         if (loan.getClient() != null) {
             template.put("clientDisplayName", loan.getClient().getDisplayName());
         }

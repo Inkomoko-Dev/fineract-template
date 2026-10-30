@@ -67,6 +67,12 @@ public class LoanRepositoryWrapper {
         return loan;
     }
 
+    /** Loads the loan with a row lock for excess-refund overpayment checks. */
+    @Transactional
+    public Loan findOneForUpdate(final Long id) {
+        return this.repository.findByIdForUpdate(id).orElseThrow(() -> new LoanNotFoundException(id));
+    }
+
     // Root Entities are enough
     public Collection<Loan> findActiveLoansByLoanIdAndGroupId(Long clientId, Long groupId) {
         final Collection<Integer> loanStatuses = new ArrayList<>(Arrays.asList(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL.getValue(),

@@ -21,11 +21,14 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+import javax.persistence.LockModeType;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleFilterDto;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.LoanBulkRescheduleSpecification;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -201,5 +204,9 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
             final Pageable pageable) {
         return findAll(LoanBulkRescheduleSpecification.createSpecification(filters, userAccessibleOffices), pageable).getContent();
     }
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select loan from Loan loan where loan.id = :loanId")
+    Optional<Loan> findByIdForUpdate(@Param("loanId") Long loanId);
 
 }
