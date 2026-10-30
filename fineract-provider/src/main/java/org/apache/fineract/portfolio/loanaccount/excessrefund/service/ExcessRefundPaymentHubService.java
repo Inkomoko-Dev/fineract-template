@@ -58,7 +58,7 @@ public class ExcessRefundPaymentHubService {
     private final OkHttpClient client = new OkHttpClient();
     private final Gson gson = new Gson();
 
-    public void submitRefund(final Loan loan, final LoanExcessRefund refund, final String requestId) {
+    public String submitRefund(final Loan loan, final LoanExcessRefund refund, final String requestId) {
         final String token = authenticate();
         final DisbursementRequestData payload = buildPayload(loan, refund, requestId);
         final String requestJson = this.gson.toJson(payload);
@@ -73,7 +73,7 @@ public class ExcessRefundPaymentHubService {
             String responseBody = response.body() != null ? response.body().string() : null;
             if (response.isSuccessful()) {
                 LOG.info("Payment Hub refund accepted loanId={}, refundId={}, requestId={}", loan.getId(), refund.getId(), requestId);
-                return;
+                return responseBody;
             }
             final int code = response.code();
             final DisbursementRequestServiceImpl.PaymentHubErrorResponse parsed = DisbursementRequestServiceImpl
