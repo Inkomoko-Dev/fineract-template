@@ -115,13 +115,18 @@ public class ExcessRefundWritePlatformService {
         user.validateHasPermissionTo("CREATE_EXCESS_REFUND");
 
         final Long loanId = command.longValueOfParameterNamed(LOAN_ID_PARAM);
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(loanId);
+        final Loan loan = this.loanRepository.findOneForUpdate(loanId);
         assertOfficeAccess(user, loan);
         validateOverpaymentAmount(loan, command.bigDecimalValueOfParameterNamed(AMOUNT_PARAM));
         assertNoOpenRefund(loanId);
 
         final String beneficiaryJson = validateAndSnapshotBeneficiary(loan, command);
         final LoanExcessRefundPaymentMode paymentMode = resolvePaymentMode(command.stringValueOfParameterNamed(PAYMENT_MODE_PARAM));
+        final Long paymentTypeId = command.longValueOfParameterNamed(PAYMENT_TYPE_ID_PARAM);
+        if (paymentTypeId == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.payment.type.required",
+                    "Payment type is required so the refund credits the correct fund source.");
+        }
         final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
 
         final LoanExcessRefund refund = new LoanExcessRefund();
@@ -130,7 +135,7 @@ public class ExcessRefundWritePlatformService {
         refund.setAmount(command.bigDecimalValueOfParameterNamed(AMOUNT_PARAM));
         refund.setCurrencyCode(loan.getCurrencyCode());
         refund.setPaymentMode(paymentMode);
-        refund.setPaymentTypeId(command.longValueOfParameterNamed(PAYMENT_TYPE_ID_PARAM));
+        refund.setPaymentTypeId(paymentTypeId);
         refund.setStatus(PENDING_APPROVAL);
         refund.setBeneficiaryJson(beneficiaryJson);
         refund.setSubmittedBy(user);
@@ -158,7 +163,7 @@ public class ExcessRefundWritePlatformService {
         final LoanExcessRefund refund = findRefund(command.entityId());
         assertStatus(refund, PENDING_APPROVAL);
         assertMakerChecker(refund, user);
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        final Loan loan = this.loanRepository.findOneForUpdate(refund.getLoanId());
         assertOfficeAccess(user, loan);
         validateOverpaymentAmount(loan, refund.getAmount());
 
@@ -220,7 +225,7 @@ public class ExcessRefundWritePlatformService {
         if (!(refund.getStatus() == APPROVED || refund.getStatus() == PAYMENT_FAILED)) {
             throw invalidStatus(refund);
         }
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        final Loan loan = this.loanRepository.findOneForUpdate(refund.getLoanId());
         assertOfficeAccess(user, loan);
         validateOverpaymentAmount(loan, refund.getAmount());
         final String paymentRef = command.stringValueOfParameterNamed(PAYMENT_REF_PARAM);
@@ -249,7 +254,7 @@ public class ExcessRefundWritePlatformService {
         if (!(refund.getStatus() == APPROVED || refund.getStatus() == PAYMENT_FAILED)) {
             throw invalidStatus(refund);
         }
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        final Loan loan = this.loanRepository.findOneForUpdate(refund.getLoanId());
         assertOfficeAccess(user, loan);
         validateOverpaymentAmount(loan, refund.getAmount());
 
@@ -370,7 +375,7 @@ public class ExcessRefundWritePlatformService {
             return result(refund, loan);
         }
 
-        final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
+        final Loan loan = this.loanRepository.findOneForUpdate(refund.getLoanId());
         assertOfficeAccess(user, loan);
         validateOverpaymentAmount(loan, refund.getAmount());
 

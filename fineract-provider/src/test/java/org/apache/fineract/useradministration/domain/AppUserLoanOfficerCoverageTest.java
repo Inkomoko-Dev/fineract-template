@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -172,7 +173,7 @@ public class AppUserLoanOfficerCoverageTest {
                 List.of(new SimpleGrantedAuthority("DUMMY_ROLE_NOT_USED_OR_PERSISTED_TO_AVOID_EXCEPTION")));
         final AppUser user = new AppUser(office, springUser, roleSet, "jdoe@example.com", "Jane", "Doe", staff, false, false,
                 Collections.emptyList(), false);
-        ReflectionTestUtils.setField(user, "lastTimePasswordUpdated", LocalDate.now());
+        ReflectionTestUtils.setField(user, "lastTimePasswordUpdated", LocalDate.now(ZoneId.of("UTC")));
         return user;
     }
 }
