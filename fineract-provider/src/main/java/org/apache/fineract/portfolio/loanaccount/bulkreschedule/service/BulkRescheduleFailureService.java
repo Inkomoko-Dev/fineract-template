@@ -45,7 +45,7 @@ public class BulkRescheduleFailureService {
             return;
         }
         result.setStatus(BulkRescheduleResultStatus.FAILED);
-        result.setErrorMessage(normalize(failure));
+        result.setErrorMessage(BulkRescheduleExceptionMessages.describe(failure));
         resultRepository.save(result);
         executionRepository.findById(executionId).ifPresent(execution -> {
             final int failures = execution.getTotalExecutionFailed() == null ? 0 : execution.getTotalExecutionFailed();
@@ -54,8 +54,4 @@ public class BulkRescheduleFailureService {
         });
     }
 
-    private String normalize(final Exception failure) {
-        final String message = failure.getMessage();
-        return message == null || message.trim().isEmpty() ? failure.getClass().getSimpleName() : message;
-    }
 }
