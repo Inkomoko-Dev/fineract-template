@@ -1642,8 +1642,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
             }
         }
-        final LoanTransaction waiveInterestTransaction = LoanTransaction.waiver(loan.getOffice(), loan, interestComponent, transactionDate,
-                transactionAmountAsMoney, unrecognizedIncome, txnExternalId);
+        // amount must be the full request (schedule allocation uses getAmount). interestComponent is only the
+        // accrued/receivable slice for accounting; swapping these left a history row with nothing waived when
+        // receivable was below the request. Same order as the interest-waiver adjust path above.
+        final LoanTransaction waiveInterestTransaction = LoanTransaction.waiver(loan.getOffice(), loan, transactionAmountAsMoney,
+                transactionDate, interestComponent, unrecognizedIncome, txnExternalId);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanWaiveInterestBusinessEvent(waiveInterestTransaction));
         LocalDate recalculateFrom = null;
         if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
