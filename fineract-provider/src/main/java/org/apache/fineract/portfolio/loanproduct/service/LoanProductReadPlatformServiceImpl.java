@@ -202,6 +202,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.amortization_method_enum as amortizationMethod, lp.arrearstolerance_amount as tolerance, "
                     + "lp.accounting_type as accountingType, lp.include_in_borrower_cycle as includeInBorrowerCycle,lp.use_borrower_cycle as useBorrowerCycle, lp.start_date as startDate, lp.close_date as closeDate,  "
                     + "lp.allow_multiple_disbursals as multiDisburseLoan, lp.max_disbursals as maxTrancheCount, lp.max_outstanding_loan_balance as outstandingLoanBalance, "
+                    + "lp.tranche_principal_percentages as tranchePrincipalPercentages, lp.previous_tranche_repaid_percentage as previousTrancheRepaidPercentage, "
                     + "lp.disallow_expected_disbursements as disallowExpectedDisbursements, lp.allow_approved_disbursed_amounts_over_applied as allowApprovedDisbursedAmountsOverApplied, lp.over_applied_calculation_type as overAppliedCalculationType, over_applied_number as overAppliedNumber, "
                     + "lp.days_in_month_enum as daysInMonth, lp.days_in_year_enum as daysInYear, lp.interest_recalculation_enabled as isInterestRecalculationEnabled, "
                     + "lp.can_define_fixed_emi_amount as canDefineInstallmentAmount, lp.instalment_amount_in_multiples_of as installmentAmountInMultiplesOf, "
@@ -517,6 +518,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             loanProductData.setRequiresEquityContribution(requiresEquityContribution);
             loanProductData.setEquityContributionLoanPercentage(equityContributionLoanPercentage);
             loanProductData.setEnableThirdPartyDisbursement(enableThirdPartyDisbursement);
+            loanProductData.setTranchePrincipalPercentages(rs.getString("tranchePrincipalPercentages"));
+            loanProductData.setPreviousTrancheRepaidPercentage(rs.getBigDecimal("previousTrancheRepaidPercentage"));
             return loanProductData;
         }
     }

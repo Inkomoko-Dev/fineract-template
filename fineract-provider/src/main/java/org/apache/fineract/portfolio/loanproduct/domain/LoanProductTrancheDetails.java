@@ -20,9 +20,11 @@ package org.apache.fineract.portfolio.loanproduct.domain;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.Objects;
 import javax.persistence.Column;
 import javax.persistence.Embeddable;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 
 @Embeddable
@@ -36,6 +38,12 @@ public class LoanProductTrancheDetails {
 
     @Column(name = "max_outstanding_loan_balance", scale = 6, precision = 19, nullable = true)
     private BigDecimal outstandingLoanBalance;
+
+    @Column(name = "tranche_principal_percentages", length = 255)
+    private String tranchePrincipalPercentages;
+
+    @Column(name = "previous_tranche_repaid_percentage", scale = 2, precision = 5)
+    private BigDecimal previousTrancheRepaidPercentage;
 
     protected LoanProductTrancheDetails() {
         // TODO Auto-generated constructor stub
@@ -70,9 +78,38 @@ public class LoanProductTrancheDetails {
                 actualChanges.put(LoanProductConstants.OUTSTANDING_LOAN_BALANCE_PARAMETER_NAME, localeAsInput);
                 this.outstandingLoanBalance = newValue;
             }
+            applyPercentageConfiguration(command, actualChanges);
         } else {
             this.maxTrancheCount = null;
             this.outstandingLoanBalance = null;
+            this.tranchePrincipalPercentages = null;
+            this.previousTrancheRepaidPercentage = null;
+        }
+    }
+
+    public void applyPercentageConfiguration(final JsonCommand command, final Map<String, Object> actualChanges) {
+        if (!this.multiDisburseLoan) {
+            return;
+        }
+        if (command.parameterExists(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES)) {
+            final String raw = command.stringValueOfParameterNamedAllowingNull(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES);
+            final String normalized = raw == null || raw.isBlank() ? null : TrancheReleaseRules.normalize(raw);
+            if (!Objects.equals(normalized, this.tranchePrincipalPercentages)) {
+                this.tranchePrincipalPercentages = normalized;
+                if (actualChanges != null) {
+                    actualChanges.put(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES, normalized);
+                }
+            }
+        }
+        if (command.parameterExists(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE)) {
+            final BigDecimal newValue = command
+                    .bigDecimalValueOfParameterNamed(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE);
+            if (!Objects.equals(newValue, this.previousTrancheRepaidPercentage)) {
+                this.previousTrancheRepaidPercentage = newValue;
+                if (actualChanges != null) {
+                    actualChanges.put(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, newValue);
+                }
+            }
         }
     }
 
@@ -86,6 +123,14 @@ public class LoanProductTrancheDetails {
 
     public Integer maxTrancheCount() {
         return this.maxTrancheCount;
+    }
+
+    public String getTranchePrincipalPercentages() {
+        return this.tranchePrincipalPercentages;
+    }
+
+    public BigDecimal getPreviousTrancheRepaidPercentage() {
+        return this.previousTrancheRepaidPercentage;
     }
 
 }

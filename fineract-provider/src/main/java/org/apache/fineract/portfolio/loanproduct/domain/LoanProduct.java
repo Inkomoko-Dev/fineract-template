@@ -461,6 +461,7 @@ public class LoanProduct extends AbstractPersistableCustom {
                 productType);
         product.applyThirdPartyDisbursementSettings(command);
         product.setResidualClosureConfiguration(residualAutoCloseEnabled, residualClosureThreshold);
+        product.loanProducTrancheDetails.applyPercentageConfiguration(command, null);
         return product;
 
     }
@@ -1506,6 +1507,14 @@ public class LoanProduct extends AbstractPersistableCustom {
 
     public Integer maxTrancheCount() {
         return this.loanProducTrancheDetails.maxTrancheCount();
+    }
+
+    public String getTranchePrincipalPercentages() {
+        return this.loanProducTrancheDetails.getTranchePrincipalPercentages();
+    }
+
+    public BigDecimal getPreviousTrancheRepaidPercentage() {
+        return this.loanProducTrancheDetails.getPreviousTrancheRepaidPercentage();
     }
 
     public boolean isInterestRecalculationEnabled() {

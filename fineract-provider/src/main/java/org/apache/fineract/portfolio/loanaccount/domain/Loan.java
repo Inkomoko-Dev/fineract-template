@@ -2294,6 +2294,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 removeDisbursementAndAssociatedCharges(actualChanges, disbursementList, loanChargeIds, chargeIdLength, removeAllChages);
             }
         }
+        TrancheReleaseRules.applyConfiguredPrincipals(this);
     }
 
     private void removeDisbursementAndAssociatedCharges(final Map<String, Object> actualChanges, List<Long> disbursementList,
@@ -3034,6 +3035,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         if (this.loanProduct().isMultiDisburseLoan()) {
             final LoanDisbursementDetails nextDisbursementDetail = getNextUndisbursedDisbursementDetail();
             if (nextDisbursementDetail != null) {
+                final TrancheReleaseRules.Assessment trancheRelease = TrancheReleaseRules.assess(this);
+                if (trancheRelease != null && !trancheRelease.met()) {
+                    final String errorMsg = "The previous tranche must be " + trancheRelease.percentage
+                            + "% repaid before the next tranche can be disbursed. Principal repaid " + trancheRelease.repaid + " of "
+                            + trancheRelease.required + " required.";
+                    throw new LoanDisbursalException(errorMsg, "tranche.repayment.percentage.not.met", trancheRelease.required,
+                            trancheRelease.repaid);
+                }
                 if (nextDisbursementDetail.expectedDisbursementDate() != null
                         && actualDisbursementDate.isBefore(nextDisbursementDetail.expectedDisbursementDate())) {
                     final String errorMsg = "Loan tranche can't be disbursed before its expected disbursement date ";

@@ -228,6 +228,8 @@ public class LoanProductData implements Serializable {
     private Boolean maintainInterestOnLoanTermExtension;
     private Boolean isIslamic;
     private Boolean enableThirdPartyDisbursement;
+    private String tranchePrincipalPercentages;
+    private BigDecimal previousTrancheRepaidPercentage;
     private String thirdPartyDisbursementProvider;
     private Collection<String> thirdPartyDisbursementProviderOptions;
     private BigDecimal allowableDSCR;
@@ -1532,6 +1534,22 @@ public class LoanProductData implements Serializable {
 
     public void setEnableThirdPartyDisbursement(final Boolean enableThirdPartyDisbursement) {
         this.enableThirdPartyDisbursement = enableThirdPartyDisbursement;
+    }
+
+    public String getTranchePrincipalPercentages() {
+        return tranchePrincipalPercentages;
+    }
+
+    public void setTranchePrincipalPercentages(final String tranchePrincipalPercentages) {
+        this.tranchePrincipalPercentages = tranchePrincipalPercentages;
+    }
+
+    public BigDecimal getPreviousTrancheRepaidPercentage() {
+        return previousTrancheRepaidPercentage;
+    }
+
+    public void setPreviousTrancheRepaidPercentage(final BigDecimal previousTrancheRepaidPercentage) {
+        this.previousTrancheRepaidPercentage = previousTrancheRepaidPercentage;
     }
 
     public String getThirdPartyDisbursementProvider() {
