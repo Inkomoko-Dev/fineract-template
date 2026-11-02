@@ -28,6 +28,8 @@
         After FSI-233/FSI-231, Portfolio Management labels a repayment_period_frequency_enum CASE
         as 'Re-payment Term' and does not select number_of_repayments. Rename that CASE to
         'Repayment Frequency' and add installment count separately from Terms Duration.
+        A follow-up changeset maps Months + repay_every 3/6 to Quarterly/Semi-Annual
+        (same labels as LoanRepaymentFrequency.displayName).
     -->
     <changeSet id="CGLT-540-pmr-installment-vs-term-labels" author="felixm@inkomoko.com">
         <preConditions onFail="MARK_RAN">
@@ -47,6 +49,29 @@
             WHERE report_name = 'Portfolio Management'
               AND report_sql LIKE '%END AS ''Re-payment Term''%'
               AND report_sql NOT LIKE '%Number of Installments%';
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-540-pmr-repay-every-frequency-labels" author="felixm@inkomoko.com">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report
+                WHERE report_name = 'Portfolio Management'
+                  AND report_sql LIKE '%repayment_period_frequency_enum%'
+                  AND report_sql LIKE '%WHEN 2 THEN ''Monthly''%'
+                  AND report_sql NOT LIKE '%Quarterly%'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE stretchy_report
+            SET report_sql = REPLACE(
+                report_sql,
+                'WHEN 2 THEN ''Monthly''',
+                'WHEN 2 THEN CASE l.repay_every WHEN 3 THEN ''Quarterly'' WHEN 6 THEN ''Semi-Annual'' ELSE ''Monthly'' END')
+            WHERE report_name = 'Portfolio Management'
+              AND report_sql LIKE '%repayment_period_frequency_enum%'
+              AND report_sql LIKE '%WHEN 2 THEN ''Monthly''%'
+              AND report_sql NOT LIKE '%Quarterly%';
         </sql>
     </changeSet>
 

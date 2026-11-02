@@ -92,6 +92,12 @@ class CollectionsReportingFrequencyAuditTest {
         assertTrue(labelFix.contains("Portfolio Management"));
         assertTrue(labelFix.contains("FSI-233") || labelFix.contains("FSI-231") || labelFix.contains("repayment_period_frequency_enum"),
                 "Changelog must document the post-FSI-233 frequency CASE shape");
+        assertTrue(labelFix.contains("l.repay_every"),
+                "CGLT-540 changelog must branch Months frequency on repay_every");
+        assertTrue(labelFix.contains("Quarterly"),
+                "CGLT-540 changelog must label repay_every=3 as Quarterly");
+        assertTrue(labelFix.contains("Semi-Annual"),
+                "CGLT-540 changelog must label repay_every=6 as Semi-Annual");
     }
 
     private static void assertNoMonthlyPeriodicityAssumptions(final String sql) {

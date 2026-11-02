@@ -103,6 +103,24 @@ class NamedIntervalLoanScheduleGeneratorTest {
         assertNamedIntervalSchedule(InterestMethod.DECLINING_BALANCE, 6, 2, LocalDate.of(2026, 7, 15), LocalDate.of(2027, 1, 15));
     }
 
+    @Test
+    void icConvertedTwelveMonthSemiAnnualTermProducesTwoInstallmentsSixMonthsApart() throws Exception {
+        final Integer months = PeriodFrequencyType.MONTHS.getValue();
+        final int installments = LoanRepaymentFrequency.installmentsForRecommendedTerm(12, months, 6, months);
+        assertEquals(2, installments);
+        assertNamedIntervalSchedule(InterestMethod.FLAT, 6, installments, LocalDate.of(2026, 7, 15), LocalDate.of(2027, 1, 15));
+    }
+
+    @Test
+    void icConvertedOneYearQuarterlyTermProducesFourInstallmentsThreeMonthsApart() throws Exception {
+        final Integer months = PeriodFrequencyType.MONTHS.getValue();
+        final Integer years = PeriodFrequencyType.YEARS.getValue();
+        final int installments = LoanRepaymentFrequency.installmentsForRecommendedTerm(1, years, 3, months);
+        assertEquals(4, installments);
+        assertNamedIntervalSchedule(InterestMethod.DECLINING_BALANCE, 3, installments, LocalDate.of(2026, 7, 15),
+                LocalDate.of(2026, 10, 15), LocalDate.of(2027, 1, 15), LocalDate.of(2027, 4, 15));
+    }
+
     private void assertNamedIntervalSchedule(final InterestMethod interestMethod, final int repayEvery, final int expectedInstallments,
             final LocalDate... expectedDueDates) throws Exception {
         final List<LoanScheduleModelPeriod> periods = generate(interestMethod, repayEvery, expectedInstallments);
