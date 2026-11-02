@@ -61,6 +61,7 @@ public class LoanRescheduleRequestDataValidator {
             RescheduleLoansApiConstants.rescheduleReasonIdParamName, RescheduleLoansApiConstants.rescheduleReasonCommentParamName,
             RescheduleLoansApiConstants.submittedOnDateParamName, RescheduleLoansApiConstants.loanIdParamName,
             RescheduleLoansApiConstants.adjustedDueDateParamName, RescheduleLoansApiConstants.recalculateInterestParamName,
+            RescheduleLoansApiConstants.recalculateEvenIfObligationsMetParamName,
             RescheduleLoansApiConstants.endDateParamName, RescheduleLoansApiConstants.emiParamName,
             RescheduleLoansApiConstants.newPrincipalDueFixedAmount, RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment,
             RescheduleLoansApiConstants.overdueChargeHandlingParamName, RescheduleLoansApiConstants.carryForwardChargeIdParamName, RescheduleLoansApiConstants.carryForwardChargeDueDateParamName,
@@ -247,7 +248,8 @@ public class LoanRescheduleRequestDataValidator {
                         .failWithCode("repayment.schedule.installment.does.not.exist", "Repayment schedule installment does not exist");
             }
 
-            if (installment != null && installment.isObligationsMet()) {
+            if (installment != null && installment.isObligationsMet()
+                    && !isRecalculateEvenIfObligationsMet(jsonElement)) {
                 dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.rescheduleFromDateParamName)
                         .failWithCode("repayment.schedule.installment.obligation.met", "Repayment schedule installment obligation met");
             }
@@ -430,7 +432,8 @@ public class LoanRescheduleRequestDataValidator {
                             "loan.repayment.schedule.installment.does.not.exist", "Repayment schedule installment does not exist");
                 }
 
-                if (installment != null && installment.isObligationsMet()) {
+                if (installment != null && installment.isObligationsMet()
+                        && !loanRescheduleRequest.isRecalculateEvenIfObligationsMet()) {
                     dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode(
                             "loan.repayment.schedule.installment." + "obligation.met", "Repayment schedule installment obligation met");
                 }
@@ -515,5 +518,10 @@ public class LoanRescheduleRequestDataValidator {
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
+    }
+
+    private boolean isRecalculateEvenIfObligationsMet(final JsonElement jsonElement) {
+        return Boolean.TRUE.equals(this.fromJsonHelper.extractBooleanNamed(
+                RescheduleLoansApiConstants.recalculateEvenIfObligationsMetParamName, jsonElement));
     }
 }

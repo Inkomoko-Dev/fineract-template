@@ -100,7 +100,12 @@ public class BulkRescheduleLoanWorker {
         if (requestId == null) {
             throw new IllegalArgumentException("Loan has no reschedule request to reverse");
         }
+        final BulkRescheduleExecution execution = result.getExecution();
+        final Loan loan = loanRepository.findById(result.getLoanId()).orElse(null);
         rescheduleEngine.undoApprovedReschedule(requestId, null, result.getOriginalInterestRate());
+        if (loan != null && execution != null) {
+            noteService.addRollbackNoteToLoan(loan, execution, rollbackReason);
+        }
         result.setStatus(BulkRescheduleResultStatus.ROLLED_BACK);
         result.setErrorMessage(null);
         resultRepository.save(result);

@@ -71,6 +71,9 @@ public class ReschedulingDetailsDto implements Serializable {
     /** Whether interest should be recalculated */
     private Boolean recalculateInterest;
 
+    /** Recalculate from the selected installment even if it is already paid */
+    private Boolean recalculateEvenIfObligationsMet;
+
     /** Optional end date used together with EMI */
     private LocalDate endDate;
 

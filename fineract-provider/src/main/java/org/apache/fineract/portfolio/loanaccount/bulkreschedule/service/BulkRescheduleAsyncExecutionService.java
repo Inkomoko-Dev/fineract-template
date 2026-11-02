@@ -28,6 +28,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.stereotype.Service;
 
 /** Restores request context on the async thread before invoking tenant-aware loan services. */
@@ -59,17 +62,29 @@ public class BulkRescheduleAsyncExecutionService {
     }
 
     private void submitTask(final Long executionId, final FineractContext context, final Task task) {
+        final SecurityContext securityContext = copySecurityContext();
         try {
-            executor.execute(() -> run(executionId, context, task));
+            executor.execute(() -> run(executionId, context, securityContext, task));
         } catch (java.util.concurrent.RejectedExecutionException e) {
             log.error("Bulk reschedule queue is full for execution {}", executionId, e);
             executionService.markExecutionFailed(executionId, e);
         }
     }
 
-    private void run(final Long executionId, final FineractContext context, final Task task) {
+    private SecurityContext copySecurityContext() {
+        final SecurityContext current = SecurityContextHolder.getContext();
+        if (current == null || current.getAuthentication() == null) {
+            return null;
+        }
+        return new SecurityContextImpl(current.getAuthentication());
+    }
+
+    private void run(final Long executionId, final FineractContext context, final SecurityContext securityContext, final Task task) {
         try {
             ThreadLocalContextUtil.init(context);
+            if (securityContext != null) {
+                SecurityContextHolder.setContext(securityContext);
+            }
             switch (task) {
                 case ROLLBACK:
                     executionService.runRollback(executionId);
@@ -85,6 +100,7 @@ public class BulkRescheduleAsyncExecutionService {
             log.error("Background bulk reschedule {} {} failed", executionId, task, e);
             executionService.markExecutionFailed(executionId, e);
         } finally {
+            SecurityContextHolder.clearContext();
             ThreadLocalContextUtil.clear();
         }
     }

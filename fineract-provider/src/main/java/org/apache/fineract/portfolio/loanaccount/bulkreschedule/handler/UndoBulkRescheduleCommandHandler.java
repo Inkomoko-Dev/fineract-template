@@ -19,7 +19,6 @@
 package org.apache.fineract.portfolio.loanaccount.bulkreschedule.handler;
 
 import lombok.RequiredArgsConstructor;
-import org.apache.fineract.commands.annotation.CommandType;
 import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
@@ -32,7 +31,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
-@CommandType(entity = "RESCHEDULELOAN", action = "UNDO")
 public class UndoBulkRescheduleCommandHandler implements NewCommandSourceHandler {
 
     private final BulkRescheduleService bulkRescheduleService;

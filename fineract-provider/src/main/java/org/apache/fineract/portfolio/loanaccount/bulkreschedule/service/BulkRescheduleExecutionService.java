@@ -58,6 +58,9 @@ import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkR
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleResultRepository;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.BulkRescheduleProgressService.ClaimResult;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
@@ -163,11 +166,10 @@ public class BulkRescheduleExecutionService {
                 return buildExecutionResponse(bulkRescheduleExecutionRepository.findById(executionId).orElseThrow(), false);
             }
             execution = bulkRescheduleExecutionRepository.findById(executionId).orElseThrow();
-            final boolean recovered = claimResult == ClaimResult.RECOVERED;
+            final boolean recovered = claimResult == ClaimResult.RECOVERED || claimResult == ClaimResult.RESUMED;
             log.info("Execution {} {}", executionId, recovered ? "recovered" : "set to EXECUTING status");
             logAudit(execution, recovered ? BulkRescheduleAudit.BulkRescheduleAuditAction.RECOVER
-                    : BulkRescheduleAudit.BulkRescheduleAuditAction.EXECUTE, currentUser,
-                    recovered ? "Execution resumed after the previous worker lease expired" : "Background execution started");
+                    : BulkRescheduleAudit.BulkRescheduleAuditAction.EXECUTE, currentUser, auditDetails(claimResult));
             notificationService.notify(execution.getUser().getId(), "BULK_RESCHEDULE", execution.getId(), "EXECUTION_STARTED",
                     currentUser.getId(), "Bulk reschedule request #" + execution.getId() + " is now executing.", true);
 
@@ -179,6 +181,7 @@ public class BulkRescheduleExecutionService {
 
             // Always read page zero: processed rows leave PREVIEW_MATCHED, keeping memory bounded.
             final FineractContext context = copyContext(ThreadLocalContextUtil.getContext());
+            final SecurityContext securityContext = copySecurityContext();
             while (true) {
                 final List<BulkRescheduleResult> batch = bulkRescheduleResultRepository
                         .findPageByExecutionIdAndStatus(executionId, BulkRescheduleResultStatus.PREVIEW_MATCHED,
@@ -196,7 +199,7 @@ public class BulkRescheduleExecutionService {
                     final Long resultId = result.getId();
                     final Long loanId = result.getLoanId();
                     tasks.add(loanExecutor.submit(() -> processLoanResult(executionId, resultId, loanId, reschedulingDetails,
-                            context)));
+                            context, securityContext)));
                 }
                 for (Future<?> task : tasks) {
                     progressService.renewLease(executionId, workerToken);
@@ -247,12 +250,13 @@ public class BulkRescheduleExecutionService {
     }
 
     private void processLoanResult(final Long executionId, final Long resultId, final Long loanId,
-            final ReschedulingDetailsDto reschedulingDetails, final FineractContext context) {
+            final ReschedulingDetailsDto reschedulingDetails, final FineractContext context, final SecurityContext securityContext) {
         // Worker threads start with empty ThreadLocals. getContext() requires business dates and
         // must not run before init(). getTenant() is safe to read when unset.
         final boolean inheritedContext = ThreadLocalContextUtil.getTenant() != null;
         try {
             ThreadLocalContextUtil.init(copyContext(context));
+            applySecurityContext(securityContext);
             final BulkRescheduleResult result = bulkRescheduleResultRepository.findById(resultId).orElse(null);
             if (result == null) {
                 return;
@@ -275,8 +279,10 @@ public class BulkRescheduleExecutionService {
             }
         } finally {
             if (!inheritedContext) {
+                SecurityContextHolder.clearContext();
                 ThreadLocalContextUtil.clear();
             } else {
+                applySecurityContext(securityContext);
                 ThreadLocalContextUtil.init(copyContext(context));
             }
         }
@@ -358,6 +364,7 @@ public class BulkRescheduleExecutionService {
         final BulkRescheduleExecution execution = bulkRescheduleExecutionRepository.findById(executionId).orElseThrow();
         final String rollbackReason = rollbackReason(execution.getExecutionError());
         final FineractContext context = copyContext(ThreadLocalContextUtil.getContext());
+        final SecurityContext securityContext = copySecurityContext();
         try {
             while (true) {
                 final List<BulkRescheduleResult> batch = bulkRescheduleResultRepository
@@ -375,7 +382,7 @@ public class BulkRescheduleExecutionService {
                 for (BulkRescheduleResult result : batch) {
                     final Long resultId = result.getId();
                     final Long loanId = result.getLoanId();
-                    tasks.add(loanExecutor.submit(() -> processRollbackResult(resultId, loanId, rollbackReason, context)));
+                    tasks.add(loanExecutor.submit(() -> processRollbackResult(resultId, loanId, rollbackReason, context, securityContext)));
                 }
                 for (Future<?> task : tasks) {
                     progressService.renewLease(executionId, workerToken);
@@ -399,10 +406,11 @@ public class BulkRescheduleExecutionService {
     }
 
     private void processRollbackResult(final Long resultId, final Long loanId, final String rollbackReason,
-            final FineractContext context) {
+            final FineractContext context, final SecurityContext securityContext) {
         final boolean inheritedContext = ThreadLocalContextUtil.getTenant() != null;
         try {
             ThreadLocalContextUtil.init(copyContext(context));
+            applySecurityContext(securityContext);
             loanWorker.rollbackLoan(resultId, rollbackReason);
         } catch (Exception e) {
             log.error("Error rolling back loan {} (result {}): {}", loanId, resultId, e.getMessage(), e);
@@ -416,8 +424,10 @@ public class BulkRescheduleExecutionService {
             }
         } finally {
             if (!inheritedContext) {
+                SecurityContextHolder.clearContext();
                 ThreadLocalContextUtil.clear();
             } else {
+                applySecurityContext(securityContext);
                 ThreadLocalContextUtil.init(copyContext(context));
             }
         }
@@ -561,6 +571,32 @@ public class BulkRescheduleExecutionService {
 
     private static int zero(final Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private static SecurityContext copySecurityContext() {
+        final SecurityContext current = SecurityContextHolder.getContext();
+        if (current == null || current.getAuthentication() == null) {
+            return null;
+        }
+        return new SecurityContextImpl(current.getAuthentication());
+    }
+
+    private static void applySecurityContext(final SecurityContext securityContext) {
+        if (securityContext != null) {
+            SecurityContextHolder.setContext(securityContext);
+        } else {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    private static String auditDetails(final ClaimResult claimResult) {
+        if (claimResult == ClaimResult.RESUMED) {
+            return "Execution resumed after a previous failure";
+        }
+        if (claimResult == ClaimResult.RECOVERED) {
+            return "Execution resumed after the previous worker lease expired";
+        }
+        return "Background execution started";
     }
 
     /**

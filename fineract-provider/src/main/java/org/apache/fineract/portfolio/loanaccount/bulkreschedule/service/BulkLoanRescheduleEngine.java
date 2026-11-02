@@ -62,8 +62,9 @@ public class BulkLoanRescheduleEngine {
             log.info("Created reschedule request {} for loan {}", rescheduleRequestId, loan.getId());
             return rescheduleRequestId;
         } catch (Exception e) {
-            log.error("Reschedule failed for loan {}: {}", loan.getId(), e.getMessage(), e);
-            throw new RuntimeException("Reschedule failed: " + e.getMessage(), e);
+            final String message = BulkRescheduleExceptionMessages.describe("Reschedule failed", e);
+            log.error("Reschedule failed for loan {}: {}", loan.getId(), message, e);
+            throw new RuntimeException(message, e);
         }
     }
     /**
@@ -84,8 +85,9 @@ public class BulkLoanRescheduleEngine {
             loanRescheduleRequestService.approve(command);
             log.info("Approved reschedule request {}", rescheduleRequestId);
         } catch (Exception e) {
-            log.error("Approval failed for reschedule {}: {}", rescheduleRequestId, e.getMessage(), e);
-            throw new RuntimeException("Approval failed: " + e.getMessage(), e);
+            final String message = BulkRescheduleExceptionMessages.describe("Approval failed", e);
+            log.error("Approval failed for reschedule {}: {}", rescheduleRequestId, message, e);
+            throw new RuntimeException(message, e);
         }
     }
 
@@ -136,6 +138,9 @@ public class BulkLoanRescheduleEngine {
         }
         if (details.getRecalculateInterest() != null) {
             jsonObject.addProperty("recalculateInterest", details.getRecalculateInterest());
+        }
+        if (Boolean.TRUE.equals(details.getRecalculateEvenIfObligationsMet())) {
+            jsonObject.addProperty("recalculateEvenIfObligationsMet", true);
         }
         if (details.getEndDate() != null) {
             jsonObject.addProperty("endDate", details.getEndDate().toString());
