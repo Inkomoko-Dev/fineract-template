@@ -29,7 +29,6 @@ import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkResch
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleResultRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariationType;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequestRepository;
 import org.springframework.stereotype.Service;
 
@@ -59,9 +58,6 @@ public class BulkRescheduleValidationService {
         if (loan.getClient() != null && !loan.getClient().isActive()) {
             errors.add("Client must be in ACTIVE status");
         }
-        if (hasCustomSchedule(loan)) {
-            errors.add("Loan has an overridden or custom repayment schedule and must be reviewed individually");
-        }
         final var pending = loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(loan.getId(),
                 LoanStatus.SUBMITTED_AND_PENDING_APPROVAL.getValue());
         if (pending != null && !pending.isEmpty()) {
@@ -72,20 +68,6 @@ public class BulkRescheduleValidationService {
             errors.add("Loan was already rescheduled in a previous bulk run");
         }
         return errors;
-    }
-
-    private static boolean hasCustomSchedule(final Loan loan) {
-        if (loan.getActiveLoanTermVariations() == null || loan.getActiveLoanTermVariations().isEmpty()) {
-            return false;
-        }
-        return loan.getActiveLoanTermVariations().stream().anyMatch(variation -> {
-            final var type = variation.getTermType();
-            return type.isEMIAmountVariation() || type.isPrincipalAmountVariation() || type.isDueDateVariation()
-                    || type.isInsertInstallment() || type.isDeleteInstallment() || type.isExtendRepaymentPeriod()
-                    || type.isRepaymentFrequencyVariation() || type.isRepaymentEveryVariation()
-                    || type.isGraceOnInterest() || type.isGraceOnPrincipal()
-                    || type == LoanTermVariationType.PRINCIPAL_DUE_FIXED_AMOUNT;
-        });
     }
 
     public void validateRescheduleParameters(final ReschedulingDetailsDto details, final Loan loan) {
