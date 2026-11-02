@@ -531,6 +531,7 @@ public class StandingInstructionReadPlatformServiceImpl implements StandingInstr
             sqlBuilder.append("sum(ls.interest_completed_derived) as interestCompleted,");
             sqlBuilder.append("sum(ls.interest_writtenoff_derived) as interestWrittenOff,");
             sqlBuilder.append("sum(ls.interest_waived_derived) as interestWaived,");
+            sqlBuilder.append("sum(ls.interest_cancelled_derived) as interestCancelled,");
             sqlBuilder.append("sum(ls.penalty_charges_amount) as penalityAmount,");
             sqlBuilder.append("sum(ls.penalty_charges_completed_derived) as penalityCompleted,");
             sqlBuilder.append("sum(ls.penalty_charges_writtenoff_derived)as penaltyWrittenOff,");
@@ -562,7 +563,9 @@ public class StandingInstructionReadPlatformServiceImpl implements StandingInstr
             final BigDecimal interestPaid = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestCompleted");
             final BigDecimal interestWrittenOff = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWrittenOff");
             final BigDecimal interestWaived = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWaived");
-            final BigDecimal interestActualDue = interestExpectedDue.subtract(interestWaived).subtract(interestWrittenOff);
+            final BigDecimal interestCancelled = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestCancelled");
+            final BigDecimal interestActualDue = interestExpectedDue.subtract(interestWaived).subtract(interestWrittenOff)
+                    .subtract(interestCancelled);
             final BigDecimal interestOutstanding = interestActualDue.subtract(interestPaid);
 
             final BigDecimal penaltyChargesExpectedDue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penalityAmount");
