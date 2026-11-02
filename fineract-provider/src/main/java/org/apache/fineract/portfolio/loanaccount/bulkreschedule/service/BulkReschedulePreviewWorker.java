@@ -81,7 +81,7 @@ public class BulkReschedulePreviewWorker {
             populateProposedSnapshot(result, loanDetails, rescheduleFromDate);
         } catch (Exception e) {
             result.setStatus(BulkRescheduleResultStatus.FAILED);
-            result.setErrorMessage(e.getMessage() == null ? "Unable to calculate reschedule preview" : e.getMessage());
+            result.setErrorMessage(BulkRescheduleExceptionMessages.describe("Unable to calculate reschedule preview", e));
         }
         resultRepository.save(result);
     }
