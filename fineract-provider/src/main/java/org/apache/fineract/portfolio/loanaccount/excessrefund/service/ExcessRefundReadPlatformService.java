@@ -167,8 +167,7 @@ public class ExcessRefundReadPlatformService {
                 return new BeneficiaryExportFields(null, null);
             }
             final JsonObject root = parsed.getAsJsonObject();
-            final JsonObject payload = root.has("submitted") && root.get("submitted").isJsonObject() ? root.getAsJsonObject("submitted")
-                    : root;
+            final JsonObject payload = ExcessRefundBeneficiaryJson.resolvePayload(root);
             final String channel = jsonString(payload, "channel");
             String accountOrMsisdn = null;
             if ("MOBILE_MONEY".equalsIgnoreCase(channel)) {

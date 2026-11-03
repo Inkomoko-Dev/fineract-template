@@ -190,6 +190,39 @@ class ExcessRefundWritePlatformServiceTest {
         verify(this.paymentHubDisbursementPollRepository, never()).save(any());
     }
 
+    @Test
+    void sendToPaymentHubAppliesImmediateFailedWithoutPoll() throws Exception {
+        final LoanExcessRefund refund = new LoanExcessRefund();
+        setEntityId(refund, 21L);
+        refund.setLoanId(5L);
+        refund.setAmount(new BigDecimal("100.00"));
+        refund.setStatus(LoanExcessRefundStatus.APPROVED);
+        when(this.refundRepository.findById(21L)).thenReturn(java.util.Optional.of(refund));
+        when(this.refundRepository.findByHubRequestId("cbs_refund_21")).thenReturn(java.util.Optional.of(refund));
+        when(this.refundRepository.saveAndFlush(any(LoanExcessRefund.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        final Loan loan = org.mockito.Mockito.mock(Loan.class);
+        when(loan.getOfficeId()).thenReturn(1L);
+        when(loan.getTotalOverpaid()).thenReturn(new BigDecimal("100.00"));
+        when(this.loanRepository.findOneForUpdate(5L)).thenReturn(loan);
+        when(this.loanRepository.findOneWithNotFoundDetection(5L)).thenReturn(loan);
+        when(this.officeHierarchyService.validateUserAccessToOffice(this.checker, 1L)).thenReturn(true);
+        doNothing().when(this.checker).validateHasPermissionTo("SEND_TO_PAYMENTHUB_EXCESS_REFUND");
+        lenient().when(this.noteRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(this.paymentHubService.submitRefund(any(Loan.class), any(LoanExcessRefund.class), any()))
+                .thenReturn("{\"status\":\"FAILED\",\"statusCode\":500,\"reason\":\"Insufficient funds\",\"transactionRef\":null}");
+
+        final JsonCommand command = JsonCommand.fromExistingCommand(1L, "{}", JsonParser.parseString("{}"), this.fromJsonHelper,
+                "EXCESS_REFUND", 21L, null, null, null, null, null, null, null, null, null, null);
+
+        this.service.sendToPaymentHub(command);
+
+        assertThat(refund.getStatus()).isEqualTo(LoanExcessRefundStatus.PAYMENT_FAILED);
+        assertThat(refund.getFailureReason()).contains("Insufficient funds");
+        verify(this.paymentHubDisbursementPollRepository, never()).save(any());
+    }
+
     private static void setEntityId(final AbstractPersistableCustom entity, final Long id) throws Exception {
         final Method setId = AbstractPersistableCustom.class.getDeclaredMethod("setId", Long.class);
         setId.setAccessible(true);

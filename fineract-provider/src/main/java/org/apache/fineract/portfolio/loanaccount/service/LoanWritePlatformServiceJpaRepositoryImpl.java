@@ -186,6 +186,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.GroupLoanIndividualMonit
 import org.apache.fineract.portfolio.loanaccount.domain.HistoricalPenaltyWaiverResult;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
+import org.apache.fineract.portfolio.loanaccount.excessrefund.service.ExcessRefundDirectCbrGuard;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
@@ -334,6 +335,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final PartialWriteOffAuditRepository partialWriteOffAuditRepository;
     private final ResidualLoanAdjustmentAuditRepository residualLoanAdjustmentAuditRepository;
     private final ClientAddressLocationValidator clientAddressLocationValidator;
+    private final ExcessRefundDirectCbrGuard excessRefundDirectCbrGuard;
 
     @Autowired
     private ActiveMqNotificationDomainServiceImpl activeMqNotificationDomainService;
@@ -3920,6 +3922,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     @Override
     public CommandProcessingResult creditBalanceRefund(Long loanId, JsonCommand command) {
         this.loanEventApiJsonValidator.validateNewRefundTransaction(command.json());
+        this.excessRefundDirectCbrGuard.assertDirectCbrAllowed(loanId);
 
         final LocalDate transactionDate = command.localDateValueOfParameterNamed("transactionDate");
         final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");

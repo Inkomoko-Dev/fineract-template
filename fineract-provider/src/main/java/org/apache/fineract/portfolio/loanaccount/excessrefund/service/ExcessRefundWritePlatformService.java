@@ -269,9 +269,23 @@ public class ExcessRefundWritePlatformService {
             persistPaymentHubFailure(refund.getId(), ex.getDefaultUserMessage());
             throw ex;
         }
-        registerPendingPaymentHubRefund(loan, refund, requestId, responseBody);
+        applyImmediateOrRegisterPendingHubStatus(loan, refund, requestId, responseBody);
         saveLoanNote(loan, "Excess refund #" + refund.getId() + " sent to Payment Hub requestId=" + requestId);
         return result(findRefund(refund.getId()), loan);
+    }
+
+    private void applyImmediateOrRegisterPendingHubStatus(final Loan loan, final LoanExcessRefund refund, final String requestId,
+            final String responseBody) {
+        final PaymentHubTransactionStatus hubStatus = PaymentHubTransactionStatus.parse(responseBody);
+        if (hubStatus != null && hubStatus.isSuccess()) {
+            applyHubCallback(requestId, true, hubStatus.getTransactionRef(), hubStatus.getReason());
+            return;
+        }
+        if (hubStatus != null && (hubStatus.isFailed() || hubStatus.isPendingError())) {
+            applyHubCallback(requestId, false, hubStatus.getTransactionRef(), hubStatus.getReason());
+            return;
+        }
+        registerPendingPaymentHubRefund(loan, refund, requestId, responseBody);
     }
 
     private void persistPaymentHubSubmission(final Long refundId, final String requestId) {

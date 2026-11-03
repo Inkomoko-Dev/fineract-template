@@ -109,7 +109,8 @@ public class ExcessRefundPaymentHubService {
         String bankName = null;
         String beneficiaryName = null;
         if (StringUtils.isNotBlank(refund.getBeneficiaryJson())) {
-            final JsonObject beneficiary = JsonParser.parseString(refund.getBeneficiaryJson()).getAsJsonObject();
+            final JsonObject root = JsonParser.parseString(refund.getBeneficiaryJson()).getAsJsonObject();
+            final JsonObject beneficiary = ExcessRefundBeneficiaryJson.resolvePayload(root);
             phone = jsonString(beneficiary, "msisdn");
             accountNumber = jsonString(beneficiary, "accountNumber");
             bankName = firstNonBlank(jsonString(beneficiary, "bankName"), jsonString(beneficiary, "bankCode"));
