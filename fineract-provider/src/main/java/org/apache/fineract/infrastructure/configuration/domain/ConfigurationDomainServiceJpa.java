@@ -536,6 +536,12 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
         return enabledConfigurationValue("historical-penalty-waiver-escalation-hours");
     }
 
+    /** A disabled row switches the senior gate off entirely, rather than meaning "threshold of zero". */
+    @Override
+    public Long retrievePartialWriteOffApprovalAmountThreshold() {
+        return enabledConfigurationValue("partial-write-off-approval-amount-threshold");
+    }
+
     private Long enabledConfigurationValue(final String propertyName) {
         final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(propertyName);
         return property.isEnabled() ? property.getValue() : null;

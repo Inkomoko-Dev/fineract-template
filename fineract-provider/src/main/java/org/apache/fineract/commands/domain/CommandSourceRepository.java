@@ -36,5 +36,13 @@ public interface CommandSourceRepository extends JpaRepository<CommandSource, Lo
                                                @Param("resourceId") Long resourceId,
                                                @Param("actionName") String actionName);
 
+    @Query("SELECT c FROM CommandSource c " +
+            "WHERE c.entityName = :entityName " +
+            "AND c.loanId = :loanId " +
+            "AND c.actionName = :actionName " +
+            "AND c.processingResult = 2")
+    Optional<CommandSource> findPendingCommandByLoanId(@Param("entityName") String entityName,
+                                                       @Param("loanId") Long loanId,
+                                                       @Param("actionName") String actionName);
 
 }

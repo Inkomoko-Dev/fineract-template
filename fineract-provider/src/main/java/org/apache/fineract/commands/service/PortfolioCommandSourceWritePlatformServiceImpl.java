@@ -78,6 +78,7 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final GroupRepositoryWrapper groupRepositoryWrapper;
     private final SavingsAccountRepositoryWrapper savingsAccountRepositoryWrapper;
+    private final PartialWriteOffMakerCheckerPolicy partialWriteOffMakerCheckerPolicy;
 
     @Override
     @SuppressWarnings("AvoidHidingCauseException")
@@ -153,11 +154,16 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
     }
 
     private void validateNotDuplicate(CommandWrapper wrapper) {
-        Optional<CommandSource> existingPending = commandSourceRepository.findPendingCommand(
-                wrapper.getEntityName(),
-                wrapper.getEntityId(),
-                wrapper.actionName()
-        );
+        final Optional<CommandSource> existingPending;
+        if (wrapper.getEntityId() != null) {
+            existingPending = commandSourceRepository.findPendingCommand(wrapper.getEntityName(), wrapper.getEntityId(),
+                    wrapper.actionName());
+        } else if (wrapper.getLoanId() != null) {
+            existingPending = commandSourceRepository.findPendingCommandByLoanId(wrapper.getEntityName(), wrapper.getLoanId(),
+                    wrapper.actionName());
+        } else {
+            existingPending = Optional.empty();
+        }
 
         if (existingPending.isPresent()) {
             CommandSource pending = existingPending.get();
@@ -173,7 +179,7 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
     @Override
     public CommandProcessingResult approveEntry(final Long makerCheckerId, final String note) {
 
-        final CommandSource commandSourceInput = validateMakerCheckerTransaction(makerCheckerId);
+        final CommandSource commandSourceInput = validateMakerCheckerTransaction(makerCheckerId, true);
         validateIsUpdateAllowed();
 
         String noteText = saveNote(commandSourceInput,note);
@@ -243,7 +249,8 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
     @Override
     public Long deleteEntry(final Long makerCheckerId) {
 
-        validateMakerCheckerTransaction(makerCheckerId);
+        // Four-eyes and senior amount gate do not apply to delete — makers may cancel their own pending entry.
+        validateMakerCheckerTransaction(makerCheckerId, false);
         validateIsUpdateAllowed();
 
         this.commandSourceRepository.deleteById(makerCheckerId);
@@ -251,7 +258,7 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
         return makerCheckerId;
     }
 
-    private CommandSource validateMakerCheckerTransaction(final Long makerCheckerId) {
+    private CommandSource validateMakerCheckerTransaction(final Long makerCheckerId, final boolean enforceFourEyesAndSeniorGate) {
 
         final CommandSource commandSourceInput = this.commandSourceRepository.findById(makerCheckerId)
                 .orElseThrow(() -> new CommandNotFoundException(makerCheckerId));
@@ -259,7 +266,17 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
             throw new CommandNotAwaitingApprovalException(makerCheckerId);
         }
 
-        this.context.authenticatedUser().validateHasCheckerPermissionTo(commandSourceInput.getPermissionCode());
+        final AppUser checker = this.context.authenticatedUser();
+        checker.validateHasCheckerPermissionTo(commandSourceInput.getPermissionCode());
+
+        if (enforceFourEyesAndSeniorGate) {
+            if (commandSourceInput.getMaker() != null && commandSourceInput.getMaker().getId().equals(checker.getId())) {
+                throw new GeneralPlatformDomainRuleException("error.msg.maker.checker.same.user",
+                        "The request creator cannot approve or reject their own request");
+            }
+            this.partialWriteOffMakerCheckerPolicy.validateSeniorCheckerIfRequired(commandSourceInput, checker,
+                    this.fromApiJsonHelper);
+        }
 
         return commandSourceInput;
     }
@@ -271,7 +288,7 @@ public class PortfolioCommandSourceWritePlatformServiceImpl implements Portfolio
 
     @Override
     public Long rejectEntry(final Long makerCheckerId, final String note) {
-        final CommandSource commandSourceInput = validateMakerCheckerTransaction(makerCheckerId);
+        final CommandSource commandSourceInput = validateMakerCheckerTransaction(makerCheckerId, true);
         validateIsUpdateAllowed();
         String noteText = saveNote(commandSourceInput,note);
         final AppUser maker = this.context.authenticatedUser();

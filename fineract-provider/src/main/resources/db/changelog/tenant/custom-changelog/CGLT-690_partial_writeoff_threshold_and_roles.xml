@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-690-2-senior-checker-permission" author="inkomoko" runOnChange="true">
+        <comment>Senior checker permission for high-value partial write-offs (amount-gated on approve/reject)</comment>
+        <sql>
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('transaction_loan', 'PARTIALWRITEOFF_LOAN_SENIOR_CHECKER', 'LOAN', 'PARTIALWRITEOFF_SENIOR_CHECKER', 0)
+            ON DUPLICATE KEY UPDATE action_name = 'PARTIALWRITEOFF_SENIOR_CHECKER'
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-690-3-approval-amount-threshold" author="inkomoko">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM c_configuration WHERE name = 'partial-write-off-approval-amount-threshold'
+            </sqlCheck>
+        </preConditions>
+        <comment>Amounts strictly above this value require PARTIALWRITEOFF_LOAN_SENIOR_CHECKER. Disable the row to switch the senior gate off.</comment>
+        <insert tableName="c_configuration">
+            <column name="name" value="partial-write-off-approval-amount-threshold"/>
+            <column name="value" valueNumeric="50000"/>
+            <column name="enabled" valueBoolean="true"/>
+            <column name="is_trap_door" valueBoolean="false"/>
+            <column name="description"
+                    value="Partial write-off amounts above this value require a senior checker. Disable this row to switch the senior amount gate off."/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-690-4-grant-initiate-from-writeoff" author="inkomoko">
+        <comment>Grant PARTIALWRITEOFF_LOAN to roles that already have WRITEOFF_LOAN</comment>
+        <sql>
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT DISTINCT rp.role_id, p.id
+            FROM m_role_permission rp
+            JOIN m_permission wo ON wo.id = rp.permission_id AND wo.code = 'WRITEOFF_LOAN'
+            CROSS JOIN m_permission p ON p.code = 'PARTIALWRITEOFF_LOAN'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM m_role_permission erp
+                WHERE erp.role_id = rp.role_id AND erp.permission_id = p.id
+            )
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-690-5-grant-checker-from-writeoff-checker" author="inkomoko">
+        <comment>Grant PARTIALWRITEOFF_LOAN_CHECKER to roles that already have WRITEOFF_LOAN_CHECKER</comment>
+        <sql>
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT DISTINCT rp.role_id, p.id
+            FROM m_role_permission rp
+            JOIN m_permission wo ON wo.id = rp.permission_id AND wo.code = 'WRITEOFF_LOAN_CHECKER'
+            CROSS JOIN m_permission p ON p.code = 'PARTIALWRITEOFF_LOAN_CHECKER'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM m_role_permission erp
+                WHERE erp.role_id = rp.role_id AND erp.permission_id = p.id
+            )
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-690-6-grant-senior-from-ic-l3" author="inkomoko">
+        <comment>Grant PARTIALWRITEOFF_LOAN_SENIOR_CHECKER to roles that approve loans at IC level three</comment>
+        <sql>
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT DISTINCT rp.role_id, p.id
+            FROM m_role_permission rp
+            JOIN m_permission ic ON ic.id = rp.permission_id AND ic.code = 'ACCEPT_LOANICREVIEWDECISIONLEVELTHREE'
+            CROSS JOIN m_permission p ON p.code = 'PARTIALWRITEOFF_LOAN_SENIOR_CHECKER'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM m_role_permission erp
+                WHERE erp.role_id = rp.role_id AND erp.permission_id = p.id
+            )
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

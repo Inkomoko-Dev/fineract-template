@@ -32,4 +32,13 @@
         </sql>
     </changeSet>
 
+    <changeSet id="CGLT-690-1" author="inkomoko" runOnChange="true">
+        <comment>Add partial write-off checker permission for maker-checker workflow</comment>
+        <sql>
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('transaction_loan', 'PARTIALWRITEOFF_LOAN_CHECKER', 'LOAN', 'PARTIALWRITEOFF_CHECKER', 0)
+            ON DUPLICATE KEY UPDATE action_name = 'PARTIALWRITEOFF_CHECKER'
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>
