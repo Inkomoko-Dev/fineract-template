@@ -138,4 +138,39 @@ class LoanRepaymentFrequencyTest {
                 () -> LoanRepaymentFrequency.assertCompatibleProductTerms(0, 3, MONTHS));
         assertTrue(thrown.getDefaultUserMessage().contains("at least 1"));
     }
+
+    @Test
+    void dueDiligenceRejectsSemiAnnualTermThatIsNotAMultipleOfTheInterval() {
+        assertThrows(IncompatibleLoanTermAndFrequencyException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleRecommendedTerm(10, MONTHS, 6, MONTHS));
+    }
+
+    @Test
+    void dueDiligenceAcceptsSemiAnnualTwentyFourMonthTerm() {
+        LoanRepaymentFrequency.assertCompatibleRecommendedTerm(24, MONTHS, 6, MONTHS);
+    }
+
+    @Test
+    void dueDiligenceAcceptsSemiAnnualOneYearTerm() {
+        LoanRepaymentFrequency.assertCompatibleRecommendedTerm(1, PeriodFrequencyType.YEARS.getValue(), 6, MONTHS);
+        assertEquals(2, LoanRepaymentFrequency.installmentsForRecommendedTerm(1, PeriodFrequencyType.YEARS.getValue(), 6, MONTHS));
+    }
+
+    @Test
+    void dueDiligenceRejectsWeeksTermForSemiAnnualRepayment() {
+        assertThrows(IncompatibleLoanTermAndFrequencyException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleRecommendedTerm(24, PeriodFrequencyType.WEEKS.getValue(), 6, MONTHS));
+    }
+
+    @Test
+    void dueDiligenceRejectsWeeksTermForMonthlyRepayment() {
+        assertThrows(IncompatibleLoanTermAndFrequencyException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleRecommendedTerm(24, PeriodFrequencyType.WEEKS.getValue(), 1, MONTHS));
+    }
+
+    @Test
+    void dueDiligenceRejectsDaysTermForMonthlyRepayment() {
+        assertThrows(IncompatibleLoanTermAndFrequencyException.class,
+                () -> LoanRepaymentFrequency.assertCompatibleRecommendedTerm(24, PeriodFrequencyType.DAYS.getValue(), 1, MONTHS));
+    }
 }
