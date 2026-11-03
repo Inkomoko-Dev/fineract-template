@@ -100,8 +100,6 @@ public class WhatsAppCampaignValidator {
         if (StringUtils.isBlank(json)) {
             throw new InvalidJsonException();
         }
-        log.info("json{}", json);
-
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, supportedParams);
 
