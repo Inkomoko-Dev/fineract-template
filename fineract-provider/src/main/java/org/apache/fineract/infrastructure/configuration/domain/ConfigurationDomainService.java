@@ -146,5 +146,11 @@ public interface ConfigurationDomainService {
 
     Long retrieveHistoricalPenaltyWaiverEscalationHours();
 
+    /**
+     * Null when the senior-checker amount gate is switched off (disabled configuration row).
+     * Amounts strictly above this value require PARTIALWRITEOFF_LOAN_SENIOR_CHECKER.
+     */
+    Long retrievePartialWriteOffApprovalAmountThreshold();
+
     boolean isPostTransferCorrectionsEnabled();
 }

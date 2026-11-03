@@ -57,7 +57,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * CGLT-690: Partial write-off maker-checker lifecycle under Fineract built-in MC.
+ * CGLT-690: Partial write-off maker-checker lifecycle under Fineract built-in MC,
+ * including four-eyes and amount-based senior checker routing.
  */
 @SuppressWarnings({ "rawtypes", "unchecked" })
 public class PartialWriteOffMakerCheckerIntegrationTest {
@@ -74,12 +75,16 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
     private static final String APPROVAL_DATE = "01 February 2026";
     private static final String PARTIAL_WRITE_OFF_DATE = "15 March 2026";
     private static final String TEST_PASSWORD = "password";
+    private static final String THRESHOLD_CONFIG_NAME = "partial-write-off-approval-amount-threshold";
 
     private RequestSpecification requestSpec;
     private ResponseSpecification responseSpec;
     private LoanTransactionHelper loanTransactionHelper;
     private MakercheckersHelper makercheckersHelper;
     private Long makerCheckerConfigId;
+    private Long thresholdConfigId;
+    private Long thresholdConfigOriginalValue;
+    private Boolean thresholdConfigOriginalEnabled;
 
     @BeforeEach
     public void setup() {
@@ -95,6 +100,12 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
         this.makerCheckerConfigId = config.getId();
         GlobalConfigurationHelper.updateEnabledFlagForGlobalConfiguration(this.requestSpec, this.responseSpec, this.makerCheckerConfigId,
                 true);
+
+        final GlobalConfigurationPropertyData threshold = GlobalConfigurationHelper.getGlobalConfigurationByName(this.requestSpec,
+                this.responseSpec, THRESHOLD_CONFIG_NAME);
+        this.thresholdConfigId = threshold.getId();
+        this.thresholdConfigOriginalValue = threshold.getValue();
+        this.thresholdConfigOriginalEnabled = threshold.getEnabled();
     }
 
     @AfterEach
@@ -103,14 +114,25 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
             GlobalConfigurationHelper.updateEnabledFlagForGlobalConfiguration(this.requestSpec, this.responseSpec,
                     this.makerCheckerConfigId, false);
         }
+        if (this.thresholdConfigId != null) {
+            if (this.thresholdConfigOriginalValue != null) {
+                GlobalConfigurationHelper.updateValueForGlobalConfiguration(this.requestSpec, this.responseSpec,
+                        this.thresholdConfigId.toString(), this.thresholdConfigOriginalValue.toString());
+            }
+            if (this.thresholdConfigOriginalEnabled != null) {
+                GlobalConfigurationHelper.updateEnabledFlagForGlobalConfiguration(this.requestSpec, this.responseSpec,
+                        this.thresholdConfigId, this.thresholdConfigOriginalEnabled);
+            }
+        }
     }
 
     @Test
     public void testMakerSubmitCreatesPendingPartialWriteOff() {
         final Integer loanID = createActiveLoan();
         final BigDecimal balanceBefore = new BigDecimal(getLoanOutstandingBalance(loanID));
+        final TestUser maker = createMakerUser();
 
-        final Integer commandId = submitPartialWriteOffForApproval(loanID, "500.00");
+        final Integer commandId = submitPartialWriteOffAs(maker, loanID, "500.00");
         assertNotNull(commandId, "Pending maker-checker commandId should be returned");
 
         final Map<String, Object> pending = this.makercheckersHelper.findPendingPartialWriteOff(loanID);
@@ -126,9 +148,11 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
     public void testCheckerApproveExecutesPartialWriteOff() {
         final Integer loanID = createActiveLoan();
         final BigDecimal balanceBefore = new BigDecimal(getLoanOutstandingBalance(loanID));
+        final TestUser maker = createMakerUser();
+        final TestUser checker = createCheckerUser(false);
 
-        final Integer commandId = submitPartialWriteOffForApproval(loanID, "500.00");
-        this.makercheckersHelper.approveMakerCheckerEntry(commandId.longValue(), "{\"note\":\"Approved by checker\"}");
+        final Integer commandId = submitPartialWriteOffAs(maker, loanID, "500.00");
+        approveAs(checker, commandId, "{\"note\":\"Approved by checker\"}");
 
         assertNull(this.makercheckersHelper.findPendingPartialWriteOff(loanID), "Pending entry should be gone after approve");
         assertTrue(hasPartialWriteOffTransaction(loanID), "PARTIAL_WRITEOFF transaction should exist after approve");
@@ -143,9 +167,11 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
         final Integer loanID = createActiveLoan();
         final BigDecimal balanceBefore = new BigDecimal(getLoanOutstandingBalance(loanID));
         final String rejectionReason = "CGLT-690 rejection reason for partial write-off";
+        final TestUser maker = createMakerUser();
+        final TestUser checker = createCheckerUser(false);
 
-        final Integer commandId = submitPartialWriteOffForApproval(loanID, "500.00");
-        this.makercheckersHelper.rejectMakerCheckerEntry(commandId.longValue(), "{\"note\":\"" + rejectionReason + "\"}");
+        final Integer commandId = submitPartialWriteOffAs(maker, loanID, "500.00");
+        rejectAs(checker, commandId, "{\"note\":\"" + rejectionReason + "\"}");
 
         assertNull(this.makercheckersHelper.findPendingPartialWriteOff(loanID), "Pending entry should be gone after reject");
         assertFalse(hasPartialWriteOffTransaction(loanID), "Write-off must not execute on reject");
@@ -166,12 +192,13 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
     @Test
     public void testDuplicatePendingPartialWriteOffIsRejected() {
         final Integer loanID = createActiveLoan();
-        submitPartialWriteOffForApproval(loanID, "500.00");
+        final TestUser maker = createMakerUser();
+        submitPartialWriteOffAs(maker, loanID, "500.00");
 
         final String url = "/fineract-provider/api/v1/loans/" + loanID + "/transactions?command=partialwriteoff&"
                 + Utils.TENANT_IDENTIFIER;
         final ResponseSpecification expectError = new ResponseSpecBuilder().expectStatusCode(403).build();
-        final String response = Utils.performServerPost(this.requestSpec, expectError, url, buildPartialWriteOffJson("250.00"), null);
+        final String response = Utils.performServerPost(maker.spec, expectError, url, buildPartialWriteOffJson("250.00"), null);
         assertTrue(response.contains("error.command.pending.approval.exists") || response.contains("Duplicate maker-checker"),
                 "Second pending PARTIALWRITEOFF for same loan must be blocked: " + response);
     }
@@ -202,7 +229,8 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
     @Test
     public void testUnauthorizedCheckerCannotApprovePartialWriteOff() {
         final Integer loanID = createActiveLoan();
-        final Integer commandId = submitPartialWriteOffForApproval(loanID, "500.00");
+        final TestUser maker = createMakerUser();
+        final Integer commandId = submitPartialWriteOffAs(maker, loanID, "500.00");
 
         final Integer roleId = RolesHelper.createRole(this.requestSpec, this.responseSpec);
         // Maker permission only — no PARTIALWRITEOFF_LOAN_CHECKER, CHECKER_SUPER_USER, or ALL_FUNCTIONS
@@ -224,6 +252,109 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
                 || response.toLowerCase().contains("not authorised"), "Unauthorized checker should be denied: " + response);
     }
 
+    @Test
+    public void testSelfApprovalIsRejected() {
+        final Integer loanID = createActiveLoan();
+        final TestUser maker = createMakerUser();
+        final Integer commandId = submitPartialWriteOffAs(maker, loanID, "500.00");
+
+        final ResponseSpecification expectForbidden = new ResponseSpecBuilder().expectStatusCode(403).build();
+        final String response = Utils.performServerPost(maker.spec, expectForbidden,
+                "/fineract-provider/api/v1/makercheckers/" + commandId + "?command=approve&" + Utils.TENANT_IDENTIFIER,
+                "{\"note\":\"self approve\"}", null);
+        assertTrue(response.contains("error.msg.maker.checker.same.user") || response.toLowerCase().contains("cannot approve")
+                || response.toLowerCase().contains("own request"), "Self-approval must be blocked: " + response);
+        assertNotNull(this.makercheckersHelper.findPendingPartialWriteOff(loanID), "Pending entry must remain after failed self-approve");
+        assertFalse(hasPartialWriteOffTransaction(loanID), "Write-off must not execute on self-approve");
+    }
+
+    @Test
+    public void testJuniorCheckerCanApproveAtOrBelowThreshold() {
+        setThreshold(400L, true);
+        final Integer loanID = createActiveLoan();
+        final TestUser maker = createMakerUser();
+        final TestUser juniorChecker = createCheckerUser(false);
+
+        // Exactly at threshold — senior not required (strict >)
+        final Integer atThresholdId = submitPartialWriteOffAs(maker, loanID, "400.00");
+        approveAs(juniorChecker, atThresholdId, "{\"note\":\"at threshold\"}");
+        assertTrue(hasPartialWriteOffTransaction(loanID), "Junior checker may approve amount at threshold");
+    }
+
+    @Test
+    public void testJuniorCheckerCannotApproveAboveThresholdButSeniorCan() {
+        setThreshold(400L, true);
+        final Integer loanID = createActiveLoan();
+        final TestUser maker = createMakerUser();
+        final TestUser juniorChecker = createCheckerUser(false);
+        final TestUser seniorChecker = createCheckerUser(true);
+
+        final Integer commandId = submitPartialWriteOffAs(maker, loanID, "500.00");
+
+        final ResponseSpecification expectForbidden = new ResponseSpecBuilder().expectStatusCode(403).build();
+        final String denied = Utils.performServerPost(juniorChecker.spec, expectForbidden,
+                "/fineract-provider/api/v1/makercheckers/" + commandId + "?command=approve&" + Utils.TENANT_IDENTIFIER,
+                "{\"note\":\"junior should fail\"}", null);
+        assertTrue(denied.toLowerCase().contains("senior") || denied.toLowerCase().contains("authority")
+                || denied.toLowerCase().contains("not authorised"), "Junior checker must be denied above threshold: " + denied);
+        assertFalse(hasPartialWriteOffTransaction(loanID), "Write-off must not post after junior denial");
+
+        approveAs(seniorChecker, commandId, "{\"note\":\"senior approve\"}");
+        assertTrue(hasPartialWriteOffTransaction(loanID), "Senior checker may approve amount above threshold");
+    }
+
+    private void setThreshold(final long value, final boolean enabled) {
+        GlobalConfigurationHelper.updateValueForGlobalConfiguration(this.requestSpec, this.responseSpec, this.thresholdConfigId.toString(),
+                Long.toString(value));
+        GlobalConfigurationHelper.updateEnabledFlagForGlobalConfiguration(this.requestSpec, this.responseSpec, this.thresholdConfigId,
+                enabled);
+    }
+
+    private TestUser createMakerUser() {
+        final Integer roleId = RolesHelper.createRole(this.requestSpec, this.responseSpec);
+        RolesHelper.updatePermissions(this.requestSpec, this.responseSpec, roleId,
+                "{\"permissions\":{\"PARTIALWRITEOFF_LOAN\":true,\"ALL_FUNCTIONS_READ\":true}}");
+        return createUserWithRole(roleId, "pwo_mk_");
+    }
+
+    private TestUser createCheckerUser(final boolean senior) {
+        final Integer roleId = RolesHelper.createRole(this.requestSpec, this.responseSpec);
+        final String permissions = senior
+                ? "{\"permissions\":{\"PARTIALWRITEOFF_LOAN_CHECKER\":true,\"PARTIALWRITEOFF_LOAN_SENIOR_CHECKER\":true,\"ALL_FUNCTIONS_READ\":true}}"
+                : "{\"permissions\":{\"PARTIALWRITEOFF_LOAN_CHECKER\":true,\"ALL_FUNCTIONS_READ\":true}}";
+        RolesHelper.updatePermissions(this.requestSpec, this.responseSpec, roleId, permissions);
+        return createUserWithRole(roleId, senior ? "pwo_sr_" : "pwo_jr_");
+    }
+
+    private TestUser createUserWithRole(final Integer roleId, final String prefix) {
+        final Integer staffId = StaffHelper.createStaff(this.requestSpec, this.responseSpec);
+        final String username = Utils.randomNameGenerator(prefix, 6);
+        UserHelper.createUser(this.requestSpec, this.responseSpec, roleId, staffId, username, TEST_PASSWORD, "resourceId");
+        final RequestSpecification userSpec = new RequestSpecBuilder().setContentType(ContentType.JSON).build();
+        userSpec.header("Authorization",
+                "Basic " + Utils.loginIntoServerAndGetBase64EncodedAuthenticationKey(username, TEST_PASSWORD));
+        return new TestUser(username, userSpec);
+    }
+
+    private Integer submitPartialWriteOffAs(final TestUser maker, final Integer loanID, final String principalPortion) {
+        final String url = "/fineract-provider/api/v1/loans/" + loanID + "/transactions?command=partialwriteoff&"
+                + Utils.TENANT_IDENTIFIER;
+        final ResponseSpecification ok = new ResponseSpecBuilder().expectStatusCode(200).build();
+        final Integer commandId = Utils.performServerPost(maker.spec, ok, url, buildPartialWriteOffJson(principalPortion), "commandId");
+        LOG.info("Submitted PARTIALWRITEOFF for loan {} as {} → commandId {}", loanID, maker.username, commandId);
+        return commandId;
+    }
+
+    private void approveAs(final TestUser checker, final Integer commandId, final String noteJson) {
+        final MakercheckersHelper helper = new MakercheckersHelper(checker.spec, this.responseSpec);
+        helper.approveMakerCheckerEntry(commandId.longValue(), noteJson);
+    }
+
+    private void rejectAs(final TestUser checker, final Integer commandId, final String noteJson) {
+        final MakercheckersHelper helper = new MakercheckersHelper(checker.spec, this.responseSpec);
+        helper.rejectMakerCheckerEntry(commandId.longValue(), noteJson);
+    }
+
     private Integer createActiveLoan() {
         final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec, DATE_OF_JOINING);
         ClientHelper.verifyClientCreatedOnServer(this.requestSpec, this.responseSpec, clientID);
@@ -242,15 +373,6 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
         loanStatusHashMap = this.loanTransactionHelper.disburseLoan(DISBURSEMENT_DATE, loanID, netDisbursalAmount);
         LoanStatusChecker.verifyLoanIsActive(loanStatusHashMap);
         return loanID;
-    }
-
-    private Integer submitPartialWriteOffForApproval(final Integer loanID, final String principalPortion) {
-        final String url = "/fineract-provider/api/v1/loans/" + loanID + "/transactions?command=partialwriteoff&"
-                + Utils.TENANT_IDENTIFIER;
-        final Integer commandId = Utils.performServerPost(this.requestSpec, this.responseSpec, url,
-                buildPartialWriteOffJson(principalPortion), "commandId");
-        LOG.info("Submitted PARTIALWRITEOFF for loan {} → commandId {}", loanID, commandId);
-        return commandId;
     }
 
     private String buildPartialWriteOffJson(final String principalPortion) {
@@ -326,9 +448,18 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
                 return true;
             }
         }
-        // Fallback: loan details associations
         final String loanJson = Utils.performServerGet(this.requestSpec, this.responseSpec,
                 "/fineract-provider/api/v1/loans/" + loanID + "?associations=transactions&" + Utils.TENANT_IDENTIFIER, null);
         return loanJson.contains("PARTIAL_WRITEOFF") || loanJson.contains("partialWriteOff") || loanJson.contains("\"id\":31");
+    }
+
+    private static final class TestUser {
+        private final String username;
+        private final RequestSpecification spec;
+
+        private TestUser(final String username, final RequestSpecification spec) {
+            this.username = username;
+            this.spec = spec;
+        }
     }
 }
