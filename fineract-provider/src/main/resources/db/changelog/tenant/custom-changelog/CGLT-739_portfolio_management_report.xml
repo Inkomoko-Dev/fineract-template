@@ -61,7 +61,7 @@ base_all AS (
         l.total_overpaid_derived, l.total_recovered_derived,
         l.total_repayment_derived, l.total_writtenoff_derived, l.withdrawnon_date,
         l.writtenoffon_date,
-        COALESCE(l.grace_on_arrears_ageing, (SELECT pg.grace_on_arrears_ageing FROM m_product_loan pg WHERE pg.id = l.product_id), 5) AS arrears_grace
+        COALESCE(l.grace_on_arrears_ageing, (SELECT pg.grace_on_arrears_ageing FROM m_product_loan pg WHERE pg.id = l.product_id), 0) AS arrears_grace
     FROM m_loan l
     LEFT JOIN m_client bc ON bc.id = l.client_id
     LEFT JOIN m_group bg ON bg.id = l.group_id
