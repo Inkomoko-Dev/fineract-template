@@ -20,6 +20,10 @@ package org.apache.fineract.portfolio.meeting.api;
 
 import static org.apache.fineract.portfolio.meeting.MeetingApiConstants.MEETING_RESOURCE_NAME;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
 import java.util.Arrays;
@@ -103,12 +107,15 @@ public class MeetingsApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Template", description = "Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String template(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            @QueryParam("calendarId") final Long calendarId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String template(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
+            @QueryParam("calendarId") @Parameter(description = "calendarId") final Long calendarId, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(MEETING_RESOURCE_NAME);
         final Integer entityTypeId = CalendarEntityType.valueOf(entityType.toUpperCase()).getValue();
@@ -144,11 +151,14 @@ public class MeetingsApiResource {
         return this.toApiJsonSerializer.serialize(settings, meetingData, MEETING_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve Meetings", description = "Retrieve Meetings.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveMeetings(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            @QueryParam("limit") final Integer limit, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveMeetings(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(MEETING_RESOURCE_NAME);
 
@@ -159,12 +169,15 @@ public class MeetingsApiResource {
         return this.toApiJsonSerializer.serialize(settings, meetingsData, MEETING_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve Meeting", description = "Retrieve Meeting.")
     @GET
     @Path("{meetingId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveMeeting(@PathParam("meetingId") final Long meetingId, @PathParam("entityType") final String entityType,
-            @PathParam("entityId") final Long entityId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveMeeting(@PathParam("meetingId") @Parameter(description = "meetingId") final Long meetingId,
+            @PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(MEETING_RESOURCE_NAME);
         final Integer entityTypeId = CalendarEntityType.valueOf(entityType.toUpperCase()).getValue();
@@ -177,11 +190,13 @@ public class MeetingsApiResource {
         return this.toApiJsonSerializer.serialize(settings, meetingData, MEETING_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Create Meeting", description = "Create Meeting.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createMeeting(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createMeeting(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId, final String apiRequestBodyAsJson) {
 
         final CalendarEntityType calendarEntityType = CalendarEntityType.getEntityType(entityType);
         if (calendarEntityType == null) {
@@ -198,13 +213,16 @@ public class MeetingsApiResource {
 
     }
 
+    @Operation(summary = "Perform Meeting Commands", description = "Perform Meeting Commands.")
     @POST
     @Path("{meetingId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String performMeetingCommands(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            @PathParam("meetingId") final Long meetingId, @QueryParam("command") final String commandParam,
-            final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String performMeetingCommands(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
+            @PathParam("meetingId") @Parameter(description = "meetingId") final Long meetingId,
+            @QueryParam("command") @Parameter(description = "command") final String commandParam, final String apiRequestBodyAsJson) {
 
         final CommandWrapperBuilder builder = new CommandWrapperBuilder().withJson(apiRequestBodyAsJson);
 
@@ -220,12 +238,15 @@ public class MeetingsApiResource {
 
     }
 
+    @Operation(summary = "Update Meeting", description = "Update Meeting.")
     @PUT
     @Path("{meetingId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateMeeting(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            @PathParam("meetingId") final Long meetingId, final String jsonRequestBody) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateMeeting(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
+            @PathParam("meetingId") @Parameter(description = "meetingId") final Long meetingId, final String jsonRequestBody) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateMeeting(entityType, entityId, meetingId)
                 .withJson(jsonRequestBody).build();
@@ -235,12 +256,15 @@ public class MeetingsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete Meeting", description = "Delete Meeting.")
     @DELETE
     @Path("{meetingId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteMeeting(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            @PathParam("meetingId") final Long meetingId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteMeeting(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
+            @PathParam("meetingId") @Parameter(description = "meetingId") final Long meetingId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteMeeting(entityType, entityId, meetingId).build();
 

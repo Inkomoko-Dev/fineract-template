@@ -19,6 +19,9 @@
 
 package org.apache.fineract.portfolio.self.registration.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
@@ -50,16 +53,20 @@ public class SelfServiceRegistrationApiResource {
         this.toApiJsonSerializer = toApiJsonSerializer;
     }
 
+    @Operation(summary = "Create Self Service Registration Request", description = "Create Self Service Registration Request.")
     @POST
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String createSelfServiceRegistrationRequest(final String apiRequestBodyAsJson) {
         this.selfServiceRegistrationWritePlatformService.createRegistrationRequest(apiRequestBodyAsJson);
         return SelfServiceApiConstants.createRequestSuccessMessage;
     }
 
+    @Operation(summary = "Create Self Service User", description = "Create Self Service User.")
     @POST
     @Path("user")
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String createSelfServiceUser(final String apiRequestBodyAsJson) {
         AppUser user = this.selfServiceRegistrationWritePlatformService.createUser(apiRequestBodyAsJson);
         return this.toApiJsonSerializer.serialize(CommandProcessingResult.resourceResult(user.getId(), null));

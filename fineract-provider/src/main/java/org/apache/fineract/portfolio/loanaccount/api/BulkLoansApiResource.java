@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
 import java.util.Arrays;
@@ -87,12 +91,15 @@ public class BulkLoansApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Loan Reassignment Template", description = "Loan Reassignment Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String loanReassignmentTemplate(@QueryParam("officeId") final Long officeId,
-            @QueryParam("fromLoanOfficerId") final Long loanOfficerId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String loanReassignmentTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("fromLoanOfficerId") @Parameter(description = "fromLoanOfficerId") final Long loanOfficerId,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -116,9 +123,11 @@ public class BulkLoansApiResource {
         return this.toApiJsonSerializer.serialize(settings, loanReassignmentData, this.responseDataParameters);
     }
 
+    @Operation(summary = "Loan Reassignment", description = "Loan Reassignment.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String loanReassignment(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().assignLoanOfficersInBulk().withJson(apiRequestBodyAsJson).build();

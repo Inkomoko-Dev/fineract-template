@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.savings.api;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -92,12 +93,14 @@ public class SavingsAccountTransactionsApiResource {
         return StringUtils.isNotBlank(commandParam) && commandParam.trim().equalsIgnoreCase(commandValue);
     }
 
+    @Operation(summary = "Retrieve Template", description = "Retrieve Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveTemplate(@PathParam("savingsId") final Long savingsId,
-            // @QueryParam("command") final String commandParam,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveTemplate(@PathParam("savingsId") @Parameter(description = "savingsId") final Long savingsId,
+            // @QueryParam("command") @Parameter(description = "command") final String commandParam,
             @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(SavingsApiConstants.SAVINGS_ACCOUNT_RESOURCE_NAME);
@@ -114,11 +117,14 @@ public class SavingsAccountTransactionsApiResource {
                 SavingsApiSetConstants.SAVINGS_TRANSACTION_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve One", description = "Retrieve One.")
     @GET
     @Path("{transactionId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveOne(@PathParam("savingsId") final Long savingsId, @PathParam("transactionId") final Long transactionId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveOne(@PathParam("savingsId") @Parameter(description = "savingsId") final Long savingsId,
+            @PathParam("transactionId") @Parameter(description = "transactionId") final Long transactionId,
             @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(SavingsApiConstants.SAVINGS_ACCOUNT_RESOURCE_NAME);
@@ -134,14 +140,15 @@ public class SavingsAccountTransactionsApiResource {
                 SavingsApiSetConstants.SAVINGS_TRANSACTION_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Transaction", description = "Transaction.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @RequestBody(required = true, content = @Content(schema = @Schema(implementation = SavingsAccountTransactionsApiResourceSwagger.PostSavingsAccountTransactionsRequest.class)))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = SavingsAccountTransactionsApiResourceSwagger.PostSavingsAccountTransactionsResponse.class))) })
-    public String transaction(@PathParam("savingsId") final Long savingsId, @QueryParam("command") final String commandParam,
-            final String apiRequestBodyAsJson) {
+    public String transaction(@PathParam("savingsId") @Parameter(description = "savingsId") final Long savingsId,
+            @QueryParam("command") @Parameter(description = "command") final String commandParam, final String apiRequestBodyAsJson) {
         try {
             final CommandWrapperBuilder builder = new CommandWrapperBuilder().withJson(apiRequestBodyAsJson);
 

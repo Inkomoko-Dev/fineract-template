@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.rescheduleloan.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.HashSet;
 import java.util.List;
@@ -92,10 +96,12 @@ public class RescheduleLoansApiResource {
         this.codeValueReadPlatformService = codeValueReadPlatformService;
     }
 
+    @Operation(summary = "Retrieve Template", description = "Retrieve Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveTemplate(@Context final UriInfo uriInfo) {
 
         this.platformSecurityContext.authenticatedUser().validateHasReadPermission(RescheduleLoansApiConstants.ENTITY_NAME);
@@ -105,20 +111,23 @@ public class RescheduleLoansApiResource {
         String loanId = queryParameters.getFirst("loanId");
         LoanRescheduleRequestData loanRescheduleReasons = null;
         LoanTransactionData loanTransactionData = this.loanReadPlatformService.retrieveLoanTransactionTemplate(Long.valueOf(loanId));
-        loanRescheduleReasons = this.loanRescheduleRequestReadPlatformService
-                .retrieveAllRescheduleReasons(RescheduleLoansApiConstants.LOAN_RESCHEDULE_REASON,RescheduleLoansApiConstants.CHARGE_HANDLING_METHOD);
+        loanRescheduleReasons = this.loanRescheduleRequestReadPlatformService.retrieveAllRescheduleReasons(
+                RescheduleLoansApiConstants.LOAN_RESCHEDULE_REASON, RescheduleLoansApiConstants.CHARGE_HANDLING_METHOD);
 
         loanRescheduleReasons.updateLoanTransactionData(loanTransactionData);
 
         return this.loanRescheduleRequestToApiJsonSerializer.serialize(settings, loanRescheduleReasons);
     }
 
+    @Operation(summary = "Read Loan Reschedule Request", description = "Read Loan Reschedule Request.")
     @GET
     @Path("{scheduleId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String readLoanRescheduleRequest(@Context final UriInfo uriInfo, @PathParam("scheduleId") final Long scheduleId,
-            @QueryParam("command") final String command) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String readLoanRescheduleRequest(@Context final UriInfo uriInfo,
+            @PathParam("scheduleId") @Parameter(description = "scheduleId") final Long scheduleId,
+            @QueryParam("command") @Parameter(description = "command") final String command) {
         this.platformSecurityContext.authenticatedUser().validateHasReadPermission(RescheduleLoansApiConstants.ENTITY_NAME);
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
@@ -135,9 +144,11 @@ public class RescheduleLoansApiResource {
         return this.loanRescheduleRequestToApiJsonSerializer.serialize(settings, loanRescheduleRequestData);
     }
 
+    @Operation(summary = "Create Loan Reschedule Request", description = "Create Loan Reschedule Request.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String createLoanRescheduleRequest(final String apiRequestBodyAsJson) {
         final CommandWrapper commandWrapper = new CommandWrapperBuilder()
                 .createLoanRescheduleRequest(RescheduleLoansApiConstants.ENTITY_NAME).withJson(apiRequestBodyAsJson).build();
@@ -147,12 +158,14 @@ public class RescheduleLoansApiResource {
         return this.loanRescheduleRequestToApiJsonSerializer.serialize(commandProcessingResult);
     }
 
+    @Operation(summary = "Update Loan Reschedule Request", description = "Update Loan Reschedule Request.")
     @POST
     @Path("{scheduleId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateLoanRescheduleRequest(@PathParam("scheduleId") final Long scheduleId, @QueryParam("command") final String command,
-            final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateLoanRescheduleRequest(@PathParam("scheduleId") @Parameter(description = "scheduleId") final Long scheduleId,
+            @QueryParam("command") @Parameter(description = "command") final String command, final String apiRequestBodyAsJson) {
         CommandWrapper commandWrapper = null;
 
         if (compareIgnoreCase(command, "approve")) {
@@ -187,10 +200,13 @@ public class RescheduleLoansApiResource {
         return StringUtils.isNotBlank(firstString) && firstString.trim().equalsIgnoreCase(secondString);
     }
 
+    @Operation(summary = "Retrieve All Reschedule Request", description = "Retrieve All Reschedule Request.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAllRescheduleRequest(@Context final UriInfo uriInfo, @QueryParam("command") final String command) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAllRescheduleRequest(@Context final UriInfo uriInfo,
+            @QueryParam("command") @Parameter(description = "command") final String command) {
 
         this.platformSecurityContext.authenticatedUser().validateHasReadPermission(RescheduleLoansApiConstants.ENTITY_NAME);
 
@@ -226,11 +242,14 @@ public class RescheduleLoansApiResource {
      * return this.loanRescheduleRequestToApiJsonSerializer.serialize(settings, loanRescheduleReasons); }
      */
 
+    @Operation(summary = "Undo Loan Reschedule", description = "Undo Loan Reschedule.")
     @PUT
     @Path("{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String undoLoanReschedule(@PathParam("loanId") final Long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String undoLoanReschedule(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            final String apiRequestBodyAsJson) {
         CommandWrapper commandWrapper = new CommandWrapperBuilder().undoLoanReschedule(RescheduleLoansApiConstants.ENTITY_NAME, loanId)
                 .withJson(apiRequestBodyAsJson).build();
 

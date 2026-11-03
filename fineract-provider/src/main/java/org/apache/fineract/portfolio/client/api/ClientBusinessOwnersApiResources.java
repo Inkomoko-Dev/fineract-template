@@ -19,6 +19,10 @@
 
 package org.apache.fineract.portfolio.client.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -84,10 +88,12 @@ public class ClientBusinessOwnersApiResources {
 
     }
 
+    @Operation(summary = "Get Business Owner Template", description = "Get Business Owner Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getBusinessOwnerTemplate(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -98,10 +104,13 @@ public class ClientBusinessOwnersApiResources {
 
     }
 
+    @Operation(summary = "Retrieve Business Owners", description = "Retrieve Business Owners.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveBusinessOwners(@Context final UriInfo uriInfo, @PathParam("clientId") final long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveBusinessOwners(@Context final UriInfo uriInfo,
+            @PathParam("clientId") @Parameter(description = "clientId") final long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -112,12 +121,15 @@ public class ClientBusinessOwnersApiResources {
 
     }
 
+    @Operation(summary = "Get Family Member", description = "Get Family Member.")
     @GET
     @Path("/{businessOwnerId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getFamilyMember(@Context final UriInfo uriInfo, @PathParam("businessOwnerId") final Long businessOwnerId,
-            @PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getFamilyMember(@Context final UriInfo uriInfo,
+            @PathParam("businessOwnerId") @Parameter(description = "businessOwnerId") final Long businessOwnerId,
+            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -128,10 +140,13 @@ public class ClientBusinessOwnersApiResources {
 
     }
 
+    @Operation(summary = "Add Client Business Owner", description = "Add Client Business Owner.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String addClientBusinessOwner(@PathParam("clientId") final long clientid, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addClientBusinessOwner(@PathParam("clientId") @Parameter(description = "clientId") final long clientid,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().addBusinessOwner(clientid).withJson(apiRequestBodyAsJson).build();
 
@@ -140,12 +155,15 @@ public class ClientBusinessOwnersApiResources {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Client Business Owner", description = "Update Client Business Owner.")
     @PUT
     @Path("/{businessOwnerId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateClientBusinessOwner(@PathParam("businessOwnerId") final long businessOwnerId, final String apiRequestBodyAsJson,
-            @PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateClientBusinessOwner(
+            @PathParam("businessOwnerId") @Parameter(description = "businessOwnerId") final long businessOwnerId,
+            final String apiRequestBodyAsJson, @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateBusinessOwner(businessOwnerId, clientId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -155,12 +173,16 @@ public class ClientBusinessOwnersApiResources {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Owner Status", description = "Update Owner Status.")
     @GET
     @Path("/{businessOwnerId}/updateOwnerStatus")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public Boolean updateOwnerStatus(@Context final UriInfo uriInfo, @PathParam("businessOwnerId") final Long businessOwnerId,
-            @QueryParam("status") final Boolean status, @PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Boolean updateOwnerStatus(@Context final UriInfo uriInfo,
+            @PathParam("businessOwnerId") @Parameter(description = "businessOwnerId") final Long businessOwnerId,
+            @QueryParam("status") @Parameter(description = "status") final Boolean status,
+            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 

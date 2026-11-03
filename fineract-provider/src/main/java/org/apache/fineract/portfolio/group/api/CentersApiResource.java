@@ -410,19 +410,24 @@ public class CentersApiResource {
         return this.groupSummaryToApiJsonSerializer.serialize(groupAccount);
     }
 
+    @Operation(summary = "Get Centers Template", description = "Get Centers Template.")
     @GET
     @Path("downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getCentersTemplate(@QueryParam("officeId") final Long officeId, @QueryParam("staffId") final Long staffId,
-            @QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getCentersTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("staffId") @Parameter(description = "staffId") final Long staffId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.CENTERS.toString(), officeId, staffId, dateFormat);
     }
 
+    @Operation(summary = "Post Centers Template", description = "Post Centers Template.")
     @POST
     @Path("uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload centers template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postCentersTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
             @FormDataParam("dateFormat") final String dateFormat) {

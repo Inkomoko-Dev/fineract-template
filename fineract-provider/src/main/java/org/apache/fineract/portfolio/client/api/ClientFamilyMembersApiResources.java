@@ -19,7 +19,10 @@
 
 package org.apache.fineract.portfolio.client.api;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -79,11 +82,14 @@ public class ClientFamilyMembersApiResources {
 
     }
 
+    @Operation(summary = "Get Family Member", description = "Get Family Member.")
     @GET
     @Path("/{familyMemberId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getFamilyMember(@Context final UriInfo uriInfo, @PathParam("familyMemberId") final Long familyMemberId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getFamilyMember(@Context final UriInfo uriInfo,
+            @PathParam("familyMemberId") @Parameter(description = "familyMemberId") final Long familyMemberId,
             @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -95,10 +101,13 @@ public class ClientFamilyMembersApiResources {
 
     }
 
+    @Operation(summary = "Get Family Members", description = "Get Family Members.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getFamilyMembers(@Context final UriInfo uriInfo, @PathParam("clientId") final long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getFamilyMembers(@Context final UriInfo uriInfo,
+            @PathParam("clientId") @Parameter(description = "clientId") final long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -109,11 +118,14 @@ public class ClientFamilyMembersApiResources {
 
     }
 
+    @Operation(summary = "Get Template", description = "Get Template.")
     @GET
     @Path("/template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getTemplate(@Context final UriInfo uriInfo, @PathParam("clientId") final long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getTemplate(@Context final UriInfo uriInfo,
+            @PathParam("clientId") @Parameter(description = "clientId") final long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -124,12 +136,15 @@ public class ClientFamilyMembersApiResources {
 
     }
 
+    @Operation(summary = "Update Client Family Members", description = "Update Client Family Members.")
     @PUT
     @Path("/{familyMemberId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateClientFamilyMembers(@PathParam("familyMemberId") final long familyMemberId, final String apiRequestBodyAsJson,
-            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateClientFamilyMembers(
+            @PathParam("familyMemberId") @Parameter(description = "familyMemberId") final long familyMemberId,
+            final String apiRequestBodyAsJson, @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateFamilyMembers(familyMemberId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -139,10 +154,13 @@ public class ClientFamilyMembersApiResources {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Add Client Family Members", description = "Add Client Family Members.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String addClientFamilyMembers(@PathParam("clientId") final long clientid, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addClientFamilyMembers(@PathParam("clientId") @Parameter(description = "clientId") final long clientid,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().addFamilyMembers(clientid).withJson(apiRequestBodyAsJson).build();
 
@@ -151,12 +169,15 @@ public class ClientFamilyMembersApiResources {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete Client Family Members", description = "Delete Client Family Members.")
     @DELETE
     @Path("/{familyMemberId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteClientFamilyMembers(@PathParam("familyMemberId") final long familyMemberId, final String apiRequestBodyAsJson,
-            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteClientFamilyMembers(
+            @PathParam("familyMemberId") @Parameter(description = "familyMemberId") final long familyMemberId,
+            final String apiRequestBodyAsJson, @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteFamilyMembers(familyMemberId).withJson(apiRequestBodyAsJson)
                 .build();

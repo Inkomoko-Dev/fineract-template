@@ -125,7 +125,7 @@ public class JournalEntriesApiResource {
             @QueryParam("loanId") @Parameter(description = "loanId") final Long loanId,
             @QueryParam("savingsId") @Parameter(description = "savingsId") final Long savingsId,
             @QueryParam("runningBalance") @Parameter(description = "runningBalance") final boolean runningBalance,
-            @QueryParam("isPostedToOdoo")@Parameter(description = "isPostedToOdoo") final Boolean isPostedToOdoo,
+            @QueryParam("isPostedToOdoo") @Parameter(description = "isPostedToOdoo") final Boolean isPostedToOdoo,
             @QueryParam("transactionDetails") @Parameter(description = "transactionDetails") final boolean transactionDetails) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermission);
@@ -140,7 +140,7 @@ public class JournalEntriesApiResource {
         }
 
         final SearchParameters searchParameters = SearchParameters.forJournalEntries(officeId, offset, limit, orderBy, sortOrder, loanId,
-                savingsId,isPostedToOdoo);
+                savingsId, isPostedToOdoo);
         JournalEntryAssociationParametersData associationParametersData = new JournalEntryAssociationParametersData(transactionDetails,
                 runningBalance);
 
@@ -150,7 +150,7 @@ public class JournalEntriesApiResource {
         return this.apiJsonSerializerService.serialize(settings, glJournalEntries, RESPONSE_DATA_PARAMETERS);
     }
 
-
+    @Operation(summary = "Trigger Odoo Posting", description = "Trigger Odoo Posting.")
     @GET
     @Path("postToOdoo")
     @Consumes({ MediaType.APPLICATION_JSON })
@@ -158,12 +158,12 @@ public class JournalEntriesApiResource {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(array = @ArraySchema(schema = @Schema(implementation = JournalEntryData.class)))) })
     public String triggerOdooPosting(@Context final UriInfo uriInfo,
-                                     @QueryParam("fromDate") @Parameter(description = "fromDate") final DateParam fromDateParam,
-                                     @QueryParam("toDate") @Parameter(description = "toDate") final DateParam toDateParam,
-                                     @QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
-                                     @QueryParam("currency") @Parameter(description = "currency") final String currency,
-                                     @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat,
-                                     @QueryParam("locale") @Parameter(description = "locale") final String locale) {
+            @QueryParam("fromDate") @Parameter(description = "fromDate") final DateParam fromDateParam,
+            @QueryParam("toDate") @Parameter(description = "toDate") final DateParam toDateParam,
+            @QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("currency") @Parameter(description = "currency") final String currency,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat,
+            @QueryParam("locale") @Parameter(description = "locale") final String locale) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermission);
 
         LocalDate fromDate = null;
@@ -297,12 +297,15 @@ public class JournalEntriesApiResource {
         return this.apiJsonSerializerService.serialize(result);
     }
 
+    @Operation(summary = "Retrieve Journal Entries", description = "Retrieve Journal Entries.")
     @GET
     @Path("provisioning")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveJournalEntries(@QueryParam("offset") final Integer offset, @QueryParam("limit") final Integer limit,
-            @QueryParam("entryId") final Long entryId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveJournalEntries(@QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
+            @QueryParam("entryId") @Parameter(description = "entryId") final Long entryId, @Context final UriInfo uriInfo) {
         this.context.authenticatedUser();
         String transactionId = "P" + entryId;
         SearchParameters params = SearchParameters.forPagination(offset, limit);
@@ -312,12 +315,15 @@ public class JournalEntriesApiResource {
         return this.apiJsonSerializerService.serialize(settings, entries, RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve Opening Balance", description = "Retrieve Opening Balance.")
     @GET
     @Path("openingbalance")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveOpeningBalance(@Context final UriInfo uriInfo, @QueryParam("officeId") final Long officeId,
-            @QueryParam("currencyCode") final String currencyCode) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveOpeningBalance(@Context final UriInfo uriInfo,
+            @QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("currencyCode") @Parameter(description = "currencyCode") final String currencyCode) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermission);
         final OfficeOpeningBalancesData officeOpeningBalancesData = this.journalEntryReadPlatformService
@@ -330,19 +336,23 @@ public class JournalEntriesApiResource {
         return StringUtils.isNotBlank(commandParam) && commandParam.trim().equalsIgnoreCase(commandValue);
     }
 
+    @Operation(summary = "Get Journal Entries Template", description = "Get Journal Entries Template.")
     @GET
     @Path("downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getJournalEntriesTemplate(@QueryParam("officeId") final Long officeId,
-            @QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getJournalEntriesTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.GL_JOURNAL_ENTRIES.toString(), officeId, null, dateFormat);
     }
 
+    @Operation(summary = "Post Journal Entries Template", description = "Post Journal Entries Template.")
     @POST
     @Path("uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload journal entries template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postJournalEntriesTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
             @FormDataParam("dateFormat") final String dateFormat) {
@@ -351,11 +361,13 @@ public class JournalEntriesApiResource {
         return this.apiJsonSerializerService.serialize(importDocumentId);
     }
 
+    @Operation(summary = "Complete Odoo Journal Entries Post", description = "Complete Odoo Journal Entries Post.")
     @POST
     @Path("updateOdooStatus/{transactionId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String completeOdooJournalEntriesPost(@Parameter(hidden = true) final String apiRequestBodyAsJson){
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String completeOdooJournalEntriesPost(@Parameter(hidden = true) final String apiRequestBodyAsJson) {
         this.context.authenticatedUser().validateHasUpdatePermission(this.resourceNameForPermission);
 
         return this.odooService.updateJournalEntryWithOdooStatus(apiRequestBodyAsJson);

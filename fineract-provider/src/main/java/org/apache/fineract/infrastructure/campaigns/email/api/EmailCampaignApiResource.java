@@ -19,6 +19,11 @@
 package org.apache.fineract.infrastructure.campaigns.email.api;
 
 import com.google.gson.JsonElement;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Collection;
 import java.util.HashSet;
 import javax.ws.rs.Consumes;
@@ -62,6 +67,7 @@ import org.springframework.stereotype.Component;
 @Produces({ MediaType.APPLICATION_JSON })
 @Component
 @Scope("singleton")
+@Tag(name = "Email Campaign", description = "Email Campaign operations.")
 public class EmailCampaignApiResource {
 
     // change name to email campaign
@@ -102,10 +108,13 @@ public class EmailCampaignApiResource {
         this.previewCampaignMessageDefaultToApiJsonSerializer = previewCampaignMessageDefaultToApiJsonSerializer;
     }
 
+    @Operation(summary = "Retrieve One Campaign", description = "Retrieve One Campaign.")
     @GET
     @Path("{resourceId}")
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveOneCampaign(@PathParam("resourceId") final Long resourceId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveOneCampaign(@PathParam("resourceId") @Parameter(description = "resourceId") final Long resourceId,
+            @Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
         EmailCampaignData emailCampaignData = this.emailCampaignReadPlatformService.retrieveOne(resourceId);
@@ -114,8 +123,10 @@ public class EmailCampaignApiResource {
 
     }
 
+    @Operation(summary = "Retrieve All Campaign", description = "Retrieve All Campaign.")
     @GET
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAllCampaign(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -126,9 +137,11 @@ public class EmailCampaignApiResource {
         return this.emailCampaignDataDefaultToApiJsonSerializer.serialize(settings, emailCampaignDataCollection);
     }
 
+    @Operation(summary = "Create Campaign", description = "Create Campaign.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String createCampaign(final String apiRequestBodyAsJson, @Context final UriInfo uriInfo) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createEmailCampaign().withJson(apiRequestBodyAsJson).build();
@@ -138,12 +151,14 @@ public class EmailCampaignApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Campaign", description = "Update Campaign.")
     @PUT
     @Path("{resourceId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateCampaign(@PathParam("resourceId") final Long campaignId, final String apiRequestBodyAsJson,
-            @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateCampaign(@PathParam("resourceId") @Parameter(description = "resourceId") final Long campaignId,
+            final String apiRequestBodyAsJson, @Context final UriInfo uriInfo) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateEmailCampaign(campaignId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -153,12 +168,14 @@ public class EmailCampaignApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Activate", description = "Activate.")
     @POST
     @Path("{resourceId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String activate(@PathParam("resourceId") final Long campaignId, @QueryParam("command") final String commandParam,
-            final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String activate(@PathParam("resourceId") @Parameter(description = "resourceId") final Long campaignId,
+            @QueryParam("command") @Parameter(description = "command") final String commandParam, final String apiRequestBodyAsJson) {
         final CommandWrapperBuilder builder = new CommandWrapperBuilder().withJson(apiRequestBodyAsJson);
 
         CommandProcessingResult result = null;
@@ -176,10 +193,12 @@ public class EmailCampaignApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Preview", description = "Preview.")
     @POST
     @Path("preview")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String preview(final String apiRequestBodyAsJson, @Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -192,8 +211,10 @@ public class EmailCampaignApiResource {
 
     }
 
+    @Operation(summary = "Template", description = "Template.")
     @GET()
     @Path("template")
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String template(@Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -203,9 +224,12 @@ public class EmailCampaignApiResource {
         return this.toApiJsonSerializer.serialize(settings, emailBusinessRulesDataCollection);
     }
 
+    @Operation(summary = "Retrieve One Template", description = "Retrieve One Template.")
     @GET
     @Path("template/{resourceId}")
-    public String retrieveOneTemplate(@PathParam("resourceId") final Long resourceId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveOneTemplate(@PathParam("resourceId") @Parameter(description = "resourceId") final Long resourceId,
+            @Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
         final EmailBusinessRulesData emailBusinessRulesData = this.emailCampaignReadPlatformService.retrieveOneTemplate(resourceId);
@@ -214,9 +238,11 @@ public class EmailCampaignApiResource {
 
     }
 
+    @Operation(summary = "Delete", description = "Delete.")
     @DELETE
     @Path("{resourceId}")
-    public String delete(@PathParam("resourceId") final Long resourceId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String delete(@PathParam("resourceId") @Parameter(description = "resourceId") final Long resourceId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteEmailCampaign(resourceId).build();
 

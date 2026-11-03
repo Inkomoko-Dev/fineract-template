@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.savings.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -90,12 +94,15 @@ public class FixedDepositAccountTransactionsApiResource {
         return StringUtils.isNotBlank(commandParam) && commandParam.trim().equalsIgnoreCase(commandValue);
     }
 
+    @Operation(summary = "Retrieve Template", description = "Retrieve Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveTemplate(@PathParam("fixedDepositAccountId") final Long fixedDepositAccountId,
-            // @QueryParam("command") final String commandParam,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveTemplate(
+            @PathParam("fixedDepositAccountId") @Parameter(description = "fixedDepositAccountId") final Long fixedDepositAccountId,
+            // @QueryParam("command") @Parameter(description = "command") final String commandParam,
             @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(DepositsApiConstants.FIXED_DEPOSIT_ACCOUNT_RESOURCE_NAME);
@@ -111,12 +118,16 @@ public class FixedDepositAccountTransactionsApiResource {
                 SavingsApiSetConstants.SAVINGS_TRANSACTION_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve One", description = "Retrieve One.")
     @GET
     @Path("{transactionId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveOne(@PathParam("fixedDepositAccountId") final Long fixedDepositAccountId,
-            @PathParam("transactionId") final Long transactionId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveOne(
+            @PathParam("fixedDepositAccountId") @Parameter(description = "fixedDepositAccountId") final Long fixedDepositAccountId,
+            @PathParam("transactionId") @Parameter(description = "transactionId") final Long transactionId,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(DepositsApiConstants.FIXED_DEPOSIT_ACCOUNT_RESOURCE_NAME);
         SavingsAccountTransactionData transactionData = this.savingsAccountReadPlatformService
@@ -130,11 +141,14 @@ public class FixedDepositAccountTransactionsApiResource {
         return this.toApiJsonSerializer.serialize(settings, transactionData, FIXED_DEPOSIT_TRANSACTION_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Transaction", description = "Transaction.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String transaction(@PathParam("fixedDepositAccountId") final Long fixedDepositAccountId,
-            @QueryParam("command") final String commandParam, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String transaction(
+            @PathParam("fixedDepositAccountId") @Parameter(description = "fixedDepositAccountId") final Long fixedDepositAccountId,
+            @QueryParam("command") @Parameter(description = "command") final String commandParam, final String apiRequestBodyAsJson) {
 
         final CommandWrapperBuilder builder = new CommandWrapperBuilder().withJson(apiRequestBodyAsJson);
 
@@ -156,13 +170,16 @@ public class FixedDepositAccountTransactionsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Adjust Transaction", description = "Adjust Transaction.")
     @POST
     @Path("{transactionId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String adjustTransaction(@PathParam("fixedDepositAccountId") final Long fixedDepositAccountId,
-            @PathParam("transactionId") final Long transactionId, @QueryParam("command") final String commandParam,
-            final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String adjustTransaction(
+            @PathParam("fixedDepositAccountId") @Parameter(description = "fixedDepositAccountId") final Long fixedDepositAccountId,
+            @PathParam("transactionId") @Parameter(description = "transactionId") final Long transactionId,
+            @QueryParam("command") @Parameter(description = "command") final String commandParam, final String apiRequestBodyAsJson) {
 
         String jsonApiRequest = apiRequestBodyAsJson;
         if (StringUtils.isBlank(jsonApiRequest)) {

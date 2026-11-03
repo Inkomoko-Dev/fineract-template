@@ -116,10 +116,12 @@ public class TaxGroupApiResource {
         return this.toApiJsonSerializer.serialize(settings, taxGroupData);
     }
 
+    @Operation(summary = "Retrieve Template", description = "Retrieve Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveTemplate(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);

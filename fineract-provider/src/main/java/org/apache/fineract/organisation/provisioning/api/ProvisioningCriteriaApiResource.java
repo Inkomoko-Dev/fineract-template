@@ -117,10 +117,12 @@ public class ProvisioningCriteriaApiResource {
         this.versionToApiJsonSerializer = versionToApiJsonSerializer;
     }
 
+    @Operation(summary = "Retrieve Template", description = "Retrieve Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveTemplate(@Context final UriInfo uriInfo) {
         this.platformSecurityContext.authenticatedUser();
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());

@@ -577,19 +577,24 @@ public class GroupsApiResource {
         return this.groupSummaryToApiJsonSerializer.serialize(groupAccount);
     }
 
+    @Operation(summary = "Get Groups Template", description = "Get Groups Template.")
     @GET
     @Path("downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getGroupsTemplate(@QueryParam("officeId") final Long officeId, @QueryParam("staffId") final Long staffId,
-            @QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getGroupsTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("staffId") @Parameter(description = "staffId") final Long staffId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.GROUPS.toString(), officeId, staffId, dateFormat);
     }
 
+    @Operation(summary = "Post Group Template", description = "Post Group Template.")
     @POST
     @Path("uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload group template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postGroupTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
             @FormDataParam("dateFormat") final String dateFormat) {
@@ -598,12 +603,15 @@ public class GroupsApiResource {
         return this.toApiJsonSerializer.serialize(importDocumentId);
     }
 
+    @Operation(summary = "Retrieveglim Accounts", description = "Retrieveglim Accounts.")
     @GET
     @Path("{groupId}/glimaccounts")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveglimAccounts(@PathParam("groupId") final Long groupId,
-            @QueryParam("parentLoanAccountNo") final String parentLoanAccountNo, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveglimAccounts(@PathParam("groupId") @Parameter(description = "groupId") final Long groupId,
+            @QueryParam("parentLoanAccountNo") @Parameter(description = "parentLoanAccountNo") final String parentLoanAccountNo,
+            @Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission("GROUP");
         List<GLIMContainer> glimContainer = Collections.emptyList();
         if (parentLoanAccountNo == null) {
@@ -621,12 +629,15 @@ public class GroupsApiResource {
 
     }
 
+    @Operation(summary = "Retrieve Gsim Accounts", description = "Retrieve Gsim Accounts.")
     @GET
     @Path("{groupId}/gsimaccounts")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveGsimAccounts(@PathParam("groupId") final Long groupId,
-            @QueryParam("parentGSIMAccountNo") final String parentGSIMAccountNo, @QueryParam("parentGSIMId") final Long parentGSIMId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveGsimAccounts(@PathParam("groupId") @Parameter(description = "groupId") final Long groupId,
+            @QueryParam("parentGSIMAccountNo") @Parameter(description = "parentGSIMAccountNo") final String parentGSIMAccountNo,
+            @QueryParam("parentGSIMId") @Parameter(description = "parentGSIMId") final Long parentGSIMId,
             @QueryParam("name") @Parameter(description = "name") final String name,
             @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy, @Context final UriInfo uriInfo) {
         List<GSIMContainer> gsimContainer = new ArrayList<>();
