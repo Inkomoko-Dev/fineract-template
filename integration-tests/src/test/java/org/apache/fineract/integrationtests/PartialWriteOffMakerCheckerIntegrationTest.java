@@ -66,6 +66,8 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
     private static final Logger LOG = LoggerFactory.getLogger(PartialWriteOffMakerCheckerIntegrationTest.class);
 
     private static final String LP_PRINCIPAL = "10,000.00";
+    /** Large enough principal for EQG 50k threshold / 100k above-threshold scenarios. */
+    private static final String LP_PRINCIPAL_HIGH_VALUE = "200,000.00";
     private static final String LP_REPAYMENTS = "2";
     private static final String LP_REPAYMENT_PERIOD = "6";
     private static final String LP_INTEREST_RATE = "2";
@@ -76,6 +78,7 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
     private static final String PARTIAL_WRITE_OFF_DATE = "15 March 2026";
     private static final String TEST_PASSWORD = "password";
     private static final String THRESHOLD_CONFIG_NAME = "partial-write-off-approval-amount-threshold";
+    private static final long DEFAULT_THRESHOLD = 50000L;
 
     private RequestSpecification requestSpec;
     private ResponseSpecification responseSpec;
@@ -270,26 +273,27 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
 
     @Test
     public void testJuniorCheckerCanApproveAtOrBelowThreshold() {
-        setThreshold(400L, true);
-        final Integer loanID = createActiveLoan();
+        // EQG: default seed threshold 50000; at-threshold does not require senior (strict >)
+        setThreshold(DEFAULT_THRESHOLD, true);
+        final Integer loanID = createActiveLoan(LP_PRINCIPAL_HIGH_VALUE);
         final TestUser maker = createMakerUser();
         final TestUser juniorChecker = createCheckerUser(false);
 
-        // Exactly at threshold — senior not required (strict >)
-        final Integer atThresholdId = submitPartialWriteOffAs(maker, loanID, "400.00");
+        final Integer atThresholdId = submitPartialWriteOffAs(maker, loanID, "50000.00");
         approveAs(juniorChecker, atThresholdId, "{\"note\":\"at threshold\"}");
-        assertTrue(hasPartialWriteOffTransaction(loanID), "Junior checker may approve amount at threshold");
+        assertTrue(hasPartialWriteOffTransaction(loanID), "Junior checker may approve amount at 50k threshold");
     }
 
     @Test
     public void testJuniorCheckerCannotApproveAboveThresholdButSeniorCan() {
-        setThreshold(400L, true);
-        final Integer loanID = createActiveLoan();
+        // EQG: 100k write-off with 50k threshold — junior denied, senior allowed
+        setThreshold(DEFAULT_THRESHOLD, true);
+        final Integer loanID = createActiveLoan(LP_PRINCIPAL_HIGH_VALUE);
         final TestUser maker = createMakerUser();
         final TestUser juniorChecker = createCheckerUser(false);
         final TestUser seniorChecker = createCheckerUser(true);
 
-        final Integer commandId = submitPartialWriteOffAs(maker, loanID, "500.00");
+        final Integer commandId = submitPartialWriteOffAs(maker, loanID, "100000.00");
 
         final ResponseSpecification expectForbidden = new ResponseSpecBuilder().expectStatusCode(403).build();
         final String denied = Utils.performServerPost(juniorChecker.spec, expectForbidden,
@@ -300,7 +304,7 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
         assertFalse(hasPartialWriteOffTransaction(loanID), "Write-off must not post after junior denial");
 
         approveAs(seniorChecker, commandId, "{\"note\":\"senior approve\"}");
-        assertTrue(hasPartialWriteOffTransaction(loanID), "Senior checker may approve amount above threshold");
+        assertTrue(hasPartialWriteOffTransaction(loanID), "Senior checker may approve 100k above 50k threshold");
     }
 
     private void setThreshold(final long value, final boolean enabled) {
@@ -356,11 +360,15 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
     }
 
     private Integer createActiveLoan() {
+        return createActiveLoan(LP_PRINCIPAL);
+    }
+
+    private Integer createActiveLoan(final String principal) {
         final Integer clientID = ClientHelper.createClient(this.requestSpec, this.responseSpec, DATE_OF_JOINING);
         ClientHelper.verifyClientCreatedOnServer(this.requestSpec, this.responseSpec, clientID);
 
-        final Integer loanProductID = createLoanProduct();
-        final Integer loanID = applyForLoanApplication(clientID, loanProductID);
+        final Integer loanProductID = createLoanProduct(principal);
+        final Integer loanID = applyForLoanApplication(clientID, loanProductID, principal);
 
         HashMap loanStatusHashMap = LoanStatusChecker.getStatusOfLoan(this.requestSpec, this.responseSpec, loanID);
         LoanStatusChecker.verifyLoanIsPending(loanStatusHashMap);
@@ -386,16 +394,16 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
         return new Gson().toJson(map);
     }
 
-    private Integer createLoanProduct() {
+    private Integer createLoanProduct(final String principal) {
         LOG.info("------------------------------CREATING NEW LOAN PRODUCT ---------------------------------------");
-        final String loanProductJSON = new LoanProductTestBuilder().withPrincipal(LP_PRINCIPAL).withRepaymentTypeAsMonth()
+        final String loanProductJSON = new LoanProductTestBuilder().withPrincipal(principal).withRepaymentTypeAsMonth()
                 .withRepaymentAfterEvery(LP_REPAYMENT_PERIOD).withNumberOfRepayments(LP_REPAYMENTS).withRepaymentTypeAsMonth()
                 .withinterestRatePerPeriod(LP_INTEREST_RATE).withInterestRateFrequencyTypeAsMonths()
                 .withAmortizationTypeAsEqualPrincipalPayment().withInterestTypeAsFlat().build(null);
         return this.loanTransactionHelper.getLoanProductId(loanProductJSON);
     }
 
-    private Integer applyForLoanApplication(final Integer clientID, final Integer loanProductID) {
+    private Integer applyForLoanApplication(final Integer clientID, final Integer loanProductID, final String principal) {
         LOG.info("--------------------------------APPLYING FOR LOAN APPLICATION--------------------------------");
         final List<HashMap> collaterals = new ArrayList<>();
         final Integer collateralId = CollateralManagementHelper.createCollateralProduct(this.requestSpec, this.responseSpec);
@@ -405,7 +413,7 @@ public class PartialWriteOffMakerCheckerIntegrationTest {
         Assertions.assertNotNull(clientCollateralId);
         collaterals.add(collateral(clientCollateralId, BigDecimal.valueOf(1)));
 
-        final String loanApplicationJSON = new LoanApplicationTestBuilder().withPrincipal(LP_PRINCIPAL)
+        final String loanApplicationJSON = new LoanApplicationTestBuilder().withPrincipal(principal)
                 .withLoanTermFrequency("12").withLoanTermFrequencyAsMonths().withNumberOfRepayments(LP_REPAYMENTS)
                 .withRepaymentEveryAfter(LP_REPAYMENT_PERIOD).withRepaymentFrequencyTypeAsMonths()
                 .withInterestRatePerPeriod(LP_INTEREST_RATE).withInterestTypeAsFlatBalance()
