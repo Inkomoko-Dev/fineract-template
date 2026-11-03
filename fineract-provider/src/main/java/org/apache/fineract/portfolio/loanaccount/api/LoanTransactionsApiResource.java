@@ -58,6 +58,7 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+import org.apache.fineract.portfolio.loanaccount.excessrefund.service.ExcessRefundDirectCbrGuard;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargePaidByReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
@@ -85,6 +86,7 @@ public class LoanTransactionsApiResource {
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
     private final LoanChargePaidByReadPlatformService loanChargePaidByReadPlatformService;
     private final ConfigurationReadPlatformService configurationReadPlatformService;
+    private final ExcessRefundDirectCbrGuard excessRefundDirectCbrGuard;
 
     @Autowired
     public LoanTransactionsApiResource(final PlatformSecurityContext context, final LoanReadPlatformService loanReadPlatformService,
@@ -93,7 +95,8 @@ public class LoanTransactionsApiResource {
             final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService,
             PaymentTypeReadPlatformService paymentTypeReadPlatformService,
             LoanChargePaidByReadPlatformService loanChargePaidByReadPlatformService,
-            ConfigurationReadPlatformService configurationReadPlatformService) {
+            ConfigurationReadPlatformService configurationReadPlatformService,
+            final ExcessRefundDirectCbrGuard excessRefundDirectCbrGuard) {
         this.context = context;
         this.loanReadPlatformService = loanReadPlatformService;
         this.apiRequestParameterHelper = apiRequestParameterHelper;
@@ -102,6 +105,7 @@ public class LoanTransactionsApiResource {
         this.paymentTypeReadPlatformService = paymentTypeReadPlatformService;
         this.loanChargePaidByReadPlatformService = loanChargePaidByReadPlatformService;
         this.configurationReadPlatformService = configurationReadPlatformService;
+        this.excessRefundDirectCbrGuard = excessRefundDirectCbrGuard;
     }
 
     private boolean is(final String commandParam, final String commandValue) {
@@ -294,6 +298,7 @@ public class LoanTransactionsApiResource {
             final CommandWrapper commandRequest = builder.loanForeclosure(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else if (is(commandParam, "creditBalanceRefund")) {
+            this.excessRefundDirectCbrGuard.assertDirectCbrAllowed(loanId);
             final CommandWrapper commandRequest = builder.creditBalanceRefund(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         }
