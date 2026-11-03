@@ -29,6 +29,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
@@ -41,6 +43,7 @@ import org.apache.fineract.portfolio.calendar.domain.CalendarFrequencyType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 public class WhatsAppCampaignValidator {
 
@@ -97,6 +100,7 @@ public class WhatsAppCampaignValidator {
         if (StringUtils.isBlank(json)) {
             throw new InvalidJsonException();
         }
+        log.info("json{}", json);
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, supportedParams);
@@ -313,6 +317,12 @@ public class WhatsAppCampaignValidator {
             return;
         }
         final String recipientTypeValue = this.fromApiJsonHelper.extractStringNamed(recipientType, element);
+        // Allow null/blank recipientType — the domain layer defaults it to RecipientType.CLIENT
+        // (see WhatsAppCampaign.createNew -> resolveRecipientType). Skip validation so a null
+        // value is not rejected outright.
+        if (StringUtils.isBlank(recipientTypeValue)) {
+            return;
+        }
         baseDataValidator.reset().parameter(recipientType).value(recipientTypeValue).notBlank()
                 .isOneOfTheseStringValues(RecipientType.CLIENT.name(), RecipientType.STAFF.name());
     }

@@ -293,6 +293,39 @@ public class ReadReportingServiceImplTest {
     }
 
     @Test
+    public void loanRepaymentReportGroupsByAllSelectedNonAggregatedColumns() {
+        final String loanRepaymentSql = "select ml.id as loanId,mc.id, mc.firstname, ifnull(mc.middlename,'') as middlename, "
+                + "mc.lastname, mc.display_name as FullName, mobile_no as mobileNo, mc.group_name as GroupName, "
+                + "round(ml.principal_amount, ml.currency_digits) as LoanAmount, round(ml.`total_outstanding_derived`, "
+                + "ml.currency_digits) as LoanOutstanding, ml.`account_no` as LoanAccountId, round(mlt.amountPaid, "
+                + "ml.currency_digits) as repaymentAmount FROM m_office mo JOIN m_office ounder ON ounder.hierarchy "
+                + "LIKE CONCAT(mo.hierarchy, '%') AND ounder.hierarchy like CONCAT('.', '%') LEFT JOIN ( select "
+                + "ml.id as loanId, ifnull(mc.id,mc2.id) as id, ifnull(mc.firstname,mc2.firstname) as firstname, "
+                + "ifnull(mc.middlename,ifnull(mc2.middlename,(''))) as middlename, ifnull(mc.lastname,mc2.lastname) "
+                + "as lastname, ifnull(mc.display_name,mc2.display_name) as display_name, ifnull(mc.status_enum,mc2."
+                + "status_enum) as status_enum, ifnull(mc.mobile_no,mc2.mobile_no) as mobile_no, ifnull(mg.office_id,"
+                + "mc2.office_id) as office_id, ifnull(mg.staff_id,mc2.staff_id) as staff_id, mg.id as group_id, "
+                + "mg.display_name as group_name from m_loan ml left join m_group mg on mg.id = ml.group_id left "
+                + "join m_group_client mgc on mgc.group_id = mg.id left join m_client mc on mc.id = mgc.client_id "
+                + "left join m_client mc2 on mc2.id = ml.client_id order by loanId ) mc on mc.office_id = "
+                + "ounder.id right join m_loan as ml on mc.loanId = ml.id right join( select mlt.amount as "
+                + "amountPaid,mlt.id,mlt.loan_id from m_loan_transaction mlt where mlt.is_reversed = 0 group by "
+                + "mlt.loan_id ) as mlt on mlt.loan_id = ml.id right join m_loan_repayment_schedule as mls1 on "
+                + "ml.id = mls1.loan_id and mls1.`completed_derived` = 0 and mls1.installment = (SELECT MIN(installment) "
+                + "from m_loan_repayment_schedule where loan_id = ml.id and duedate <= CURDATE() and "
+                + "completed_derived=0) where mc.status_enum = 300 and mobile_no is not null and ml.`loan_status_id` "
+                + "= 300 and (mo.id = ${officeId} or ${officeId} = -1) and (mc.staff_id = ${loanOfficerId} or "
+                + "${loanOfficerId} = -1) and (ml.loan_type_enum = ${loanType} or ${loanType} = -1) and ml.id in "
+                + "(select mla.loan_id from m_loan_arrears_aging mla) group by ml.id";
+
+        final String sql = service.buildReportSql(loanRepaymentSql,
+                Map.of("${officeId}", "120", "${loanOfficerId}", "-1", "${loanType}", "1"), false, null, null);
+
+        assertThat(sql).contains("group by ml.id, mc.id, mc.firstname, mc.middlename, mc.lastname, "
+                + "mc.display_name, mc.mobile_no, mc.group_name, mlt.amountPaid");
+    }
+
+    @Test
     public void exportCancelsTheQueryWhenTheClientStopsReading() throws Exception {
         final PreparedStatement statement = org.mockito.Mockito.mock(PreparedStatement.class);
         final ResultSet rs = resultSet(new String[] { "Client" }, new String[] { "VARCHAR" }, new String[] { "Doe" });
