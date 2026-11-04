@@ -114,7 +114,7 @@ public final class WhatsAppCampaignData {
             final Collection<EnumOptionData> frequencyTypeOptions, final Collection<EnumOptionData> periodFrequencyOptions,
             final Collection<EnumOptionData> recipientTypeOptions) {
         return new WhatsAppCampaignData(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, businessRulesOptions, campaignTypeOptions, triggerTypeOptions, months, weekDays, frequencyTypeOptions,
+                null, null, null, null, businessRulesOptions, campaignTypeOptions, triggerTypeOptions, months, weekDays, frequencyTypeOptions,
                 periodFrequencyOptions, recipientTypeOptions);
     }
 

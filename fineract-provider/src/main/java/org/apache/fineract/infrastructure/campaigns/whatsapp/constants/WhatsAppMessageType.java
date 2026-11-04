@@ -35,13 +35,9 @@ public enum WhatsAppMessageType {
     }
 
     public static EnumOptionData messageType(final WhatsAppMessageType messageType) {
-        switch (messageType) {
-            case TEMPLATE:
-                return new EnumOptionData(WhatsAppMessageType.TEMPLATE.name(), WhatsAppMessageType.TEMPLATE.getCode(), "Template");
-            case FREEFORM:
-                return new EnumOptionData(WhatsAppMessageType.FREEFORM.name(), WhatsAppMessageType.FREEFORM.getCode(), "Freeform");
-            default:
-                return new EnumOptionData(WhatsAppMessageType.TEMPLATE.name(), WhatsAppMessageType.TEMPLATE.getCode(), "Template");
-        }
+        return switch (messageType) {
+            case TEMPLATE -> new EnumOptionData(null, WhatsAppMessageType.TEMPLATE.getCode(), "Template");
+            case FREEFORM -> new EnumOptionData(null, WhatsAppMessageType.FREEFORM.getCode(), "Freeform");
+        };
     }
 }

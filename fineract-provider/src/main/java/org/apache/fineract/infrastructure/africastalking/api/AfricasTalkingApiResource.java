@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.africastalking.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.io.IOException;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -146,13 +147,13 @@ public class AfricasTalkingApiResource {
     @Path("template/send")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createTemplate(final String apiRequestBodyAsJson) {
+    public String createTemplate(final String apiRequestBodyAsJson) throws IOException {
         this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
-        final AfricasTalkingApiResponse response = this.africastalkingClient.createWhatsAppTemplateFromJson(apiRequestBodyAsJson);
-        return this.commandProcessingResultSerializer.serializeResult(CommandProcessingResult
-                .builder(response.code() == 200 ? CommandProcessingResult.Status.Ok : CommandProcessingResult.Status.ServerError,
-                        response.body())
-                .build());
+        var response = this.africastalkingClient.createWhatsAppTemplateFromJson(apiRequestBodyAsJson);
+        final CommandProcessingResult result = new CommandProcessingResult(
+                response.statusCode() == 200 ? 1L : null
+        );
+        return this.commandProcessingResultSerializer.serializeResult(result);
     }
 
     @POST

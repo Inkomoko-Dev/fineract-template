@@ -35,7 +35,6 @@ import org.apache.fineract.infrastructure.campaigns.sms.data.SmsBusinessRulesDat
 import org.apache.fineract.infrastructure.campaigns.sms.service.SmsCampaignDropdownReadPlatformService;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignEnumerations;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
-import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppMessageType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.data.WhatsAppCampaignData;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.data.WhatsAppCampaignTimeLine;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaign;
