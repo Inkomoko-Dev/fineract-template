@@ -1509,12 +1509,32 @@ public class LoanProduct extends AbstractPersistableCustom {
         return this.loanProducTrancheDetails.maxTrancheCount();
     }
 
+    public Integer minTrancheCount() {
+        return this.loanProducTrancheDetails.minTrancheCount();
+    }
+
     public String getTranchePrincipalPercentages() {
         return this.loanProducTrancheDetails.getTranchePrincipalPercentages();
     }
 
     public BigDecimal getPreviousTrancheRepaidPercentage() {
         return this.loanProducTrancheDetails.getPreviousTrancheRepaidPercentage();
+    }
+
+    public BigDecimal getFirstInstallmentPrincipal() {
+        return this.loanProducTrancheDetails.getFirstInstallmentPrincipal();
+    }
+
+    public Boolean getFirstInstallmentAsPercentage() {
+        return this.loanProducTrancheDetails.getFirstInstallmentAsPercentage();
+    }
+
+    public Boolean getFirstTrancheAsPercentage() {
+        return this.loanProducTrancheDetails.getFirstTrancheAsPercentage();
+    }
+
+    public BigDecimal getFirstTrancheAmount() {
+        return this.loanProducTrancheDetails.getFirstTrancheAmount();
     }
 
     public boolean isInterestRecalculationEnabled() {

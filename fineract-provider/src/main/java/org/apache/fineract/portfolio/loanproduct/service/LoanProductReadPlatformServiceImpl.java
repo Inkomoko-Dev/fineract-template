@@ -201,8 +201,10 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.min_days_between_disbursal_and_first_repayment As minimumDaysBetweenDisbursalAndFirstRepayment, "
                     + "lp.amortization_method_enum as amortizationMethod, lp.arrearstolerance_amount as tolerance, "
                     + "lp.accounting_type as accountingType, lp.include_in_borrower_cycle as includeInBorrowerCycle,lp.use_borrower_cycle as useBorrowerCycle, lp.start_date as startDate, lp.close_date as closeDate,  "
-                    + "lp.allow_multiple_disbursals as multiDisburseLoan, lp.max_disbursals as maxTrancheCount, lp.max_outstanding_loan_balance as outstandingLoanBalance, "
+                    + "lp.allow_multiple_disbursals as multiDisburseLoan, lp.max_disbursals as maxTrancheCount, lp.min_tranche_count as minTrancheCount, lp.max_outstanding_loan_balance as outstandingLoanBalance, "
                     + "lp.tranche_principal_percentages as tranchePrincipalPercentages, lp.previous_tranche_repaid_percentage as previousTrancheRepaidPercentage, "
+                    + "lp.first_installment_principal as firstInstallmentPrincipal, lp.first_installment_as_percentage as firstInstallmentAsPercentage, "
+                    + "lp.first_tranche_as_percentage as firstTrancheAsPercentage, lp.first_tranche_amount as firstTrancheAmount, "
                     + "lp.disallow_expected_disbursements as disallowExpectedDisbursements, lp.allow_approved_disbursed_amounts_over_applied as allowApprovedDisbursedAmountsOverApplied, lp.over_applied_calculation_type as overAppliedCalculationType, over_applied_number as overAppliedNumber, "
                     + "lp.days_in_month_enum as daysInMonth, lp.days_in_year_enum as daysInYear, lp.interest_recalculation_enabled as isInterestRecalculationEnabled, "
                     + "lp.can_define_fixed_emi_amount as canDefineInstallmentAmount, lp.instalment_amount_in_multiples_of as installmentAmountInMultiplesOf, "
@@ -520,6 +522,13 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             loanProductData.setEnableThirdPartyDisbursement(enableThirdPartyDisbursement);
             loanProductData.setTranchePrincipalPercentages(rs.getString("tranchePrincipalPercentages"));
             loanProductData.setPreviousTrancheRepaidPercentage(rs.getBigDecimal("previousTrancheRepaidPercentage"));
+            loanProductData.setFirstInstallmentPrincipal(rs.getBigDecimal("firstInstallmentPrincipal"));
+            loanProductData.setFirstInstallmentAsPercentage(
+                    rs.getObject("firstInstallmentAsPercentage") == null ? null : rs.getBoolean("firstInstallmentAsPercentage"));
+            loanProductData.setFirstTrancheAsPercentage(
+                    rs.getObject("firstTrancheAsPercentage") == null ? null : rs.getBoolean("firstTrancheAsPercentage"));
+            loanProductData.setFirstTrancheAmount(rs.getBigDecimal("firstTrancheAmount"));
+            loanProductData.setMinTrancheCount(rs.getObject("minTrancheCount") == null ? null : rs.getInt("minTrancheCount"));
             return loanProductData;
         }
     }

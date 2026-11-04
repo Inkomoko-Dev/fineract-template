@@ -212,12 +212,12 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheDisbursementC
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
 import org.apache.fineract.portfolio.loanaccount.domain.PartialWriteOffAudit;
 import org.apache.fineract.portfolio.loanaccount.domain.PartialWriteOffAuditRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.ResidualLoanAdjustmentAudit;
 import org.apache.fineract.portfolio.loanaccount.domain.ResidualLoanAdjustmentAuditRepository;
 import org.apache.fineract.portfolio.loanaccount.exception.DateMismatchException;
-import org.apache.fineract.portfolio.loanaccount.exception.ExceedingTrancheCountException;
 import org.apache.fineract.portfolio.loanaccount.exception.GLIMLoanCannotBeDisbursedDirectlyException;
 import org.apache.fineract.portfolio.loanaccount.exception.InstallmentNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactionTypeException;
@@ -3643,11 +3643,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
         }
 
-        if (loan.getDisbursementDetails().size() > loan.loanProduct().maxTrancheCount()) {
-            final String errorMessage = "Number of tranche shouldn't be greter than " + loan.loanProduct().maxTrancheCount();
-            throw new ExceedingTrancheCountException(LoanApiConstants.disbursementDataParameterName, errorMessage,
-                    loan.loanProduct().maxTrancheCount(), loan.getDisbursementDetails().size());
-        }
+        TrancheReleaseRules.requireTrancheCount(loan.getDisbursementDetails().size(), loan.loanProduct().minTrancheCount(),
+                loan.loanProduct().maxTrancheCount());
         LoanDisbursementDetails updateDetails = null;
         return processLoanDisbursementDetail(loan, loanId, command, updateDetails);
 

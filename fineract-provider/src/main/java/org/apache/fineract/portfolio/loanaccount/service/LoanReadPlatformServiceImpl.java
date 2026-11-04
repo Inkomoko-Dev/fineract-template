@@ -1340,6 +1340,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " l.is_bnpl_loan as isBnplLoan, lp.residual_auto_close_enabled as residualAutoCloseEnabled, "
                     + " lp.residual_closure_threshold as residualClosureThreshold, "
                     + " l.requires_equity_contribution as requiresEquityContribution, l.equity_contribution_loan_percentage as equityContributionLoanPercentage, "
+                    + " l.first_installment_principal as firstInstallmentPrincipal, l.first_installment_as_percentage as firstInstallmentAsPercentage, l.tranche_principal_percentages as tranchePrincipalPercentages, "
+                    + " l.previous_tranche_repaid_percentage as previousTrancheRepaidPercentage, "
+                    + " l.previous_tranche_threshold_as_percentage as previousTrancheThresholdAsPercentage, "
                     + " lp.can_use_for_topup as canUseForTopup, " + " l.is_topup as isTopup, " + " topup.closure_loan_id as closureLoanId, "
                     + " l.total_recovered_derived as totalRecovered" + ", topuploan.account_no as closureLoanAccountNo, "
                     + " topup.topup_amount as topupAmount ,l.department_cv_id as departmentId,departmentV.code_value as departmentCode, "
@@ -1759,6 +1762,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanAccountData.setThirdPartyDisbursementProvider(rs.getString("thirdPartyDisbursementProvider"));
             loanAccountData.setRequiresEquityContribution(requiresEquityContribution);
             loanAccountData.setEquityContributionLoanPercentage(equityContributionLoanPercentage);
+            loanAccountData.setFirstInstallmentPrincipal(rs.getBigDecimal("firstInstallmentPrincipal"));
+            loanAccountData.setFirstInstallmentAsPercentage(
+                    rs.getObject("firstInstallmentAsPercentage") == null ? null : rs.getBoolean("firstInstallmentAsPercentage"));
+            loanAccountData.setTranchePrincipalPercentages(rs.getString("tranchePrincipalPercentages"));
+            loanAccountData.setPreviousTrancheRepaidPercentage(rs.getBigDecimal("previousTrancheRepaidPercentage"));
+            loanAccountData.setPreviousTrancheThresholdAsPercentage(
+                    rs.getObject("previousTrancheThresholdAsPercentage") == null ? null
+                            : rs.getBoolean("previousTrancheThresholdAsPercentage"));
             loanAccountData.setDepartment(department);
             loanAccountData.setLoanDecisionState(loanDecisionStateEnumData);
             loanAccountData.setNextLoanIcReviewDecisionState(nextLoanIcReviewDecisionStateEnumData);
@@ -2608,7 +2619,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " dd.payment_to as paymentTo, dd.disbursement_type as disbursementType, dd.beneficiary_name as beneficiaryName, "
                     + " dd.client_phone_number as clientPhoneNumber, dd.client_account_number as clientAccountNumber, "
                     + " dd.client_bank_name as clientBankName, dd.payment_type_id as paymentTypeId, pt.value as paymentTypeName, "
-                    + " dd.supplier_id as supplierId, s.external_id as supplierExternalId, s.name as supplierName, s.source_system as supplierSourceSystem "
+                    + " dd.supplier_id as supplierId, s.external_id as supplierExternalId, s.name as supplierName, s.source_system as supplierSourceSystem, "
+                    + " dd.previous_tranche_repaid_minimum as previousTrancheRepaidMinimum, "
+                    + " dd.previous_tranche_repaid_as_percentage as previousTrancheRepaidAsPercentage, "
+                    + " dd.principal_as_percentage as principalAsPercentage, dd.principal_percentage as principalPercentage "
                     + "from m_loan l inner join m_loan_disbursement_detail dd on dd.loan_id = l.id "
                     + "left join m_payment_type pt on pt.id = dd.payment_type_id " + "left join m_supplier s on s.id = dd.supplier_id "
                     + "left join m_loan_tranche_disbursement_charge tdc on tdc.disbursement_detail_id=dd.id "
@@ -2628,12 +2642,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             if (chargeAmount != null && waivedAmount != null) {
                 chargeAmount = chargeAmount.subtract(waivedAmount);
             }
-            return new DisbursementData(id, expectedDisbursementdate, actualDisbursementdate, principal, netDisbursalAmount, loanChargeId,
-                    chargeAmount, waivedAmount, JdbcSupport.getInteger(rs, "paymentTo"), rs.getString("disbursementType"),
-                    rs.getString("beneficiaryName"), rs.getString("clientPhoneNumber"), rs.getString("clientAccountNumber"),
-                    rs.getString("clientBankName"), JdbcSupport.getLong(rs, "paymentTypeId"), rs.getString("paymentTypeName"),
-                    JdbcSupport.getLong(rs, "supplierId"), rs.getString("supplierExternalId"), rs.getString("supplierName"),
-                    rs.getString("supplierSourceSystem"));
+            final DisbursementData data = new DisbursementData(id, expectedDisbursementdate, actualDisbursementdate, principal,
+                    netDisbursalAmount, loanChargeId, chargeAmount, waivedAmount, JdbcSupport.getInteger(rs, "paymentTo"),
+                    rs.getString("disbursementType"), rs.getString("beneficiaryName"), rs.getString("clientPhoneNumber"),
+                    rs.getString("clientAccountNumber"), rs.getString("clientBankName"), JdbcSupport.getLong(rs, "paymentTypeId"),
+                    rs.getString("paymentTypeName"), JdbcSupport.getLong(rs, "supplierId"), rs.getString("supplierExternalId"),
+                    rs.getString("supplierName"), rs.getString("supplierSourceSystem"));
+            data.setPreviousTrancheRepaidMinimum(rs.getBigDecimal("previousTrancheRepaidMinimum"));
+            data.setPreviousTrancheRepaidAsPercentage(rs.getObject("previousTrancheRepaidAsPercentage") == null ? null
+                    : rs.getBoolean("previousTrancheRepaidAsPercentage"));
+            data.setPrincipalAsPercentage(
+                    rs.getObject("principalAsPercentage") == null ? null : rs.getBoolean("principalAsPercentage"));
+            data.setPrincipalPercentage(rs.getBigDecimal("principalPercentage"));
+            return data;
         }
 
     }

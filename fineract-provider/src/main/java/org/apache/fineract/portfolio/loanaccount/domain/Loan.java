@@ -110,7 +110,6 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanCollateralManagementDa
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.LoanRepaymentScheduleTransactionProcessor;
-import org.apache.fineract.portfolio.loanaccount.exception.ExceedingTrancheCountException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactionTypeException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidRefundDateException;
@@ -431,6 +430,21 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     @Column(name = "equity_contribution_loan_percentage", scale = 6, precision = 19)
     private BigDecimal equityContributionLoanPercentage;
+
+    @Column(name = "first_installment_principal", scale = 6, precision = 19)
+    private BigDecimal firstInstallmentPrincipal;
+
+    @Column(name = "first_installment_as_percentage")
+    private Boolean firstInstallmentAsPercentage;
+
+    @Column(name = "tranche_principal_percentages", length = 255)
+    private String tranchePrincipalPercentages;
+
+    @Column(name = "previous_tranche_repaid_percentage", scale = 6, precision = 19)
+    private BigDecimal previousTrancheRepaidPercentage;
+
+    @Column(name = "previous_tranche_threshold_as_percentage")
+    private Boolean previousTrancheThresholdAsPercentage;
 
     @Column(name = "third_party_disbursement_provider", length = 50)
     private String thirdPartyDisbursementProvider;
@@ -1448,7 +1462,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         updateLoanScheduleDependentDerivedFields();
         updateLoanSummaryDerivedFields();
         applyAccurals();
-
+        TrancheScheduleRules.apply(this);
     }
 
     public void updateLoanSchedule(final Collection<LoanRepaymentScheduleInstallment> newInstallments) {
@@ -1468,6 +1482,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         updateLoanScheduleDependentDerivedFields();
         updateLoanSummaryDerivedFields();
         applyAccurals();
+        TrancheScheduleRules.apply(this);
     }
 
     private boolean existInstallment(final Collection<LoanRepaymentScheduleInstallment> installments, final Integer installmentNumber) {
@@ -1962,6 +1977,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         if (loanProduct.isMultiDisburseLoan()) {
+            updateTrancheSettingOverrides(command, actualChanges);
             updateDisbursementDetails(command, actualChanges);
             if (command.isChangeInBigDecimalParameterNamed(LoanApiConstants.maxOutstandingBalanceParameterName,
                     this.maxOutstandingLoanBalance)) {
@@ -1981,10 +1997,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                     throw new MultiDisbursementDataRequiredException(LoanApiConstants.disbursementDataParameterName, errorMessage);
                 }
             }
-            if (disbursementDataArray != null && disbursementDataArray.size() > loanProduct.maxTrancheCount()) {
-                final String errorMessage = "Number of tranche shouldn't be greter than " + loanProduct.maxTrancheCount();
-                throw new ExceedingTrancheCountException(LoanApiConstants.disbursementDataParameterName, errorMessage,
-                        loanProduct.maxTrancheCount(), disbursementDetails.size());
+            if (disbursementDataArray != null) {
+                TrancheReleaseRules.requireTrancheCount(disbursementDataArray.size(), loanProduct.minTrancheCount(),
+                        loanProduct.maxTrancheCount());
             }
         } else {
             this.disbursementDetails.clear();
@@ -2227,6 +2242,20 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             returnObject.put(LoanApiConstants.disbursementPrincipalParameterName, principal);
         }
 
+        if (jsonObject.has(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM)
+                && jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM).isJsonPrimitive()
+                && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM).getAsString())) {
+            returnObject.put(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM,
+                    jsonObject.getAsJsonPrimitive(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM).getAsBigDecimal());
+        }
+        putBooleanChoice(jsonObject, returnObject, LoanApiConstants.PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE);
+        putBooleanChoice(jsonObject, returnObject, LoanApiConstants.PRINCIPAL_AS_PERCENTAGE);
+        if (jsonObject.has(LoanApiConstants.PRINCIPAL_PERCENTAGE) && jsonObject.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).isJsonPrimitive()
+                && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsString())) {
+            returnObject.put(LoanApiConstants.PRINCIPAL_PERCENTAGE,
+                    jsonObject.getAsJsonPrimitive(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsBigDecimal());
+        }
+
         if (jsonObject.has(LoanApiConstants.disbursementIdParameterName)
                 && jsonObject.get(LoanApiConstants.disbursementIdParameterName).isJsonPrimitive()
                 && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.disbursementIdParameterName).getAsString())) {
@@ -2289,7 +2318,17 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                             loanChargeIds.remove(Long.parseLong(chargeIds));
                         }
                     }
-                    createOrUpdateDisbursementDetails(disbursementID, actualChanges, expectedDisbursementDate, principal, disbursementList);
+                    final BigDecimal previousTrancheRepaidMinimum = (BigDecimal) parsedDisbursementData
+                            .get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM);
+                    final boolean minimumSpecified = jsonObject.has(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM);
+                    createOrUpdateDisbursementDetails(disbursementID, actualChanges, expectedDisbursementDate, principal,
+                            previousTrancheRepaidMinimum, minimumSpecified,
+                            (Boolean) parsedDisbursementData.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE),
+                            parsedDisbursementData.containsKey(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE),
+                            (Boolean) parsedDisbursementData.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE),
+                            parsedDisbursementData.containsKey(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE),
+                            (BigDecimal) parsedDisbursementData.get(LoanApiConstants.PRINCIPAL_PERCENTAGE),
+                            jsonObject.has(LoanApiConstants.PRINCIPAL_PERCENTAGE), disbursementList);
                 }
                 removeDisbursementAndAssociatedCharges(actualChanges, disbursementList, loanChargeIds, chargeIdLength, removeAllChages);
             }
@@ -2323,8 +2362,44 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
     }
 
+    private static void putBooleanChoice(final JsonObject jsonObject, final Map<String, Object> returnObject, final String name) {
+        if (!jsonObject.has(name) || jsonObject.get(name).isJsonNull()) {
+            if (jsonObject.has(name)) {
+                returnObject.put(name, null);
+            }
+            return;
+        }
+        if (jsonObject.get(name).isJsonPrimitive()) {
+            returnObject.put(name, jsonObject.get(name).getAsBoolean());
+        }
+    }
+
+    private void applyTrancheChoices(final LoanDisbursementDetails detail, final BigDecimal previousTrancheRepaidMinimum,
+            final boolean minimumSpecified, final Boolean repaidAsPercentage, final boolean repaidAsPercentageSpecified,
+            final Boolean principalAsPercentage, final boolean principalAsPercentageSpecified, final BigDecimal principalPercentage,
+            final boolean principalPercentageSpecified) {
+        if (minimumSpecified) {
+            detail.setPreviousTrancheRepaidMinimum(previousTrancheRepaidMinimum);
+        }
+        if (repaidAsPercentageSpecified) {
+            detail.setPreviousTrancheRepaidAsPercentage(repaidAsPercentage);
+        }
+        if (principalAsPercentageSpecified) {
+            detail.setPrincipalAsPercentage(principalAsPercentage);
+            if (!Boolean.TRUE.equals(principalAsPercentage)) {
+                detail.setPrincipalPercentage(null);
+            }
+        }
+        if (principalPercentageSpecified && Boolean.TRUE.equals(detail.getPrincipalAsPercentage())) {
+            detail.setPrincipalPercentage(principalPercentage);
+        }
+    }
+
     private void createOrUpdateDisbursementDetails(Long disbursementID, final Map<String, Object> actualChanges,
-            LocalDate expectedDisbursementDate, BigDecimal principal, List<Long> existingDisbursementList) {
+            LocalDate expectedDisbursementDate, BigDecimal principal, BigDecimal previousTrancheRepaidMinimum,
+            boolean minimumSpecified, Boolean repaidAsPercentage, boolean repaidAsPercentageSpecified, Boolean principalAsPercentage,
+            boolean principalAsPercentageSpecified, BigDecimal principalPercentage, boolean principalPercentageSpecified,
+            List<Long> existingDisbursementList) {
 
         // For single disbursement loans, use approved principal instead of submitted principal
         // (which might be net amount after disbursement charge deductions)
@@ -2341,6 +2416,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
                         disbursementPrincipal, this.netDisbursalAmount);
                 disbursementDetails.updateLoan(this);
+                applyTrancheChoices(loanDisbursementDetail, previousTrancheRepaidMinimum, minimumSpecified, repaidAsPercentage,
+                        repaidAsPercentageSpecified, principalAsPercentage, principalAsPercentageSpecified, principalPercentage,
+                        principalPercentageSpecified);
                 if (!loanDisbursementDetail.equals(disbursementDetails)) {
                     loanDisbursementDetail.updateExpectedDisbursementDateAndAmount(expectedDisbursementDate, disbursementPrincipal);
                     loanDisbursementDetail.setNetDisbursalAmount(this.netDisbursalAmount);
@@ -2352,6 +2430,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             LocalDate actualDisbursementDate = null;
             LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
                     disbursementPrincipal, this.netDisbursalAmount);
+            applyTrancheChoices(disbursementDetails, previousTrancheRepaidMinimum, minimumSpecified, repaidAsPercentage,
+                    repaidAsPercentageSpecified, principalAsPercentage, principalAsPercentageSpecified, principalPercentage,
+                    principalPercentageSpecified);
             disbursementDetails.updateLoan(this);
             this.disbursementDetails.add(disbursementDetails);
             for (LoanTrancheCharge trancheCharge : trancheCharges) {
@@ -2735,11 +2816,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                     }
                 }
 
-                if (this.disbursementDetails.size() > loanProduct.maxTrancheCount()) {
-                    final String errorMessage = "Number of tranche shouldn't be greter than " + loanProduct.maxTrancheCount();
-                    throw new ExceedingTrancheCountException(LoanApiConstants.disbursementDataParameterName, errorMessage,
-                            loanProduct.maxTrancheCount(), disbursementDetails.size());
-                }
+                TrancheReleaseRules.requireTrancheCount(this.disbursementDetails.size(), loanProduct.minTrancheCount(),
+                        loanProduct.maxTrancheCount());
             }
             this.approvedOnDate = approvedOn;
             this.approvedBy = currentUser;
@@ -3037,9 +3115,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             if (nextDisbursementDetail != null) {
                 final TrancheReleaseRules.Assessment trancheRelease = TrancheReleaseRules.assess(this);
                 if (trancheRelease != null && !trancheRelease.met()) {
-                    final String errorMsg = "The previous tranche must be " + trancheRelease.percentage
-                            + "% repaid before the next tranche can be disbursed. Principal repaid " + trancheRelease.repaid + " of "
-                            + trancheRelease.required + " required.";
+                    final String errorMsg = "This tranche cannot be disbursed yet. Principal repaid since the previous tranche is "
+                            + trancheRelease.repaid + ". The minimum required is " + trancheRelease.required + ".";
                     throw new LoanDisbursalException(errorMsg, "tranche.repayment.percentage.not.met", trancheRelease.required,
                             trancheRelease.repaid);
                 }
@@ -6917,8 +6994,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 actualDisbursementDate = loanDisbursementDetails.actualDisbursementDate();
             }
             BigDecimal waivedChargeAmount = null;
-            disbursementData.add(new DisbursementData(loanDisbursementDetails.getId(), expectedDisbursementDate, actualDisbursementDate,
-                    loanDisbursementDetails.principal(), this.netDisbursalAmount, null, null, waivedChargeAmount));
+            final DisbursementData row = new DisbursementData(loanDisbursementDetails.getId(), expectedDisbursementDate,
+                    actualDisbursementDate, loanDisbursementDetails.principal(), this.netDisbursalAmount, null, null, waivedChargeAmount);
+            row.setPreviousTrancheRepaidMinimum(loanDisbursementDetails.getPreviousTrancheRepaidMinimum());
+            row.setPreviousTrancheRepaidAsPercentage(loanDisbursementDetails.getPreviousTrancheRepaidAsPercentage());
+            row.setPrincipalAsPercentage(loanDisbursementDetails.getPrincipalAsPercentage());
+            row.setPrincipalPercentage(loanDisbursementDetails.getPrincipalPercentage());
+            disbursementData.add(row);
         }
 
         return disbursementData;
@@ -8041,6 +8123,103 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     public void setEquityContributionLoanPercentage(BigDecimal equityContributionLoanPercentage) {
         this.equityContributionLoanPercentage = equityContributionLoanPercentage;
+    }
+
+    public BigDecimal getFirstInstallmentPrincipal() {
+        return this.firstInstallmentPrincipal;
+    }
+
+    public void setFirstInstallmentPrincipal(final BigDecimal firstInstallmentPrincipal) {
+        this.firstInstallmentPrincipal = firstInstallmentPrincipal;
+    }
+
+    public Boolean getFirstInstallmentAsPercentage() {
+        return this.firstInstallmentAsPercentage;
+    }
+
+    public void setFirstInstallmentAsPercentage(final Boolean firstInstallmentAsPercentage) {
+        this.firstInstallmentAsPercentage = firstInstallmentAsPercentage;
+    }
+
+    public String getTranchePrincipalPercentages() {
+        return this.tranchePrincipalPercentages;
+    }
+
+    public void setTranchePrincipalPercentages(final String tranchePrincipalPercentages) {
+        this.tranchePrincipalPercentages = tranchePrincipalPercentages;
+    }
+
+    public BigDecimal getPreviousTrancheRepaidPercentage() {
+        return this.previousTrancheRepaidPercentage;
+    }
+
+    public void setPreviousTrancheRepaidPercentage(final BigDecimal previousTrancheRepaidPercentage) {
+        this.previousTrancheRepaidPercentage = previousTrancheRepaidPercentage;
+    }
+
+    /**
+     * Values entered on the loan replace the product. A blank loan value keeps the product setting.
+     */
+    public void updateTrancheSettingOverrides(final JsonCommand command, final Map<String, Object> actualChanges) {
+        if (this.loanProduct == null || !this.loanProduct.isMultiDisburseLoan() || command == null) {
+            return;
+        }
+        if (command.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL)) {
+            final BigDecimal newValue = command.bigDecimalValueOfParameterNamed(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL);
+            if (!sameMoney(newValue, this.firstInstallmentPrincipal)) {
+                this.firstInstallmentPrincipal = newValue;
+                actualChanges.put(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, newValue);
+                actualChanges.put("recalculateLoanSchedule", true);
+            }
+        }
+        if (command.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE)) {
+            final Boolean newValue = command.booleanObjectValueOfParameterNamed(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE);
+            if (!java.util.Objects.equals(newValue, this.firstInstallmentAsPercentage)) {
+                this.firstInstallmentAsPercentage = newValue;
+                actualChanges.put(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE, newValue);
+                actualChanges.put("recalculateLoanSchedule", true);
+            }
+        }
+        if (command.parameterExists(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES)) {
+            final String raw = command.stringValueOfParameterNamedAllowingNull(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES);
+            final String normalized = raw == null || raw.isBlank() ? null : TrancheReleaseRules.normalize(raw);
+            if (!java.util.Objects.equals(normalized, this.tranchePrincipalPercentages)) {
+                this.tranchePrincipalPercentages = normalized;
+                actualChanges.put(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES, normalized);
+                actualChanges.put("recalculateLoanSchedule", true);
+            }
+        }
+        if (command.parameterExists(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE)) {
+            final BigDecimal newValue = command.bigDecimalValueOfParameterNamed(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE);
+            if (!sameMoney(newValue, this.previousTrancheRepaidPercentage)) {
+                this.previousTrancheRepaidPercentage = newValue;
+                actualChanges.put(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, newValue);
+            }
+        }
+        if (command.isChangeInBooleanParameterNamed(LoanApiConstants.PREVIOUS_TRANCHE_THRESHOLD_AS_PERCENTAGE,
+                this.previousTrancheThresholdAsPercentage)) {
+            final Boolean newValue = command.booleanObjectValueOfParameterNamed(LoanApiConstants.PREVIOUS_TRANCHE_THRESHOLD_AS_PERCENTAGE);
+            this.previousTrancheThresholdAsPercentage = newValue;
+            actualChanges.put(LoanApiConstants.PREVIOUS_TRANCHE_THRESHOLD_AS_PERCENTAGE, newValue);
+        }
+    }
+
+    public Boolean getPreviousTrancheThresholdAsPercentage() {
+        return this.previousTrancheThresholdAsPercentage;
+    }
+
+    public void setPreviousTrancheThresholdAsPercentage(final Boolean previousTrancheThresholdAsPercentage) {
+        this.previousTrancheThresholdAsPercentage = previousTrancheThresholdAsPercentage;
+    }
+
+    private static boolean sameMoney(final BigDecimal left, final BigDecimal right) {
+        if (left == null) {
+            return right == null;
+        }
+        if (right == null) {
+            return false;
+        }
+        return left.compareTo(right) == 0;
     }
 
     public String getThirdPartyDisbursementProvider() {

@@ -19,11 +19,14 @@
 package org.apache.fineract.portfolio.loanaccount.loanschedule.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.api.JsonQuery;
@@ -43,6 +46,8 @@ import org.apache.fineract.organisation.monetary.service.CurrencyReadPlatformSer
 import org.apache.fineract.portfolio.accountdetails.domain.AccountType;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheScheduleRules;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallmentRepository;
@@ -56,11 +61,14 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleP
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanTopUpData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelRepaymentPeriod;
 import org.apache.fineract.portfolio.loanaccount.serialization.CalculateLoanScheduleQueryFromApiJsonHelper;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationCommandFromApiJsonHelper;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAssembler;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
+import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.apache.fineract.portfolio.loanproduct.exception.LoanProductNotFoundException;
@@ -169,7 +177,68 @@ public class LoanScheduleCalculationPlatformServiceImpl implements LoanScheduleC
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
 
-        return this.loanScheduleAssembler.assembleLoanScheduleFrom(query.parsedJson());
+        final LoanScheduleModel model = this.loanScheduleAssembler.assembleLoanScheduleFrom(query.parsedJson());
+        return applyLoanTranchePreview(model, query.parsedJson(), loanProduct);
+    }
+
+    private LoanScheduleModel applyLoanTranchePreview(final LoanScheduleModel model, final JsonElement element,
+            final LoanProduct loanProduct) {
+        if (model == null || loanProduct == null || !loanProduct.isMultiDisburseLoan()) {
+            return model;
+        }
+        BigDecimal requestRepayment = null;
+        if (this.fromJsonHelper.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, element)) {
+            requestRepayment = this.fromJsonHelper.extractBigDecimalWithLocaleNamed(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL,
+                    element);
+        }
+        final Integer grace = this.fromJsonHelper.extractIntegerWithLocaleNamed("graceOnPrincipalPayment", element);
+        final int digits = loanProduct.getCurrency() == null ? 2 : loanProduct.getCurrency().getDigitsAfterDecimal();
+        final Boolean requestAsPercentage = this.fromJsonHelper.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE, element)
+                ? this.fromJsonHelper.extractBooleanNamed(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE, element)
+                : null;
+        final BigDecimal approvedAmount = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("principal", element);
+        final BigDecimal firstInstallment = requestRepayment != null
+                ? TrancheScheduleRules.firstRepaymentPrincipal(requestRepayment, Boolean.TRUE.equals(requestAsPercentage), approvedAmount,
+                        digits)
+                : TrancheScheduleRules.firstRepaymentPrincipal(loanProduct.getFirstInstallmentPrincipal(),
+                        Boolean.TRUE.equals(loanProduct.getFirstInstallmentAsPercentage()), approvedAmount, digits);
+        if (firstInstallment == null) {
+            return model;
+        }
+        final List<LoanScheduleModelRepaymentPeriod> repayments = new ArrayList<>();
+        for (final LoanScheduleModelPeriod period : model.getPeriods()) {
+            if (period.isRepaymentPeriod() && !period.isRecalculatedInterestComponent()
+                    && period instanceof LoanScheduleModelRepaymentPeriod) {
+                repayments.add((LoanScheduleModelRepaymentPeriod) period);
+            }
+        }
+        final BigDecimal schedulePrincipal = previewFirstTrancheAmount(element, loanProduct, digits);
+        final List<BigDecimal> principals = TrancheScheduleRules.installmentPrincipals(schedulePrincipal, firstInstallment,
+                grace == null ? 0 : grace, repayments.size(), digits);
+        BigDecimal remaining = schedulePrincipal == null ? BigDecimal.ZERO
+                : schedulePrincipal.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
+        for (int i = 0; i < repayments.size(); i++) {
+            remaining = remaining.subtract(principals.get(i));
+            repayments.get(i).replacePrincipalAndOutstanding(principals.get(i), remaining);
+        }
+        return model.withExpectedPrincipal(schedulePrincipal);
+    }
+
+    private BigDecimal previewFirstTrancheAmount(final JsonElement element, final LoanProduct loanProduct, final int digits) {
+        if (this.fromJsonHelper.parameterExists("disbursementData", element)) {
+            final JsonArray rows = this.fromJsonHelper.extractJsonArrayNamed("disbursementData", element);
+            if (rows != null && rows.size() > 0 && rows.get(0).isJsonObject()) {
+                final BigDecimal principal = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("principal", rows.get(0));
+                if (principal != null) {
+                    return principal;
+                }
+            }
+        }
+        final BigDecimal loanPrincipal = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("principal", element);
+        if (Boolean.TRUE.equals(loanProduct.getFirstTrancheAsPercentage())) {
+            return TrancheReleaseRules.percentageOf(loanPrincipal, loanProduct.getFirstTrancheAmount(), digits);
+        }
+        return loanProduct.getFirstTrancheAmount();
     }
 
     @Override

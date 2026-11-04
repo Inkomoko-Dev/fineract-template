@@ -1,3 +1,21 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import java.math.BigDecimal;
@@ -6,6 +24,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import org.apache.fineract.portfolio.loanaccount.exception.BelowMinimumTrancheCountException;
+import org.apache.fineract.portfolio.loanaccount.exception.ExceedingTrancheCountException;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 
 /**
@@ -21,14 +41,37 @@ public final class TrancheReleaseRules {
 
     private TrancheReleaseRules() {}
 
+    public static BigDecimal percentageOf(final BigDecimal amount, final BigDecimal percentage, final int digits) {
+        if (amount == null || percentage == null) {
+            return null;
+        }
+        return amount.max(BigDecimal.ZERO).multiply(percentage).divide(ONE_HUNDRED, digits, RoundingMode.HALF_UP);
+    }
+
+    public static void requireTrancheCount(final int count, final Integer minimum, final Integer maximum) {
+        if (maximum != null && count > maximum) {
+            throw new ExceedingTrancheCountException("disbursementData", "Number of tranches cannot be greater than " + maximum, maximum,
+                    count);
+        }
+        if (minimum != null && count < minimum) {
+            throw new BelowMinimumTrancheCountException("disbursementData", "Number of tranches cannot be less than " + minimum, minimum,
+                    count);
+        }
+    }
+
     public static List<BigDecimal> parsePercentages(final String raw) {
         if (raw == null || raw.isBlank()) {
             return List.of();
         }
         final List<BigDecimal> values = new ArrayList<>();
         BigDecimal sum = BigDecimal.ZERO;
-        for (String part : raw.split(",")) {
-            final String token = part.trim();
+        int start = 0;
+        for (int index = 0; index <= raw.length(); index++) {
+            if (index != raw.length() && raw.charAt(index) != ',') {
+                continue;
+            }
+            final String token = raw.substring(start, index).trim();
+            start = index + 1;
             if (token.isEmpty()) {
                 continue;
             }
@@ -83,16 +126,48 @@ public final class TrancheReleaseRules {
         return amounts;
     }
 
+    /**
+     * A loan value replaces the product value. A blank loan value keeps the product value.
+     */
+    public static BigDecimal effectiveAmount(final BigDecimal loanValue, final BigDecimal productValue) {
+        return loanValue != null ? loanValue : productValue;
+    }
+
+    public static String effectiveText(final String loanValue, final String productValue) {
+        if (loanValue != null && !loanValue.isBlank()) {
+            return loanValue;
+        }
+        return productValue;
+    }
+
     public static BigDecimal requiredPrincipal(final BigDecimal previousPrincipal, final BigDecimal percentage, final int digits) {
         return previousPrincipal.multiply(percentage).divide(ONE_HUNDRED, digits, RoundingMode.HALF_UP);
     }
 
-    public static Assessment assess(final Loan loan) {
-        if (loan == null || loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan()) {
+    /**
+     * A percentage is a number above 0 and below 100. An amount is the currency value that must already be repaid.
+     */
+    public static BigDecimal requiredFromPrevious(final BigDecimal previousPrincipal, final BigDecimal minimum, final boolean asPercentage,
+            final int digits) {
+        if (minimum == null || previousPrincipal == null) {
             return null;
         }
-        final BigDecimal percentage = loan.loanProduct().getPreviousTrancheRepaidPercentage();
-        if (percentage == null) {
+        if (asPercentage) {
+            return requiredPrincipal(previousPrincipal, minimum, digits);
+        }
+        return minimum.setScale(digits, RoundingMode.HALF_UP);
+    }
+
+    public static boolean acceptablePercentage(final BigDecimal value) {
+        return value != null && value.signum() > 0 && value.compareTo(ONE_HUNDRED) < 0;
+    }
+
+    public static boolean acceptablePrincipalPercentage(final BigDecimal value) {
+        return value != null && value.signum() > 0 && value.compareTo(ONE_HUNDRED) <= 0;
+    }
+
+    public static Assessment assess(final Loan loan) {
+        if (loan == null || loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan()) {
             return null;
         }
         final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
@@ -101,7 +176,26 @@ public final class TrancheReleaseRules {
             return null;
         }
         final int digits = digits(loan);
-        final BigDecimal required = requiredPrincipal(previous.principal(), percentage, digits);
+        final BigDecimal trancheMinimum = next.getPreviousTrancheRepaidMinimum();
+        final BigDecimal percentage;
+        final BigDecimal required;
+        if (trancheMinimum != null) {
+            final Boolean rowChoice = next.getPreviousTrancheRepaidAsPercentage();
+            final boolean asPercentage = rowChoice != null ? rowChoice
+                    : loan.getPreviousTrancheThresholdAsPercentage() == null || loan.getPreviousTrancheThresholdAsPercentage();
+            percentage = asPercentage ? trancheMinimum : null;
+            required = requiredFromPrevious(previous.principal(), trancheMinimum, asPercentage, digits);
+        } else {
+            percentage = effectiveAmount(loan.getPreviousTrancheRepaidPercentage(),
+                    loan.loanProduct().getPreviousTrancheRepaidPercentage());
+            if (percentage == null) {
+                return null;
+            }
+            required = requiredPrincipal(previous.principal(), percentage, digits);
+        }
+        if (required == null) {
+            return null;
+        }
         final List<LoanTransaction> repayments = new ArrayList<>();
         BigDecimal repaid = BigDecimal.ZERO;
         final LocalDate from = previous.actualDisbursementDate();
@@ -123,7 +217,10 @@ public final class TrancheReleaseRules {
         if (product == null || !product.isMultiDisburseLoan()) {
             return;
         }
-        final String raw = product.getTranchePrincipalPercentages();
+        if (applyRowPrincipalPercentages(loan)) {
+            return;
+        }
+        final String raw = loan.getTranchePrincipalPercentages();
         if (raw == null || raw.isBlank()) {
             return;
         }
@@ -150,6 +247,72 @@ public final class TrancheReleaseRules {
                 detail.updatePrincipal(amounts.get(i));
             }
         }
+    }
+
+    private static boolean applyRowPrincipalPercentages(final Loan loan) {
+        if (loan.getDisbursementDetails() == null || loan.getDisbursementDetails().isEmpty()) {
+            return false;
+        }
+        final BigDecimal base = loan.getApprovedPrincipal() != null ? loan.getApprovedPrincipal() : loan.getProposedPrincipal();
+        if (base == null) {
+            return false;
+        }
+        final List<LoanDisbursementDetails> ordered = loan.getDisbursementDetails().stream()
+                .sorted(Comparator.comparing(LoanDisbursementDetails::expectedDisbursementDate, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(LoanDisbursementDetails::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+        boolean any = false;
+        for (LoanDisbursementDetails detail : ordered) {
+            if (Boolean.TRUE.equals(detail.getPrincipalAsPercentage()) && detail.getPrincipalPercentage() != null) {
+                any = true;
+                break;
+            }
+        }
+        if (!any) {
+            return false;
+        }
+        final int digits = digits(loan);
+        BigDecimal remaining = base.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
+        for (LoanDisbursementDetails detail : ordered) {
+            final boolean disbursed = detail.actualDisbursementDate() != null;
+            final BigDecimal amount;
+            if (disbursed) {
+                amount = detail.principal() == null ? BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP)
+                        : detail.principal().setScale(digits, RoundingMode.HALF_UP);
+            } else {
+                amount = nextTrancheAmount(remaining, Boolean.TRUE.equals(detail.getPrincipalAsPercentage()),
+                        Boolean.TRUE.equals(detail.getPrincipalAsPercentage()) ? detail.getPrincipalPercentage() : detail.principal(),
+                        digits);
+                detail.updatePrincipal(amount);
+            }
+            remaining = remaining.subtract(amount);
+            if (remaining.signum() < 0) {
+                remaining = BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The first tranche is a share of the loan principal. Each later tranche is a share of the
+     * principal still left. A percentage uses that remainder. A fixed amount is capped by it.
+     */
+    public static BigDecimal nextTrancheAmount(final BigDecimal remaining, final boolean asPercentage, final BigDecimal value,
+            final int digits) {
+        final BigDecimal left = remaining == null ? BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP)
+                : remaining.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
+        if (value == null) {
+            return BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP);
+        }
+        BigDecimal amount = asPercentage ? left.multiply(value).divide(ONE_HUNDRED, digits, RoundingMode.HALF_UP)
+                : value.setScale(digits, RoundingMode.HALF_UP);
+        if (amount.compareTo(left) > 0) {
+            amount = left;
+        }
+        if (amount.signum() < 0) {
+            return BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP);
+        }
+        return amount;
     }
 
     private static LoanDisbursementDetails lastDisbursed(final Loan loan) {

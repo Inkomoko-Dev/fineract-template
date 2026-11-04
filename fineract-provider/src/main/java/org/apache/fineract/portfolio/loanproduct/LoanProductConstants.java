@@ -75,9 +75,14 @@ public interface LoanProductConstants {
 
     String MULTI_DISBURSE_LOAN_PARAMETER_NAME = "multiDisburseLoan";
     String MAX_TRANCHE_COUNT_PARAMETER_NAME = "maxTrancheCount";
+    String MIN_TRANCHE_COUNT_PARAMETER_NAME = "minTrancheCount";
     String OUTSTANDING_LOAN_BALANCE_PARAMETER_NAME = "outstandingLoanBalance";
     String TRANCHE_PRINCIPAL_PERCENTAGES = "tranchePrincipalPercentages";
     String PREVIOUS_TRANCHE_REPAID_PERCENTAGE = "previousTrancheRepaidPercentage";
+    String FIRST_INSTALLMENT_PRINCIPAL = "firstInstallmentPrincipal";
+    String FIRST_INSTALLMENT_AS_PERCENTAGE = "firstInstallmentAsPercentage";
+    String FIRST_TRANCHE_AS_PERCENTAGE = "firstTrancheAsPercentage";
+    String FIRST_TRANCHE_AMOUNT = "firstTrancheAmount";
 
     String GRACE_ON_ARREARS_AGEING_PARAMETER_NAME = "graceOnArrearsAgeing";
     String OVERDUE_DAYS_FOR_NPA_PARAMETER_NAME = "overdueDaysForNPA";
