@@ -45,6 +45,7 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.hooks.event.HookEvent;
 import org.apache.fineract.infrastructure.hooks.event.HookEventSource;
+import org.apache.fineract.infrastructure.ingestion.LogReporter;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.context.ApplicationContext;
@@ -64,6 +65,7 @@ public class SynchronousCommandProcessingService implements CommandProcessingSer
     private final ConfigurationDomainService configurationDomainService;
     private final CommandHandlerProvider commandHandlerProvider;
     private final MakerCheckerNotificationService notificationService;
+    private final LogReporter logReporter;
 
     @Transactional
     @Override
@@ -80,6 +82,7 @@ public class SynchronousCommandProcessingService implements CommandProcessingSer
         } catch (Throwable t) {
             // publish error event
             publishErrorEvent(wrapper, command, t);
+            logReporter.commandFailed(wrapper, command, t);
             throw t;
         }
 
