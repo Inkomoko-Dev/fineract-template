@@ -313,8 +313,10 @@ public class LoanTransactionsApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Adjust or Reverse a Transaction", description = "Use the default request to adjust a transaction. "
-            + "Use `command=reverseRecoveryPayment` to reverse a recovery payment on a written-off loan.\n\n"
-            + "Adjust mandatory fields: transactionDate, transactionAmount")
+            + "Use `command=reverseRecoveryPayment` to reverse a recovery payment on a written-off loan.\n"
+            + "Use `command=reverseaccrual` to reverse an accrual (posts reversing journal entries for Odoo).\n\n"
+            + "Adjust mandatory fields: transactionDate, transactionAmount. "
+            + "reverseaccrual mandatory fields: transactionDate, locale, dateFormat")
     @RequestBody(required = true, content = @Content(schema = @Schema(implementation = LoanTransactionsApiResourceSwagger.PostLoansLoanIdTransactionsTransactionIdRequest.class)))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanTransactionsApiResourceSwagger.PostLoansLoanIdTransactionsTransactionIdResponse.class))) })
@@ -327,6 +329,8 @@ public class LoanTransactionsApiResource {
         final CommandWrapper commandRequest;
         if (is(commandParam, "reverseRecoveryPayment")) {
             commandRequest = builder.reverseRecoveryPaymentTransaction(loanId, transactionId).build();
+        } else if (is(commandParam, "reverseaccrual") || is(commandParam, "reverseAccrual")) {
+            commandRequest = builder.reverseAccrualTransaction(loanId, transactionId).build();
         } else if (is(commandParam, "editDisbursementCharge")) {
             commandRequest = builder.editDisbursementChargeTransaction(loanId, transactionId).build();
         } else {
