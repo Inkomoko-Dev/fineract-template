@@ -2233,7 +2233,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     final String receiptNumber = rs.getString("receiptNumber");
                     final String bankNumber = rs.getString("bankNumber");
                     paymentDetailData = new PaymentDetailData(id, paymentType, accountNumber, checkNumber, routingCode, receiptNumber,
-                            bankNumber);
+                            bankNumber, null);
                 }
             }
             final LocalDate date = JdbcSupport.getLocalDate(rs, "date");
