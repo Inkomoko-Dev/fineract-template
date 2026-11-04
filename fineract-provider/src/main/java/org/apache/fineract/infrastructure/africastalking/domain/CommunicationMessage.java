@@ -41,7 +41,7 @@ import org.apache.fineract.portfolio.client.domain.Client;
 @NoArgsConstructor
 public class CommunicationMessage extends AbstractPersistableCustom {
 
-    @Column(name = "external_id", length = 100)
+    @Column(name = "external_id", length = 255)
     private String externalId;
 
     @Enumerated(EnumType.STRING)
@@ -103,6 +103,9 @@ public class CommunicationMessage extends AbstractPersistableCustom {
 
     @Column(name = "dispatch_retry_count", nullable = false)
     private int dispatchRetryCount = 0;
+
+    @Column(name = "provider", length = 30)
+    private String provider;
 
     public static CommunicationMessage pendingOutbound(final CommunicationChannel channel, final String phoneNumber,
             final RecipientType recipientType, final Client client, final Staff staff, final String messageBody) {

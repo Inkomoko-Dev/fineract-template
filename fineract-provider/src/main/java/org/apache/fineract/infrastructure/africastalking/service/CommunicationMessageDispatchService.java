@@ -19,7 +19,6 @@
 package org.apache.fineract.infrastructure.africastalking.service;
 
 import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +29,8 @@ import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingPr
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
+import org.apache.fineract.infrastructure.whatsapp.provider.WhatsAppProviderRouter;
+import org.apache.fineract.infrastructure.whatsapp.provider.WhatsAppTransportResult;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,7 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class CommunicationMessageDispatchService {
 
-    private final AfricasTalkingClient africasTalkingClient;
+    private final WhatsAppProviderRouter whatsAppProviderRouter;
     private final CommunicationMessageRepository communicationMessageRepository;
     private final WhatsAppPhoneWhitelistService whatsAppPhoneWhitelistService;
     private final AfricasTalkingProperties properties;
@@ -66,22 +67,24 @@ public class CommunicationMessageDispatchService {
             return;
         }
         try {
-            final AfricasTalkingClient.AfricasTalkingApiResponse response;
+            final WhatsAppTransportResult response;
             if (StringUtils.isNotBlank(message.getTemplateName())) {
                 final List<String> bodyValues = parseBodyValues(message.getTemplateBodyValues());
-                response = africasTalkingClient.sendWhatsAppTemplate(message.getPhoneNumber(), message.getTemplateName(),
+                response = whatsAppProviderRouter.sendTemplate(message.getPhoneNumber(), message.getTemplateName(),
                         message.getTemplateLanguage(), bodyValues);
             } else {
-                response = africasTalkingClient.sendWhatsAppMessage(message.getPhoneNumber(), message.getMessageBody());
+                response = whatsAppProviderRouter.sendText(message.getPhoneNumber(), message.getMessageBody());
             }
-            if (response.isSuccessful()) {
+            message.setProvider(response.provider() == null ? null : response.provider().name());
+            if (response.successful()) {
                 message.setStatus(CommunicationMessageStatus.SENT);
-                message.setExternalId(extractExternalId(response.body()));
+                message.setExternalId(response.externalId());
                 message.setStatusDetail(null);
-                log.info("WhatsApp dispatch succeeded messageId={} phone={}", message.getId(),
-                        CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()));
+                log.info("WhatsApp dispatch succeeded messageId={} phone={} provider={}", message.getId(),
+                        CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), response.provider());
             } else {
-                applyDispatchFailure(message, response.statusCode(), response.body());
+                applyDispatchFailure(message, response.statusCode(),
+                        StringUtils.defaultIfBlank(response.errorDetail(), response.body()));
             }
         } catch (Exception e) {
             log.error("WhatsApp dispatch failed messageId={} phone={}", message.getId(),
@@ -126,19 +129,5 @@ public class CommunicationMessageDispatchService {
             bodyValues.add(element.isJsonNull() ? "" : element.getAsString());
         }
         return bodyValues;
-    }
-
-    private String extractExternalId(final String responseBody) {
-        if (StringUtils.isBlank(responseBody) || !responseBody.trim().startsWith("{")) {
-            return null;
-        }
-        final JsonObject object = JsonParser.parseString(responseBody).getAsJsonObject();
-        if (object.has("messageId")) {
-            return object.get("messageId").getAsString();
-        }
-        if (object.has("id")) {
-            return object.get("id").getAsString();
-        }
-        return null;
     }
 }

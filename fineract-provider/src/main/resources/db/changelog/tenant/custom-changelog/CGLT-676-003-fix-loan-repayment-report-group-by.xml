@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!--
+        CGLT-676: Fix MySQL ONLY_FULL_GROUP_BY violation in "Loan Repayment" report.
+
+        The report SQL (id=179) uses `group by ml.id` while selecting non-aggregated
+        columns such as mc.id, mc.firstname, mc.lastname, mc.display_name,
+        mc.mobile_no, mc.group_name and mlt.amountPaid. Under MySQL's
+        ONLY_FULL_GROUP_BY mode (default since MySQL 5.7+) this raises a
+        BadSqlGrammarException which surfaces as HTTP 403 Forbidden.
+
+        The PostgreSQL version of this report already declares a complete GROUP BY.
+        This migration brings the MySQL SQL into alignment.
+    -->
+    <changeSet id="CGLT-676-fix-loan-repayment-report-group-by" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan Repayment'
+            </sqlCheck>
+        </preConditions>
+
+        <update tableName="stretchy_report">
+            <column name="report_sql" value="select ml.id as loanId,mc.id, mc.firstname, ifnull(mc.middlename,'') as middlename, mc.lastname, mc.display_name as FullName, mobile_no as mobileNo, mc.group_name as GroupName, round(ml.principal_amount, ml.currency_digits) as LoanAmount, round(ml.`total_outstanding_derived`, ml.currency_digits) as LoanOutstanding,&#10;ml.`account_no` as LoanAccountId, round(mlt.amountPaid, ml.currency_digits) as repaymentAmount&#10;FROM m_office mo&#10;JOIN m_office ounder ON ounder.hierarchy LIKE CONCAT(mo.hierarchy, '%')&#10;AND ounder.hierarchy like CONCAT('.', '%')&#10;LEFT JOIN (&#10; select &#10; ml.id as loanId, &#10; ifnull(mc.id,mc2.id) as id, &#10; ifnull(mc.firstname,mc2.firstname) as firstname, &#10; ifnull(mc.middlename,ifnull(mc2.middlename,(''))) as middlename, &#10; ifnull(mc.lastname,mc2.lastname) as lastname, &#10; ifnull(mc.display_name,mc2.display_name) as display_name, &#10; ifnull(mc.status_enum,mc2.status_enum) as status_enum,&#10; ifnull(mc.mobile_no,mc2.mobile_no) as mobile_no,&#10; ifnull(mg.office_id,mc2.office_id) as office_id,&#10; ifnull(mg.staff_id,mc2.staff_id) as staff_id,&#10; mg.id as group_id, &#10;mg.display_name as group_name&#10; from&#10; m_loan ml&#10; left join m_group mg on mg.id = ml.group_id&#10; left join m_group_client mgc on mgc.group_id = mg.id&#10; left join m_client mc on mc.id = mgc.client_id&#10; left join m_client mc2 on mc2.id = ml.client_id&#10; order by loanId&#10; ) mc on mc.office_id = ounder.id&#10;right join m_loan as ml on mc.loanId = ml.id&#10;right join(&#10;select mlt.amount as amountPaid,mlt.id,mlt.loan_id&#10;from m_loan_transaction mlt&#10;where mlt.is_reversed = 0 &#10;group by mlt.loan_id&#10;) as mlt on mlt.loan_id = ml.id&#10;right join m_loan_repayment_schedule as mls1 on ml.id = mls1.loan_id and mls1.`completed_derived` = 0&#10;and mls1.installment = (SELECT MIN(installment) from m_loan_repayment_schedule where loan_id = ml.id and duedate &lt;= CURDATE() and completed_derived=0)&#10;where mc.status_enum = 300 and mobile_no is not null and ml.`loan_status_id` = 300&#10;and (mo.id = ${officeId} or ${officeId} = -1)&#10;and (mc.staff_id = ${loanOfficerId} or ${loanOfficerId} = -1)&#10;and (ml.loan_type_enum = ${loanType} or ${loanType} = -1)&#10;and ml.id in (select mla.loan_id from m_loan_arrears_aging mla)&#10;group by ml.id, mc.id, mc.firstname, mc.middlename, mc.lastname, mc.display_name, mc.mobile_no, mc.group_name, mlt.amountPaid"/>
+            <where>report_name = 'Loan Repayment'</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>

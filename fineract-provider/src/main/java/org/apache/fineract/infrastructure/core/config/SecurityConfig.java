@@ -78,6 +78,8 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
                 .antMatchers(HttpMethod.POST, "/api/*/passwordreset/confirm").permitAll() //
                 .antMatchers(HttpMethod.PUT, "/api/*/instance-mode").permitAll() //
                 .antMatchers(HttpMethod.POST, "/api/*/africastalking/webhooks/**").permitAll() //
+                .antMatchers(HttpMethod.GET, "/api/*/meta/whatsapp/webhook").permitAll() //
+                .antMatchers(HttpMethod.POST, "/api/*/meta/whatsapp/webhook").permitAll() //
                 .antMatchers(HttpMethod.POST, "/api/*/twofactor/validate").fullyAuthenticated() //
                 .antMatchers("/api/*/twofactor").fullyAuthenticated() //
                 .antMatchers("/api/**").access("isFullyAuthenticated() and hasAuthority('TWOFACTOR_AUTHENTICATED')").and() //
