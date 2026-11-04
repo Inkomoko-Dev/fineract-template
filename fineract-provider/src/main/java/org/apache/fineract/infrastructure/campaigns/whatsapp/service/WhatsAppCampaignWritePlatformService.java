@@ -20,8 +20,6 @@ package org.apache.fineract.infrastructure.campaigns.whatsapp.service;
 
 import org.apache.fineract.infrastructure.campaigns.service.CampaignWritePlatformService;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.data.WhatsAppPreviewData;
-import org.apache.fineract.infrastructure.core.api.JsonCommand;
-import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 
 /**
  * WhatsApp-specific campaign write platform service.

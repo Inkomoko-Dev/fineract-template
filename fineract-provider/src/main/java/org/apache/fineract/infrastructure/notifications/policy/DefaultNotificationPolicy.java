@@ -50,7 +50,9 @@ public class DefaultNotificationPolicy implements NotificationPolicy {
             return false;
         }
         if (purpose == NotificationPurpose.CAMPAIGN || purpose == NotificationPurpose.HOOK || purpose == NotificationPurpose.AD_HOC) {
-            return whatsAppConsentService.hasActiveConsent(phoneNumber);
+            // Allow campaign messages by default until a user explicitly opts out.
+            // Consent records are checked only if they exist; absence of a record means consent is not yet required.
+            return whatsAppConsentService.hasActiveConsentOrNotRecorded(phoneNumber);
         }
         return true;
     }

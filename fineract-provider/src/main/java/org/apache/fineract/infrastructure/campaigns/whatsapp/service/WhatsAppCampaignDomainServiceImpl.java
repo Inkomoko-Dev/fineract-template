@@ -43,6 +43,7 @@ import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNorm
 import org.apache.fineract.infrastructure.campaigns.sms.exception.SmsRuntimeException;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppMessageType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaign;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaignRepository;
 import org.apache.fineract.organisation.office.domain.Office;
@@ -263,19 +264,19 @@ public class WhatsAppCampaignDomainServiceImpl implements WhatsAppCampaignDomain
             if (StringUtils.isBlank(phoneNumber)) {
                 return;
             }
-            final WhatsAppTemplateVariableMapper.MappingResult mapping = WhatsAppTemplateVariableMapper
-                    .toBodyValuesStrict(campaign.getBodyVariableMapping(), data);
-            if (!mapping.isComplete()) {
-                log.warn("Skipping triggered WhatsApp campaign {}: template {} has unresolved variable(s) {}.", campaign.getId(),
-                        campaign.getAtTemplateName(), mapping.getUnresolvedKeys());
-                return;
-            }
-            final List<String> bodyValues = mapping.getBodyValues();
+            final List<String> bodyValues = WhatsAppTemplateVariableMapper
+                    .toBodyValues(campaign.getBodyVariableMapping(), data);
             final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
             final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
-            final NotificationCommand command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
-                    RecipientType.CLIENT, client, null, campaign.getAtTemplateName(), campaign.getLanguageCode(), templateBodyValuesJson,
-                    auditMessageBody, campaign.getId());
+            final NotificationCommand command;
+            if (campaign.getMessageType() == WhatsAppMessageType.FREEFORM) {
+                command = NotificationCommand.freeformWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
+                        RecipientType.CLIENT, client, null, auditMessageBody, true);
+            } else {
+                command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
+                        RecipientType.CLIENT, client, null, campaign.getAtTemplateName(), campaign.getLanguageCode(),
+                        templateBodyValuesJson, auditMessageBody, campaign.getId());
+            }
             final NotificationResult result = notificationCommandService.send(command);
             if (!result.isAccepted()) {
                 log.warn("Triggered WhatsApp campaign {} rejected for client {}: {}", campaign.getId(), client.getId(),

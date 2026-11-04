@@ -37,6 +37,7 @@ import org.apache.fineract.infrastructure.africastalking.data.CommunicationMessa
 import org.apache.fineract.infrastructure.africastalking.data.ConnectivityTestResultData;
 import org.apache.fineract.infrastructure.africastalking.data.VoiceCallLogData;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingConnectivityService;
+import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingClient;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingVoiceService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookAuthenticationException;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService;
@@ -60,6 +61,7 @@ public class AfricasTalkingApiResource {
 
     private final PlatformSecurityContext context;
     private final AfricasTalkingConnectivityService connectivityService;
+    private final AfricasTalkingClient africastalkingClient;
     private final AfricasTalkingWebhookService webhookService;
     private final AfricasTalkingWhatsAppService whatsAppService;
     private final AfricasTalkingVoiceService voiceService;
@@ -73,7 +75,8 @@ public class AfricasTalkingApiResource {
     private final ApiRequestParameterHelper apiRequestParameterHelper;
 
     public AfricasTalkingApiResource(final PlatformSecurityContext context,
-            final AfricasTalkingConnectivityService connectivityService, final AfricasTalkingWebhookService webhookService,
+            final AfricasTalkingConnectivityService connectivityService, final AfricasTalkingClient africastalkingClient,
+            final AfricasTalkingWebhookService webhookService,
             final AfricasTalkingWhatsAppService whatsAppService, final AfricasTalkingVoiceService voiceService,
             final CommunicationMessageReadPlatformService communicationMessageReadPlatformService,
             final VoiceCallLogReadPlatformService voiceCallLogReadPlatformService, final AfricasTalkingProperties properties,
@@ -84,6 +87,7 @@ public class AfricasTalkingApiResource {
             final ApiRequestParameterHelper apiRequestParameterHelper) {
         this.context = context;
         this.connectivityService = connectivityService;
+        this.africastalkingClient = africastalkingClient;
         this.webhookService = webhookService;
         this.whatsAppService = whatsAppService;
         this.voiceService = voiceService;
@@ -136,6 +140,19 @@ public class AfricasTalkingApiResource {
         this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
         final CommandProcessingResult result = this.whatsAppService.queueOutboundMessage(apiRequestBodyAsJson);
         return this.commandProcessingResultSerializer.serializeResult(result);
+    }
+
+    @POST
+    @Path("template/send")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String createTemplate(final String apiRequestBodyAsJson) {
+        this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
+        final AfricasTalkingApiResponse response = this.africastalkingClient.createWhatsAppTemplateFromJson(apiRequestBodyAsJson);
+        return this.commandProcessingResultSerializer.serializeResult(CommandProcessingResult
+                .builder(response.code() == 200 ? CommandProcessingResult.Status.Ok : CommandProcessingResult.Status.ServerError,
+                        response.body())
+                .build());
     }
 
     @POST

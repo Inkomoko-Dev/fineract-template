@@ -33,6 +33,7 @@ public class AfricasTalkingProperties {
     private String baseUrl = "https://api.africastalking.com";
     private String whatsappBaseUrl = "https://chat.africastalking.com";
     private String voiceBaseUrl = "https://voice.africastalking.com";
+    private String templatePlaceholder = "[Unknown]";
     private final Whatsapp whatsapp = new Whatsapp();
     private final Voice voice = new Voice();
     private final VoiceIvr voiceIvr = new VoiceIvr();
