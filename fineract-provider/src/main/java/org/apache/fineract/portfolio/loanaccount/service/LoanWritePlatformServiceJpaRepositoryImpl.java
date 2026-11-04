@@ -1526,6 +1526,79 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     @Transactional
     @Override
+    public CommandProcessingResult reverseLoanAccrual(final Long loanId, final Long transactionId, final JsonCommand command) {
+
+        this.loanEventApiJsonValidator.validateAccrualReversal(command.json());
+
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        checkClientOrGroupActive(loan);
+
+        // Resolve from the loan's collection so reverse() is visible to deriveAccountingBridgeData /
+        // rebuildAccrualDerivedFieldsFromNonReversedAccruals (same persistence-context instance).
+        LoanTransaction transactionToReverse = null;
+        for (final LoanTransaction loanTransaction : loan.getLoanTransactions()) {
+            if (transactionId.equals(loanTransaction.getId())) {
+                transactionToReverse = loanTransaction;
+                break;
+            }
+        }
+        if (transactionToReverse == null) {
+            throw new LoanTransactionNotFoundException(transactionId);
+        }
+        businessEventNotifierService.notifyPreBusinessEvent(
+                new LoanAdjustTransactionBusinessEvent(new LoanAdjustTransactionBusinessEvent.Data(transactionToReverse)));
+
+        if (transactionToReverse.isNotBelongingToLoanOf(loan)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.transaction.loan.mismatch",
+                    "The selected transaction does not belong to the specified loan.");
+        }
+        // isAccrual() also requires not-reversed; check type + reversed separately for clear errors.
+        if (!LoanTransactionType.ACCRUAL.equals(transactionToReverse.getTypeOf())) {
+            throw new InvalidLoanTransactionTypeException("transaction", "reverse.accrual.is.only.allowed.for.accrual.transactions",
+                    "Only accrual transactions can be reversed with this command.");
+        }
+        if (transactionToReverse.isReversed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.accrual.already.reversed",
+                    "The selected accrual has already been reversed.");
+        }
+
+        final List<Long> existingTransactionIds = new ArrayList<>();
+        final List<Long> existingReversedTransactionIds = new ArrayList<>();
+        existingTransactionIds.addAll(loan.findExistingTransactionIds());
+        existingReversedTransactionIds.addAll(loan.findExistingReversedTransactionIds());
+
+        transactionToReverse.reverse();
+        transactionToReverse.manuallyAdjustedOrReversed();
+        loan.rebuildAccrualDerivedFieldsFromNonReversedAccruals();
+
+        saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
+        changes.put("locale", command.locale());
+        changes.put("dateFormat", command.dateFormat());
+        changes.put("reversedAccrualTransactionId", transactionId);
+
+        final String noteText = command.stringValueOfParameterNamed("note");
+        if (StringUtils.isNotBlank(noteText)) {
+            changes.put("note", noteText);
+            final Note note = Note.loanTransactionNote(loan, transactionToReverse, noteText);
+            this.noteRepository.save(note);
+        }
+
+        // Do not call recalculateAccruals — that can re-post accrual through accrued_till.
+        postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
+
+        final LoanAdjustTransactionBusinessEvent.Data eventData = new LoanAdjustTransactionBusinessEvent.Data(transactionToReverse);
+        businessEventNotifierService.notifyPostBusinessEvent(new LoanAdjustTransactionBusinessEvent(eventData));
+
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(transactionId)
+                .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
+                .with(changes).build();
+    }
+
+    @Transactional
+    @Override
     public CommandProcessingResult reverseLoanRecoveryPayment(final Long loanId, final Long transactionId, final JsonCommand command) {
 
         AppUser currentUser = getAppUserIfPresent();
