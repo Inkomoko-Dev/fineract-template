@@ -18,25 +18,16 @@
  */
 package org.apache.fineract.infrastructure.campaigns.whatsapp.service;
 
+import org.apache.fineract.infrastructure.campaigns.service.CampaignWritePlatformService;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.data.WhatsAppPreviewData;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 
-public interface WhatsAppCampaignWritePlatformService {
-
-    CommandProcessingResult create(JsonCommand command);
-
-    CommandProcessingResult create(String json);
-
-    CommandProcessingResult update(Long resourceId, String json);
-
-    CommandProcessingResult delete(Long resourceId);
-
-    CommandProcessingResult activate(Long campaignId, String json);
-
-    CommandProcessingResult close(Long campaignId, String json);
-
-    CommandProcessingResult reactivate(Long campaignId, String json);
+/**
+ * WhatsApp-specific campaign write platform service.
+ * Extends the channel-agnostic {@link CampaignWritePlatformService}.
+ */
+public interface WhatsAppCampaignWritePlatformService extends CampaignWritePlatformService {
 
     WhatsAppPreviewData preview(String json);
 

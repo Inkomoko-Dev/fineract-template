@@ -738,6 +738,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         final Set<String> keys = queryParams.keySet();
         for (String key : keys) {
             final String pValue = queryParams.get(key);
+            SQLInjectionValidator.validateReportParameter(key, pValue);
             key = "${" + key + "}";
             sql = this.genericDataService.replace(sql, key, pValue);
         }

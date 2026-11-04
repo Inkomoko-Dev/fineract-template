@@ -26,6 +26,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.time.LocalDate;
+import com.google.common.util.concurrent.RateLimiter;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -87,6 +88,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaignWritePlatformService {
 
     private static final Logger LOG = LoggerFactory.getLogger(WhatsAppCampaignWritePlatformServiceImpl.class);
+
+    // Rate limiter to throttle WhatsApp message sends and respect provider MPS limits
+    private final RateLimiter rateLimiter = RateLimiter.create(10.0); // 10 messages per second default
 
     private final PlatformSecurityContext context;
     private final WhatsAppCampaignRepository whatsAppCampaignRepository;
@@ -438,6 +442,9 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
                 client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
             }
         }
+
+        // Throttle message sends to respect provider throughput limits
+        rateLimiter.acquire();
 
         final NotificationCommand command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
                 campaign.getRecipientType(), client, staff, campaign.getAtTemplateName(), campaign.getLanguageCode(),
