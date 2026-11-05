@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-538-1-insert-as-at-date-parameter" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'asAtDate'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="asAtDate"/>
+            <column name="parameter_variable" value="asAtDate"/>
+            <column name="parameter_label" value="As At Date"/>
+            <column name="parameter_displayType" value="date"/>
+            <column name="parameter_FormatType" value="date"/>
+            <column name="parameter_default" value="today"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-538-2-insert-par-category-parameter" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'parCategorySelectAll'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="parCategorySelectAll"/>
+            <column name="parameter_variable" value="parCategory"/>
+            <column name="parameter_label" value="PAR Category"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="-1"/>
+            <column name="selectAll" value="Y"/>
+            <column name="parameter_sql"><![CDATA[SELECT 1 AS id, 'Normal' AS name
+UNION ALL SELECT 2, 'Watch'
+UNION ALL SELECT 3, 'Substandard'
+UNION ALL SELECT 4, 'Doubtful'
+UNION ALL SELECT 5, 'Loss']]></column>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-538-3-map-asAtDate-to-aging-detail" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Aging Detail'</sqlCheck>
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report_parameter srp JOIN stretchy_report sr ON sr.id = srp.report_id JOIN stretchy_parameter sp ON sp.id = srp.parameter_id WHERE sr.report_name = 'Aging Detail' AND sp.parameter_name = 'asAtDate'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT id FROM stretchy_report WHERE report_name = 'Aging Detail')"/>
+            <column name="parameter_id" valueComputed="(SELECT id FROM stretchy_parameter WHERE parameter_name = 'asAtDate')"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-538-4-map-parCategorySelectAll-to-aging-detail" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Aging Detail'</sqlCheck>
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report_parameter srp JOIN stretchy_report sr ON sr.id = srp.report_id JOIN stretchy_parameter sp ON sp.id = srp.parameter_id WHERE sr.report_name = 'Aging Detail' AND sp.parameter_name = 'parCategorySelectAll'</sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report_parameter">
+            <column name="report_id" valueComputed="(SELECT id FROM stretchy_report WHERE report_name = 'Aging Detail')"/>
+            <column name="parameter_id" valueComputed="(SELECT id FROM stretchy_parameter WHERE parameter_name = 'parCategorySelectAll')"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-538-5-aging-detail-par-category-and-as-at-date" author="willy" runOnChange="true">
+        <preConditions onFail="CONTINUE">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Aging Detail'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[WITH as_at AS (
+    SELECT DATE('${asAtDate}') AS d, DATE('${asAtDate}') = CURDATE() AS is_today
+),
+par_band AS (
+    SELECT 1 AS id, 'Normal' AS name, 0 AS min_dpd, 30 AS max_dpd
+    UNION ALL SELECT 2, 'Watch', 31, 90
+    UNION ALL SELECT 3, 'Substandard', 91, 180
+    UNION ALL SELECT 4, 'Doubtful', 181, 365
+    UNION ALL SELECT 5, 'Loss', 366, NULL
+),
+scope AS (
+    SELECT ml.id AS loan_id, ml.grace_on_arrears_ageing AS grace
+    FROM m_office mo
+    JOIN m_office ounder ON ounder.hierarchy LIKE CONCAT(mo.hierarchy, '%')
+        AND ounder.hierarchy LIKE CONCAT('${currentUserHierarchy}', '%')
+    JOIN m_client mc ON mc.office_id = ounder.id
+    JOIN m_loan ml ON ml.client_id = mc.id
+    CROSS JOIN as_at p
+    WHERE mo.id = ${officeId}
+      AND (
+          (p.is_today AND ml.loan_status_id = 300)
+          OR (NOT p.is_today
+              AND ml.loan_status_id IN (300, 600, 601, 602, 700)
+              AND ml.disbursedon_date <= p.d
+              AND (ml.closedon_date IS NULL OR ml.closedon_date > p.d)
+              AND (ml.writtenoffon_date IS NULL OR ml.writtenoffon_date > p.d))
+      )
+),
+live AS (
+    SELECT t.id, t.loan_id, t.transaction_type_enum AS type,
+           t.principal_portion_derived AS p, t.interest_portion_derived AS i
+    FROM scope s
+    JOIN m_loan_transaction t ON t.loan_id = s.loan_id
+    CROSS JOIN as_at p
+    WHERE NOT p.is_today
+      AND t.is_reversed = 0
+      AND t.transaction_type_enum IN (2, 4, 5, 6, 8, 9, 28)
+      AND t.transaction_date <= p.d
+),
+paid AS (
+    SELECT loan_id, SUM(COALESCE(p, 0)) AS p, SUM(COALESCE(i, 0)) AS i
+    FROM live
+    WHERE type IN (2, 5, 8, 28)
+    GROUP BY loan_id
+),
+alloc AS (
+    SELECT
+        mp.loan_repayment_schedule_id AS sid,
+        SUM(COALESCE(mp.principal_portion_derived, 0)) AS p,
+        SUM(COALESCE(mp.interest_portion_derived, 0)) AS i,
+        SUM(COALESCE(mp.fee_charges_portion_derived, 0)) AS f,
+        SUM(COALESCE(mp.penalty_charges_portion_derived, 0)) AS pen
+    FROM live
+    JOIN m_loan_transaction_repayment_schedule_mapping mp ON mp.loan_transaction_id = live.id
+    GROUP BY mp.loan_repayment_schedule_id
+),
+charge_waived AS (
+    SELECT
+        rs.id AS sid,
+        SUM(IF(c.is_penalty = 0, pb.amount, 0)) AS f,
+        SUM(IF(c.is_penalty = 1, pb.amount, 0)) AS pen
+    FROM live
+    JOIN m_loan_charge_paid_by pb ON pb.loan_transaction_id = live.id
+    JOIN m_loan_charge c ON c.id = pb.loan_charge_id AND c.is_active = 1
+    JOIN m_loan_repayment_schedule rs ON rs.loan_id = c.loan_id
+        AND c.due_for_collection_as_of_date > rs.fromdate
+        AND c.due_for_collection_as_of_date <= rs.duedate
+    WHERE live.type = 9
+    GROUP BY rs.id
+),
+written_off AS (
+    SELECT DISTINCT loan_id
+    FROM live
+    WHERE type = 6
+),
+instalment_due AS (
+    SELECT
+        rs.loan_id,
+        rs.duedate,
+        COALESCE(rs.principal_amount, 0) - COALESCE(a.p, 0)
+            - IF(wo.loan_id IS NULL, 0, COALESCE(rs.principal_writtenoff_derived, 0)) AS principal_due,
+        COALESCE(rs.interest_amount, 0) - COALESCE(a.i, 0)
+            - IF(wo.loan_id IS NULL, 0, COALESCE(rs.interest_writtenoff_derived, 0)) AS interest_due,
+        COALESCE(rs.fee_charges_amount, 0) - COALESCE(a.f, 0) - COALESCE(w.f, 0)
+            - IF(wo.loan_id IS NULL, 0, COALESCE(rs.fee_charges_writtenoff_derived, 0)) AS fee_due,
+        COALESCE(rs.penalty_charges_amount, 0) - COALESCE(a.pen, 0) - COALESCE(w.pen, 0)
+            - IF(wo.loan_id IS NULL, 0, COALESCE(rs.penalty_charges_writtenoff_derived, 0)) AS penalty_due
+    FROM scope s
+    JOIN m_loan_repayment_schedule rs ON rs.loan_id = s.loan_id
+    CROSS JOIN as_at p
+    LEFT JOIN alloc a ON a.sid = rs.id
+    LEFT JOIN charge_waived w ON w.sid = rs.id
+    LEFT JOIN written_off wo ON wo.loan_id = rs.loan_id
+    WHERE NOT p.is_today
+      AND rs.duedate < DATE_SUB(p.d, INTERVAL COALESCE(s.grace, 0) DAY)
+),
+as_at_aging AS (
+    SELECT
+        loan_id,
+        SUM(IF(ROUND(principal_due + interest_due + fee_due + penalty_due, 2) > 0, principal_due, 0)) AS principal_overdue,
+        SUM(IF(ROUND(principal_due + interest_due + fee_due + penalty_due, 2) > 0, interest_due, 0)) AS interest_overdue,
+        MIN(IF(ROUND(principal_due + interest_due + fee_due + penalty_due, 2) > 0, duedate, NULL)) AS overdue_since
+    FROM instalment_due
+    GROUP BY loan_id
+),
+aging AS (
+    SELECT
+        laa.loan_id,
+        ml.principal_repaid_derived AS principal_paid,
+        ml.interest_repaid_derived AS interest_paid,
+        laa.principal_overdue_derived AS principal_overdue,
+        laa.interest_overdue_derived AS interest_overdue,
+        DATEDIFF(p.d, laa.overdue_since_date_derived) AS dpd
+    FROM scope s
+    JOIN m_loan_arrears_aging laa ON laa.loan_id = s.loan_id
+    JOIN m_loan ml ON ml.id = s.loan_id
+    CROSS JOIN as_at p
+    WHERE p.is_today
+    UNION ALL
+    SELECT
+        a.loan_id,
+        COALESCE(pd.p, 0),
+        COALESCE(pd.i, 0),
+        a.principal_overdue,
+        a.interest_overdue,
+        DATEDIFF(p.d, a.overdue_since)
+    FROM as_at_aging a
+    LEFT JOIN paid pd ON pd.loan_id = a.loan_id
+    CROSS JOIN as_at p
+    WHERE a.overdue_since IS NOT NULL
+)
+SELECT
+concat(repeat("..",
+   ((LENGTH(ounder.`hierarchy`) - LENGTH(REPLACE(ounder.`hierarchy`, '.', '')) - 1))), ounder.`name`) as "Office/Branch",
+ifnull(cur.display_symbol, ml.currency_code) as Currency,
+mc.account_no as "Client Account No.",
+    mc.display_name AS "Client Name",
+    ml.account_no AS "Account Number",
+    ml.principal_amount AS "Loan Amount",
+ ml.principal_disbursed_derived AS "Original Principal",
+ ml.interest_charged_derived AS "Original Interest",
+ ag.principal_paid AS "Principal Paid",
+ ag.interest_paid AS "Interest Paid",
+ ag.principal_overdue AS "Principal Overdue",
+ ag.interest_overdue AS "Interest Overdue",
+ag.dpd as "Days in Arrears",
+
+    IF(ag.dpd<7, '<1',
+    IF(ag.dpd<8, ' 1',
+    IF(ag.dpd<15,  '2',
+    IF(ag.dpd<22, ' 3',
+    IF(ag.dpd<29, ' 4',
+    IF(ag.dpd<36, ' 5',
+    IF(ag.dpd<43, ' 6',
+    IF(ag.dpd<50, ' 7',
+    IF(ag.dpd<57, ' 8',
+    IF(ag.dpd<64, ' 9',
+    IF(ag.dpd<71, '10',
+    IF(ag.dpd<78, '11',
+    IF(ag.dpd<85, '12', '12+')))))))))))) )AS "Weeks In Arrears Band",
+
+        IF(ag.dpd<31, '0 - 30',
+        IF(ag.dpd<61, '30 - 60',
+        IF(ag.dpd<91, '60 - 90',
+        IF(ag.dpd<181, '90 - 180',
+        IF(ag.dpd<361, '180 - 360',
+                 '> 360'))))) AS "Days in Arrears Band",
+par.name AS "PAR Category"
+
+FROM aging ag
+JOIN m_loan ml ON ml.id = ag.loan_id
+JOIN m_client mc ON mc.id = ml.client_id
+JOIN m_office ounder ON ounder.id = mc.office_id
+LEFT JOIN m_currency cur ON cur.code = ml.currency_code
+LEFT JOIN par_band par ON ag.dpd >= par.min_dpd AND (par.max_dpd IS NULL OR ag.dpd <= par.max_dpd)
+WHERE (${parCategory} = -1 OR par.id = ${parCategory})
+ORDER BY ounder.hierarchy, ifnull(cur.display_symbol, ml.currency_code), ml.account_no]]></column>
+            <where>report_name = 'Aging Detail'</where>
+        </update>
+    </changeSet>
+</databaseChangeLog>
