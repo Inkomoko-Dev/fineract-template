@@ -458,8 +458,16 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
 
     private List<HashMap<String, Object>> getRunReportByServiceImpl(final String reportName, final Map<String, String> queryParams) {
         final String reportType = "report";
+        // Strip "R_" prefix from parameter keys so they match ${officeId} style placeholders in report SQL,
+        // aligning with SMS campaign behavior where plain keys are used (no R_ prefix).
+        final Map<String, String> normalizedParams = new HashMap<>();
+        for (final Map.Entry<String, String> entry : queryParams.entrySet()) {
+            final String key = entry.getKey();
+            final String normalizedKey = key.startsWith("R_") ? key.substring(2) : key;
+            normalizedParams.put(normalizedKey, entry.getValue());
+        }
         final GenericResultsetData results = this.readReportingService.retrieveGenericResultSetForSmsEmailCampaign(reportName, reportType,
-                queryParams);
+                normalizedParams);
         // Map rows directly — avoid generateJsonFromGenericResultsetData + Jackson parse, which breaks on
         // unescaped control characters (tabs/newlines) common in stretchy-report string columns.
         final List<ResultsetColumnHeaderData> columnHeaders = results.getColumnHeaders();

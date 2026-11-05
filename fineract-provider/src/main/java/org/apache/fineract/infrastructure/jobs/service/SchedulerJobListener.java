@@ -26,11 +26,13 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.businessdate.service.BusinessDateReadPlatformService;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.ingestion.LogReporter;
 import org.apache.fineract.infrastructure.jobs.domain.ScheduledJobDetail;
 import org.apache.fineract.infrastructure.jobs.domain.ScheduledJobRunHistory;
 import org.apache.fineract.portfolio.account.api.StandingInstructionApiConstants;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepositoryWrapper;
+import org.quartz.JobDataMap;
 import org.quartz.JobExecutionContext;
 import org.quartz.JobExecutionException;
 import org.quartz.JobKey;
@@ -55,6 +57,7 @@ public class SchedulerJobListener implements JobListener {
     private final AppUserRepositoryWrapper userRepository;
     private final GrantedAuthoritiesMapper authoritiesMapper = new NullAuthoritiesMapper();
     private final BusinessDateReadPlatformService businessDateReadPlatformService;
+    private final LogReporter logReporter;
     private int stackTraceLevel = 0;
 
     @Override
@@ -63,11 +66,19 @@ public class SchedulerJobListener implements JobListener {
     }
 
     @Override
-    public void jobToBeExecuted(@SuppressWarnings("unused") final JobExecutionContext context) {
+    public void jobToBeExecuted(final JobExecutionContext context) {
         AppUser user = this.userRepository.fetchSystemUser();
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user, user.getPassword(),
                 authoritiesMapper.mapAuthorities(user.getAuthorities()));
         SecurityContextHolder.getContext().setAuthentication(auth);
+        final JobDataMap jobDataMap = context.getMergedJobDataMap();
+        final String triggerType = jobDataMap.containsKey(SchedulerServiceConstants.TRIGGER_TYPE_REFERENCE)
+                ? jobDataMap.getString(SchedulerServiceConstants.TRIGGER_TYPE_REFERENCE)
+                : SchedulerServiceConstants.TRIGGER_TYPE_CRON;
+        final Long triggeredByUserId = jobDataMap.containsKey(SchedulerServiceConstants.TRIGGERED_BY_USER_ID)
+                ? jobDataMap.getLongValue(SchedulerServiceConstants.TRIGGERED_BY_USER_ID)
+                : null;
+        ThreadLocalContextUtil.setJobTrigger(triggerType, triggeredByUserId);
         HashMap<BusinessDateType, LocalDate> businessDates = businessDateReadPlatformService.getBusinessDates();
         ThreadLocalContextUtil.setBusinessDates(businessDates);
     }
@@ -79,6 +90,7 @@ public class SchedulerJobListener implements JobListener {
 
     @Override
     public void jobWasExecuted(final JobExecutionContext context, final JobExecutionException jobException) {
+        ThreadLocalContextUtil.clearJobTrigger();
         final Trigger trigger = context.getTrigger();
         final JobKey key = context.getJobDetail().getKey();
         final String jobKey = key.getName() + SchedulerServiceConstants.JOB_KEY_SEPERATOR + key.getGroup();
@@ -87,10 +99,12 @@ public class SchedulerJobListener implements JobListener {
         String status = SchedulerServiceConstants.STATUS_SUCCESS;
         String errorMessage = null;
         String errorLog = null;
+        Throwable failure = null;
         if (jobException != null) {
             status = SchedulerServiceConstants.STATUS_FAILED;
             this.stackTraceLevel = 0;
             final Throwable throwable = getCauseFromException(jobException);
+            failure = throwable;
             this.stackTraceLevel = 0;
             StackTraceElement[] stackTraceElements = null;
             errorMessage = throwable.getMessage();
@@ -107,6 +121,9 @@ public class SchedulerJobListener implements JobListener {
         // If error due to InsufficientAccountBalance then mark job status as success
         if (StringUtils.isNotBlank(errorLog) && errorLog.contains(StandingInstructionApiConstants.insufficientBalanceExceptionMessage)) {
             status = SchedulerServiceConstants.STATUS_SUCCESS;
+        }
+        if (SchedulerServiceConstants.STATUS_FAILED.equals(status)) {
+            this.logReporter.jobFailed(scheduledJobDetails.getJobName(), failure);
         }
 
         String triggerType = SchedulerServiceConstants.TRIGGER_TYPE_CRON;

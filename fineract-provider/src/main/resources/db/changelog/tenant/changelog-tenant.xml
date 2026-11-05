@@ -155,6 +155,7 @@
     <include file="parts/FSI-93_update_IC_minutes_report.xml" relativeToChangelogFile="true"/>
     <include file="parts/FSI-233_update_penalties_section_portfolio_management_report.xml" relativeToChangelogFile="true"/>
     <include file="parts/FSI-231_update_payoff_portfolio_management_report.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-540_pmr_installment_vs_term_labels.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-541_harmonize_country_code_values.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-527_standardize_bank_name_in_reports.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-588_kiva_posting_logger.xml" relativeToChangelogFile="true"/>
@@ -169,6 +170,7 @@
     <include file="parts/CGLT-753_add_migrated_flag_to_client.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-618_loan_classification.xml" relativeToChangelogFile="true"/>
     <include file="custom-changelog/CGLT-776_import_failure_message.xml" relativeToChangelogFile="true"/>
+    <include file="custom-changelog/CGLT-851_reverse_accrual_permission.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-577_add_missing_provisioning_history_id.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-577_external_organization_mapping.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-788_make_address_location_mandatory.xml" relativeToChangelogFile="true"/>

@@ -1017,6 +1017,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder reverseAccrualTransaction(final Long loanId, final Long transactionId) {
+        this.actionName = "REVERSEACCRUAL";
+        this.entityName = "LOAN";
+        this.entityId = transactionId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=reverseaccrual";
+        return this;
+    }
+
     public CommandWrapperBuilder editDisbursementChargeTransaction(final Long loanId, final Long transactionId) {
         this.actionName = "ADJUST";
         this.entityName = "LOAN";

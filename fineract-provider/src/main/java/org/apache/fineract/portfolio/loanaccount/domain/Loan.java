@@ -126,6 +126,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleD
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.DefaultScheduledDateGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.TrancheDisbursementAfterMaturityException;
@@ -7765,6 +7766,36 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
     }
 
+    /**
+     * After reversing one or more accrual transactions, rebuild installment accrual_*_derived from remaining
+     * non-reversed accruals and roll accrued_till back to the latest remaining accrual date (or null).
+     */
+    public void rebuildAccrualDerivedFieldsFromNonReversedAccruals() {
+        final MonetaryCurrency currency = getCurrency();
+        final Collection<LoanTransaction> accruals = retreiveListOfAccrualTransactions();
+        LocalDate latestAccruedTill = null;
+        for (final LoanTransaction loanTransaction : accruals) {
+            if (latestAccruedTill == null || loanTransaction.getTransactionDate().isAfter(latestAccruedTill)) {
+                latestAccruedTill = loanTransaction.getTransactionDate();
+            }
+        }
+        for (final LoanRepaymentScheduleInstallment installment : getRepaymentScheduleInstallments()) {
+            Money interest = Money.zero(currency);
+            Money fee = Money.zero(currency);
+            Money penalty = Money.zero(currency);
+            for (final LoanTransaction loanTransaction : accruals) {
+                if (loanTransaction.getTransactionDate().isAfter(installment.getFromDate())
+                        && !loanTransaction.getTransactionDate().isAfter(installment.getDueDate())) {
+                    interest = interest.plus(loanTransaction.getInterestPortion(currency));
+                    fee = fee.plus(loanTransaction.getFeeChargesPortion(currency));
+                    penalty = penalty.plus(loanTransaction.getPenaltyChargesPortion(currency));
+                }
+            }
+            installment.updateAccrualPortion(interest, fee, penalty);
+        }
+        this.accruedTill = latestAccruedTill;
+    }
+
     public ChangedTransactionDetail handleForeClosureTransactions(final LoanTransaction repaymentTransaction,
             final LoanLifecycleStateMachine loanLifecycleStateMachine, final ScheduleGeneratorDTO scheduleGeneratorDTO) {
 
@@ -8339,18 +8370,31 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
 
         if (icReviewTermFrequency != null) {
+            final Integer numberOfRepayments = numberOfRepaymentsForReviewedTerm(icReviewTermFrequency, icReviewTermPeriodFrequencyType);
             this.termFrequency = icReviewTermFrequency;
-            this.loanRepaymentScheduleDetail.updateNumberOfRepayments(icReviewTermFrequency);
+            this.loanRepaymentScheduleDetail.updateNumberOfRepayments(numberOfRepayments);
             actualChanges.put(LoanApiConstants.icReviewTermFrequency, icReviewTermFrequency);
         }
 
         if (icReviewTermPeriodFrequencyType != null) {
+            // Term unit only — do not overwrite repaymentPeriodFrequencyType (keeps Months/3 or Months/6).
             this.termPeriodFrequencyType = icReviewTermPeriodFrequencyType;
-            this.loanRepaymentScheduleDetail.setRepaymentPeriodFrequencyType(PeriodFrequencyType.fromInt(icReviewTermPeriodFrequencyType));
             actualChanges.put(LoanApiConstants.icReviewTermPeriodFrequencyEnum, icReviewTermPeriodFrequencyType);
         }
 
         return actualChanges;
+    }
+
+    /**
+     * IC review stores the submitted term amount and unit. Installment count is that term converted to months
+     * ({@link LoanRepaymentFrequency#termInMonths}) divided by {@code repayEvery}. Repayment cadence
+     * ({@code repayEvery} + repayment period type) is left unchanged.
+     */
+    private Integer numberOfRepaymentsForReviewedTerm(final Integer termFrequency, final Integer termFrequencyType) {
+        final Integer repaymentEvery = this.loanRepaymentScheduleDetail.getRepayEvery();
+        final PeriodFrequencyType frequencyType = this.loanRepaymentScheduleDetail.getRepaymentPeriodFrequencyType();
+        final Integer frequencyTypeValue = frequencyType == null ? null : frequencyType.getValue();
+        return LoanRepaymentFrequency.installmentsForRecommendedTerm(termFrequency, termFrequencyType, repaymentEvery, frequencyTypeValue);
     }
 
     public void setLoanWithAnotherInstitutionAmount(BigDecimal loanWithAnotherInstitutionAmont) {
