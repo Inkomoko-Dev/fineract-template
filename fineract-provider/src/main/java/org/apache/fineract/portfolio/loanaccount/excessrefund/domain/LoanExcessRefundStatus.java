@@ -19,7 +19,9 @@
 package org.apache.fineract.portfolio.loanaccount.excessrefund.domain;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public enum LoanExcessRefundStatus {
 
@@ -58,5 +60,19 @@ public enum LoanExcessRefundStatus {
         }
         return Arrays.stream(values()).filter(s -> s.value == value).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unknown excess refund status: " + value));
+    }
+
+    public static List<Integer> openStatusEnumValues() {
+        return Arrays.stream(values()).filter(LoanExcessRefundStatus::isOpen).map(LoanExcessRefundStatus::getValue)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Open refunds that still hold the excess before GL post. PAID is excluded so
+     * {@code ExcessRefundGlPoster} can call credit-balance-refund to clear the liability.
+     */
+    public static List<Integer> prePaymentOpenStatusEnumValues() {
+        return Arrays.stream(values()).filter(s -> s.isOpen() && s != PAID).map(LoanExcessRefundStatus::getValue)
+                .collect(Collectors.toList());
     }
 }
