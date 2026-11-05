@@ -40,6 +40,8 @@ import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidati
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheScheduleRules;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
@@ -257,10 +259,17 @@ public class LoanRescheduleRequestDataValidator {
         }
 
         if (loan.isMultiDisburmentLoan()) {
-            if (!loan.loanProduct().isDisallowExpectedDisbursements()) {
+            final java.math.BigDecimal firstInstallmentPrincipal = TrancheReleaseRules.effectiveAmount(loan.getFirstInstallmentPrincipal(),
+                    loan.loanProduct().getFirstInstallmentPrincipal());
+            if (!TrancheScheduleRules.rescheduleAllowed(true, loan.loanProduct().isDisallowExpectedDisbursements(),
+                    firstInstallmentPrincipal)) {
                 dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode(
                         RescheduleLoansApiConstants.resheduleForMultiDisbursementNotSupportedErrorCode,
                         "Loan rescheduling is not supported for multidisbursement tranche loans");
+            } else if (firstInstallmentPrincipal != null && extraTerms != null) {
+                dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.extraTermsParamName).failWithCode(
+                        "fixed.first.installment.keeps.original.maturity",
+                        "This product keeps the original maturity. Do not add extra repayments.");
             }
         }
         if (loan.getTotal_extensions() != null && loan.getLoanProduct().getMaxNumberOfLoanExtensionsAllowed() != null) {
