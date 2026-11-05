@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -103,5 +104,56 @@ class TrancheReleaseRulesTest {
         assertEquals(new BigDecimal("50"), TrancheReleaseRules.effectiveAmount(null, new BigDecimal("50")));
         assertEquals("70,30", TrancheReleaseRules.effectiveText("70,30", "60,40"));
         assertEquals("60,40", TrancheReleaseRules.effectiveText("  ", "60,40"));
+    }
+
+    @Test
+    void productFirstTrancheOfSixtyPercentBecomesOneHundredFiftyAndTheRemainder() {
+        final List<BigDecimal> amounts = TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"),
+                List.of(tranche(new BigDecimal("125")), tranche(new BigDecimal("125"))), true, new BigDecimal("60"), 2);
+
+        assertEquals(new BigDecimal("150.00"), amounts.get(0));
+        assertEquals(new BigDecimal("100.00"), amounts.get(1));
+    }
+
+    @Test
+    void fixedProductFirstTrancheLeavesTheRemainderOnTheLastTranche() {
+        final List<BigDecimal> amounts = TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"),
+                List.of(tranche(new BigDecimal("200")), tranche(new BigDecimal("50"))), false, new BigDecimal("80"), 2);
+
+        assertEquals(new BigDecimal("80.00"), amounts.get(0));
+        assertEquals(new BigDecimal("170.00"), amounts.get(1));
+    }
+
+    @Test
+    void aRowPercentageReplacesTheProductFirstTranche() {
+        final List<BigDecimal> amounts = TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"),
+                List.of(new TrancheReleaseRules.PlannedTranche(false, new BigDecimal("1"), true, new BigDecimal("40")),
+                        tranche(new BigDecimal("1"))),
+                true, new BigDecimal("60"), 2);
+
+        assertEquals(new BigDecimal("100.00"), amounts.get(0));
+        assertEquals(new BigDecimal("150.00"), amounts.get(1));
+    }
+
+    @Test
+    void submittedPrincipalsStayWhenTheProductDoesNotSetAFirstTranche() {
+        final List<BigDecimal> amounts = TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"),
+                List.of(tranche(new BigDecimal("150")), tranche(new BigDecimal("100"))), null, null, 2);
+
+        assertNull(amounts);
+    }
+
+    @Test
+    void aDisbursedFirstTrancheIsKeptAndTheRemainderStaysUndisbursed() {
+        final List<BigDecimal> amounts = TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"),
+                List.of(new TrancheReleaseRules.PlannedTranche(true, new BigDecimal("150"), null, null), tranche(new BigDecimal("50"))),
+                true, new BigDecimal("60"), 2);
+
+        assertEquals(new BigDecimal("150.00"), amounts.get(0));
+        assertEquals(new BigDecimal("100.00"), amounts.get(1));
+    }
+
+    private static TrancheReleaseRules.PlannedTranche tranche(final BigDecimal principal) {
+        return new TrancheReleaseRules.PlannedTranche(false, principal, null, null);
     }
 }

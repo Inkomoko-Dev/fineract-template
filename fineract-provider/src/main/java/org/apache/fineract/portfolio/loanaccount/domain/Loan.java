@@ -2334,7 +2334,25 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 removeDisbursementAndAssociatedCharges(actualChanges, disbursementList, loanChargeIds, chargeIdLength, removeAllChages);
             }
         }
+        final List<LoanDisbursementDetails> undisbursedBefore = new ArrayList<>();
+        final List<BigDecimal> principalsBefore = new ArrayList<>();
+        if (this.disbursementDetails != null) {
+            for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+                if (detail.actualDisbursementDate() == null) {
+                    undisbursedBefore.add(detail);
+                    principalsBefore.add(detail.principal());
+                }
+            }
+        }
         TrancheReleaseRules.applyConfiguredPrincipals(this);
+        for (int i = 0; i < undisbursedBefore.size(); i++) {
+            final BigDecimal before = principalsBefore.get(i);
+            final BigDecimal after = undisbursedBefore.get(i).principal();
+            if (before == null || after == null || before.compareTo(after) != 0) {
+                actualChanges.put("recalculateLoanSchedule", true);
+                break;
+            }
+        }
     }
 
     private void removeDisbursementAndAssociatedCharges(final Map<String, Object> actualChanges, List<Long> disbursementList,
@@ -2417,6 +2435,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 LoanDisbursementDetails disbursementDetails = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
                         disbursementPrincipal, this.netDisbursalAmount);
                 disbursementDetails.updateLoan(this);
+                final boolean principalChoiceChanged = principalChoiceChanged(loanDisbursementDetail, principalAsPercentageSpecified,
+                        principalAsPercentage, principalPercentageSpecified, principalPercentage);
                 applyTrancheChoices(loanDisbursementDetail, previousTrancheRepaidMinimum, minimumSpecified, repaidAsPercentage,
                         repaidAsPercentageSpecified, principalAsPercentage, principalAsPercentageSpecified, principalPercentage,
                         principalPercentageSpecified);
@@ -2424,6 +2444,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                     loanDisbursementDetail.updateExpectedDisbursementDateAndAmount(expectedDisbursementDate, disbursementPrincipal);
                     loanDisbursementDetail.setNetDisbursalAmount(this.netDisbursalAmount);
                     actualChanges.put("disbursementDetailId", disbursementID);
+                    actualChanges.put("recalculateLoanSchedule", true);
+                } else if (principalChoiceChanged) {
                     actualChanges.put("recalculateLoanSchedule", true);
                 }
             }
@@ -8241,6 +8263,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     public void setPreviousTrancheThresholdAsPercentage(final Boolean previousTrancheThresholdAsPercentage) {
         this.previousTrancheThresholdAsPercentage = previousTrancheThresholdAsPercentage;
+    }
+
+    private static boolean principalChoiceChanged(final LoanDisbursementDetails detail, final boolean asPercentageSpecified,
+            final Boolean asPercentage, final boolean percentageSpecified, final BigDecimal percentage) {
+        if (asPercentageSpecified && !java.util.Objects.equals(asPercentage, detail.getPrincipalAsPercentage())) {
+            return true;
+        }
+        return percentageSpecified && !sameMoney(percentage, detail.getPrincipalPercentage());
     }
 
     private static boolean sameMoney(final BigDecimal left, final BigDecimal right) {

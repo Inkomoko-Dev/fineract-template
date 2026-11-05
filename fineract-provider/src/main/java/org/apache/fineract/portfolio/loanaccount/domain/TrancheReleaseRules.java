@@ -217,30 +217,57 @@ public final class TrancheReleaseRules {
         if (product == null || !product.isMultiDisburseLoan()) {
             return;
         }
-        if (applyRowPrincipalPercentages(loan)) {
+        if (loan.getDisbursementDetails() == null || loan.getDisbursementDetails().isEmpty()) {
             return;
         }
-        final String raw = loan.getTranchePrincipalPercentages();
-        if (raw == null || raw.isBlank()) {
-            return;
-        }
-        final List<BigDecimal> percentages = parsePercentages(raw);
         final BigDecimal base = loan.getApprovedPrincipal() != null ? loan.getApprovedPrincipal() : loan.getProposedPrincipal();
-        if (base == null || loan.getDisbursementDetails() == null || loan.getDisbursementDetails().isEmpty()) {
-            return;
-        }
         final List<LoanDisbursementDetails> ordered = loan.getDisbursementDetails().stream()
                 .sorted(Comparator
                         .comparing(LoanDisbursementDetails::expectedDisbursementDate, Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(LoanDisbursementDetails::getId, Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
-        if (ordered.size() != percentages.size()) {
-            throw new org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException(
-                    "This product splits the principal into " + percentages.size()
-                            + " tranches. Enter that many tranche rows. Amounts are set from the percentages.",
-                    "tranche.percentage.count.mismatch", percentages.size(), ordered.size());
+        final List<PlannedTranche> planned = new ArrayList<>();
+        boolean rowPercentage = false;
+        for (LoanDisbursementDetails detail : ordered) {
+            if (Boolean.TRUE.equals(detail.getPrincipalAsPercentage()) && detail.getPrincipalPercentage() != null) {
+                rowPercentage = true;
+            }
+            planned.add(new PlannedTranche(detail.actualDisbursementDate() != null, detail.principal(),
+                    detail.getPrincipalAsPercentage(), detail.getPrincipalPercentage()));
         }
-        final List<BigDecimal> amounts = principals(base, percentages, digits(loan));
+        if (rowPercentage) {
+            writeResolvedPrincipals(ordered, resolvePrincipals(base, planned, null, null, digits(loan)));
+            return;
+        }
+        final String raw = loan.getTranchePrincipalPercentages();
+        if (raw != null && !raw.isBlank()) {
+            if (base == null) {
+                return;
+            }
+            final List<BigDecimal> percentages = parsePercentages(raw);
+            if (ordered.size() != percentages.size()) {
+                throw new org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException(
+                        "This product splits the principal into " + percentages.size()
+                                + " tranches. Enter that many tranche rows. Amounts are set from the percentages.",
+                        "tranche.percentage.count.mismatch", percentages.size(), ordered.size());
+            }
+            final List<BigDecimal> amounts = principals(base, percentages, digits(loan));
+            for (int i = 0; i < ordered.size(); i++) {
+                final LoanDisbursementDetails detail = ordered.get(i);
+                if (detail.actualDisbursementDate() == null) {
+                    detail.updatePrincipal(amounts.get(i));
+                }
+            }
+            return;
+        }
+        writeResolvedPrincipals(ordered,
+                resolvePrincipals(base, planned, product.getFirstTrancheAsPercentage(), product.getFirstTrancheAmount(), digits(loan)));
+    }
+
+    private static void writeResolvedPrincipals(final List<LoanDisbursementDetails> ordered, final List<BigDecimal> amounts) {
+        if (amounts == null) {
+            return;
+        }
         for (int i = 0; i < ordered.size(); i++) {
             final LoanDisbursementDetails detail = ordered.get(i);
             if (detail.actualDisbursementDate() == null) {
@@ -249,48 +276,76 @@ public final class TrancheReleaseRules {
         }
     }
 
-    private static boolean applyRowPrincipalPercentages(final Loan loan) {
-        if (loan.getDisbursementDetails() == null || loan.getDisbursementDetails().isEmpty()) {
-            return false;
+    /**
+     * Currency amounts for each tranche, in the same order as {@code rows}. A row percentage replaces
+     * the product. Otherwise the product first tranche is taken from the approved principal and the last
+     * undisbursed tranche receives whatever principal is still left. Returns null when the submitted
+     * principals should be kept.
+     */
+    public static List<BigDecimal> resolvePrincipals(final BigDecimal approved, final List<PlannedTranche> rows,
+            final Boolean productFirstAsPercentage, final BigDecimal productFirstAmount, final int digits) {
+        if (approved == null || rows == null || rows.isEmpty()) {
+            return null;
         }
-        final BigDecimal base = loan.getApprovedPrincipal() != null ? loan.getApprovedPrincipal() : loan.getProposedPrincipal();
-        if (base == null) {
-            return false;
-        }
-        final List<LoanDisbursementDetails> ordered = loan.getDisbursementDetails().stream()
-                .sorted(Comparator.comparing(LoanDisbursementDetails::expectedDisbursementDate, Comparator.nullsLast(Comparator.naturalOrder()))
-                        .thenComparing(LoanDisbursementDetails::getId, Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList();
-        boolean any = false;
-        for (LoanDisbursementDetails detail : ordered) {
-            if (Boolean.TRUE.equals(detail.getPrincipalAsPercentage()) && detail.getPrincipalPercentage() != null) {
-                any = true;
-                break;
+        boolean anyRowPercentage = false;
+        boolean anyDisbursed = false;
+        int firstUndisbursed = -1;
+        int lastUndisbursed = -1;
+        for (int i = 0; i < rows.size(); i++) {
+            final PlannedTranche row = rows.get(i);
+            if (row.disbursed) {
+                anyDisbursed = true;
+                continue;
+            }
+            if (firstUndisbursed < 0) {
+                firstUndisbursed = i;
+            }
+            lastUndisbursed = i;
+            if (Boolean.TRUE.equals(row.principalAsPercentage) && row.principalPercentage != null) {
+                anyRowPercentage = true;
             }
         }
-        if (!any) {
-            return false;
+        final boolean productFirst = productFirstAmount != null && !anyRowPercentage;
+        if (!anyRowPercentage && !productFirst) {
+            return null;
         }
-        final int digits = digits(loan);
-        BigDecimal remaining = base.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
-        for (LoanDisbursementDetails detail : ordered) {
-            final boolean disbursed = detail.actualDisbursementDate() != null;
+        if (productFirst && firstUndisbursed == lastUndisbursed && !anyDisbursed) {
+            return null;
+        }
+        final BigDecimal base = approved.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
+        BigDecimal remaining = base;
+        final List<BigDecimal> amounts = new ArrayList<>(rows.size());
+        for (int i = 0; i < rows.size(); i++) {
+            final PlannedTranche row = rows.get(i);
+            final boolean percentageRow = Boolean.TRUE.equals(row.principalAsPercentage) && row.principalPercentage != null;
             final BigDecimal amount;
-            if (disbursed) {
-                amount = detail.principal() == null ? BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP)
-                        : detail.principal().setScale(digits, RoundingMode.HALF_UP);
-            } else {
-                amount = nextTrancheAmount(remaining, Boolean.TRUE.equals(detail.getPrincipalAsPercentage()),
-                        Boolean.TRUE.equals(detail.getPrincipalAsPercentage()) ? detail.getPrincipalPercentage() : detail.principal(),
+            if (row.disbursed) {
+                amount = row.principal == null ? BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP)
+                        : row.principal.setScale(digits, RoundingMode.HALF_UP);
+            } else if (productFirst && i == firstUndisbursed && firstUndisbursed != lastUndisbursed) {
+                amount = cap(nextTrancheAmount(base, Boolean.TRUE.equals(productFirstAsPercentage), productFirstAmount, digits), remaining,
                         digits);
-                detail.updatePrincipal(amount);
+            } else if (i == lastUndisbursed && !percentageRow && (firstUndisbursed != lastUndisbursed || anyDisbursed)) {
+                amount = remaining.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
+            } else {
+                final BigDecimal value = percentageRow ? row.principalPercentage : row.principal;
+                amount = nextTrancheAmount(remaining, percentageRow, value, digits);
             }
+            amounts.add(amount);
             remaining = remaining.subtract(amount);
             if (remaining.signum() < 0) {
                 remaining = BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP);
             }
         }
-        return true;
+        return amounts;
+    }
+
+    private static BigDecimal cap(final BigDecimal amount, final BigDecimal remaining, final int digits) {
+        final BigDecimal left = remaining.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
+        if (amount.compareTo(left) > 0) {
+            return left;
+        }
+        return amount;
     }
 
     /**
@@ -327,6 +382,25 @@ public final class TrancheReleaseRules {
             return 2;
         }
         return loan.getCurrency().getDigitsAfterDecimal();
+    }
+
+    /**
+     * One planned tranche. A null {@code principalAsPercentage} means the row does not override the product.
+     */
+    public static final class PlannedTranche {
+
+        public final boolean disbursed;
+        public final BigDecimal principal;
+        public final Boolean principalAsPercentage;
+        public final BigDecimal principalPercentage;
+
+        public PlannedTranche(final boolean disbursed, final BigDecimal principal, final Boolean principalAsPercentage,
+                final BigDecimal principalPercentage) {
+            this.disbursed = disbursed;
+            this.principal = principal;
+            this.principalAsPercentage = principalAsPercentage;
+            this.principalPercentage = principalPercentage;
+        }
     }
 
     public static final class Assessment {

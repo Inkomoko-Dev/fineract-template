@@ -27,6 +27,7 @@ import java.util.Iterator;
 import java.util.List;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.api.JsonQuery;
@@ -44,6 +45,7 @@ import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.monetary.service.CurrencyReadPlatformService;
 import org.apache.fineract.portfolio.accountdetails.domain.AccountType;
+import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
@@ -225,16 +227,51 @@ public class LoanScheduleCalculationPlatformServiceImpl implements LoanScheduleC
     }
 
     private BigDecimal previewFirstTrancheAmount(final JsonElement element, final LoanProduct loanProduct, final int digits) {
-        if (this.fromJsonHelper.parameterExists("disbursementData", element)) {
-            final JsonArray rows = this.fromJsonHelper.extractJsonArrayNamed("disbursementData", element);
-            if (rows != null && rows.size() > 0 && rows.get(0).isJsonObject()) {
-                final BigDecimal principal = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("principal", rows.get(0));
-                if (principal != null) {
-                    return principal;
+        final BigDecimal loanPrincipal = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("principal", element);
+        if (this.fromJsonHelper.parameterExists(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES, element)) {
+            final String raw = this.fromJsonHelper.extractStringNamed(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES, element);
+            if (raw != null && !raw.isBlank()) {
+                final List<BigDecimal> split = TrancheReleaseRules.principals(loanPrincipal, TrancheReleaseRules.parsePercentages(raw),
+                        digits);
+                if (!split.isEmpty()) {
+                    return split.get(0);
                 }
             }
         }
-        final BigDecimal loanPrincipal = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("principal", element);
+        final List<TrancheReleaseRules.PlannedTranche> planned = new ArrayList<>();
+        if (this.fromJsonHelper.parameterExists("disbursementData", element)) {
+            final JsonArray rows = this.fromJsonHelper.extractJsonArrayNamed("disbursementData", element);
+            if (rows != null) {
+                for (final JsonElement rowElement : rows) {
+                    if (!rowElement.isJsonObject()) {
+                        continue;
+                    }
+                    final JsonObject row = rowElement.getAsJsonObject();
+                    final BigDecimal principal = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("principal", row);
+                    Boolean principalAsPercentage = null;
+                    if (row.has(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE)
+                            && row.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE).isJsonPrimitive()) {
+                        principalAsPercentage = row.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE).getAsBoolean();
+                    }
+                    BigDecimal principalPercentage = null;
+                    if (row.has(LoanApiConstants.PRINCIPAL_PERCENTAGE) && row.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).isJsonPrimitive()
+                            && !row.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsString().isBlank()) {
+                        principalPercentage = row.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsBigDecimal();
+                    }
+                    planned.add(new TrancheReleaseRules.PlannedTranche(false, principal, principalAsPercentage, principalPercentage));
+                }
+            }
+        }
+        if (!planned.isEmpty()) {
+            final List<BigDecimal> resolved = TrancheReleaseRules.resolvePrincipals(loanPrincipal, planned,
+                    loanProduct.getFirstTrancheAsPercentage(), loanProduct.getFirstTrancheAmount(), digits);
+            if (resolved != null && !resolved.isEmpty()) {
+                return resolved.get(0);
+            }
+            if (planned.get(0).principal != null) {
+                return planned.get(0).principal;
+            }
+        }
         if (Boolean.TRUE.equals(loanProduct.getFirstTrancheAsPercentage())) {
             return TrancheReleaseRules.percentageOf(loanPrincipal, loanProduct.getFirstTrancheAmount(), digits);
         }
