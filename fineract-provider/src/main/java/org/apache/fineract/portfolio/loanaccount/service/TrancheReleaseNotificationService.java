@@ -1,3 +1,21 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import com.google.gson.Gson;
@@ -95,8 +113,12 @@ public class TrancheReleaseNotificationService {
     private String emailBody(final Loan loan, final TrancheReleaseRules.Assessment assessment) {
         final StringBuilder body = new StringBuilder();
         final String clientName = loan.getClient() == null ? "" : loan.getClient().getDisplayName();
-        body.append("Loan ").append(loan.getAccountNumber()).append(" for ").append(clientName)
-                .append(" has repaid ").append(assessment.percentage).append("% of the previous tranche.\n");
+        body.append("Loan ").append(loan.getAccountNumber()).append(" for ").append(clientName);
+        if (assessment.percentage == null) {
+            body.append(" has repaid the required amount of the previous tranche.\n");
+        } else {
+            body.append(" has repaid ").append(assessment.percentage).append("% of the previous tranche.\n");
+        }
         body.append("Previous tranche principal: ").append(assessment.previous.principal()).append('\n');
         body.append("Principal repaid since that disbursement: ").append(assessment.repaid).append('\n');
         body.append("Required: ").append(assessment.required).append('\n');
@@ -115,6 +137,7 @@ public class TrancheReleaseNotificationService {
         report.put("accountNo", loan.getAccountNumber());
         report.put("clientName", loan.getClient() == null ? null : loan.getClient().getDisplayName());
         report.put("thresholdMet", assessment != null && assessment.met());
+        report.put("minimumNotMet", assessment != null && !assessment.met());
         if (assessment == null) {
             report.put("repayments", List.of());
             return report;
