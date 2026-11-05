@@ -32,6 +32,7 @@ import org.apache.fineract.infrastructure.jobs.domain.ScheduledJobRunHistory;
 import org.apache.fineract.portfolio.account.api.StandingInstructionApiConstants;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepositoryWrapper;
+import org.quartz.JobDataMap;
 import org.quartz.JobExecutionContext;
 import org.quartz.JobExecutionException;
 import org.quartz.JobKey;
@@ -65,11 +66,19 @@ public class SchedulerJobListener implements JobListener {
     }
 
     @Override
-    public void jobToBeExecuted(@SuppressWarnings("unused") final JobExecutionContext context) {
+    public void jobToBeExecuted(final JobExecutionContext context) {
         AppUser user = this.userRepository.fetchSystemUser();
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user, user.getPassword(),
                 authoritiesMapper.mapAuthorities(user.getAuthorities()));
         SecurityContextHolder.getContext().setAuthentication(auth);
+        final JobDataMap jobDataMap = context.getMergedJobDataMap();
+        final String triggerType = jobDataMap.containsKey(SchedulerServiceConstants.TRIGGER_TYPE_REFERENCE)
+                ? jobDataMap.getString(SchedulerServiceConstants.TRIGGER_TYPE_REFERENCE)
+                : SchedulerServiceConstants.TRIGGER_TYPE_CRON;
+        final Long triggeredByUserId = jobDataMap.containsKey(SchedulerServiceConstants.TRIGGERED_BY_USER_ID)
+                ? jobDataMap.getLongValue(SchedulerServiceConstants.TRIGGERED_BY_USER_ID)
+                : null;
+        ThreadLocalContextUtil.setJobTrigger(triggerType, triggeredByUserId);
         HashMap<BusinessDateType, LocalDate> businessDates = businessDateReadPlatformService.getBusinessDates();
         ThreadLocalContextUtil.setBusinessDates(businessDates);
     }
@@ -81,6 +90,7 @@ public class SchedulerJobListener implements JobListener {
 
     @Override
     public void jobWasExecuted(final JobExecutionContext context, final JobExecutionException jobException) {
+        ThreadLocalContextUtil.clearJobTrigger();
         final Trigger trigger = context.getTrigger();
         final JobKey key = context.getJobDetail().getKey();
         final String jobKey = key.getName() + SchedulerServiceConstants.JOB_KEY_SEPERATOR + key.getGroup();
