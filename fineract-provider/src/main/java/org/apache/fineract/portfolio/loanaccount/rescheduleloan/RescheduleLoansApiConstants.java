@@ -54,6 +54,7 @@ public class RescheduleLoansApiConstants {
     public static final String rescheduleReasonCommentParamName = "rescheduleReasonComment";
     public static final String submittedOnDateParamName = "submittedOnDate";
     public static final String adjustedDueDateParamName = "adjustedDueDate";
+    public static final String acknowledgeMultiTrancheRescheduleParamName = "acknowledgeMultiTrancheReschedule";
     public static final String resheduleForMultiDisbursementNotSupportedErrorCode = "loan.reschedule.tranche.multidisbursement.error.code";
     public static final String resheduleWithInterestRecalculationNotSupportedErrorCode = "loan.reschedule.interestrecalculation.error.code";
     public static final String allCommandParamName = "all";
