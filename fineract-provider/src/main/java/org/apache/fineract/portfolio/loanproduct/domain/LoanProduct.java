@@ -461,6 +461,7 @@ public class LoanProduct extends AbstractPersistableCustom {
                 productType);
         product.applyThirdPartyDisbursementSettings(command);
         product.setResidualClosureConfiguration(residualAutoCloseEnabled, residualClosureThreshold);
+        product.loanProducTrancheDetails.applyPercentageConfiguration(command, null);
         return product;
 
     }
@@ -1506,6 +1507,34 @@ public class LoanProduct extends AbstractPersistableCustom {
 
     public Integer maxTrancheCount() {
         return this.loanProducTrancheDetails.maxTrancheCount();
+    }
+
+    public Integer minTrancheCount() {
+        return this.loanProducTrancheDetails.minTrancheCount();
+    }
+
+    public String getTranchePrincipalPercentages() {
+        return this.loanProducTrancheDetails.getTranchePrincipalPercentages();
+    }
+
+    public BigDecimal getPreviousTrancheRepaidPercentage() {
+        return this.loanProducTrancheDetails.getPreviousTrancheRepaidPercentage();
+    }
+
+    public BigDecimal getFirstInstallmentPrincipal() {
+        return this.loanProducTrancheDetails.getFirstInstallmentPrincipal();
+    }
+
+    public Boolean getFirstInstallmentAsPercentage() {
+        return this.loanProducTrancheDetails.getFirstInstallmentAsPercentage();
+    }
+
+    public Boolean getFirstTrancheAsPercentage() {
+        return this.loanProducTrancheDetails.getFirstTrancheAsPercentage();
+    }
+
+    public BigDecimal getFirstTrancheAmount() {
+        return this.loanProducTrancheDetails.getFirstTrancheAmount();
     }
 
     public boolean isInterestRecalculationEnabled() {

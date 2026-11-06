@@ -46,6 +46,7 @@ import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollatera
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidAmountOfCollateralQuantity;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidAmountOfCollaterals;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
@@ -102,6 +103,9 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             LoanApiConstants.LOAN_TERM_INCLUDES_TOPPED_UP_LOAN_TERM, LoanApiConstants.NUMBER_OF_REPAYMENT_TO_CARRY_FORWARD,
             LoanApiConstants.linkVendorAccountIdParamName, LoanApiConstants.LOAN_TERM_TO_TOP_UP, LoanApiConstants.isBnplLoanParamName,
             LoanApiConstants.requiresEquityContributionParamName, LoanApiConstants.equityContributionLoanPercentageParamName,
+            LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE,
+            LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES,
+            LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, LoanApiConstants.PREVIOUS_TRANCHE_THRESHOLD_AS_PERCENTAGE,
             LoanApiConstants.DEPARTMENT_PARAM, LoanApiConstants.DESCRIPTION_PARAM, LoanApiConstants.KIVA_ID_PARAM,
             LoanApiConstants.loanWithAnotherInstitution, LoanApiConstants.loanWithAnotherInstitutionAmount, "departmentId",
             LoanProductConstants.THIRD_PARTY_DISBURSEMENT_PROVIDER));
@@ -546,7 +550,7 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             final BigDecimal maxOutstandingBalance = this.fromApiJsonHelper
                     .extractBigDecimalWithLocaleNamed(LoanApiConstants.maxOutstandingBalanceParameterName, element);
             baseDataValidator.reset().parameter(LoanApiConstants.maxOutstandingBalanceParameterName).value(maxOutstandingBalance)
-                    .ignoreIfNull().positiveAmount();
+                    .ignoreIfNull().zeroOrPositiveAmount();
         }
 
         if (loanProduct.canUseForTopup()) {
@@ -585,7 +589,8 @@ public final class LoanApplicationCommandFromApiJsonHelper {
                     .isOneOfTheseValues(1, 360, 364, 365);
         }
 
-        validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal);
+        validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal, loanProduct);
+        validateTrancheSettingOverrides(baseDataValidator, element, loanProduct);
         validatePartialPeriodSupport(interestCalculationPeriodType, baseDataValidator, element, loanProduct);
         validateThirdPartyDisbursementProvider(baseDataValidator, element, loanProduct, null);
         LoanRepaymentFrequency.validateLoan(dataValidationErrors, loanTermFrequency, loanTermFrequencyType, numberOfRepayments,
@@ -1169,7 +1174,7 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             final BigDecimal maxOutstandingBalance = this.fromApiJsonHelper
                     .extractBigDecimalWithLocaleNamed(LoanApiConstants.maxOutstandingBalanceParameterName, element);
             baseDataValidator.reset().parameter(LoanApiConstants.maxOutstandingBalanceParameterName).value(maxOutstandingBalance)
-                    .ignoreIfNull().positiveAmount();
+                    .ignoreIfNull().zeroOrPositiveAmount();
         }
 
         if (loanProduct.canUseForTopup()) {
@@ -1184,7 +1189,8 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             }
         }
 
-        validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal);
+        validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal, loanProduct);
+        validateTrancheSettingOverrides(baseDataValidator, element, loanProduct);
         validatePartialPeriodSupport(interestCalculationPeriodType, baseDataValidator, element, loanProduct);
         validateThirdPartyDisbursementProvider(baseDataValidator, element, loanProduct, existingLoanApplication);
 
@@ -1460,8 +1466,53 @@ public final class LoanApplicationCommandFromApiJsonHelper {
                 locale);
     }
 
+    private void validateTrancheSettingOverrides(final DataValidatorBuilder baseDataValidator, final JsonElement element,
+            final LoanProduct loanProduct) {
+        if (loanProduct == null || !loanProduct.isMultiDisburseLoan()) {
+            return;
+        }
+        final Boolean firstInstallmentAsPercentage = this.fromApiJsonHelper
+                .parameterExists(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE, element)
+                        ? this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE, element)
+                        : null;
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, element)) {
+            final BigDecimal firstInstallmentPrincipal = this.fromApiJsonHelper
+                    .extractBigDecimalWithLocaleNamed(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, element);
+            baseDataValidator.reset().parameter(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL).value(firstInstallmentPrincipal)
+                    .ignoreIfNull().positiveAmount();
+            if (Boolean.TRUE.equals(firstInstallmentAsPercentage) && firstInstallmentPrincipal != null
+                    && !TrancheReleaseRules.acceptablePrincipalPercentage(firstInstallmentPrincipal)) {
+                baseDataValidator.reset().parameter(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL).value(firstInstallmentPrincipal)
+                        .failWithCode("must.be.at.most.100");
+            }
+        }
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, element)) {
+            final BigDecimal repaidPercentage = this.fromApiJsonHelper
+                    .extractBigDecimalWithLocaleNamed(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, element);
+            baseDataValidator.reset().parameter(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE).value(repaidPercentage)
+                    .ignoreIfNull().positiveAmount().notGreaterThanMax(BigDecimal.valueOf(100));
+        }
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES, element)) {
+            final String percentages = this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES,
+                    element);
+            if (percentages != null && !percentages.isBlank()) {
+                try {
+                    TrancheReleaseRules.parsePercentages(percentages);
+                } catch (IllegalArgumentException ex) {
+                    baseDataValidator.reset().parameter(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES).value(percentages)
+                            .failWithCode("must.add.to.100");
+                }
+            }
+        }
+    }
+
     public void validateLoanMultiDisbursementDate(final JsonElement element, final DataValidatorBuilder baseDataValidator,
             LocalDate expectedDisbursement, BigDecimal totalPrincipal) {
+        validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursement, totalPrincipal, null);
+    }
+
+    public void validateLoanMultiDisbursementDate(final JsonElement element, final DataValidatorBuilder baseDataValidator,
+            LocalDate expectedDisbursement, BigDecimal totalPrincipal, final LoanProduct loanProduct) {
 
         this.validateDisbursementsAreDatewiseOrdered(element, baseDataValidator);
 
@@ -1471,9 +1522,9 @@ public final class LoanApplicationCommandFromApiJsonHelper {
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.disbursementDataParameterName, element) && expectedDisbursement != null
                 && totalPrincipal != null) {
 
-            BigDecimal tatalDisbursement = BigDecimal.ZERO;
             final JsonArray variationArray = this.fromApiJsonHelper.extractJsonArrayNamed(LoanApiConstants.disbursementDataParameterName,
                     element);
+            final List<TrancheReleaseRules.PlannedTranche> plannedTranches = new ArrayList<>();
             List<LocalDate> expectedDisbursementDates = new ArrayList<>();
             if (variationArray != null && variationArray.size() > 0) {
                 if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.isEqualAmortizationParam, element)) {
@@ -1498,6 +1549,43 @@ public final class LoanApplicationCommandFromApiJsonHelper {
                                 .failWithCode(LoanApiConstants.DISBURSEMENT_DATE_BEFORE_ERROR);
                     }
 
+                    if (jsonObject.has(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE)
+                            && jsonObject.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE).isJsonPrimitive()
+                            && jsonObject.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE).getAsBoolean()) {
+                        BigDecimal principalPercentage = null;
+                        if (jsonObject.has(LoanApiConstants.PRINCIPAL_PERCENTAGE)
+                                && jsonObject.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).isJsonPrimitive()
+                                && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsString())) {
+                            principalPercentage = jsonObject.getAsJsonPrimitive(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsBigDecimal();
+                        }
+                        baseDataValidator.reset().parameter(LoanApiConstants.disbursementDataParameterName)
+                                .parameterAtIndexArray(LoanApiConstants.PRINCIPAL_PERCENTAGE, i).value(principalPercentage).notNull()
+                                .positiveAmount().notGreaterThanMax(BigDecimal.valueOf(100));
+                    }
+
+                    if (i > 0 && jsonObject.has(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM)
+                            && jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM).isJsonPrimitive()
+                            && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM).getAsString())) {
+                        final BigDecimal minimum = jsonObject.getAsJsonPrimitive(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM)
+                                .getAsBigDecimal();
+                        final Boolean rowChoice = jsonObject.has(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE)
+                                && jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE).isJsonPrimitive()
+                                        ? jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE).getAsBoolean()
+                                        : null;
+                        final Boolean asPercentage = rowChoice != null ? rowChoice
+                                : this.fromApiJsonHelper.parameterExists(LoanApiConstants.PREVIOUS_TRANCHE_THRESHOLD_AS_PERCENTAGE, element)
+                                        ? this.fromApiJsonHelper.extractBooleanNamed(
+                                                LoanApiConstants.PREVIOUS_TRANCHE_THRESHOLD_AS_PERCENTAGE, element)
+                                        : Boolean.TRUE;
+                        baseDataValidator.reset().parameter(LoanApiConstants.disbursementDataParameterName)
+                                .parameterAtIndexArray(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM, i).value(minimum).positiveAmount();
+                        if (minimum != null && !Boolean.FALSE.equals(asPercentage) && !TrancheReleaseRules.acceptablePercentage(minimum)) {
+                            baseDataValidator.reset().parameter(LoanApiConstants.disbursementDataParameterName)
+                                    .parameterAtIndexArray(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM, i).value(minimum)
+                                    .failWithCode("must.be.less.than.100");
+                        }
+                    }
+
                     if (expectedDisbursementDate != null && expectedDisbursementDates.contains(expectedDisbursementDate)) {
                         baseDataValidator.reset().parameter(LoanApiConstants.disbursementDateParameterName)
                                 .failWithCode(LoanApiConstants.DISBURSEMENT_DATE_UNIQUE_ERROR);
@@ -1506,15 +1594,32 @@ public final class LoanApplicationCommandFromApiJsonHelper {
 
                     BigDecimal principal = this.fromApiJsonHelper
                             .extractBigDecimalNamed(LoanApiConstants.disbursementPrincipalParameterName, jsonObject, locale);
-                    baseDataValidator.reset().parameter(LoanApiConstants.disbursementDataParameterName)
-                            .parameterAtIndexArray(LoanApiConstants.disbursementPrincipalParameterName, i).value(principal).notBlank();
-                    if (principal != null) {
-                        tatalDisbursement = tatalDisbursement.add(principal);
+                    Boolean principalAsPercentage = null;
+                    if (jsonObject.has(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE)
+                            && jsonObject.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE).isJsonPrimitive()) {
+                        principalAsPercentage = jsonObject.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE).getAsBoolean();
                     }
+                    BigDecimal principalPercentage = null;
+                    if (jsonObject.has(LoanApiConstants.PRINCIPAL_PERCENTAGE)
+                            && jsonObject.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).isJsonPrimitive()
+                            && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsString())) {
+                        principalPercentage = jsonObject.getAsJsonPrimitive(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsBigDecimal();
+                    }
+                    plannedTranches.add(new TrancheReleaseRules.PlannedTranche(false, principal, principalAsPercentage,
+                            principalPercentage));
                     i++;
                 } while (i < variationArray.size());
 
-                if (tatalDisbursement.compareTo(totalPrincipal) != 0) {
+                final int digits = trancheDigits(loanProduct);
+                final Boolean productFirstAsPercentage = loanProduct == null ? null : loanProduct.getFirstTrancheAsPercentage();
+                final BigDecimal productFirstAmount = loanProduct != null && loanProduct.isMultiDisburseLoan()
+                        ? loanProduct.getFirstTrancheAmount()
+                        : null;
+                final List<BigDecimal> resolved = TrancheReleaseRules.resolvePrincipals(totalPrincipal, plannedTranches,
+                        productFirstAsPercentage, productFirstAmount, digits);
+                final BigDecimal trancheTotal = resolved == null ? submittedTrancheTotal(baseDataValidator, plannedTranches)
+                        : resolvedTrancheTotal(baseDataValidator, plannedTranches, resolved, productFirstAmount != null);
+                if (trancheTotal.compareTo(totalPrincipal) != 0) {
                     baseDataValidator.reset().parameter(LoanApiConstants.disbursementPrincipalParameterName)
                             .failWithCode(LoanApiConstants.PRINCIPAL_AMOUNT_SHOULD_BE_SAME);
                 }
@@ -1525,6 +1630,62 @@ public final class LoanApplicationCommandFromApiJsonHelper {
 
         }
 
+    }
+
+    private static int trancheDigits(final LoanProduct loanProduct) {
+        if (loanProduct == null || loanProduct.getCurrency() == null) {
+            return 2;
+        }
+        return loanProduct.getCurrency().getDigitsAfterDecimal();
+    }
+
+    private BigDecimal submittedTrancheTotal(final DataValidatorBuilder baseDataValidator,
+            final List<TrancheReleaseRules.PlannedTranche> plannedTranches) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (int index = 0; index < plannedTranches.size(); index++) {
+            final BigDecimal principal = plannedTranches.get(index).principal;
+            baseDataValidator.reset().parameter(LoanApiConstants.disbursementDataParameterName)
+                    .parameterAtIndexArray(LoanApiConstants.disbursementPrincipalParameterName, index).value(principal).notBlank();
+            if (principal != null) {
+                total = total.add(principal);
+            }
+        }
+        return total;
+    }
+
+    private BigDecimal resolvedTrancheTotal(final DataValidatorBuilder baseDataValidator,
+            final List<TrancheReleaseRules.PlannedTranche> plannedTranches, final List<BigDecimal> resolved,
+            final boolean productFirstConfigured) {
+        boolean anyRowPercentage = false;
+        int firstUndisbursed = -1;
+        int lastUndisbursed = -1;
+        for (int index = 0; index < plannedTranches.size(); index++) {
+            final TrancheReleaseRules.PlannedTranche row = plannedTranches.get(index);
+            if (row.disbursed) {
+                continue;
+            }
+            if (firstUndisbursed < 0) {
+                firstUndisbursed = index;
+            }
+            lastUndisbursed = index;
+            if (Boolean.TRUE.equals(row.principalAsPercentage) && row.principalPercentage != null) {
+                anyRowPercentage = true;
+            }
+        }
+        final boolean productFirst = productFirstConfigured && !anyRowPercentage && firstUndisbursed != lastUndisbursed;
+        BigDecimal total = BigDecimal.ZERO;
+        for (int index = 0; index < plannedTranches.size(); index++) {
+            final TrancheReleaseRules.PlannedTranche row = plannedTranches.get(index);
+            final boolean percentageRow = Boolean.TRUE.equals(row.principalAsPercentage) && row.principalPercentage != null;
+            final boolean derived = percentageRow || (anyRowPercentage && index == lastUndisbursed && !percentageRow)
+                    || (productFirst && (index == firstUndisbursed || index == lastUndisbursed));
+            if (!derived) {
+                baseDataValidator.reset().parameter(LoanApiConstants.disbursementDataParameterName)
+                        .parameterAtIndexArray(LoanApiConstants.disbursementPrincipalParameterName, index).value(row.principal).notBlank();
+            }
+            total = total.add(resolved.get(index));
+        }
+        return total;
     }
 
     public void validateLoanCharges(final Set<LoanCharge> charges, final List<ApiParameterError> dataValidationErrors) {

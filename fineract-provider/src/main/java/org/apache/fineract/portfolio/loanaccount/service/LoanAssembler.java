@@ -71,7 +71,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSummaryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionProcessingStrategyRepository;
-import org.apache.fineract.portfolio.loanaccount.exception.ExceedingTrancheCountException;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidAmountOfCollaterals;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionProcessingStrategyNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.MultiDisbursementDataNotAllowedException;
@@ -229,11 +229,8 @@ public class LoanAssembler {
                 }
             }
 
-            if (disbursementDetails.size() > loanProduct.maxTrancheCount()) {
-                final String errorMessage = "Number of tranche shouldn't be greter than " + loanProduct.maxTrancheCount();
-                throw new ExceedingTrancheCountException(LoanApiConstants.disbursementDataParameterName, errorMessage,
-                        loanProduct.maxTrancheCount(), disbursementDetails.size());
-            }
+            TrancheReleaseRules.requireTrancheCount(disbursementDetails.size(), loanProduct.minTrancheCount(),
+                    loanProduct.maxTrancheCount());
         }
 
         final String loanTypeParameterName = "loanType";
@@ -355,6 +352,8 @@ public class LoanAssembler {
                 loanDisbursementDetails.updateLoan(loanApplication);
             }
         }
+        applySubmittedTrancheOverrides(loanApplication, element);
+        TrancheReleaseRules.applyConfiguredPrincipals(loanApplication);
 
         final LoanApplicationTerms loanApplicationTerms = this.loanScheduleAssembler.assembleLoanTerms(element);
         final boolean isHolidayEnabled = this.configurationDomainService.isRescheduleRepaymentsOnHolidaysEnabled();
@@ -446,5 +445,31 @@ public class LoanAssembler {
 
         loanApplication.validateExpectedDisbursementForHolidayAndNonWorkingDay(workingDays, allowTransactionsOnHoliday, holidays,
                 allowTransactionsOnNonWorkingDay);
+    }
+
+    private void applySubmittedTrancheOverrides(final Loan loanApplication, final JsonElement element) {
+        if (loanApplication.loanProduct() == null || !loanApplication.loanProduct().isMultiDisburseLoan()) {
+            return;
+        }
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, element)) {
+            loanApplication.setFirstInstallmentPrincipal(this.fromApiJsonHelper
+                    .extractBigDecimalWithLocaleNamed(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, element));
+        }
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE, element)) {
+            loanApplication.setFirstInstallmentAsPercentage(
+                    this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE, element));
+        }
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, element)) {
+            loanApplication.setPreviousTrancheRepaidPercentage(this.fromApiJsonHelper
+                    .extractBigDecimalWithLocaleNamed(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, element));
+        }
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES, element)) {
+            final String raw = this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES, element);
+            loanApplication.setTranchePrincipalPercentages(raw == null || raw.isBlank() ? null : TrancheReleaseRules.normalize(raw));
+        }
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.PREVIOUS_TRANCHE_THRESHOLD_AS_PERCENTAGE, element)) {
+            loanApplication.setPreviousTrancheThresholdAsPercentage(this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanApiConstants.PREVIOUS_TRANCHE_THRESHOLD_AS_PERCENTAGE, element));
+        }
     }
 }
