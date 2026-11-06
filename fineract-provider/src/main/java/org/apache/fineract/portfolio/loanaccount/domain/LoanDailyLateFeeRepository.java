@@ -30,4 +30,7 @@ public interface LoanDailyLateFeeRepository extends JpaRepository<LoanDailyLateF
     List<LoanDailyLateFee> findByLoanIdAndActiveTrueOrderByPenaltyDateAsc(Long loanId);
 
     Optional<LoanDailyLateFee> findByLoanIdAndChargeIdAndPenaltyDate(Long loanId, Long chargeId, LocalDate penaltyDate);
+
+    List<LoanDailyLateFee> findByLoanIdAndChargeIdAndActiveTrueAndPenaltyDateGreaterThanEqualAndPenaltyDateLessThanOrderByPenaltyDateAsc(
+            Long loanId, Long chargeId, LocalDate fromInclusive, LocalDate toExclusive);
 }

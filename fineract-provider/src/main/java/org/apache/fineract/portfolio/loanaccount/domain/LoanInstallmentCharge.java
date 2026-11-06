@@ -90,6 +90,17 @@ public class LoanInstallmentCharge extends AbstractPersistableCustom implements 
         this.paid = determineIfFullyPaid();
     }
 
+    /** Adds a further prorated slice onto this installment's share of a monthly late fee. */
+    public void addAmount(final BigDecimal extra) {
+        if (extra == null || extra.signum() == 0) {
+            return;
+        }
+        this.amount = this.amount.add(extra);
+        this.amountOutstanding = calculateOutstanding();
+        this.paid = determineIfFullyPaid();
+        this.waived = false;
+    }
+
     public Money waive(final MonetaryCurrency currency) {
         final Money amountWaived = Money.of(currency, this.amountOutstanding);
         this.amountWaived = getAmountWaived(currency).plus(amountWaived).getAmount();
