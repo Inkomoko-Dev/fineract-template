@@ -921,20 +921,6 @@ public class LoanCharge extends AbstractPersistableCustom {
         calculateOutstanding();
     }
 
-    /**
-     * Grows a flat penalty that is posted once per month. The due date stays on the first day of the month's accrual
-     * so later days increase the amount instead of adding another charge.
-     */
-    public void addFlatPenaltyAmount(final BigDecimal extra, final MonetaryCurrency currency) {
-        if (extra == null || extra.signum() == 0) {
-            return;
-        }
-        this.amount = (this.amount == null ? BigDecimal.ZERO : this.amount).add(extra);
-        this.amountOrPercentage = this.amount;
-        this.amountOutstanding = calculateAmountOutstanding(currency);
-        this.paid = determineIfFullyPaid();
-    }
-
     public LoanInstallmentCharge getUnpaidInstallmentLoanCharge() {
         LoanInstallmentCharge unpaidChargePerInstallment = null;
         for (final LoanInstallmentCharge loanChargePerInstallment : this.loanInstallmentCharge) {
