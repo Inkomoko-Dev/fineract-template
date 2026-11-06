@@ -162,12 +162,11 @@ class LoanDailyLateFeeServiceTest {
     }
 
     /**
-     * AC1 + AC2 (story example): installment due on the 15th, 5-day grace (16th-20th), client pays on the 23rd →
-     * penalties for exactly 3 days (21st, 22nd, 23rd) at the daily rate derived from 2%/month on the overdue
-     * principal — not a full month. Those days are posted as one January charge, with one metadata row per day.
+     * Installment due on the 15th, 5-day grace, so the first post is the 21st. The charge is 2% of the overdue
+     * principal, once. Running again before the next month does not add another charge.
      */
     @Test
-    void dailyLateFeeIsProRataPerPenaltyDayOnOverduePrincipal() {
+    void monthlyPenaltyIsPercentageOfOverduePrincipalOnTheGraceDate() {
         setUpLoanFixture(BigDecimal.ZERO);
 
         this.service.syncDailyLateFeesForLoan(LOAN_ID, LocalDate.of(2026, 1, 23));
@@ -177,18 +176,17 @@ class LoanDailyLateFeeServiceTest {
         final LoanCharge monthCharge = chargeCaptor.getValue();
         assertTrue(monthCharge.isPenaltyCharge(), "the monthly late fee must post as a penalty charge");
         assertEquals(LocalDate.of(2026, 1, 21), monthCharge.getDueLocalDate());
-        assertEquals(0, new BigDecimal("9.99").compareTo(monthCharge.amount()),
-                "three prorated days must be one charge, not a full month and not three charges");
-        assertTrue(monthCharge.amount().stripTrailingZeros().scale() <= 2,
-                "monthly penalty must be at currency scale, but was " + monthCharge.amount());
-        verify(this.loanDailyLateFeeRepository, times(3)).save(any(LoanDailyLateFee.class));
+        assertEquals(0, new BigDecimal("100.00").compareTo(monthCharge.amount()),
+                "the charge is 2% of the 5,000 principal that is already due");
+        verify(this.loanDailyLateFeeRepository, times(1)).save(any(LoanDailyLateFee.class));
     }
 
     /**
-     * The job runs every day. A later day in the same month must grow the unpaid January charge, not insert another one.
+     * The job runs every day. A later day in the same month must leave the posted charge as it is. The next 2% is the
+     * following month, on the same grace day, and only if the principal is still due.
      */
     @Test
-    void laterDayInTheSameMonthGrowsTheUnpaidCharge() {
+    void laterDayInTheSameMonthDoesNotPostAgain() {
         setUpLoanFixture(BigDecimal.ZERO);
         this.service.syncDailyLateFeesForLoan(LOAN_ID, LocalDate.of(2026, 1, 23));
 
@@ -197,18 +195,43 @@ class LoanDailyLateFeeServiceTest {
         final LoanCharge januaryCharge = chargeCaptor.getValue();
 
         final ArgumentCaptor<LoanDailyLateFee> metadataCaptor = ArgumentCaptor.forClass(LoanDailyLateFee.class);
-        verify(this.loanDailyLateFeeRepository, times(3)).save(metadataCaptor.capture());
+        verify(this.loanDailyLateFeeRepository, times(1)).save(metadataCaptor.capture());
         when(this.loanDailyLateFeeRepository.findByLoanIdAndActiveTrueOrderByPenaltyDateAsc(LOAN_ID))
                 .thenReturn(metadataCaptor.getAllValues());
-        when(this.loanDailyLateFeeRepository
-                .findByLoanIdAndChargeIdAndActiveTrueAndPenaltyDateGreaterThanEqualAndPenaltyDateLessThanOrderByPenaltyDateAsc(any(),
-                        any(), any(), any())).thenReturn(metadataCaptor.getAllValues());
 
         this.service.syncDailyLateFeesForLoan(LOAN_ID, LocalDate.of(2026, 1, 24));
 
-        verify(this.loanChargeRepository, times(2)).saveAndFlush(januaryCharge);
-        assertEquals(0, new BigDecimal("13.32").compareTo(januaryCharge.amount()));
+        verify(this.loanChargeRepository, times(1)).saveAndFlush(any(LoanCharge.class));
+        assertEquals(0, new BigDecimal("100.00").compareTo(januaryCharge.amount()));
         assertEquals(LocalDate.of(2026, 1, 21), januaryCharge.getDueLocalDate());
+
+        this.service.syncDailyLateFeesForLoan(LOAN_ID, LocalDate.of(2026, 2, 21));
+
+        verify(this.loanChargeRepository, times(2)).saveAndFlush(chargeCaptor.capture());
+        final LoanCharge februaryCharge = chargeCaptor.getAllValues().get(chargeCaptor.getAllValues().size() - 1);
+        assertEquals(LocalDate.of(2026, 2, 21), februaryCharge.getDueLocalDate());
+        assertEquals(0, new BigDecimal("100.00").compareTo(februaryCharge.amount()));
+    }
+
+    /**
+     * A later installment joins the base only once its own grace has ended. The charge that month is 2% of every
+     * installment whose principal is already due, posted once.
+     */
+    @Test
+    void monthlyPenaltyUsesTotalPrincipalAlreadyDue() {
+        setUpMultiInstallmentLoanFixture(LocalDate.of(2024, 3, 7));
+
+        this.service.syncDailyLateFeesForLoan(LOAN_ID, LocalDate.of(2024, 3, 7));
+
+        final ArgumentCaptor<LoanCharge> chargeCaptor = ArgumentCaptor.forClass(LoanCharge.class);
+        verify(this.loanChargeRepository, times(2)).saveAndFlush(chargeCaptor.capture());
+        final List<LoanCharge> charges = chargeCaptor.getAllValues();
+        assertEquals(LocalDate.of(2024, 2, 7), charges.get(0).getDueLocalDate());
+        assertEquals(0, new BigDecimal("16.67").compareTo(charges.get(0).amount()),
+                "February includes only the first installment");
+        assertEquals(LocalDate.of(2024, 3, 7), charges.get(1).getDueLocalDate());
+        assertEquals(0, new BigDecimal("33.33").compareTo(charges.get(1).amount()),
+                "March includes the first and second installments");
     }
 
     /** AC3: no penalty accrues between the due date and the end of the grace period. */
@@ -242,7 +265,7 @@ class LoanDailyLateFeeServiceTest {
 
         this.service.syncDailyLateFeesForLoan(LOAN_ID, LocalDate.of(2026, 2, 28));
 
-        // paid on the 23rd -> penalty days are only the 21st, 22nd and 23rd, posted as one January charge
+        // paid on the 23rd, after the 21 January post. February's principal is already zero, so no second charge.
         verify(this.loanChargeRepository, times(1)).saveAndFlush(any(LoanCharge.class));
     }
 
