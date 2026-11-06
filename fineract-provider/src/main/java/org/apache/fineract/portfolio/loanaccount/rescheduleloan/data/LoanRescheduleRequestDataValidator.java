@@ -66,7 +66,8 @@ public class LoanRescheduleRequestDataValidator {
             RescheduleLoansApiConstants.newPrincipalDueFixedAmount, RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment,
             RescheduleLoansApiConstants.overdueChargeHandlingParamName, RescheduleLoansApiConstants.carryForwardChargeIdParamName, RescheduleLoansApiConstants.carryForwardChargeDueDateParamName,
             RescheduleLoansApiConstants.repaymentEveryParamName, RescheduleLoansApiConstants.repaymentFrequencyTypeParamName,
-            RescheduleLoansApiConstants.preserveLoanTermDurationParamName));
+            RescheduleLoansApiConstants.preserveLoanTermDurationParamName,
+            RescheduleLoansApiConstants.acknowledgeMultiTrancheRescheduleParamName));
 
     private static final Set<String> REJECT_REQUEST_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList(RescheduleLoansApiConstants.localeParamName, RescheduleLoansApiConstants.dateFormatParamName,
@@ -74,7 +75,8 @@ public class LoanRescheduleRequestDataValidator {
 
     private static final Set<String> APPROVE_REQUEST_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList(RescheduleLoansApiConstants.localeParamName, RescheduleLoansApiConstants.dateFormatParamName,
-                    RescheduleLoansApiConstants.approvedOnDateParam));
+                    RescheduleLoansApiConstants.approvedOnDateParam,
+                    RescheduleLoansApiConstants.acknowledgeMultiTrancheRescheduleParamName));
 
     public static final Set<String> UNDO_REQUEST_DATA_PARAMETERS = new HashSet<>(Arrays.asList(RescheduleLoansApiConstants.notesParamName));
 
@@ -256,13 +258,9 @@ public class LoanRescheduleRequestDataValidator {
 
         }
 
-        if (loan.isMultiDisburmentLoan()) {
-            if (!loan.loanProduct().isDisallowExpectedDisbursements()) {
-                dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode(
-                        RescheduleLoansApiConstants.resheduleForMultiDisbursementNotSupportedErrorCode,
-                        "Loan rescheduling is not supported for multidisbursement tranche loans");
-            }
-        }
+        final Boolean acknowledgeMultiTrancheReschedule = this.fromJsonHelper
+                .extractBooleanNamed(RescheduleLoansApiConstants.acknowledgeMultiTrancheRescheduleParamName, jsonElement);
+        rejectUnacknowledgedMultiTrancheReschedule(dataValidationErrors, loan, rescheduleFromDate, acknowledgeMultiTrancheReschedule);
         if (loan.getTotal_extensions() != null && loan.getLoanProduct().getMaxNumberOfLoanExtensionsAllowed() != null) {
             if (loan.getTotal_extensions() >= loan.getLoanProduct().getMaxNumberOfLoanExtensionsAllowed()) {
                 dataValidatorBuilder.reset().parameter("totalExtensions").failWithCode("maximum.number.of.loan.extensions.exceeded",
@@ -274,6 +272,22 @@ public class LoanRescheduleRequestDataValidator {
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
+    }
+
+    private void rejectUnacknowledgedMultiTrancheReschedule(final List<ApiParameterError> dataValidationErrors, final Loan loan,
+            final LocalDate rescheduleFromDate, final Boolean acknowledged) {
+        final String rejection = MultiTrancheRescheduleRules.rejection(loan, rescheduleFromDate, acknowledged);
+        if (rejection == null) {
+            return;
+        }
+        final String code = MultiTrancheRescheduleRules.NOTHING_DISBURSED.equals(rejection)
+                ? MultiTrancheRescheduleRules.NOTHING_DISBURSED
+                : MultiTrancheRescheduleRules.ACKNOWLEDGEMENT_REQUIRED;
+        final String message = MultiTrancheRescheduleRules.NOTHING_DISBURSED.equals(rejection)
+                ? "This multi-tranche loan has no disbursed tranche, so there is no principal to reschedule."
+                : rejection;
+        dataValidationErrors.add(ApiParameterError.parameterError(code, message,
+                RescheduleLoansApiConstants.acknowledgeMultiTrancheRescheduleParamName));
     }
 
     private void validateFixedPrincipalChange(final DataValidatorBuilder dataValidatorBuilder, final JsonCommand jsonCommand,
@@ -423,6 +437,10 @@ public class LoanRescheduleRequestDataValidator {
             if (!loan.status().isActive()) {
                 dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode("loan.is.not.active", "Loan is not active");
             }
+
+            final Boolean acknowledgeMultiTrancheReschedule = this.fromJsonHelper
+                    .extractBooleanNamed(RescheduleLoansApiConstants.acknowledgeMultiTrancheRescheduleParamName, jsonElement);
+            rejectUnacknowledgedMultiTrancheReschedule(dataValidationErrors, loan, rescheduleFromDate, acknowledgeMultiTrancheReschedule);
 
             if (rescheduleFromDate != null) {
                 installment = loan.getRepaymentScheduleInstallment(rescheduleFromDate);
