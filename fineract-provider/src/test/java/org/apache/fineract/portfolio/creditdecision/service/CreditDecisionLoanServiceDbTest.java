@@ -574,6 +574,25 @@ class CreditDecisionLoanServiceDbTest {
     }
 
     @Test
+    void theRequirementCannotBeRemovedOnceTheEngineHasGivenItsOutcome() {
+        final long loanId = readyApplication();
+        assertTrue(service.status(loanId).isCanChangeFlag());
+        service.send(loanId);
+
+        assertFalse(service.status(loanId).isCanChangeFlag());
+        final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> service.setRequired(loanId, false));
+        assertEquals("error.msg.creditdecision.loan.already.decided", e.getGlobalisationMessageCode());
+        assertTrue(service.isRequired(loanId));
+
+        // re-opening the verification clears the outcome, and then the requirement can be taken off
+        service.unverify(loanId);
+        assertTrue(service.status(loanId).isCanChangeFlag());
+        service.setRequired(loanId, false);
+        assertFalse(service.isRequired(loanId));
+    }
+
+    @Test
     void theOutcomeHoldNamesTheStepThatIsRefused() {
         final long loanId = readyApplication();
         final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class,

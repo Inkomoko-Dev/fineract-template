@@ -87,7 +87,7 @@ public class CreditDecisionLoanService {
         return LoanDecisionData.builder().loanId(loanId).productId(loan.productId).productName(loan.productName).eligible(profile != null)
                 .profileName(profile == null ? null : profile.getProfileName()).profileMode(profile == null ? null : profile.getMode())
                 .activeVersionNo(profile == null ? null : profile.getActiveVersionNo()).required(required)
-                .canChangeFlag(profile != null && flagStageOpen(loan)).reviewStageOpen(reviewStageOpen(loan))
+                .canChangeFlag(profile != null && flagStageOpen(loan) && !decided).reviewStageOpen(reviewStageOpen(loan))
                 .verificationStatus(row == null ? CreditDecisionLoanData.PENDING_VERIFICATION : row.verificationStatus)
                 .verifiedBy(row == null ? null : row.verifiedBy).verifiedOn(row == null ? null : row.verifiedOn)
                 .verificationNote(row == null ? null : row.verificationNote)
@@ -108,6 +108,11 @@ public class CreditDecisionLoanService {
     public LoanDecisionData setRequired(final Long loanId, final boolean required) {
         final LoanRow loan = loan(loanId);
         requireFlagStageOpen(loan);
+        if (!required && outcomeGiven(loanId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.already.decided",
+                    "The decision engine has already given its outcome for this application, so the requirement cannot be removed. "
+                            + "Re-open the verification first, which clears the outcome.");
+        }
         if (required && profiles.profileForProduct(loan.productId) == null) {
             throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.product.not.in.profile",
                     "'" + loan.productName + "' is not part of a credit decision profile, so its applications cannot ask for a decision.");
@@ -419,6 +424,11 @@ public class CreditDecisionLoanService {
                             + (loan.decisionState == null ? "Accept the application review first."
                                     : "This application is already past that stage."));
         }
+    }
+
+    private boolean outcomeGiven(final Long loanId) {
+        final DecisionRow row = decision(loanId);
+        return row != null && CreditDecisionLoanData.DECIDED.equals(row.requestStatus);
     }
 
     private boolean flagStageOpen(final LoanRow loan) {
