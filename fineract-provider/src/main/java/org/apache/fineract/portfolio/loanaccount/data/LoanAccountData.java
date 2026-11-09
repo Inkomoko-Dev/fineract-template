@@ -179,6 +179,8 @@ public final class LoanAccountData {
     private final Collection<PortfolioAccountData> accountLinkingOptions;
 
     private final Boolean multiDisburseLoan;
+    private Boolean multiDisburseLoanListing;
+    private Integer nextTrancheNumber;
 
     private final Boolean canDefineInstallmentAmount;
 
@@ -2148,6 +2150,19 @@ public final class LoanAccountData {
 
     public boolean isMultiDisburseLoan() {
         return multiDisburseLoan;
+    }
+
+    public void setTrancheListing(final Boolean multiDisburseLoanListing, final Integer nextTrancheNumber) {
+        this.multiDisburseLoanListing = multiDisburseLoanListing;
+        this.nextTrancheNumber = nextTrancheNumber;
+    }
+
+    public Boolean getMultiDisburseLoanListing() {
+        return this.multiDisburseLoanListing;
+    }
+
+    public Integer getNextTrancheNumber() {
+        return this.nextTrancheNumber;
     }
 
     public BigDecimal getTotalPaidFeeCharges() {

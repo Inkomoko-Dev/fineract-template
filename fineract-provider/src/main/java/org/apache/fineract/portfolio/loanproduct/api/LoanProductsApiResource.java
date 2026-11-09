@@ -118,7 +118,7 @@ public class LoanProductsApiResource {
             LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL,
             LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE,
             LoanProductConstants.FIRST_TRANCHE_AS_PERCENTAGE, LoanProductConstants.FIRST_TRANCHE_AMOUNT,
-            LoanProductConstants.MIN_TRANCHE_COUNT_PARAMETER_NAME));
+            LoanProductConstants.REQUIRE_MILESTONE_SURVEY, LoanProductConstants.MIN_TRANCHE_COUNT_PARAMETER_NAME));
 
     private final Set<String> productMixDataParameters = new HashSet<>(
             Arrays.asList("productId", "productName", "restrictedProducts", "allowedProducts", "productOptions"));

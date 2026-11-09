@@ -1174,6 +1174,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " c.id as clientId, c.display_name as clientName, c.office_id as clientOfficeId,"
                     + " lp.id as loanProductId, lp.name as loanProductName,"
                     + " l.loan_status_id as lifeCycleStatusId, l.loan_sub_status_id as loanSubStatusId,"
+                    + " lp.allow_multiple_disbursals as multiDisburseLoan,"
+                    + " (select case when exists (select 1 from m_loan_disbursement_detail waiting where waiting.loan_id = l.id and waiting.disbursedon_date is null)"
+                    + " then (select count(*) + 1 from m_loan_disbursement_detail disbursed where disbursed.loan_id = l.id and disbursed.disbursedon_date is not null)"
+                    + " else null end) as nextTrancheNumber,"
                     + " l.principal_amount as principal, l.approved_principal as approvedPrincipal,"
                     + " l.net_disbursal_amount as netDisbursalAmount,"
                     + " l.currency_code as currencyCode, l.currency_digits as currencyDigits,"
@@ -1236,6 +1240,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             if (loanDecisionStateId != null) {
                 loanAccountData.setLoanDecisionState(LoanEnumerations.loanDecisionState(loanDecisionStateId.intValue()));
             }
+            final Integer nextTrancheNumber = JdbcSupport.getInteger(rs, "nextTrancheNumber");
+            loanAccountData.setTrancheListing(rs.getBoolean("multiDisburseLoan"), nextTrancheNumber);
             return loanAccountData;
         }
     }

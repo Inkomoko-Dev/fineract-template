@@ -83,6 +83,7 @@ public interface LoanProductConstants {
     String FIRST_INSTALLMENT_AS_PERCENTAGE = "firstInstallmentAsPercentage";
     String FIRST_TRANCHE_AS_PERCENTAGE = "firstTrancheAsPercentage";
     String FIRST_TRANCHE_AMOUNT = "firstTrancheAmount";
+    String REQUIRE_MILESTONE_SURVEY = "requireMilestoneSurvey";
 
     String GRACE_ON_ARREARS_AGEING_PARAMETER_NAME = "graceOnArrearsAgeing";
     String OVERDUE_DAYS_FOR_NPA_PARAMETER_NAME = "overdueDaysForNPA";
