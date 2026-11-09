@@ -58,6 +58,11 @@ public class BulkRescheduleValidationService {
         if (loan.getClient() != null && !loan.getClient().isActive()) {
             errors.add("Client must be in ACTIVE status");
         }
+        if (loan.isMultiDisburmentLoan()) {
+            errors.add(
+                    "Multi-tranche loans must be rescheduled individually. The new schedule covers only principal already disbursed, "
+                            + "and disbursing another tranche afterwards rebuilds the schedule and can replace the reschedule.");
+        }
         final var pending = loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(loan.getId(),
                 LoanStatus.SUBMITTED_AND_PENDING_APPROVAL.getValue());
         if (pending != null && !pending.isEmpty()) {
