@@ -1,0 +1,240 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.fineract.portfolio.creditdecision.api;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DefaultValue;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.MediaType;
+import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.core.exception.UnrecognizedQueryParamException;
+import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
+import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionCatalogue;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.CommandRequest;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ConnectionData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.CreateProfileRequest;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogEntryData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ModeRequest;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.NewDraftRequest;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.SaveDraftRequest;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionService;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
+
+/**
+ * Admin API for the credit decision profiles. A profile chooses which data is sent to the decision engine for which
+ * loan products. It never decides anything: the engine replies with the decision and the log only records it.
+ */
+@Path("/creditdecision")
+@Component
+@Scope("singleton")
+@RequiredArgsConstructor
+@Tag(name = "Credit Decision", description = "Chooses which data is sent to the external decision engine for each loan product, with maker-checker approval. The engine, not Fineract, returns the decision.")
+public class CreditDecisionApiResource {
+
+    private static final String RESOURCE = "CREDITDECISION";
+
+    private final PlatformSecurityContext context;
+    private final CreditDecisionService service;
+    private final DefaultToApiJsonSerializer<Object> toApiJsonSerializer;
+    private final FromJsonHelper fromJsonHelper;
+
+    @GET
+    @Path("catalogue")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Everything that can be sent to the decision engine")
+    public String catalogue() {
+        read();
+        return toApiJsonSerializer.serialize(CreditDecisionCatalogue.groups());
+    }
+
+    @GET
+    @Path("products")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Loan products and the profile that already uses each one")
+    public String products() {
+        read();
+        return toApiJsonSerializer.serialize(service.products());
+    }
+
+    @GET
+    @Path("profiles")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "List decision profiles with their versions")
+    public String profiles() {
+        read();
+        return toApiJsonSerializer.serialize(service.profiles());
+    }
+
+    @GET
+    @Path("profiles/{profileId}")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Retrieve one decision profile with its versions")
+    public String profile(@PathParam("profileId") final Long profileId) {
+        read();
+        return toApiJsonSerializer.serialize(service.profile(profileId));
+    }
+
+    @GET
+    @Path("active")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "The live version that applies to a loan product, for the service that builds the engine request")
+    public String active(@QueryParam("productId") final Long productId) {
+        read();
+        final Object found = service.activeForProduct(productId);
+        return toApiJsonSerializer.serialize(found == null ? new LinkedHashMap<String, Object>() : found);
+    }
+
+    @POST
+    @Path("profiles")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Create a profile with a first draft version")
+    public String createProfile(final String body) {
+        change();
+        return toApiJsonSerializer.serialize(service.createProfile(parse(body, CreateProfileRequest.class)));
+    }
+
+    @PUT
+    @Path("profiles/{profileId}/versions/{versionNo}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Save the data and products of a draft version")
+    public String saveDraft(@PathParam("profileId") final Long profileId, @PathParam("versionNo") final int versionNo, final String body) {
+        change();
+        return toApiJsonSerializer.serialize(service.saveDraft(profileId, versionNo, parse(body, SaveDraftRequest.class)));
+    }
+
+    @POST
+    @Path("profiles/{profileId}/versions")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Start a new draft from the live version, or from an earlier one")
+    public String newDraft(@PathParam("profileId") final Long profileId, final String body) {
+        change();
+        final NewDraftRequest request = parse(body, NewDraftRequest.class);
+        return toApiJsonSerializer.serialize(service.newDraft(profileId, request.getFromVersion()));
+    }
+
+    @POST
+    @Path("profiles/{profileId}/versions/{versionNo}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Move a version along: command=submit, withdraw, approve or reject")
+    public String command(@PathParam("profileId") final Long profileId, @PathParam("versionNo") final int versionNo,
+            @QueryParam("command") @DefaultValue("") final String command, final String body) {
+        final CommandRequest request = parse(body, CommandRequest.class);
+        switch (command) {
+            case "submit":
+                change();
+                return toApiJsonSerializer.serialize(service.submit(profileId, versionNo, request.getReason()));
+            case "withdraw":
+                change();
+                return toApiJsonSerializer.serialize(service.withdraw(profileId, versionNo));
+            case "approve":
+                approve();
+                return toApiJsonSerializer.serialize(service.approve(profileId, versionNo));
+            case "reject":
+                approve();
+                return toApiJsonSerializer.serialize(service.reject(profileId, versionNo, request.getReason()));
+            default:
+                throw new UnrecognizedQueryParamException("command", command, "submit", "withdraw", "approve", "reject");
+        }
+    }
+
+    @PUT
+    @Path("profiles/{profileId}/mode")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Switch a profile Off, to Shadow (recorded only) or Live")
+    public String mode(@PathParam("profileId") final Long profileId, final String body) {
+        change();
+        return toApiJsonSerializer.serialize(service.setMode(profileId, parse(body, ModeRequest.class).getMode()));
+    }
+
+    @GET
+    @Path("connection")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Which provider and endpoint requests are sent to")
+    public String connection() {
+        read();
+        return toApiJsonSerializer.serialize(service.connection());
+    }
+
+    @PUT
+    @Path("connection")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Change the provider, endpoint, timeout and what happens when the engine does not reply")
+    public String updateConnection(final String body) {
+        context.authenticatedUser().validateHasPermissionTo("UPDATE_CREDITDECISIONCONNECTION");
+        return toApiJsonSerializer.serialize(service.updateConnection(parse(body, ConnectionData.class)));
+    }
+
+    @GET
+    @Path("log")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Requests sent to the decision engine and the replies it gave")
+    public String log(@QueryParam("decision") final String decision, @QueryParam("search") final String search,
+            @QueryParam("limit") @DefaultValue("200") final int limit) {
+        read();
+        return toApiJsonSerializer.serialize(service.log(decision, search, limit));
+    }
+
+    @POST
+    @Path("log")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Record a request and the reply, called by the integration service")
+    public String recordLog(final String body) {
+        context.authenticatedUser().validateHasPermissionTo("CREATE_CREDITDECISIONLOG");
+        final Map<String, Object> out = new LinkedHashMap<>();
+        out.put("resourceId", service.recordLog(parse(body, LogEntryData.class)));
+        return toApiJsonSerializer.serialize(out);
+    }
+
+    private void read() {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE);
+    }
+
+    private void change() {
+        context.authenticatedUser().validateHasPermissionTo("CREATE_CREDITDECISION");
+    }
+
+    private void approve() {
+        context.authenticatedUser().validateHasPermissionTo("APPROVE_CREDITDECISION");
+    }
+
+    private <T> T parse(final String body, final Class<T> type) {
+        final String json = body == null || body.isBlank() ? "{}" : body;
+        return fromJsonHelper.fromJson(json, type);
+    }
+}

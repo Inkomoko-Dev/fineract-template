@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- A decision profile chooses which data is sent to the external decision engine for a set of loan products.
+         It never decides anything: the decision engine replies with the decision and the log below only records it. -->
+
+    <changeSet id="CGLT-846-create-credit-decision-profile" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_credit_decision_profile"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_credit_decision_profile">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(150)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="mode" type="VARCHAR(10)" defaultValue="OFF">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="m_credit_decision_profile" columnNames="name"
+                             constraintName="uk_credit_decision_profile_name"/>
+    </changeSet>
+
+    <changeSet id="CGLT-846-create-credit-decision-profile-version" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_credit_decision_profile_version"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_credit_decision_profile_version">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="profile_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version_no" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reason" type="VARCHAR(500)"/>
+            <column name="prepared_by" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="prepared_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+            <column name="decided_by" type="VARCHAR(100)"/>
+            <column name="decided_on" type="DATETIME"/>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="m_credit_decision_profile_version" baseColumnNames="profile_id"
+                                 constraintName="fk_cd_version_profile"
+                                 referencedTableName="m_credit_decision_profile" referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+        <addUniqueConstraint tableName="m_credit_decision_profile_version" columnNames="profile_id, version_no"
+                             constraintName="uk_cd_version_profile_no"/>
+        <createIndex tableName="m_credit_decision_profile_version" indexName="idx_cd_version_status">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-846-create-credit-decision-version-param" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_credit_decision_version_param"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_credit_decision_version_param">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="version_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="param_key" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="enabled" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="field_name" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="missing_policy" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="m_credit_decision_version_param" baseColumnNames="version_id"
+                                 constraintName="fk_cd_param_version"
+                                 referencedTableName="m_credit_decision_profile_version" referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+        <addUniqueConstraint tableName="m_credit_decision_version_param" columnNames="version_id, param_key"
+                             constraintName="uk_cd_param_version_key"/>
+    </changeSet>
+
+    <changeSet id="CGLT-846-create-credit-decision-version-product" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_credit_decision_version_product"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_credit_decision_version_product">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="version_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_product_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="m_credit_decision_version_product" baseColumnNames="version_id"
+                                 constraintName="fk_cd_product_version"
+                                 referencedTableName="m_credit_decision_profile_version" referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+        <addForeignKeyConstraint baseTableName="m_credit_decision_version_product" baseColumnNames="loan_product_id"
+                                 constraintName="fk_cd_product_loan_product"
+                                 referencedTableName="m_product_loan" referencedColumnNames="id"/>
+        <addUniqueConstraint tableName="m_credit_decision_version_product" columnNames="version_id, loan_product_id"
+                             constraintName="uk_cd_product_version_product"/>
+    </changeSet>
+
+    <changeSet id="CGLT-846-create-credit-decision-connection" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_credit_decision_connection"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_credit_decision_connection">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="provider" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="enabled" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="endpoint_url" type="VARCHAR(500)"/>
+            <column name="timeout_seconds" type="INT" defaultValueNumeric="8">
+                <constraints nullable="false"/>
+            </column>
+            <column name="retries" type="INT" defaultValueNumeric="3">
+                <constraints nullable="false"/>
+            </column>
+            <column name="on_no_reply" type="VARCHAR(10)" defaultValue="RETRY">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_by" type="VARCHAR(100)"/>
+            <column name="updated_on" type="DATETIME"/>
+        </createTable>
+        <insert tableName="m_credit_decision_connection">
+            <column name="id" valueNumeric="1"/>
+            <column name="provider" value="Not set"/>
+            <column name="enabled" valueBoolean="false"/>
+            <column name="timeout_seconds" valueNumeric="8"/>
+            <column name="retries" valueNumeric="3"/>
+            <column name="on_no_reply" value="RETRY"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-846-create-credit-decision-log" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_credit_decision_log"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_credit_decision_log">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="application_ref" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT"/>
+            <column name="customer_ref" type="VARCHAR(100)"/>
+            <column name="profile_id" type="BIGINT"/>
+            <column name="profile_name" type="VARCHAR(150)"/>
+            <column name="version_no" type="INT"/>
+            <column name="mode" type="VARCHAR(10)"/>
+            <column name="provider" type="VARCHAR(100)"/>
+            <column name="status" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="decision" type="VARCHAR(10)"/>
+            <column name="score" type="DECIMAL(10,2)"/>
+            <column name="reason_codes" type="VARCHAR(500)"/>
+            <column name="reply_ms" type="INT"/>
+            <column name="next_step" type="VARCHAR(150)"/>
+            <column name="request_json" type="LONGTEXT"/>
+            <column name="reply_json" type="LONGTEXT"/>
+            <column name="created_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="m_credit_decision_log" indexName="idx_cd_log_application">
+            <column name="application_ref"/>
+        </createIndex>
+        <createIndex tableName="m_credit_decision_log" indexName="idx_cd_log_created">
+            <column name="created_on"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="CGLT-846-credit-decision-self-approval-config" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM c_configuration WHERE name = 'credit-decision-allow-self-approval'</sqlCheck>
+        </preConditions>
+        <insert tableName="c_configuration">
+            <column name="name" value="credit-decision-allow-self-approval"/>
+            <column name="value"/>
+            <column name="date_value"/>
+            <column name="string_value"/>
+            <column name="enabled" valueBoolean="false"/>
+            <column name="is_trap_door" valueBoolean="false"/>
+            <column name="description"
+                    value="When enabled, the person who prepared a credit decision profile version may also approve it. Leave disabled in production so a second person always approves which data is sent to the decision engine."/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-846-credit-decision-permissions" author="omoi">
+        <sql>
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('portfolio', 'READ_CREDITDECISION', 'CREDITDECISION', 'READ', 0)
+            ON DUPLICATE KEY UPDATE entity_name = VALUES(entity_name);
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('portfolio', 'CREATE_CREDITDECISION', 'CREDITDECISION', 'CREATE', 0)
+            ON DUPLICATE KEY UPDATE entity_name = VALUES(entity_name);
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('portfolio', 'APPROVE_CREDITDECISION', 'CREDITDECISION', 'APPROVE', 0)
+            ON DUPLICATE KEY UPDATE entity_name = VALUES(entity_name);
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('portfolio', 'UPDATE_CREDITDECISIONCONNECTION', 'CREDITDECISIONCONNECTION', 'UPDATE', 0)
+            ON DUPLICATE KEY UPDATE entity_name = VALUES(entity_name);
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('portfolio', 'CREATE_CREDITDECISIONLOG', 'CREDITDECISIONLOG', 'CREATE', 0)
+            ON DUPLICATE KEY UPDATE entity_name = VALUES(entity_name);
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-846-grant-credit-decision-to-super-user" author="omoi">
+        <sql>
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT r.id, p.id
+            FROM m_role r
+            JOIN m_permission p ON p.entity_name IN ('CREDITDECISION', 'CREDITDECISIONCONNECTION', 'CREDITDECISIONLOG')
+            WHERE r.name = 'Super user'
+              AND NOT EXISTS (
+                  SELECT 1 FROM m_role_permission rp
+                  WHERE rp.role_id = r.id AND rp.permission_id = p.id
+              );
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
