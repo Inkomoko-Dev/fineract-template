@@ -368,6 +368,11 @@ class CreditDecisionLoanServiceDbTest {
         assertNull(sent.getErrorMessage());
         assertFalse(sent.isBlocksApproval());
         assertEquals("Test engine", sent.getProvider());
+        // what was exchanged stays with the application so it can be looked at later
+        assertEquals("Business loans", sent.getRequestedProfileName());
+        assertEquals(1, sent.getRequestedVersionNo());
+        assertEquals(engine.bodies.get(0), sent.getRequestJson());
+        assertTrue(sent.getReplyJson().contains("\"GO\""), sent.getReplyJson());
 
         assertEquals(1, engine.bodies.size());
         final String body = engine.bodies.get(0);

@@ -95,7 +95,9 @@ public class CreditDecisionLoanService {
                 .requestedBy(row == null ? null : row.requestedBy).requestedOn(row == null ? null : row.requestedOn)
                 .decision(row == null ? null : row.decision).score(row == null ? null : row.score)
                 .reasonCodes(row == null ? null : row.reasonCodes).replyMs(row == null ? null : row.replyMs)
-                .errorMessage(row == null ? null : row.errorMessage).provider(profiles.connection().getProvider()).blockers(blockers)
+                .errorMessage(row == null ? null : row.errorMessage).provider(profiles.connection().getProvider())
+                .requestedProfileName(row == null ? null : row.profileName).requestedVersionNo(row == null ? null : row.versionNo)
+                .requestJson(row == null ? null : row.requestJson).replyJson(row == null ? null : row.replyJson).blockers(blockers)
                 .blocksApproval(required && !decided && profile != null && "LIVE".equals(profile.getMode())).build();
     }
 
@@ -475,7 +477,8 @@ public class CreditDecisionLoanService {
                         iso(rs.getTimestamp("verified_on")), rs.getString("verification_note"), rs.getString("request_status"),
                         rs.getString("requested_by"), iso(rs.getTimestamp("requested_on")), rs.getString("decision"),
                         rs.getBigDecimal("score"), rs.getString("reason_codes"), (Integer) rs.getObject("reply_ms"),
-                        rs.getString("error_message")),
+                        rs.getString("error_message"), rs.getString("profile_name"), (Integer) rs.getObject("version_no"),
+                        rs.getString("request_json"), rs.getString("reply_json")),
                 loanId);
         return rows.isEmpty() ? null : rows.get(0);
     }
@@ -517,11 +520,16 @@ public class CreditDecisionLoanService {
         final String reasonCodes;
         final Integer replyMs;
         final String errorMessage;
+        final String profileName;
+        final Integer versionNo;
+        final String requestJson;
+        final String replyJson;
 
         DecisionRow(final boolean required, final String verificationStatus, final String verifiedBy, final String verifiedOn,
                 final String verificationNote, final String requestStatus, final String requestedBy, final String requestedOn,
                 final String decision, final BigDecimal score, final String reasonCodes, final Integer replyMs,
-                final String errorMessage) {
+                final String errorMessage, final String profileName, final Integer versionNo, final String requestJson,
+                final String replyJson) {
             this.required = required;
             this.verificationStatus = verificationStatus;
             this.verifiedBy = verifiedBy;
@@ -535,6 +543,10 @@ public class CreditDecisionLoanService {
             this.reasonCodes = reasonCodes;
             this.replyMs = replyMs;
             this.errorMessage = errorMessage;
+            this.profileName = profileName;
+            this.versionNo = versionNo;
+            this.requestJson = requestJson;
+            this.replyJson = replyJson;
         }
     }
 }

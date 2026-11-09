@@ -99,6 +99,12 @@ public final class CreditDecisionLoanData {
         private final Integer replyMs;
         private final String errorMessage;
         private final String provider;
+        /** The profile and version the request was built from, kept even if the profile has changed since. */
+        private final String requestedProfileName;
+        private final Integer requestedVersionNo;
+        /** What was sent to the engine and what it replied, as sent and received. */
+        private final String requestJson;
+        private final String replyJson;
         /** Empty when the request can be sent. */
         private final List<String> blockers;
         /** Approval is refused until the engine has replied. */
