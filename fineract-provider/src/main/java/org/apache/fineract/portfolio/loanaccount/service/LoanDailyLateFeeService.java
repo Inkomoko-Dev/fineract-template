@@ -56,6 +56,7 @@ import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
 import org.apache.fineract.portfolio.common.domain.DaysInMonthType;
+import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.group.domain.Group;
 import org.apache.fineract.portfolio.group.exception.GroupNotActiveException;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
@@ -294,11 +295,6 @@ public class LoanDailyLateFeeService {
         return defaultToZero(disbursedPrincipal).setScale(6, MoneyHelper.getRoundingMode());
     }
 
-    private BigDecimal calculateDailyLateFeeRate(final BigDecimal monthlyRate, final Loan loan, final LocalDate penaltyDate) {
-        final DaysInMonthType daysInMonthType = loan.getLoanProductRelatedDetail().fetchDaysInMonthType();
-        return calculateDailyLateFeeRate(monthlyRate, daysInMonthType, penaltyDate);
-    }
-
     static BigDecimal calculateDailyLateFeeRate(final BigDecimal monthlyRate, final DaysInMonthType daysInMonthType,
             final LocalDate penaltyDate) {
         final int divisor = daysInMonthType.isDaysInMonth_30() ? 30 : penaltyDate.lengthOfMonth();
@@ -375,13 +371,19 @@ public class LoanDailyLateFeeService {
         return cumulativeOverduePrincipal;
     }
 
-    private List<DailyLateFeeInstallmentAllocation> calculateDailyLateFeeInstallmentAllocations(
-            final List<DailyLateFeeInstallmentState> installmentStates, final LocalDate penaltyDate, final BigDecimal dailyRate,
-            final BigDecimal totalPenaltyAmount, final int currencyScale) {
+    /**
+     * Splits one monthly penalty across the installments that are already due. The last installment absorbs the rounding
+     * remainder so the charge amount equals the sum of its installment allocations.
+     */
+    private List<DailyLateFeeInstallmentAllocation> calculateMonthlyPenaltyAllocations(
+            final List<DailyLateFeeInstallmentState> installmentStates, final LocalDate postingDate, final BigDecimal totalPenaltyAmount,
+            final int currencyScale) {
         final List<DailyLateFeeInstallmentState> eligibleStates = new ArrayList<>();
+        BigDecimal totalPrincipal = BigDecimal.ZERO;
         for (DailyLateFeeInstallmentState installmentState : installmentStates) {
-            if (installmentState.isPenaltyEligibleOn(penaltyDate)) {
+            if (installmentState.isPenaltyEligibleOn(postingDate)) {
                 eligibleStates.add(installmentState);
+                totalPrincipal = totalPrincipal.add(installmentState.outstandingPrincipal);
             }
         }
 
@@ -389,11 +391,17 @@ public class LoanDailyLateFeeService {
         BigDecimal remainingPenaltyAmount = totalPenaltyAmount;
         for (int index = 0; index < eligibleStates.size() && remainingPenaltyAmount.compareTo(BigDecimal.ZERO) > 0; index++) {
             final DailyLateFeeInstallmentState installmentState = eligibleStates.get(index);
-            BigDecimal installmentPenaltyAmount = installmentState.outstandingPrincipal.multiply(dailyRate, MoneyHelper.getMathContext())
-                    .setScale(currencyScale, MoneyHelper.getRoundingMode());
-            if (index == eligibleStates.size() - 1 || installmentPenaltyAmount.compareTo(remainingPenaltyAmount) > 0) {
-                installmentPenaltyAmount = remainingPenaltyAmount.setScale(currencyScale, MoneyHelper.getRoundingMode());
+            BigDecimal installmentPenaltyAmount;
+            if (index == eligibleStates.size() - 1 || totalPrincipal.compareTo(BigDecimal.ZERO) == 0) {
+                installmentPenaltyAmount = remainingPenaltyAmount;
+            } else {
+                installmentPenaltyAmount = totalPenaltyAmount.multiply(installmentState.outstandingPrincipal, MoneyHelper.getMathContext())
+                        .divide(totalPrincipal, currencyScale, MoneyHelper.getRoundingMode());
+                if (installmentPenaltyAmount.compareTo(remainingPenaltyAmount) > 0) {
+                    installmentPenaltyAmount = remainingPenaltyAmount;
+                }
             }
+            installmentPenaltyAmount = installmentPenaltyAmount.setScale(currencyScale, MoneyHelper.getRoundingMode());
             if (installmentPenaltyAmount.compareTo(BigDecimal.ZERO) > 0) {
                 allocations.add(new DailyLateFeeInstallmentAllocation(installmentState.installment, installmentPenaltyAmount));
                 remainingPenaltyAmount = remainingPenaltyAmount.subtract(installmentPenaltyAmount);
@@ -597,42 +605,70 @@ public class LoanDailyLateFeeService {
 
         final BigDecimal monthlyRate = chargeDefinition.getAmount();
         final int currencyScale = loan.getCurrency().getDigitsAfterDecimal();
+        final int monthInterval = monthlyPostingInterval(chargeDefinition);
         final List<DailyLateFeeInstallmentState> installmentStates = buildDailyLateFeeInstallmentStates(loan, gracePeriod,
                 generationStartDate);
-        LocalDate penaltyDate = generationStartDate;
-        while (!penaltyDate.isAfter(effectiveDate) && cumulativePenaltyAmount.compareTo(capAmount) < 0) {
-            final BigDecimal overduePrincipalAmount = calculateCumulativeOverduePrincipal(installmentStates, penaltyDate);
+        // One charge per configured month, on the grace date. The amount is the full percentage of the principal
+        // that is already due on that date. A later run in the same month does not post again.
+        LocalDate postingDate = firstPenaltyDate;
+        while (postingDate.isBefore(generationStartDate)) {
+            postingDate = postingDate.plusMonths(monthInterval);
+        }
+        LocalDate cursor = generationStartDate;
+        while (!postingDate.isAfter(effectiveDate) && cumulativePenaltyAmount.compareTo(capAmount) < 0) {
+            while (cursor.isBefore(postingDate)) {
+                applyPrincipalReductionsForDate(installmentStates, cursor);
+                cursor = cursor.plusDays(1);
+            }
+            final BigDecimal overduePrincipalAmount = calculateCumulativeOverduePrincipal(installmentStates, postingDate);
             if (overduePrincipalAmount.compareTo(BigDecimal.ZERO) > 0) {
-                final BigDecimal dailyRate = calculateDailyLateFeeRate(monthlyRate, loan, penaltyDate);
-                BigDecimal penaltyAmount = overduePrincipalAmount.multiply(dailyRate, MoneyHelper.getMathContext())
-                        .setScale(currencyScale, MoneyHelper.getRoundingMode());
+                BigDecimal penaltyAmount = overduePrincipalAmount.multiply(monthlyRate, MoneyHelper.getMathContext())
+                        .divide(BigDecimal.valueOf(100L), currencyScale, MoneyHelper.getRoundingMode());
                 final BigDecimal remainingCap = capAmount.subtract(cumulativePenaltyAmount);
                 if (penaltyAmount.compareTo(remainingCap) > 0) {
                     penaltyAmount = remainingCap.setScale(currencyScale, MoneyHelper.getRoundingMode());
                 }
                 if (penaltyAmount.compareTo(BigDecimal.ZERO) > 0) {
-                    final List<DailyLateFeeInstallmentAllocation> installmentAllocations = calculateDailyLateFeeInstallmentAllocations(
-                            installmentStates, penaltyDate, dailyRate, penaltyAmount, currencyScale);
-                    final LoanCharge dailyLateFeeCharge = createDailyLateFeeCharge(loan, chargeDefinition, penaltyDate, penaltyAmount,
+                    final List<DailyLateFeeInstallmentAllocation> installmentAllocations = calculateMonthlyPenaltyAllocations(
+                            installmentStates, postingDate, penaltyAmount, currencyScale);
+                    final LoanCharge monthCharge = createDailyLateFeeCharge(loan, chargeDefinition, postingDate, penaltyAmount,
                             installmentAllocations);
-                    final boolean appliedOnBackDate = addCharge(loan, chargeDefinition, dailyLateFeeCharge);
-                    upsertDailyLateFeeMetadata(loan, chargeDefinition, dailyLateFeeCharge, penaltyDate, overduePrincipalAmount,
-                            monthlyRate, dailyRate, dailyLateFeeCharge.amount());
+                    final boolean appliedOnBackDate = addCharge(loan, chargeDefinition, monthCharge);
+                    final BigDecimal appliedRate = monthlyRate.divide(BigDecimal.valueOf(100L), MoneyHelper.getMathContext());
+                    upsertDailyLateFeeMetadata(loan, chargeDefinition, monthCharge, postingDate, overduePrincipalAmount, monthlyRate,
+                            appliedRate, monthCharge.amount());
                     processingState.markChanged();
                     processingState.runInterestRecalculation = processingState.runInterestRecalculation || appliedOnBackDate;
-                    processingState.includeRecalculateFrom(penaltyDate);
-                    processingState.includeLastChargeDate(penaltyDate);
-                    cumulativePenaltyAmount = cumulativePenaltyAmount.add(dailyLateFeeCharge.amount());
+                    processingState.includeRecalculateFrom(postingDate);
+                    processingState.includeLastChargeDate(postingDate);
+                    cumulativePenaltyAmount = cumulativePenaltyAmount.add(monthCharge.amount());
                 }
             }
-            applyPrincipalReductionsForDate(installmentStates, penaltyDate);
-            penaltyDate = penaltyDate.plusDays(1);
+            applyPrincipalReductionsForDate(installmentStates, postingDate);
+            cursor = postingDate.plusDays(1);
+            postingDate = postingDate.plusMonths(monthInterval);
         }
 
         finalizeDailyLateFeeChanges(loan, existingTransactionIds, existingReversedTransactionIds, processingState);
         if (publishBusinessEvent) {
             businessEventNotifierService.notifyPostBusinessEvent(new LoanApplyOverdueChargeBusinessEvent(loan));
         }
+    }
+
+    /**
+     * The charge definition stores how often the percentage is posted. This product is every month. A missing frequency
+     * is treated as every month, because the amount itself is the monthly percentage.
+     */
+    private int monthlyPostingInterval(final Charge chargeDefinition) {
+        final Integer frequency = chargeDefinition.feeFrequency();
+        int interval = chargeDefinition.feeInterval() == null ? 1 : chargeDefinition.feeInterval();
+        if (interval < 1) {
+            interval = 1;
+        }
+        if (frequency != null && PeriodFrequencyType.YEARS.getValue().equals(frequency)) {
+            return interval * 12;
+        }
+        return interval;
     }
 
     private void addInstallmentIfPenaltyAppliedAfterLastDueDate(final Loan loan, final LocalDate lastChargeDate) {
