@@ -43,7 +43,9 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.EventData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.LoanDecisionData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.ProductProfileData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionOutcome;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,7 +69,6 @@ public class CreditDecisionLoanService {
     private static final int DUE_DILIGENCE = 1200;
     /** With this switched on, an application goes through Review Application, Due Diligence, IC review and so on. */
     private static final String EXTENDED_LIFECYCLE = "Add-More-Stages-To-A-Loan-Life-Cycle";
-    private static final String GO = "GO";
     private static final long RETRY_PAUSE_MILLIS = 300;
     private static final int MAX_NOTE = 500;
     private static final Gson GSON = new GsonBuilder().serializeNulls().create();
@@ -77,6 +78,7 @@ public class CreditDecisionLoanService {
     private final CreditDecisionService profiles;
     private final CreditDecisionLoanFacts facts;
     private final CreditDecisionEngineTransport transport;
+    private final ApplicationEventPublisher events;
 
     // ------------------------------------------------------------------ read
 
@@ -98,12 +100,14 @@ public class CreditDecisionLoanService {
                 .requestStatus(row == null ? CreditDecisionLoanData.NOT_SENT : row.requestStatus)
                 .requestedBy(row == null ? null : row.requestedBy).requestedOn(row == null ? null : row.requestedOn)
                 .decision(row == null ? null : row.decision).score(row == null ? null : row.score)
-                .reasonCodes(row == null ? null : row.reasonCodes).replyMs(row == null ? null : row.replyMs)
+                .riskTier(row == null ? null : row.riskTier).maxExposure(row == null ? null : row.maxExposure)
+                .modelVersion(row == null ? null : row.modelVersion).reasonCodes(row == null ? null : row.reasonCodes).replyMs(row == null ? null : row.replyMs)
                 .errorMessage(row == null ? null : row.errorMessage).provider(profiles.connection().getProvider())
                 .requestedProfileName(row == null ? null : row.profileName).requestedVersionNo(row == null ? null : row.versionNo)
                 .requestJson(row == null ? null : row.requestJson).replyJson(row == null ? null : row.replyJson).blockers(blockers)
-                .blocksApproval(required && !decided && profile != null && "LIVE".equals(profile.getMode()))
-                .blocksContract(required && profile != null && "LIVE".equals(profile.getMode()) && !(decided && GO.equals(row.decision)))
+                .blocksApproval(required && !decided && live(profile))
+                .blocksContract(required && live(profile) && !(decided && contractOpen(row.decision, loan.decisionState)))
+                .blocksIcReview(required && live(profile) && !(decided && CreditDecisionOutcome.IC_REVIEW_REQUIRED.equals(row.decision)))
                 .build();
     }
 
@@ -165,8 +169,8 @@ public class CreditDecisionLoanService {
         requireFlagged(loanId);
         final DecisionRow before = decision(loanId);
         jdbc.update("UPDATE m_loan_credit_decision SET verification_status = ?, verified_by = NULL, verified_on = NULL, "
-                + "verification_note = NULL, request_status = ?, decision = NULL, score = NULL, reason_codes = NULL, reply_ms = NULL, "
-                + "error_message = NULL, request_json = NULL, reply_json = NULL WHERE loan_id = ?",
+                + "verification_note = NULL, request_status = ?, decision = NULL, score = NULL, reason_codes = NULL, risk_tier = NULL, max_exposure = NULL, model_version = NULL, "
+                + "reply_ms = NULL, error_message = NULL, request_json = NULL, reply_json = NULL WHERE loan_id = ?",
                 CreditDecisionLoanData.PENDING_VERIFICATION, CreditDecisionLoanData.NOT_SENT, loanId);
         final boolean cleared = before != null && CreditDecisionLoanData.DECIDED.equals(before.requestStatus);
         event(loanId, CreditDecisionLoanData.EVENT_REOPENED, cleared ? "Cleared the earlier outcome: " + before.decision : null, null, null,
@@ -246,17 +250,25 @@ public class CreditDecisionLoanService {
         final Timestamp now = Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem());
         if (failure == null) {
             jdbc.update("UPDATE m_loan_credit_decision SET request_status = ?, profile_id = ?, profile_name = ?, version_no = ?, "
-                    + "requested_by = ?, requested_on = ?, decision = ?, score = ?, reason_codes = ?, reply_ms = ?, error_message = NULL, "
-                    + "request_json = ?, reply_json = ? WHERE loan_id = ?", CreditDecisionLoanData.DECIDED, profile.getProfileId(),
-                    profile.getProfileName(), profile.getVersionNo(), username(), now, reply.getDecision(), reply.getScore(),
-                    reply.getReasonCodes(), replyMs, requestJson, replyJson, loanId);
-            final Long logId = profiles.recordLog(entry(loan, profile, "DECIDED", reply.getDecision(), reply.getScore(),
-                    reply.getReasonCodes(), replyMs, "Awaiting your decision on the outcome", requestJson, replyJson));
+                    + "requested_by = ?, requested_on = ?, decision = ?, score = ?, reason_codes = ?, risk_tier = ?, max_exposure = ?, "
+                    + "model_version = ?, reply_ms = ?, error_message = NULL, request_json = ?, reply_json = ? WHERE loan_id = ?",
+                    CreditDecisionLoanData.DECIDED, profile.getProfileId(), profile.getProfileName(), profile.getVersionNo(), username(),
+                    now, reply.getDecision(), reply.getScore(), reply.getReasonCodes(), reply.getRiskTier(), reply.getMaxExposure(),
+                    reply.getModelVersion(), replyMs, requestJson, replyJson, loanId);
+            final boolean live = "LIVE".equals(profile.getMode());
+            final LogEntryData logged = entry(loan, profile, "DECIDED", reply.getDecision(), reply.getScore(), reply.getReasonCodes(),
+                    replyMs, nextStep(reply.getDecision(), live), requestJson, replyJson);
+            logged.setRiskTier(reply.getRiskTier());
+            logged.setMaxExposure(reply.getMaxExposure());
+            logged.setModelVersion(reply.getModelVersion());
+            final Long logId = profiles.recordLog(logged);
             event(loanId, CreditDecisionLoanData.EVENT_DECIDED, reply.getReasonCodes() == null ? null : truncate(reply.getReasonCodes(), MAX_NOTE),
                     reply.getDecision(), reply.getScore(), logId);
+            events.publishEvent(new CreditDecisionOutcomeRecorded(loanId, reply.getDecision(), reply.getReasonCodes(), live));
         } else {
             jdbc.update("UPDATE m_loan_credit_decision SET request_status = ?, profile_id = ?, profile_name = ?, version_no = ?, "
-                    + "requested_by = ?, requested_on = ?, decision = NULL, score = NULL, reason_codes = NULL, reply_ms = ?, "
+                    + "requested_by = ?, requested_on = ?, decision = NULL, score = NULL, reason_codes = NULL, risk_tier = NULL, "
+                    + "max_exposure = NULL, model_version = NULL, reply_ms = ?, "
                     + "error_message = ?, request_json = ?, reply_json = ? WHERE loan_id = ?", CreditDecisionLoanData.FAILED,
                     profile.getProfileId(), profile.getProfileName(), profile.getVersionNo(), username(), now, replyMs,
                     truncate(failure, MAX_NOTE), requestJson, replyJson, loanId);
@@ -265,6 +277,54 @@ public class CreditDecisionLoanService {
             event(loanId, CreditDecisionLoanData.EVENT_FAILED, truncate(failure, MAX_NOTE), null, null, logId);
         }
         return status(loanId);
+    }
+
+    // ------------------------------------------------------------------ automatic start and rejection
+
+    /**
+     * Starts the decision without anyone pressing a button, as the process flow asks: every application whose product is in
+     * an active decision profile is scored once its review is accepted. An officer who switched the decision off for the
+     * application is respected, and so is an outcome that is already in. When the request cannot be sent, for example the
+     * engine is down, it stays where an officer can see it and send it again.
+     */
+    public void autoStart(final Long loanId) {
+        final LoanRow loan = loan(loanId);
+        if (!reviewStageOpen(loan)) {
+            return;
+        }
+        final ProductProfileData profile = profiles.profileForProduct(loan.productId);
+        if (profile == null || "OFF".equals(profile.getMode()) || profile.getActiveVersionNo() == null) {
+            return;
+        }
+        final DecisionRow row = decision(loanId);
+        if (row != null && (!row.required || CreditDecisionLoanData.DECIDED.equals(row.requestStatus))) {
+            return;
+        }
+        final Timestamp now = Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem());
+        if (row == null) {
+            jdbc.update("INSERT INTO m_loan_credit_decision (loan_id, required, flagged_by, flagged_on, verification_status, "
+                    + "request_status) VALUES (?, TRUE, ?, ?, ?, ?)", loanId, username(), now,
+                    CreditDecisionLoanData.PENDING_VERIFICATION, CreditDecisionLoanData.NOT_SENT);
+            event(loanId, CreditDecisionLoanData.EVENT_FLAGGED, "Automatically, because '" + loan.productName + "' is in the decision profile '"
+                    + profile.getProfileName() + "'", null, null, null);
+        }
+        if (row == null || !CreditDecisionLoanData.VERIFIED.equals(row.verificationStatus)) {
+            final String note = "Verified automatically when the application review was accepted";
+            jdbc.update("UPDATE m_loan_credit_decision SET verification_status = ?, verified_by = ?, verified_on = ?, verification_note = ? "
+                    + "WHERE loan_id = ?", CreditDecisionLoanData.VERIFIED, username(), now, note, loanId);
+            event(loanId, CreditDecisionLoanData.EVENT_VERIFIED, note, null, null, null);
+        }
+        try {
+            send(loanId);
+        } catch (final GeneralPlatformDomainRuleException e) {
+            // the reason is already on the application's history, or is shown by its blockers
+        }
+    }
+
+    /** Keeps on the history what became of the rejection an INELIGIBLE outcome asked for. */
+    public void recordRejection(final Long loanId, final boolean rejected, final String detail) {
+        event(loanId, rejected ? CreditDecisionLoanData.EVENT_REJECTED : CreditDecisionLoanData.EVENT_FAILED,
+                detail == null ? null : truncate(detail, MAX_NOTE), CreditDecisionOutcome.INELIGIBLE, null, null);
     }
 
     // ------------------------------------------------------------------ history
@@ -297,30 +357,50 @@ public class CreditDecisionLoanService {
     @Transactional(readOnly = true)
     public void assertOutcomeReceived(final Long loanId) {
         assertOutcomeReceived(loanId, "approved");
-        assertGo(loanId, "approved");
+        assertNotIneligible(loanId, "approved");
     }
 
     /**
-     * Past Due Diligence, a Live profile lets the application move on only when the engine said GO. A REVIEW is asked again once
-     * what caused it has been put right, for example after Due Diligence, and a NO-GO is the engine's last word. Shadow mode never
-     * holds an application back, and neither does an application that does not need a decision.
+     * An INELIGIBLE outcome is the engine's last word in a Live profile: the application can only be rejected, so every step
+     * that moves it forward is refused. Shadow mode never holds an application back.
      */
     @Transactional(readOnly = true)
-    public void assertGo(final Long loanId, final String action) {
+    public void assertNotIneligible(final Long loanId, final String action) {
         final DecisionRow row = decision(loanId);
-        if (row == null || !row.required || !CreditDecisionLoanData.DECIDED.equals(row.requestStatus) || GO.equals(row.decision)) {
+        if (row == null || !row.required || !CreditDecisionLoanData.DECIDED.equals(row.requestStatus)
+                || !CreditDecisionOutcome.INELIGIBLE.equals(row.decision) || !live(loanId)) {
             return;
         }
-        final ProductProfileData profile = profiles.profileForProduct(loan(loanId).productId);
-        if (profile == null || !"LIVE".equals(profile.getMode())) {
+        throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.ineligible",
+                "The decision engine found this application INELIGIBLE, so it cannot be " + action + ". The application can only be rejected.");
+    }
+
+    /**
+     * Prepare and sign contract is reached from Due Diligence when the engine said AUTO_APPROVE, because then no IC review is
+     * needed. An IC_REVIEW_REQUIRED application reaches it through the IC levels, and an INELIGIBLE one never does.
+     */
+    @Transactional(readOnly = true)
+    public void assertContractAllowed(final Long loanId, final String action) {
+        final DecisionRow row = decision(loanId);
+        if (row == null || !row.required || !live(loanId)) {
             return;
         }
-        final boolean review = "REVIEW".equals(row.decision);
-        throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.go.required",
-                "The decision engine returned " + row.decision + " for this application, so it cannot be " + action + ". "
-                        + (review ? "Once what caused the review has been put right, send the request to the decision engine again "
-                                + "from the Automated Credit Decision page."
-                                : "The application can only be rejected."));
+        assertOutcomeReceived(loanId, action);
+        assertNotIneligible(loanId, action);
+        final LoanRow loan = loan(loanId);
+        if (!contractOpen(row.decision, loan.decisionState)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.ic.review.required",
+                    "The decision engine returned IC_REVIEW_REQUIRED for this application, so it cannot be " + action
+                            + " until it has been through IC review.");
+        }
+    }
+
+    /** True when the engine's AUTO_APPROVE lets this application skip IC review. Shadow mode never skips anything. */
+    @Transactional(readOnly = true)
+    public boolean bypassesIcReview(final Long loanId) {
+        final DecisionRow row = decision(loanId);
+        return row != null && row.required && CreditDecisionLoanData.DECIDED.equals(row.requestStatus)
+                && CreditDecisionOutcome.AUTO_APPROVE.equals(row.decision) && live(loanId);
     }
 
     /** The same hold, worded for the step that is being refused, for example "approved" or "moved to Due Diligence". */
@@ -352,15 +432,21 @@ public class CreditDecisionLoanService {
     }
 
     /**
-     * The automated credit decision stands in for IC review, so an application that needs one is never put through IC
-     * review.
+     * In a Live profile only an application the engine marked IC_REVIEW_REQUIRED goes through the IC levels. One it approved
+     * goes straight to the contract, and one it found ineligible can only be rejected.
      */
     @Transactional(readOnly = true)
     public void assertIcReviewAllowed(final Long loanId) {
-        if (isRequired(loanId)) {
+        final DecisionRow row = decision(loanId);
+        if (row == null || !row.required || !live(loanId)) {
+            return;
+        }
+        assertOutcomeReceived(loanId, "put through IC review");
+        assertNotIneligible(loanId, "put through IC review");
+        if (!CreditDecisionOutcome.IC_REVIEW_REQUIRED.equals(row.decision)) {
             throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.ic.review.not.allowed",
-                    "IC review cannot be done for this application because it needs an automated credit decision. "
-                            + "The decision engine takes the place of IC review.");
+                    "IC review is not needed for this application because the decision engine returned " + row.decision
+                            + ". It goes straight on to Prepare and sign contract.");
         }
     }
 
@@ -387,8 +473,8 @@ public class CreditDecisionLoanService {
         } else if (!sendStageOpen(loan)) {
             out.add(CreditDecisionLoanData.BLOCKER_NOT_IN_REVIEW);
         }
-        // a REVIEW outcome can be asked for again once what caused it is put right, a GO or NO-GO is the engine's final word
-        if (CreditDecisionLoanData.DECIDED.equals(row.requestStatus) && !"REVIEW".equals(row.decision)) {
+        // an application that needs IC review can be asked again while still in review, AUTO_APPROVE and INELIGIBLE are final
+        if (CreditDecisionLoanData.DECIDED.equals(row.requestStatus) && !CreditDecisionOutcome.IC_REVIEW_REQUIRED.equals(row.decision)) {
             out.add(CreditDecisionLoanData.BLOCKER_OUTCOME_FINAL);
         }
         if (!CreditDecisionLoanData.VERIFIED.equals(row.verificationStatus)) {
@@ -413,9 +499,9 @@ public class CreditDecisionLoanService {
             case CreditDecisionLoanData.BLOCKER_LOAN_NOT_PENDING:
                 return "The request can only be sent while the application is waiting for approval.";
             case CreditDecisionLoanData.BLOCKER_NOT_IN_REVIEW:
-                return "The request can only be sent from the Review Application stage until Due Diligence is accepted.";
+                return "The request can only be sent while the application is in the Review Application stage.";
             case CreditDecisionLoanData.BLOCKER_OUTCOME_FINAL:
-                return "The decision engine has given a final outcome for this application. Only a REVIEW outcome can be sent again.";
+                return "The decision engine has given a final outcome for this application. Only IC_REVIEW_REQUIRED can be sent again.";
             case CreditDecisionLoanData.BLOCKER_PENDING_VERIFICATION:
                 return "Verify the application details before sending the request.";
             case CreditDecisionLoanData.BLOCKER_PROFILE_OFF:
@@ -505,11 +591,9 @@ public class CreditDecisionLoanService {
                 && (!extendedLifecycle() || loan.decisionState == null || loan.decisionState == REVIEW_APPLICATION);
     }
 
-    /** A request is sent from the review until Due Diligence is accepted, because it asks the engine about what is known by then. */
+    /** The request is sent from the Review Application stage, because the outcome decides which stage comes next. */
     private boolean sendStageOpen(final LoanRow loan) {
-        return loan.statusId == SUBMITTED_AND_PENDING_APPROVAL
-                && (!extendedLifecycle() || Integer.valueOf(REVIEW_APPLICATION).equals(loan.decisionState)
-                        || Integer.valueOf(DUE_DILIGENCE).equals(loan.decisionState));
+        return reviewStageOpen(loan);
     }
 
     private boolean reviewStageOpen(final LoanRow loan) {
@@ -557,12 +641,43 @@ public class CreditDecisionLoanService {
         return rows.get(0);
     }
 
+    private boolean live(final ProductProfileData profile) {
+        return profile != null && "LIVE".equals(profile.getMode());
+    }
+
+    private boolean live(final Long loanId) {
+        return live(profiles.profileForProduct(loan(loanId).productId));
+    }
+
+    /** From Due Diligence only AUTO_APPROVE reaches the contract, and past it anything the IC levels let through. */
+    private static boolean contractOpen(final String decision, final Integer decisionState) {
+        if (CreditDecisionOutcome.AUTO_APPROVE.equals(decision)) {
+            return true;
+        }
+        return CreditDecisionOutcome.IC_REVIEW_REQUIRED.equals(decision) && decisionState != null && decisionState > DUE_DILIGENCE;
+    }
+
+    private static String nextStep(final String decision, final boolean live) {
+        if (!live) {
+            return "Recorded only: the profile is in Shadow mode";
+        }
+        switch (decision) {
+            case CreditDecisionOutcome.AUTO_APPROVE:
+                return "Skips IC review and goes to Prepare and sign contract";
+            case CreditDecisionOutcome.INELIGIBLE:
+                return "The application is rejected";
+            default:
+                return "Goes to IC review";
+        }
+    }
+
     private DecisionRow decision(final Long loanId) {
         final List<DecisionRow> rows = jdbc.query("SELECT * FROM m_loan_credit_decision WHERE loan_id = ?",
                 (rs, i) -> new DecisionRow(rs.getBoolean("required"), rs.getString("verification_status"), rs.getString("verified_by"),
                         iso(rs.getTimestamp("verified_on")), rs.getString("verification_note"), rs.getString("request_status"),
                         rs.getString("requested_by"), iso(rs.getTimestamp("requested_on")), rs.getString("decision"),
-                        rs.getBigDecimal("score"), rs.getString("reason_codes"), (Integer) rs.getObject("reply_ms"),
+                        rs.getBigDecimal("score"), rs.getString("reason_codes"), rs.getString("risk_tier"), rs.getBigDecimal("max_exposure"),
+                        rs.getString("model_version"), (Integer) rs.getObject("reply_ms"),
                         rs.getString("error_message"), rs.getString("profile_name"), (Integer) rs.getObject("version_no"),
                         rs.getString("request_json"), rs.getString("reply_json")),
                 loanId);
@@ -604,6 +719,9 @@ public class CreditDecisionLoanService {
         final String decision;
         final BigDecimal score;
         final String reasonCodes;
+        final String riskTier;
+        final BigDecimal maxExposure;
+        final String modelVersion;
         final Integer replyMs;
         final String errorMessage;
         final String profileName;
@@ -613,8 +731,8 @@ public class CreditDecisionLoanService {
 
         DecisionRow(final boolean required, final String verificationStatus, final String verifiedBy, final String verifiedOn,
                 final String verificationNote, final String requestStatus, final String requestedBy, final String requestedOn,
-                final String decision, final BigDecimal score, final String reasonCodes, final Integer replyMs,
-                final String errorMessage, final String profileName, final Integer versionNo, final String requestJson,
+                final String decision, final BigDecimal score, final String reasonCodes, final String riskTier,
+                final BigDecimal maxExposure, final String modelVersion, final Integer replyMs, final String errorMessage, final String profileName, final Integer versionNo, final String requestJson,
                 final String replyJson) {
             this.required = required;
             this.verificationStatus = verificationStatus;
@@ -627,6 +745,9 @@ public class CreditDecisionLoanService {
             this.decision = decision;
             this.score = score;
             this.reasonCodes = reasonCodes;
+            this.riskTier = riskTier;
+            this.maxExposure = maxExposure;
+            this.modelVersion = modelVersion;
             this.replyMs = replyMs;
             this.errorMessage = errorMessage;
             this.profileName = profileName;

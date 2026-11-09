@@ -112,6 +112,28 @@
                                  onDelete="CASCADE"/>
     </changeSet>
 
+    <!-- The engine's directives are AUTO_APPROVE, IC_REVIEW_REQUIRED and INELIGIBLE, as in the Credit Scoring Process Flow.
+         The first draft stored GO, REVIEW and NO-GO, so what was stored is renamed. The risk tier, the largest exposure the
+         engine allows and the model version are kept beside the decision. -->
+
+    <changeSet id="CGLT-846-credit-decision-process-flow-outcomes" author="omoi">
+        <sql>
+            ALTER TABLE m_loan_credit_decision MODIFY decision VARCHAR(20) NULL,
+                ADD COLUMN risk_tier VARCHAR(30) NULL, ADD COLUMN max_exposure DECIMAL(19,6) NULL,
+                ADD COLUMN model_version VARCHAR(100) NULL;
+            ALTER TABLE m_loan_credit_decision_event MODIFY decision VARCHAR(20) NULL;
+            ALTER TABLE m_credit_decision_log MODIFY decision VARCHAR(20) NULL,
+                ADD COLUMN risk_tier VARCHAR(30) NULL, ADD COLUMN max_exposure DECIMAL(19,6) NULL,
+                ADD COLUMN model_version VARCHAR(100) NULL;
+            UPDATE m_loan_credit_decision SET decision = CASE decision WHEN 'GO' THEN 'AUTO_APPROVE'
+                WHEN 'REVIEW' THEN 'IC_REVIEW_REQUIRED' WHEN 'NO-GO' THEN 'INELIGIBLE' ELSE decision END WHERE decision IS NOT NULL;
+            UPDATE m_loan_credit_decision_event SET decision = CASE decision WHEN 'GO' THEN 'AUTO_APPROVE'
+                WHEN 'REVIEW' THEN 'IC_REVIEW_REQUIRED' WHEN 'NO-GO' THEN 'INELIGIBLE' ELSE decision END WHERE decision IS NOT NULL;
+            UPDATE m_credit_decision_log SET decision = CASE decision WHEN 'GO' THEN 'AUTO_APPROVE'
+                WHEN 'REVIEW' THEN 'IC_REVIEW_REQUIRED' WHEN 'NO-GO' THEN 'INELIGIBLE' ELSE decision END WHERE decision IS NOT NULL;
+        </sql>
+    </changeSet>
+
     <changeSet id="CGLT-846-loan-credit-decision-permissions" author="omoi">
         <sql>
             INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)

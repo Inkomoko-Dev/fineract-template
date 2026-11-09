@@ -79,7 +79,7 @@ class CreditDecisionLoanServiceDbTest {
         @Override
         public Response post(final String url, final String jsonBody, final int timeoutSeconds, final String bearerToken) throws IOException {
             bodies.add(jsonBody);
-            final Object next = script.isEmpty() ? new Response(200, "{\"decision\":\"GO\"}") : script.poll();
+            final Object next = script.isEmpty() ? new Response(200, "{\"recommendation\":\"AUTO_APPROVE\"}") : script.poll();
             if (next instanceof IOException) {
                 throw (IOException) next;
             }
@@ -93,6 +93,7 @@ class CreditDecisionLoanServiceDbTest {
     private CreditDecisionLoanService service;
     private CreditDecisionLoanFacts facts;
     private ScriptedEngine engine;
+    private List<Object> published;
     private PlatformSecurityContext context;
 
     private long product;
@@ -156,7 +157,8 @@ class CreditDecisionLoanServiceDbTest {
         profiles = new CreditDecisionService(jdbc, context);
         facts = new CreditDecisionLoanFacts(jdbc);
         engine = new ScriptedEngine();
-        service = new CreditDecisionLoanService(jdbc, context, profiles, facts, engine);
+        published = new ArrayList<>();
+        service = new CreditDecisionLoanService(jdbc, context, profiles, facts, engine, published::add);
     }
 
     @AfterEach
@@ -326,7 +328,7 @@ class CreditDecisionLoanServiceDbTest {
     @Test
     void unverifyingPutsItBackToPendingAndClearsAnOutcomeGivenForTheOldDetails() {
         final long loanId = readyApplication();
-        engine.script.add(reply("{\"decision\":\"GO\",\"score\":720}"));
+        engine.script.add(reply("{\"recommendation\":\"AUTO_APPROVE\",\"score\":720}"));
         assertEquals(CreditDecisionLoanData.DECIDED, service.send(loanId).getRequestStatus());
 
         final LoanDecisionData reopened = service.unverify(loanId);
@@ -356,12 +358,12 @@ class CreditDecisionLoanServiceDbTest {
     void sendBuildsTheRequestFromTheProfileAndKeepsTheOutcome() {
         final long loanId = readyApplication();
         actAs("loan.officer");
-        engine.script.add(reply("{\"decision\":\"GO\",\"score\":720.5,\"reasonCodes\":[\"R1\",\"R2\"]}"));
+        engine.script.add(reply("{\"recommendation\":\"AUTO_APPROVE\",\"score\":720.5,\"reasonCodes\":[\"R1\",\"R2\"]}"));
 
         final LoanDecisionData sent = service.send(loanId);
 
         assertEquals(CreditDecisionLoanData.DECIDED, sent.getRequestStatus());
-        assertEquals("GO", sent.getDecision());
+        assertEquals("AUTO_APPROVE", sent.getDecision());
         assertEquals(0, new BigDecimal("720.5").compareTo(sent.getScore()));
         assertEquals("R1, R2", sent.getReasonCodes());
         assertEquals("loan.officer", sent.getRequestedBy());
@@ -372,7 +374,7 @@ class CreditDecisionLoanServiceDbTest {
         assertEquals("Business loans", sent.getRequestedProfileName());
         assertEquals(1, sent.getRequestedVersionNo());
         assertEquals(engine.bodies.get(0), sent.getRequestJson());
-        assertTrue(sent.getReplyJson().contains("\"GO\""), sent.getReplyJson());
+        assertTrue(sent.getReplyJson().contains("\"AUTO_APPROVE\""), sent.getReplyJson());
 
         assertEquals(1, engine.bodies.size());
         final String body = engine.bodies.get(0);
@@ -391,7 +393,7 @@ class CreditDecisionLoanServiceDbTest {
         final Map<String, Object> log = jdbc.queryForMap("SELECT * FROM m_credit_decision_log");
         assertEquals("A-1", log.get("application_ref"));
         assertEquals("DECIDED", log.get("status"));
-        assertEquals("GO", log.get("decision"));
+        assertEquals("AUTO_APPROVE", log.get("decision"));
         assertEquals("Business loans", log.get("profile_name"));
         assertEquals(1, ((Number) log.get("version_no")).intValue());
     }
@@ -427,10 +429,10 @@ class CreditDecisionLoanServiceDbTest {
         assertEquals("AWAITING", jdbc.queryForObject("SELECT status FROM m_credit_decision_log", String.class));
 
         // the person can try again, and a good answer replaces the failure
-        engine.script.add(reply("{\"decision\":\"GO\",\"score\":610}"));
+        engine.script.add(reply("{\"recommendation\":\"AUTO_APPROVE\",\"score\":610}"));
         final LoanDecisionData retried = service.send(loanId);
         assertEquals(CreditDecisionLoanData.DECIDED, retried.getRequestStatus());
-        assertEquals("GO", retried.getDecision());
+        assertEquals("AUTO_APPROVE", retried.getDecision());
         assertNull(retried.getErrorMessage());
         service.assertOutcomeReceived(loanId);
     }
@@ -454,10 +456,10 @@ class CreditDecisionLoanServiceDbTest {
         final long loanId = readyApplication();
         jdbc.update("UPDATE m_credit_decision_connection SET retries = 2 WHERE id = 1");
         engine.script.add(new CreditDecisionEngineTransport.Response(503, "busy"));
-        engine.script.add(reply("{\"decision\":\"REVIEW\",\"score\":402}"));
+        engine.script.add(reply("{\"recommendation\":\"IC_REVIEW_REQUIRED\",\"score\":402}"));
         final LoanDecisionData decided = service.send(loanId);
         assertEquals(2, engine.bodies.size());
-        assertEquals("REVIEW", decided.getDecision());
+        assertEquals("IC_REVIEW_REQUIRED", decided.getDecision());
 
         engine.bodies.clear();
         engine.script.add(new CreditDecisionEngineTransport.Response(401, "bad key"));
@@ -489,38 +491,207 @@ class CreditDecisionLoanServiceDbTest {
     }
 
     @Test
-    void aLiveProfileLetsTheApplicationOnToTheContractAndApprovalOnlyOnGo() {
+    void aLiveProfileLetsAnAutoApprovedApplicationStraightOnToTheContract() {
         final long loanId = readyApplication();
-        engine.script.add(reply("{\"decision\":\"REVIEW\",\"score\":610,\"reasonCodes\":[\"DUE_DILIGENCE_PENDING\"]}"));
-        assertTrue(service.send(loanId).isBlocksContract());
+        engine.script.add(reply("{\"recommendation\":\"AUTO_APPROVE\",\"score\":720}"));
+        final LoanDecisionData decided = service.send(loanId);
 
-        // a REVIEW is let through Due Diligence, which is how it gets put right, but not on to the contract or approval
-        service.assertOutcomeReceived(loanId, "moved to Due Diligence");
-        final GeneralPlatformDomainRuleException review = assertThrows(GeneralPlatformDomainRuleException.class,
-                () -> service.assertGo(loanId, "moved to Prepare and sign contract"));
-        assertEquals("error.msg.creditdecision.loan.go.required", review.getGlobalisationMessageCode());
-        assertTrue(review.getDefaultUserMessage().contains("send the request to the decision engine again"));
-        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.assertOutcomeReceived(loanId));
-
-        // sent again after Due Diligence, and the engine now says GO
-        engine.script.add(reply("{\"decision\":\"GO\",\"score\":720}"));
-        assertFalse(service.send(loanId).isBlocksContract());
-        service.assertGo(loanId, "moved to Prepare and sign contract");
+        assertFalse(decided.isBlocksContract());
+        assertTrue(decided.isBlocksIcReview(), "an approved application skips IC review");
+        assertTrue(service.bypassesIcReview(loanId));
+        service.assertContractAllowed(loanId, "moved to Prepare and sign contract");
         service.assertOutcomeReceived(loanId);
+        final GeneralPlatformDomainRuleException ic = assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> service.assertIcReviewAllowed(loanId));
+        assertEquals("error.msg.creditdecision.loan.ic.review.not.allowed", ic.getGlobalisationMessageCode());
     }
 
     @Test
-    void aNoGoHoldsTheApplicationAndAShadowProfileNeverDoes() {
+    void anApplicationThatNeedsIcReviewGoesThroughItAndReachesTheContractAfterwards() {
         final long loanId = readyApplication();
-        engine.script.add(reply("{\"decision\":\"NO-GO\",\"score\":280}"));
+        engine.script.add(reply("{\"recommendation\":\"IC_REVIEW_REQUIRED\",\"score\":610,\"reasonCodes\":[\"BUREAU_SCORE_MARGINAL\"]}"));
+        final LoanDecisionData decided = service.send(loanId);
+
+        // Due Diligence still happens, IC review is open and the contract is not
+        assertTrue(decided.isBlocksContract());
+        assertFalse(decided.isBlocksIcReview());
+        assertFalse(service.bypassesIcReview(loanId));
+        service.assertOutcomeReceived(loanId, "moved to Due Diligence");
+        service.assertNotIneligible(loanId, "moved to Due Diligence");
+        service.assertIcReviewAllowed(loanId);
+        final GeneralPlatformDomainRuleException early = assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> service.assertContractAllowed(loanId, "moved to Prepare and sign contract"));
+        assertEquals("error.msg.creditdecision.loan.ic.review.required", early.getGlobalisationMessageCode());
+
+        // once the IC levels have been passed the contract is open
+        stage(loanId, 1500);
+        service.assertContractAllowed(loanId, "moved to Prepare and sign contract");
+        assertFalse(service.status(loanId).isBlocksContract());
+    }
+
+    @Test
+    void anIneligibleApplicationCanOnlyBeRejectedAndAShadowProfileNeverHoldsAnything() {
+        final long loanId = readyApplication();
+        engine.script.add(reply("{\"recommendation\":\"INELIGIBLE\",\"score\":280}"));
         service.send(loanId);
-        final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class,
-                () -> service.assertGo(loanId, "approved"));
-        assertTrue(e.getDefaultUserMessage().contains("can only be rejected"));
+        for (final String action : List.of("approved", "moved to Due Diligence", "put through IC review")) {
+            final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class,
+                    () -> service.assertNotIneligible(loanId, action));
+            assertEquals("error.msg.creditdecision.loan.ineligible", e.getGlobalisationMessageCode());
+            assertTrue(e.getDefaultUserMessage().contains("can only be rejected"));
+        }
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.assertOutcomeReceived(loanId));
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.assertIcReviewAllowed(loanId));
 
         jdbc.update("UPDATE m_credit_decision_profile SET mode = 'SHADOW'");
-        service.assertGo(loanId, "approved");
-        assertFalse(service.status(loanId).isBlocksContract());
+        service.assertNotIneligible(loanId, "approved");
+        service.assertContractAllowed(loanId, "moved to Prepare and sign contract");
+        service.assertIcReviewAllowed(loanId);
+        assertFalse(service.bypassesIcReview(loanId));
+        final LoanDecisionData shadow = service.status(loanId);
+        assertFalse(shadow.isBlocksContract());
+        assertFalse(shadow.isBlocksIcReview());
+    }
+
+    @Test
+    void theRiskTierMaximumExposureAndModelVersionAreKeptWithTheOutcomeAndInTheLog() {
+        final long loanId = readyApplication();
+        engine.script.add(reply("{\"scoringStatus\":\"COMPLETED\",\"recommendation\":\"AUTO_APPROVE\",\"score\":731,"
+                + "\"riskTier\":\"LOW\",\"maxAllowedExposure\":150000.50,\"modelVersion\":\"scorecard-v3\"}"));
+        final LoanDecisionData decided = service.send(loanId);
+
+        assertEquals("LOW", decided.getRiskTier());
+        assertEquals(0, new BigDecimal("150000.50").compareTo(decided.getMaxExposure()));
+        assertEquals("scorecard-v3", decided.getModelVersion());
+        final Map<String, Object> log = jdbc.queryForMap("SELECT * FROM m_credit_decision_log ORDER BY id DESC LIMIT 1");
+        assertEquals("LOW", log.get("risk_tier"));
+        assertEquals("scorecard-v3", log.get("model_version"));
+
+        // re-opening the verification clears them with the outcome
+        service.unverify(loanId);
+        final LoanDecisionData cleared = service.status(loanId);
+        assertNull(cleared.getRiskTier());
+        assertNull(cleared.getMaxExposure());
+        assertNull(cleared.getModelVersion());
+    }
+
+    @Test
+    void theDecisionIsPublishedSoAnIneligibleApplicationCanBeRejected() {
+        final long loanId = readyApplication();
+        engine.script.add(reply("{\"recommendation\":\"INELIGIBLE\",\"reasonCodes\":[\"ACTIVE_DEFAULT\"]}"));
+        service.send(loanId);
+
+        assertEquals(1, published.size());
+        final CreditDecisionOutcomeRecorded event = (CreditDecisionOutcomeRecorded) published.get(0);
+        assertEquals(loanId, event.getLoanId());
+        assertEquals("INELIGIBLE", event.getDecision());
+        assertEquals("ACTIVE_DEFAULT", event.getReasonCodes());
+        assertTrue(event.isLive());
+
+        service.recordRejection(loanId, true, "The application was rejected automatically");
+        service.recordRejection(loanId, false, "Could not reject");
+        final List<CreditDecisionLoanData.EventData> history = service.history(loanId);
+        assertEquals("FAILED", history.get(0).getEventType());
+        assertEquals("REJECTED", history.get(1).getEventType());
+        assertEquals("INELIGIBLE", history.get(1).getDecision());
+    }
+
+    @Test
+    void aFailedSendPublishesNothing() {
+        final long loanId = readyApplication();
+        engine.script.add(new java.io.IOException("connection refused"));
+        service.send(loanId);
+        assertTrue(published.isEmpty());
+    }
+
+    // ---------------------------------------------------------------- automatic start
+
+    @Test
+    void anApplicationInAProfileIsFlaggedVerifiedAndSentOnceItsReviewIsAccepted() {
+        profile("LIVE", "amount", "term", "currency");
+        connectEngine();
+        extendedLifecycle(true);
+        final long loanId = applicant("A-1");
+        stage(loanId, 1000);
+        engine.script.add(reply("{\"recommendation\":\"IC_REVIEW_REQUIRED\",\"score\":640}"));
+
+        service.autoStart(loanId);
+
+        final LoanDecisionData status = service.status(loanId);
+        assertTrue(status.isRequired());
+        assertEquals(CreditDecisionLoanData.VERIFIED, status.getVerificationStatus());
+        assertEquals(CreditDecisionLoanData.DECIDED, status.getRequestStatus());
+        assertEquals("IC_REVIEW_REQUIRED", status.getDecision());
+        assertEquals(List.of("DECIDED", "VERIFIED", "FLAGGED"), service.history(loanId).stream()
+                .map(CreditDecisionLoanData.EventData::getEventType).collect(java.util.stream.Collectors.toList()));
+        assertTrue(service.history(loanId).get(2).getDetail().startsWith("Automatically"));
+        assertEquals(1, engine.bodies.size());
+
+        // nothing is sent again once there is an outcome
+        service.autoStart(loanId);
+        assertEquals(1, engine.bodies.size());
+    }
+
+    @Test
+    void automaticStartLeavesAloneWhatItShould() {
+        profile("LIVE", "amount");
+        connectEngine();
+        extendedLifecycle(true);
+
+        // an officer switched the decision off for this application
+        final long switchedOff = applicant("A-1");
+        service.setRequired(switchedOff, true);
+        service.setRequired(switchedOff, false);
+        stage(switchedOff, 1000);
+        service.autoStart(switchedOff);
+        assertFalse(service.isRequired(switchedOff));
+
+        // not yet reviewed, and already past the review
+        final long notReviewed = applicant("A-2");
+        service.autoStart(notReviewed);
+        assertFalse(service.isRequired(notReviewed));
+        final long pastReview = applicant("A-3");
+        stage(pastReview, 1200);
+        service.autoStart(pastReview);
+        assertFalse(service.isRequired(pastReview));
+
+        // a product that is in no profile, and a profile that is switched off
+        final long otherProductLoan = loan("B-1", client("C-B1"), otherProduct, 100, "9000");
+        stage(otherProductLoan, 1000);
+        service.autoStart(otherProductLoan);
+        assertFalse(service.isRequired(otherProductLoan));
+        final long inOffProfile = applicant("A-4");
+        stage(inOffProfile, 1000);
+        jdbc.update("UPDATE m_credit_decision_profile SET mode = 'OFF'");
+        service.autoStart(inOffProfile);
+        assertFalse(service.isRequired(inOffProfile));
+        assertTrue(engine.bodies.isEmpty());
+    }
+
+    @Test
+    void whenTheEngineCannotBeReachedAutomaticStartLeavesTheApplicationReadyToSendByHand() {
+        profile("LIVE", "amount");
+        connectEngine();
+        extendedLifecycle(true);
+        final long loanId = applicant("A-1");
+        stage(loanId, 1000);
+        engine.script.add(new java.io.IOException("connection refused"));
+
+        service.autoStart(loanId);
+
+        final LoanDecisionData status = service.status(loanId);
+        assertTrue(status.isRequired());
+        assertEquals(CreditDecisionLoanData.FAILED, status.getRequestStatus());
+        assertTrue(status.getBlockers().isEmpty(), "the officer can send it again");
+        assertTrue(status.isBlocksApproval());
+
+        // and a disconnected engine is not an error either
+        jdbc.update("UPDATE m_credit_decision_connection SET enabled = 0 WHERE id = 1");
+        final long second = applicant("A-2");
+        stage(second, 1000);
+        service.autoStart(second);
+        assertEquals(CreditDecisionLoanData.NOT_SENT, service.status(second).getRequestStatus());
+        assertTrue(service.status(second).isRequired());
     }
 
     // ---------------------------------------------------------------- loan stages
@@ -574,18 +745,24 @@ class CreditDecisionLoanServiceDbTest {
     }
 
     @Test
-    void anApplicationThatNeedsADecisionIsNeverPutThroughIcReview() {
+    void icReviewWaitsForTheOutcomeAndOnlyAnIcReviewRequiredApplicationGoesThroughIt() {
         profile("LIVE", "amount");
+        connectEngine();
         final long loanId = applicant("A-1");
         service.assertIcReviewAllowed(loanId);
 
-        assertFalse(service.isRequired(loanId));
+        // flagged but no outcome yet
         service.setRequired(loanId, true);
-        assertTrue(service.isRequired(loanId));
         final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class,
                 () -> service.assertIcReviewAllowed(loanId));
-        assertEquals("error.msg.creditdecision.loan.ic.review.not.allowed", e.getGlobalisationMessageCode());
+        assertEquals("error.msg.creditdecision.loan.outcome.required", e.getGlobalisationMessageCode());
 
+        service.verify(loanId, null);
+        engine.script.add(reply("{\"recommendation\":\"IC_REVIEW_REQUIRED\"}"));
+        service.send(loanId);
+        service.assertIcReviewAllowed(loanId);
+
+        service.unverify(loanId);
         service.setRequired(loanId, false);
         service.assertIcReviewAllowed(loanId);
     }
@@ -628,7 +805,7 @@ class CreditDecisionLoanServiceDbTest {
     }
 
     @Test
-    void aReviewOutcomeCanBeAskedAgainEvenAfterDueDiligenceButAFinalOneCannot() {
+    void anIcReviewOutcomeCanBeAskedAgainInTheReviewStageButAFinalOneAndAnyOutcomeAfterItCannot() {
         profile("LIVE", "amount");
         connectEngine();
         extendedLifecycle(true);
@@ -636,26 +813,26 @@ class CreditDecisionLoanServiceDbTest {
         service.setRequired(loanId, true);
         stage(loanId, 1000);
         service.verify(loanId, null);
-        engine.script.add(reply("{\"decision\":\"REVIEW\",\"score\":640,\"reasonCodes\":[\"DUE_DILIGENCE_PENDING\"]}"));
-        assertEquals("REVIEW", service.send(loanId).getDecision());
+        engine.script.add(reply("{\"recommendation\":\"IC_REVIEW_REQUIRED\",\"score\":640}"));
+        assertEquals("IC_REVIEW_REQUIRED", service.send(loanId).getDecision());
 
-        // due diligence is accepted, which is what the engine was waiting for: the request can go again
-        stage(loanId, 1200);
+        // the details were corrected, so the request can go again from the review
         final LoanDecisionData waiting = service.status(loanId);
         assertTrue(waiting.isSendStageOpen());
-        assertFalse(waiting.isReviewStageOpen());
         assertTrue(waiting.getBlockers().isEmpty(), waiting.getBlockers().toString());
-        engine.script.add(reply("{\"decision\":\"GO\",\"score\":720}"));
-        assertEquals("GO", service.send(loanId).getDecision());
+        engine.script.add(reply("{\"recommendation\":\"AUTO_APPROVE\",\"score\":720}"));
+        assertEquals("AUTO_APPROVE", service.send(loanId).getDecision());
 
-        // GO is final
+        // AUTO_APPROVE is final
         final LoanDecisionData done = service.status(loanId);
         assertEquals(List.of(CreditDecisionLoanData.BLOCKER_OUTCOME_FINAL), done.getBlockers());
         assertThrows(GeneralPlatformDomainRuleException.class, () -> service.send(loanId));
 
-        // and nothing is sent once the application is past due diligence
-        stage(loanId, 1900);
+        // nothing is sent once Due Diligence has been accepted
+        stage(loanId, 1200);
         assertFalse(service.status(loanId).isSendStageOpen());
+        assertTrue(service.status(loanId).isBlocksIcReview());
+        assertFalse(service.status(loanId).isBlocksContract(), "AUTO_APPROVE goes from Due Diligence to the contract");
     }
 
     @Test
@@ -667,7 +844,7 @@ class CreditDecisionLoanServiceDbTest {
         service.setRequired(loanId, true);
         actAs("credit.analyst");
         service.verify(loanId, "Checked with the customer");
-        engine.script.add(reply("{\"decision\":\"REVIEW\",\"score\":640,\"reasonCodes\":[\"R1\",\"R2\"]}"));
+        engine.script.add(reply("{\"recommendation\":\"IC_REVIEW_REQUIRED\",\"score\":640,\"reasonCodes\":[\"R1\",\"R2\"]}"));
         service.send(loanId);
         service.unverify(loanId);
         service.setRequired(loanId, false);
@@ -680,13 +857,13 @@ class CreditDecisionLoanServiceDbTest {
         assertEquals("Checked with the customer", history.get(3).getDetail());
 
         final CreditDecisionLoanData.EventData decided = history.get(2);
-        assertEquals("REVIEW", decided.getDecision());
+        assertEquals("IC_REVIEW_REQUIRED", decided.getDecision());
         assertEquals(0, new BigDecimal("640").compareTo(decided.getScore()));
         assertEquals("R1, R2", decided.getDetail());
         // the request and the reply of that send are in the decision log
         assertNotNull(decided.getLogId());
-        assertEquals("REVIEW", jdbc.queryForObject("SELECT decision FROM m_credit_decision_log WHERE id = ?", String.class, decided.getLogId()));
-        assertTrue(history.get(1).getDetail().contains("REVIEW"));
+        assertEquals("IC_REVIEW_REQUIRED", jdbc.queryForObject("SELECT decision FROM m_credit_decision_log WHERE id = ?", String.class, decided.getLogId()));
+        assertTrue(history.get(1).getDetail().contains("IC_REVIEW_REQUIRED"));
         assertNotNull(decided.getOccurredOn());
     }
 

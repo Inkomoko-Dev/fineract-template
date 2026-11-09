@@ -29,30 +29,57 @@ import org.junit.jupiter.api.Test;
 class CreditDecisionEngineReplyTest {
 
     @Test
-    void readsDecisionScoreAndReasonCodes() {
-        final CreditDecisionEngineReply reply = CreditDecisionEngineReply
-                .parse("{\"decision\":\"review\",\"score\":612.5,\"reasonCodes\":[\"R12\",\"R31\"]}");
+    void readsTheProcessFlowReply() {
+        final CreditDecisionEngineReply reply = CreditDecisionEngineReply.parse("{\"scoringStatus\":\"COMPLETED\","
+                + "\"recommendation\":\"IC_REVIEW_REQUIRED\",\"score\":612.5,\"riskTier\":\"MEDIUM\","
+                + "\"maxAllowedExposure\":250000,\"modelVersion\":\"scorecard-v3\",\"reasonCodes\":[\"R12\",\"R31\"]}");
         assertTrue(reply.usable());
-        assertEquals("REVIEW", reply.getDecision());
+        assertEquals("IC_REVIEW_REQUIRED", reply.getDecision());
         assertEquals(new BigDecimal("612.5"), reply.getScore());
+        assertEquals("MEDIUM", reply.getRiskTier());
+        assertEquals(new BigDecimal("250000"), reply.getMaxExposure());
+        assertEquals("scorecard-v3", reply.getModelVersion());
         assertEquals("R12, R31", reply.getReasonCodes());
     }
 
     @Test
-    void acceptsOtherNamesForTheSameThings() {
-        final CreditDecisionEngineReply reply = CreditDecisionEngineReply.parse("{\"outcome\":\"no_go\",\"score\":\"431\",\"reasons\":\"BUREAU_LISTED\"}");
-        assertEquals("NO-GO", reply.getDecision());
+    void stillReadsTheFirstDraftNames() {
+        final CreditDecisionEngineReply reply = CreditDecisionEngineReply
+                .parse("{\"outcome\":\"no_go\",\"score\":\"431\",\"reasons\":\"BUREAU_LISTED\",\"engine\":\"rules-1\"}");
+        assertEquals("INELIGIBLE", reply.getDecision());
         assertEquals(new BigDecimal("431"), reply.getScore());
         assertEquals("BUREAU_LISTED", reply.getReasonCodes());
-        assertEquals("NO-GO", CreditDecisionEngineReply.parse("{\"decision\":\"NOGO\"}").getDecision());
+        assertEquals("rules-1", reply.getModelVersion());
+        assertEquals("INELIGIBLE", CreditDecisionEngineReply.parse("{\"decision\":\"NOGO\"}").getDecision());
+        assertEquals("AUTO_APPROVE", CreditDecisionEngineReply.parse("{\"decision\":\"go\"}").getDecision());
+        assertEquals("IC_REVIEW_REQUIRED", CreditDecisionEngineReply.parse("{\"decision\":\"Review\"}").getDecision());
     }
 
     @Test
-    void scoreAndReasonsAreOptional() {
-        final CreditDecisionEngineReply reply = CreditDecisionEngineReply.parse("{\"decision\":\"GO\"}");
+    void anIneligibleReplyMayOnlyListTheFailedRules() {
+        final CreditDecisionEngineReply reply = CreditDecisionEngineReply.parse("{\"recommendation\":\"INELIGIBLE\","
+                + "\"eligibilityResults\":{\"failedRules\":[\"AGE_BELOW_MINIMUM\",\"ACTIVE_DEFAULT\"]}}");
+        assertEquals("INELIGIBLE", reply.getDecision());
+        assertEquals("AGE_BELOW_MINIMUM, ACTIVE_DEFAULT", reply.getReasonCodes());
+    }
+
+    @Test
+    void scoreTierAndReasonsAreOptional() {
+        final CreditDecisionEngineReply reply = CreditDecisionEngineReply.parse("{\"recommendation\":\"AUTO_APPROVE\"}");
         assertTrue(reply.usable());
         assertNull(reply.getScore());
         assertNull(reply.getReasonCodes());
+        assertNull(reply.getRiskTier());
+        assertNull(reply.getMaxExposure());
+        assertNull(reply.getModelVersion());
+    }
+
+    @Test
+    void aScoringThatDidNotCompleteIsNotUsable() {
+        final CreditDecisionEngineReply reply = CreditDecisionEngineReply
+                .parse("{\"scoringStatus\":\"FAILED\",\"recommendation\":\"AUTO_APPROVE\"}");
+        assertFalse(reply.usable());
+        assertTrue(reply.getProblem().contains("FAILED"));
     }
 
     @Test
@@ -60,8 +87,8 @@ class CreditDecisionEngineReplyTest {
         assertFalse(CreditDecisionEngineReply.parse("not json").usable());
         assertFalse(CreditDecisionEngineReply.parse("[]").usable());
         assertFalse(CreditDecisionEngineReply.parse("").usable());
-        assertEquals("The engine reply has no decision", CreditDecisionEngineReply.parse("{\"score\":5}").getProblem());
-        final CreditDecisionEngineReply odd = CreditDecisionEngineReply.parse("{\"decision\":\"MAYBE\"}");
+        assertEquals("The engine reply has no recommendation", CreditDecisionEngineReply.parse("{\"score\":5}").getProblem());
+        final CreditDecisionEngineReply odd = CreditDecisionEngineReply.parse("{\"recommendation\":\"MAYBE\"}");
         assertFalse(odd.usable());
         assertTrue(odd.getProblem().contains("MAYBE"));
     }

@@ -32,6 +32,7 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogC
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogEntryData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogFilter;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogPageData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionOutcome;
 import org.apache.fineract.portfolio.creditdecision.exception.CreditDecisionLogNotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -48,13 +49,13 @@ public class CreditDecisionLogReader {
     public static final int DEFAULT_PAGE_SIZE = 25;
     public static final int MAX_PAGE_SIZE = 100;
 
-    private static final Set<String> DECISIONS = Set.of("GO", "REVIEW", "NO-GO", "NONE");
+    private static final Set<String> DECISIONS = Set.of(CreditDecisionOutcome.AUTO_APPROVE, CreditDecisionOutcome.IC_REVIEW_REQUIRED, CreditDecisionOutcome.INELIGIBLE, "NONE");
     private static final Set<String> STATUSES = Set.of("DECIDED", "HELD", "AWAITING");
     private static final Map<String, String> SORTS = Map.of("date_desc", "created_on DESC, id DESC", "date_asc",
             "created_on ASC, id ASC", "score_desc", "score DESC, id DESC", "score_asc", "score IS NULL, score ASC, id ASC");
 
     private static final String LIST_COLUMNS = "id, application_ref, loan_id, customer_ref, profile_id, profile_name, version_no, mode, "
-            + "provider, status, decision, score, reason_codes, reply_ms, next_step, created_on";
+            + "provider, status, decision, score, reason_codes, reply_ms, next_step, created_on, risk_tier, max_exposure, model_version";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -153,10 +154,10 @@ public class CreditDecisionLogReader {
     }
 
     private LogCounts counts(final Where base) {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) AS total, SUM(decision = 'GO') AS go, SUM(decision = 'REVIEW') AS review, "
-                + "SUM(decision = 'NO-GO') AS no_go, SUM(status = 'HELD') AS held, SUM(status = 'AWAITING') AS awaiting "
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) AS total, SUM(decision = 'AUTO_APPROVE') AS auto_approve, "
+                + "SUM(decision = 'IC_REVIEW_REQUIRED') AS ic_review, SUM(decision = 'INELIGIBLE') AS ineligible, SUM(status = 'HELD') AS held, SUM(status = 'AWAITING') AS awaiting "
                 + "FROM m_credit_decision_log" + base.sql,
-                (rs, i) -> new LogCounts(rs.getLong("total"), rs.getLong("go"), rs.getLong("review"), rs.getLong("no_go"),
+                (rs, i) -> new LogCounts(rs.getLong("total"), rs.getLong("auto_approve"), rs.getLong("ic_review"), rs.getLong("ineligible"),
                         rs.getLong("held"), rs.getLong("awaiting")),
                 base.args.toArray());
     }
@@ -167,17 +168,18 @@ public class CreditDecisionLogReader {
                 (Integer) rs.getObject("version_no"), rs.getString("mode"), rs.getString("provider"), rs.getString("status"),
                 rs.getString("decision"), rs.getBigDecimal("score"), rs.getString("reason_codes"), (Integer) rs.getObject("reply_ms"),
                 rs.getString("next_step"), withBodies ? rs.getString("request_json") : null,
-                withBodies ? rs.getString("reply_json") : null, rs.getTimestamp("created_on").toLocalDateTime().toString());
+                withBodies ? rs.getString("reply_json") : null, rs.getTimestamp("created_on").toLocalDateTime().toString(),
+                rs.getString("risk_tier"), rs.getBigDecimal("max_exposure"), rs.getString("model_version"));
     }
 
     private static String decision(final String raw, final Map<String, String> problems) {
         if (blank(raw)) {
             return null;
         }
-        final String value = raw.trim().toUpperCase(Locale.ROOT).replace('_', '-');
-        final String decision = "NOGO".equals(value) ? "NO-GO" : value;
-        if (!DECISIONS.contains(decision)) {
-            problems.put("decision", "Decision must be GO, REVIEW, NO-GO or NONE");
+        final String value = raw.trim().toUpperCase(Locale.ROOT);
+        final String decision = "NONE".equals(value) ? value : CreditDecisionOutcome.normalise(value);
+        if (decision == null || !DECISIONS.contains(decision)) {
+            problems.put("decision", "Decision must be AUTO_APPROVE, IC_REVIEW_REQUIRED, INELIGIBLE or NONE");
             return null;
         }
         return decision;

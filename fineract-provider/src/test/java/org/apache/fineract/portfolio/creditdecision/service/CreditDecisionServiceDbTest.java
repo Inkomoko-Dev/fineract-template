@@ -96,6 +96,7 @@ class CreditDecisionServiceDbTest {
         jdbc.execute("CREATE TABLE m_product_loan (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), currency_code VARCHAR(3))");
         jdbc.execute("CREATE TABLE m_permission (id BIGINT AUTO_INCREMENT PRIMARY KEY, `grouping` VARCHAR(45), code VARCHAR(100) UNIQUE, "
                 + "entity_name VARCHAR(100), action_name VARCHAR(100), can_maker_checker TINYINT(1))");
+        jdbc.execute("CREATE TABLE m_loan (id BIGINT AUTO_INCREMENT PRIMARY KEY)");
         jdbc.execute("CREATE TABLE m_role (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100))");
         jdbc.execute("CREATE TABLE m_role_permission (role_id BIGINT, permission_id BIGINT)");
         jdbc.execute("CREATE TABLE c_configuration (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), value BIGINT NULL, "
@@ -107,6 +108,9 @@ class CreditDecisionServiceDbTest {
 
         final Database database = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(new JdbcConnection(connection));
         new Liquibase("CGLT-846_credit_decision_profiles.xml",
+                new FileSystemResourceAccessor(new File("src/main/resources/db/changelog/tenant/parts")), database).update("");
+        // the decision log also keeps the risk tier, maximum exposure and model version, which the loan migration adds
+        new Liquibase("CGLT-846_loan_credit_decision.xml",
                 new FileSystemResourceAccessor(new File("src/main/resources/db/changelog/tenant/parts")), database).update("");
 
         context = mock(PlatformSecurityContext.class);
@@ -157,8 +161,9 @@ class CreditDecisionServiceDbTest {
     @Test
     void migrationCreatesTablesPermissionsAndTheConnectionRow() {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM m_credit_decision_connection", Integer.class));
-        assertEquals(5, jdbc.queryForObject("SELECT COUNT(*) FROM m_permission WHERE entity_name LIKE 'CREDITDECISION%'", Integer.class));
-        assertEquals(5, jdbc.queryForObject("SELECT COUNT(*) FROM m_role_permission", Integer.class));
+        assertEquals(5, jdbc.queryForObject("SELECT COUNT(*) FROM m_permission WHERE entity_name LIKE 'CREDITDECISION%' AND entity_name <> 'CREDITDECISIONLOAN'", Integer.class));
+        assertEquals(8, jdbc.queryForObject("SELECT COUNT(*) FROM m_role_permission", Integer.class),
+                "the 5 profile permissions and the 3 per-loan ones, since the loan migration is loaded too");
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM c_configuration WHERE name = 'credit-decision-allow-self-approval'",
                 Integer.class));
         assertFalse(service.connection().isEnabled());
@@ -317,10 +322,10 @@ class CreditDecisionServiceDbTest {
         go.setVersionNo(7);
         go.setMode("LIVE");
         go.setStatus("decided");
-        go.setDecision("GO");
+        go.setDecision("AUTO_APPROVE");
         go.setScore(new BigDecimal("82"));
         go.setRequestJson("{\"applicationId\":10231}");
-        go.setReplyJson("{\"decision\":\"GO\"}");
+        go.setReplyJson("{\"recommendation\":\"AUTO_APPROVE\"}");
         service.recordLog(go);
         final LogEntryData held = new LogEntryData();
         held.setApplicationRef("10232");
@@ -329,14 +334,14 @@ class CreditDecisionServiceDbTest {
 
         assertThrows(PlatformApiDataValidationException.class, () -> service.recordLog(new LogEntryData()));
         assertEquals(2, logs.page(new LogFilter()).getTotal());
-        assertEquals(1, logs.page(filter("GO", null)).getTotal());
+        assertEquals(1, logs.page(filter("AUTO_APPROVE", null)).getTotal());
         assertEquals(1, logs.page(filter("NONE", null)).getTotal());
         assertEquals(1, logs.page(filter(null, "0232")).getTotal());
-        final LogEntryData row = logs.page(filter("GO", null)).getContent().get(0);
+        final LogEntryData row = logs.page(filter("AUTO_APPROVE", null)).getContent().get(0);
         assertNull(row.getRequestJson(), "the list leaves the request and reply out, they are read when an entry is opened");
         final LogEntryData full = logs.entry(row.getId());
         assertEquals("{\"applicationId\":10231}", full.getRequestJson());
-        assertEquals("{\"decision\":\"GO\"}", full.getReplyJson());
+        assertEquals("{\"recommendation\":\"AUTO_APPROVE\"}", full.getReplyJson());
         assertThrows(CreditDecisionLogNotFoundException.class, () -> logs.entry(999_999L));
         assertEquals("Engine A", row.getProvider(), "the provider defaults to the one configured when the entry was recorded");
         assertEquals(0, new BigDecimal("82").compareTo(row.getScore()));
@@ -367,13 +372,13 @@ class CreditDecisionServiceDbTest {
         int arrears = 0;
         for (int i = 1; i <= 60; i++) {
             final boolean isHeld = i % 3 == 0;
-            final String decision = isHeld ? null : i % 2 == 0 ? "GO" : i % 4 == 1 ? "REVIEW" : "NO-GO";
+            final String decision = isHeld ? null : i % 2 == 0 ? "AUTO_APPROVE" : i % 4 == 1 ? "IC_REVIEW_REQUIRED" : "INELIGIBLE";
             final boolean late = !isHeld && i % 5 == 0;
             if (isHeld) {
                 held++;
-            } else if ("GO".equals(decision)) {
+            } else if ("AUTO_APPROVE".equals(decision)) {
                 go++;
-            } else if ("REVIEW".equals(decision)) {
+            } else if ("IC_REVIEW_REQUIRED".equals(decision)) {
                 review++;
             } else {
                 noGo++;
@@ -397,9 +402,9 @@ class CreditDecisionServiceDbTest {
         assertEquals(1, p1.getPage());
         assertEquals(60, p1.getCounts().getTotal());
         assertEquals(held, p1.getCounts().getHeld());
-        assertEquals(go, p1.getCounts().getGo());
-        assertEquals(review, p1.getCounts().getReview());
-        assertEquals(noGo, p1.getCounts().getNoGo());
+        assertEquals(go, p1.getCounts().getAutoApprove());
+        assertEquals(review, p1.getCounts().getIcReview());
+        assertEquals(noGo, p1.getCounts().getIneligible());
 
         all.setPage(3);
         final LogPageData last = logs.page(all);
@@ -430,7 +435,7 @@ class CreditDecisionServiceDbTest {
         final LogFilter goOnly = new LogFilter();
         goOnly.setDecision("go");
         final LogPageData goPage = logs.page(goOnly);
-        assertEquals(goPage.getCounts().getGo(), goPage.getTotal());
+        assertEquals(goPage.getCounts().getAutoApprove(), goPage.getTotal());
         assertEquals(60, goPage.getCounts().getTotal());
         assertEquals(go, goPage.getTotal());
         final LogFilter heldOnly = new LogFilter();
@@ -474,11 +479,11 @@ class CreditDecisionServiceDbTest {
         final LogFilter combined = new LogFilter();
         combined.setProfileId(1L);
         combined.setFrom("2026-11-08");
-        combined.setDecision("REVIEW");
+        combined.setDecision("IC_REVIEW_REQUIRED");
         final LogPageData c = logs.page(combined);
-        assertEquals(c.getCounts().getReview(), c.getTotal());
+        assertEquals(c.getCounts().getIcReview(), c.getTotal());
         assertTrue(c.getCounts().getTotal() <= 20);
-        assertEquals(c.getCounts().getTotal(), c.getCounts().getGo() + c.getCounts().getReview() + c.getCounts().getNoGo()
+        assertEquals(c.getCounts().getTotal(), c.getCounts().getAutoApprove() + c.getCounts().getIcReview() + c.getCounts().getIneligible()
                 + c.getCounts().getHeld(), "outcomes add up to the total");
     }
 

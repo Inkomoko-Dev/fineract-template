@@ -163,6 +163,9 @@ public final class CreditDecisionData {
         private String requestJson;
         private String replyJson;
         private String createdOn;
+        private String riskTier;
+        private BigDecimal maxExposure;
+        private String modelVersion;
     }
 
     /** How many log rows each outcome has, under every filter except the outcome itself, so the filter tabs can show counts. */
@@ -171,9 +174,9 @@ public final class CreditDecisionData {
     public static class LogCounts {
 
         private final long total;
-        private final long go;
-        private final long review;
-        private final long noGo;
+        private final long autoApprove;
+        private final long icReview;
+        private final long ineligible;
         private final long held;
         private final long awaiting;
     }
@@ -197,7 +200,7 @@ public final class CreditDecisionData {
     @NoArgsConstructor
     public static class LogFilter {
 
-        /** GO, REVIEW, NO-GO, or NONE for requests the engine has not answered. */
+        /** AUTO_APPROVE, IC_REVIEW_REQUIRED, INELIGIBLE, or NONE for requests the engine has not answered. */
         private String decision;
         /** DECIDED, HELD or AWAITING. */
         private String status;

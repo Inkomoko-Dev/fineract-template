@@ -25,30 +25,38 @@ import com.google.gson.JsonParser;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import lombok.Getter;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionOutcome;
 
 /**
- * Reads what the decision engine replied. The engine owns the decision: this only picks the decision, score and reason
- * codes out of the reply so they can be shown. Field names are accepted in a few common spellings until the provider's
- * contract is fixed: decision/outcome/result, score, reasonCodes/reasons.
+ * Reads what the decision engine replied. The engine owns the decision: this only picks the recommendation, score, risk
+ * tier, maximum exposure, model version and reason codes out of the reply so they can be shown. Field names follow the
+ * Credit Scoring Process Flow (recommendation, riskTier, maxAllowedExposure, modelVersion, scoringStatus, reasonCodes,
+ * eligibilityResults.failedRules). The first draft's names (decision, outcome, result, reasons, engine) are still read.
  */
 @Getter
 public final class CreditDecisionEngineReply {
 
-    /** The only decisions the screens know how to show. */
-    public static final List<String> DECISIONS = List.of("GO", "REVIEW", "NO-GO");
+    /** The only directives the screens know how to act on and show. */
+    public static final List<String> DECISIONS = CreditDecisionOutcome.ALL;
 
     private final String decision;
     private final BigDecimal score;
     private final String reasonCodes;
+    private final String riskTier;
+    private final BigDecimal maxExposure;
+    private final String modelVersion;
     /** Why the reply could not be used, when it could not. */
     private final String problem;
 
-    private CreditDecisionEngineReply(final String decision, final BigDecimal score, final String reasonCodes, final String problem) {
+    private CreditDecisionEngineReply(final String decision, final BigDecimal score, final String reasonCodes, final String riskTier,
+            final BigDecimal maxExposure, final String modelVersion, final String problem) {
         this.decision = decision;
         this.score = score;
         this.reasonCodes = reasonCodes;
+        this.riskTier = riskTier;
+        this.maxExposure = maxExposure;
+        this.modelVersion = modelVersion;
         this.problem = problem;
     }
 
@@ -68,24 +76,32 @@ public final class CreditDecisionEngineReply {
             return unusable("The engine reply is not valid JSON");
         }
 
-        final String rawDecision = text(root, "decision", "outcome", "result");
+        final String status = text(root, "scoringStatus");
+        if (status != null && !"COMPLETED".equalsIgnoreCase(status.trim())) {
+            return unusable("The engine did not finish scoring (scoring status " + status.trim() + ")");
+        }
+        final String rawDecision = text(root, "recommendation", "decision", "outcome", "result");
         if (rawDecision == null) {
-            return unusable("The engine reply has no decision");
+            return unusable("The engine reply has no recommendation");
         }
-        final String decision = normalise(rawDecision);
-        if (!DECISIONS.contains(decision)) {
-            return unusable("The engine returned the decision '" + rawDecision + "'. Expected GO, REVIEW or NO-GO");
+        final String decision = CreditDecisionOutcome.normalise(rawDecision);
+        if (decision == null) {
+            return unusable("The engine returned the recommendation '" + rawDecision
+                    + "'. Expected AUTO_APPROVE, IC_REVIEW_REQUIRED or INELIGIBLE");
         }
-        return new CreditDecisionEngineReply(decision, number(root, "score"), reasons(root), null);
-    }
-
-    static String normalise(final String raw) {
-        final String value = raw.trim().toUpperCase(Locale.ROOT).replace('_', '-').replace(' ', '-');
-        return "NOGO".equals(value) ? "NO-GO" : value;
+        final String tier = text(root, "riskTier");
+        final String model = text(root, "modelVersion", "engine");
+        return new CreditDecisionEngineReply(decision, number(root, "score"), reasons(root), tier == null ? null : cut(tier, 30),
+                number(root, "maxAllowedExposure"), model == null ? null : cut(model, 100), null);
     }
 
     private static CreditDecisionEngineReply unusable(final String problem) {
-        return new CreditDecisionEngineReply(null, null, null, problem);
+        return new CreditDecisionEngineReply(null, null, null, null, null, null, problem);
+    }
+
+    private static String cut(final String text, final int max) {
+        final String trimmed = text.trim();
+        return trimmed.length() > max ? trimmed.substring(0, max) : trimmed;
     }
 
     private static String text(final JsonObject root, final String... names) {
@@ -130,6 +146,23 @@ public final class CreditDecisionEngineReply {
             if (!out.isEmpty()) {
                 final String joined = String.join(", ", out);
                 return joined.length() > 500 ? joined.substring(0, 500) : joined;
+            }
+        }
+        // an ineligible reply may list only the knockout rules that failed
+        final JsonElement eligibility = root.get("eligibilityResults");
+        if (eligibility != null && eligibility.isJsonObject()) {
+            final JsonElement failed = eligibility.getAsJsonObject().get("failedRules");
+            if (failed != null && failed.isJsonArray()) {
+                final List<String> out = new ArrayList<>();
+                for (final JsonElement item : failed.getAsJsonArray()) {
+                    if (item.isJsonPrimitive()) {
+                        out.add(item.getAsString());
+                    }
+                }
+                if (!out.isEmpty()) {
+                    final String joined = String.join(", ", out);
+                    return joined.length() > 500 ? joined.substring(0, 500) : joined;
+                }
             }
         }
         return null;

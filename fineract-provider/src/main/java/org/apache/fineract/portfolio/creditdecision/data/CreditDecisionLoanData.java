@@ -54,6 +54,7 @@ public final class CreditDecisionLoanData {
     public static final String EVENT_DECIDED = "DECIDED";
     public static final String EVENT_FAILED = "FAILED";
     public static final String EVENT_HELD = "HELD";
+    public static final String EVENT_REJECTED = "REJECTED";
     public static final String BLOCKER_PENDING_VERIFICATION = "PENDING_VERIFICATION";
     public static final String BLOCKER_PROFILE_OFF = "PROFILE_OFF";
     public static final String BLOCKER_NO_ACTIVE_VERSION = "NO_ACTIVE_VERSION";
@@ -107,6 +108,10 @@ public final class CreditDecisionLoanData {
         private final String decision;
         private final BigDecimal score;
         private final String reasonCodes;
+        /** What the engine reported besides the decision: the risk tier, the largest exposure it allows, and the model that scored. */
+        private final String riskTier;
+        private final BigDecimal maxExposure;
+        private final String modelVersion;
         private final Integer replyMs;
         private final String errorMessage;
         private final String provider;
@@ -120,8 +125,13 @@ public final class CreditDecisionLoanData {
         private final List<String> blockers;
         /** Approval is refused until the engine has replied. */
         private final boolean blocksApproval;
-        /** The application cannot go on to Prepare and sign contract or be approved until the engine says GO. */
+        /**
+         * Prepare and sign contract is refused: from Due Diligence only an AUTO_APPROVE goes straight to the contract. An application
+         * that needs IC review gets there through the IC levels, and an ineligible one cannot get there.
+         */
         private final boolean blocksContract;
+        /** IC review is refused: only an IC_REVIEW_REQUIRED outcome goes through the IC levels. */
+        private final boolean blocksIcReview;
     }
 
     @Getter
