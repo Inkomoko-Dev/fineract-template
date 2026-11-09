@@ -25,7 +25,13 @@ public enum LoanSubStatus {
     INVALID(0, "loanSubStatusType.invalid"), //
     FORECLOSED(100, "loanSubStatusType.foreclosed"), //
     PENDINGDISBURSEMENT(200, "loanSubStatusType.pending.disbursement"),
-    PENDINGDISBURSEMENTAPPROVAL(300, "loanSubStatusType.pre.disbursement"),;
+    PENDINGDISBURSEMENTAPPROVAL(300, "loanSubStatusType.pre.disbursement"),
+    REPAYMENT_NOT_MET(400, "loanSubStatusType.repayment.not.met"),
+    REPAYMENT_MET(410, "loanSubStatusType.repayment.met"),
+    AWAITING_SURVEY(420, "loanSubStatusType.awaiting.survey"),
+    SURVEY_SUCCESSFUL(430, "loanSubStatusType.survey.successful"),
+    EXPIRED(440, "loanSubStatusType.expired"),
+    REQUIRES_REVIEW(450, "loanSubStatusType.requires.review"),;
 
     private final Integer value;
     private final String code;
@@ -42,7 +48,25 @@ public enum LoanSubStatus {
             break;
             case 300:
                 enumeration = LoanSubStatus.PENDINGDISBURSEMENTAPPROVAL;
-                break;
+            break;
+            case 400:
+                enumeration = LoanSubStatus.REPAYMENT_NOT_MET;
+            break;
+            case 410:
+                enumeration = LoanSubStatus.REPAYMENT_MET;
+            break;
+            case 420:
+                enumeration = LoanSubStatus.AWAITING_SURVEY;
+            break;
+            case 430:
+                enumeration = LoanSubStatus.SURVEY_SUCCESSFUL;
+            break;
+            case 440:
+                enumeration = LoanSubStatus.EXPIRED;
+            break;
+            case 450:
+                enumeration = LoanSubStatus.REQUIRES_REVIEW;
+            break;
         }
         return enumeration;
     }
@@ -72,6 +96,15 @@ public enum LoanSubStatus {
         return this.value.equals(LoanSubStatus.FORECLOSED.getValue());
     }
 
+    public boolean isTrancheMilestone() {
+        return this == REPAYMENT_NOT_MET || this == REPAYMENT_MET || this == AWAITING_SURVEY || this == SURVEY_SUCCESSFUL
+                || this == EXPIRED || this == REQUIRES_REVIEW;
+    }
+
+    public boolean isRequiresReview() {
+        return this == REQUIRES_REVIEW;
+    }
+
     public static EnumOptionData loanSubStatus(final int id) {
         return loanSubStatusEnum(LoanSubStatus.fromInt(id));
     }
@@ -91,7 +124,31 @@ public enum LoanSubStatus {
             case PENDINGDISBURSEMENTAPPROVAL:
                 optionData = new EnumOptionData(LoanSubStatus.PENDINGDISBURSEMENTAPPROVAL.getValue().longValue(),
                         codePrefix + LoanSubStatus.PENDINGDISBURSEMENTAPPROVAL.getCode(), "Pending Disbursement Approval");
-                break;
+            break;
+            case REPAYMENT_NOT_MET:
+                optionData = new EnumOptionData(LoanSubStatus.REPAYMENT_NOT_MET.getValue().longValue(),
+                        codePrefix + LoanSubStatus.REPAYMENT_NOT_MET.getCode(), "Repayment conditions not met");
+            break;
+            case REPAYMENT_MET:
+                optionData = new EnumOptionData(LoanSubStatus.REPAYMENT_MET.getValue().longValue(),
+                        codePrefix + LoanSubStatus.REPAYMENT_MET.getCode(), "Repayment conditions met");
+            break;
+            case AWAITING_SURVEY:
+                optionData = new EnumOptionData(LoanSubStatus.AWAITING_SURVEY.getValue().longValue(),
+                        codePrefix + LoanSubStatus.AWAITING_SURVEY.getCode(), "Awaiting survey");
+            break;
+            case SURVEY_SUCCESSFUL:
+                optionData = new EnumOptionData(LoanSubStatus.SURVEY_SUCCESSFUL.getValue().longValue(),
+                        codePrefix + LoanSubStatus.SURVEY_SUCCESSFUL.getCode(), "Survey successful");
+            break;
+            case EXPIRED:
+                optionData = new EnumOptionData(LoanSubStatus.EXPIRED.getValue().longValue(),
+                        codePrefix + LoanSubStatus.EXPIRED.getCode(), "Expired");
+            break;
+            case REQUIRES_REVIEW:
+                optionData = new EnumOptionData(LoanSubStatus.REQUIRES_REVIEW.getValue().longValue(),
+                        codePrefix + LoanSubStatus.REQUIRES_REVIEW.getCode(), "Requires review");
+            break;
             default:
                 optionData = new EnumOptionData(LoanSubStatus.INVALID.getValue().longValue(), LoanSubStatus.INVALID.getCode(), "Invalid");
             break;

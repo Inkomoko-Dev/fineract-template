@@ -237,6 +237,7 @@ public class LoanProductData implements Serializable {
     private Integer minTrancheCount;
 
     private Boolean firstTrancheAsPercentage;
+    private Boolean requireMilestoneSurvey;
 
     private BigDecimal firstTrancheAmount;
     private String thirdPartyDisbursementProvider;
@@ -1039,6 +1040,7 @@ public class LoanProductData implements Serializable {
         this.minTrancheCount = productData.minTrancheCount;
         this.firstTrancheAsPercentage = productData.firstTrancheAsPercentage;
         this.firstTrancheAmount = productData.firstTrancheAmount;
+        this.requireMilestoneSurvey = productData.requireMilestoneSurvey;
     }
 
     private Collection<ChargeData> nullIfEmpty(final Collection<ChargeData> charges) {
@@ -1566,6 +1568,14 @@ public class LoanProductData implements Serializable {
 
     public void setPreviousTrancheRepaidPercentage(final BigDecimal previousTrancheRepaidPercentage) {
         this.previousTrancheRepaidPercentage = previousTrancheRepaidPercentage;
+    }
+
+    public Boolean getRequireMilestoneSurvey() {
+        return this.requireMilestoneSurvey;
+    }
+
+    public void setRequireMilestoneSurvey(final Boolean requireMilestoneSurvey) {
+        this.requireMilestoneSurvey = requireMilestoneSurvey;
     }
 
     public BigDecimal getFirstInstallmentPrincipal() {

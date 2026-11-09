@@ -205,6 +205,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.tranche_principal_percentages as tranchePrincipalPercentages, lp.previous_tranche_repaid_percentage as previousTrancheRepaidPercentage, "
                     + "lp.first_installment_principal as firstInstallmentPrincipal, lp.first_installment_as_percentage as firstInstallmentAsPercentage, "
                     + "lp.first_tranche_as_percentage as firstTrancheAsPercentage, lp.first_tranche_amount as firstTrancheAmount, "
+                    + "lp.require_milestone_survey as requireMilestoneSurvey, "
                     + "lp.disallow_expected_disbursements as disallowExpectedDisbursements, lp.allow_approved_disbursed_amounts_over_applied as allowApprovedDisbursedAmountsOverApplied, lp.over_applied_calculation_type as overAppliedCalculationType, over_applied_number as overAppliedNumber, "
                     + "lp.days_in_month_enum as daysInMonth, lp.days_in_year_enum as daysInYear, lp.interest_recalculation_enabled as isInterestRecalculationEnabled, "
                     + "lp.can_define_fixed_emi_amount as canDefineInstallmentAmount, lp.instalment_amount_in_multiples_of as installmentAmountInMultiplesOf, "
@@ -529,6 +530,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     rs.getObject("firstTrancheAsPercentage") == null ? null : rs.getBoolean("firstTrancheAsPercentage"));
             loanProductData.setFirstTrancheAmount(rs.getBigDecimal("firstTrancheAmount"));
             loanProductData.setMinTrancheCount(rs.getObject("minTrancheCount") == null ? null : rs.getInt("minTrancheCount"));
+            loanProductData.setRequireMilestoneSurvey(rs.getBoolean("requireMilestoneSurvey"));
             return loanProductData;
         }
     }

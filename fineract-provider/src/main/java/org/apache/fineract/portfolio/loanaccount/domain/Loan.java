@@ -3136,6 +3136,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         if (this.loanProduct().isMultiDisburseLoan()) {
             final LoanDisbursementDetails nextDisbursementDetail = getNextUndisbursedDisbursementDetail();
             if (nextDisbursementDetail != null) {
+                if (this.loanSubStatus != null && LoanSubStatus.REQUIRES_REVIEW.getValue().equals(this.loanSubStatus)) {
+                    final String reviewMsg = "This tranche requires review before it can be disbursed.";
+                    throw new LoanDisbursalException(reviewMsg, "tranche.requires.review");
+                }
                 final TrancheReleaseRules.Assessment trancheRelease = TrancheReleaseRules.assess(this);
                 if (trancheRelease != null && !trancheRelease.met()) {
                     final String errorMsg = "This tranche cannot be disbursed yet. Principal repaid since the previous tranche is "

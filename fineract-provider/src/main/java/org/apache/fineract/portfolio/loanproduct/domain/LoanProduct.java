@@ -1501,6 +1501,10 @@ public class LoanProduct extends AbstractPersistableCustom {
         return this.loanProducTrancheDetails.isMultiDisburseLoan();
     }
 
+    public boolean isRequireMilestoneSurvey() {
+        return this.loanProducTrancheDetails != null && this.loanProducTrancheDetails.isRequireMilestoneSurvey();
+    }
+
     public BigDecimal outstandingLoanBalance() {
         return this.loanProducTrancheDetails.outstandingLoanBalance();
     }
