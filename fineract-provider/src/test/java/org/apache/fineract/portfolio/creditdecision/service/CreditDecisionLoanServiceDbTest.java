@@ -427,10 +427,10 @@ class CreditDecisionLoanServiceDbTest {
         assertEquals("AWAITING", jdbc.queryForObject("SELECT status FROM m_credit_decision_log", String.class));
 
         // the person can try again, and a good answer replaces the failure
-        engine.script.add(reply("{\"decision\":\"REVIEW\",\"score\":610}"));
+        engine.script.add(reply("{\"decision\":\"GO\",\"score\":610}"));
         final LoanDecisionData retried = service.send(loanId);
         assertEquals(CreditDecisionLoanData.DECIDED, retried.getRequestStatus());
-        assertEquals("REVIEW", retried.getDecision());
+        assertEquals("GO", retried.getDecision());
         assertNull(retried.getErrorMessage());
         service.assertOutcomeReceived(loanId);
     }
@@ -486,6 +486,41 @@ class CreditDecisionLoanServiceDbTest {
         jdbc.update("UPDATE m_credit_decision_profile SET mode = 'SHADOW'");
         service.assertOutcomeReceived(second);
         assertFalse(service.status(second).isBlocksApproval());
+    }
+
+    @Test
+    void aLiveProfileLetsTheApplicationOnToTheContractAndApprovalOnlyOnGo() {
+        final long loanId = readyApplication();
+        engine.script.add(reply("{\"decision\":\"REVIEW\",\"score\":610,\"reasonCodes\":[\"DUE_DILIGENCE_PENDING\"]}"));
+        assertTrue(service.send(loanId).isBlocksContract());
+
+        // a REVIEW is let through Due Diligence, which is how it gets put right, but not on to the contract or approval
+        service.assertOutcomeReceived(loanId, "moved to Due Diligence");
+        final GeneralPlatformDomainRuleException review = assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> service.assertGo(loanId, "moved to Prepare and sign contract"));
+        assertEquals("error.msg.creditdecision.loan.go.required", review.getGlobalisationMessageCode());
+        assertTrue(review.getDefaultUserMessage().contains("send the request to the decision engine again"));
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.assertOutcomeReceived(loanId));
+
+        // sent again after Due Diligence, and the engine now says GO
+        engine.script.add(reply("{\"decision\":\"GO\",\"score\":720}"));
+        assertFalse(service.send(loanId).isBlocksContract());
+        service.assertGo(loanId, "moved to Prepare and sign contract");
+        service.assertOutcomeReceived(loanId);
+    }
+
+    @Test
+    void aNoGoHoldsTheApplicationAndAShadowProfileNeverDoes() {
+        final long loanId = readyApplication();
+        engine.script.add(reply("{\"decision\":\"NO-GO\",\"score\":280}"));
+        service.send(loanId);
+        final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> service.assertGo(loanId, "approved"));
+        assertTrue(e.getDefaultUserMessage().contains("can only be rejected"));
+
+        jdbc.update("UPDATE m_credit_decision_profile SET mode = 'SHADOW'");
+        service.assertGo(loanId, "approved");
+        assertFalse(service.status(loanId).isBlocksContract());
     }
 
     // ---------------------------------------------------------------- loan stages

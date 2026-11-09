@@ -1818,6 +1818,8 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     @Override
     public CommandProcessingResult acceptPrepareAndSignContract(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
+        this.creditDecisionLoanService.assertOutcomeReceived(loanId, "moved to Prepare and sign contract");
+        this.creditDecisionLoanService.assertGo(loanId, "moved to Prepare and sign contract");
 
         final Collection<DocumentData> documentData = this.documentReadPlatformService.retrieveLoanDocumentsFilterByDocumentType(
                 LoanApiConstants.loanEntityType, loanId, LoanApiConstants.loanDocumentTypeContract);

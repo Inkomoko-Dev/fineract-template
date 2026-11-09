@@ -67,6 +67,7 @@ public class CreditDecisionLoanService {
     private static final int DUE_DILIGENCE = 1200;
     /** With this switched on, an application goes through Review Application, Due Diligence, IC review and so on. */
     private static final String EXTENDED_LIFECYCLE = "Add-More-Stages-To-A-Loan-Life-Cycle";
+    private static final String GO = "GO";
     private static final long RETRY_PAUSE_MILLIS = 300;
     private static final int MAX_NOTE = 500;
     private static final Gson GSON = new GsonBuilder().serializeNulls().create();
@@ -101,7 +102,9 @@ public class CreditDecisionLoanService {
                 .errorMessage(row == null ? null : row.errorMessage).provider(profiles.connection().getProvider())
                 .requestedProfileName(row == null ? null : row.profileName).requestedVersionNo(row == null ? null : row.versionNo)
                 .requestJson(row == null ? null : row.requestJson).replyJson(row == null ? null : row.replyJson).blockers(blockers)
-                .blocksApproval(required && !decided && profile != null && "LIVE".equals(profile.getMode())).build();
+                .blocksApproval(required && !decided && profile != null && "LIVE".equals(profile.getMode()))
+                .blocksContract(required && profile != null && "LIVE".equals(profile.getMode()) && !(decided && GO.equals(row.decision)))
+                .build();
     }
 
     // ------------------------------------------------------------------ flag and verify
@@ -294,6 +297,30 @@ public class CreditDecisionLoanService {
     @Transactional(readOnly = true)
     public void assertOutcomeReceived(final Long loanId) {
         assertOutcomeReceived(loanId, "approved");
+        assertGo(loanId, "approved");
+    }
+
+    /**
+     * Past Due Diligence, a Live profile lets the application move on only when the engine said GO. A REVIEW is asked again once
+     * what caused it has been put right, for example after Due Diligence, and a NO-GO is the engine's last word. Shadow mode never
+     * holds an application back, and neither does an application that does not need a decision.
+     */
+    @Transactional(readOnly = true)
+    public void assertGo(final Long loanId, final String action) {
+        final DecisionRow row = decision(loanId);
+        if (row == null || !row.required || !CreditDecisionLoanData.DECIDED.equals(row.requestStatus) || GO.equals(row.decision)) {
+            return;
+        }
+        final ProductProfileData profile = profiles.profileForProduct(loan(loanId).productId);
+        if (profile == null || !"LIVE".equals(profile.getMode())) {
+            return;
+        }
+        final boolean review = "REVIEW".equals(row.decision);
+        throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.go.required",
+                "The decision engine returned " + row.decision + " for this application, so it cannot be " + action + ". "
+                        + (review ? "Once what caused the review has been put right, send the request to the decision engine again "
+                                + "from the Automated Credit Decision page."
+                                : "The application can only be rejected."));
     }
 
     /** The same hold, worded for the step that is being refused, for example "approved" or "moved to Due Diligence". */

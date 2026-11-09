@@ -120,6 +120,8 @@ public final class CreditDecisionLoanData {
         private final List<String> blockers;
         /** Approval is refused until the engine has replied. */
         private final boolean blocksApproval;
+        /** The application cannot go on to Prepare and sign contract or be approved until the engine says GO. */
+        private final boolean blocksContract;
     }
 
     @Getter
