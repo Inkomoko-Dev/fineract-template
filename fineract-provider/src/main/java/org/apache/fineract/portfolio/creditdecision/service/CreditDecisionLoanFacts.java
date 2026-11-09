@@ -94,7 +94,7 @@ public class CreditDecisionLoanFacts {
                 case "currency":
                     return loan().get("currency_code");
                 case "purpose":
-                    return codeValue(loan().get("loan_purpose_cv_id"));
+                    return codeValue(loan().get("loanpurpose_cv_id"));
                 case "age":
                     return age();
                 case "tenure":
@@ -140,7 +140,7 @@ public class CreditDecisionLoanFacts {
             if (loan == null) {
                 final List<Map<String, Object>> rows = jdbc.queryForList(
                         "SELECT client_id, currency_code, principal_amount_proposed, term_frequency, term_period_frequency_enum, "
-                                + "loan_purpose_cv_id FROM m_loan WHERE id = ?",
+                                + "loanpurpose_cv_id FROM m_loan WHERE id = ?",
                         loanId);
                 loan = rows.isEmpty() ? Map.of() : rows.get(0);
             }

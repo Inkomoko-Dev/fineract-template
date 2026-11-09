@@ -127,7 +127,7 @@ class CreditDecisionLoanServiceDbTest {
                 + "submittedon_date DATE, activation_date DATE, client_classification_cv_id BIGINT)");
         jdbc.execute("CREATE TABLE m_loan (id BIGINT AUTO_INCREMENT PRIMARY KEY, account_no VARCHAR(20), client_id BIGINT, "
                 + "product_id BIGINT, loan_status_id INT, currency_code VARCHAR(3), principal_amount_proposed DECIMAL(19,6), "
-                + "term_frequency INT, term_period_frequency_enum INT, loan_purpose_cv_id BIGINT, writtenoffon_date DATE)");
+                + "term_frequency INT, term_period_frequency_enum INT, loanpurpose_cv_id BIGINT, writtenoffon_date DATE)");
         jdbc.execute("CREATE TABLE m_loan_repayment_schedule (id BIGINT AUTO_INCREMENT PRIMARY KEY, loan_id BIGINT, duedate DATE, "
                 + "obligations_met_on_date DATE, completed_derived TINYINT(1))");
         jdbc.execute("CREATE TABLE m_loan_arrears_aging (loan_id BIGINT PRIMARY KEY, total_overdue_derived DECIMAL(19,6))");
@@ -506,7 +506,7 @@ class CreditDecisionLoanServiceDbTest {
         jdbc.update("UPDATE m_loan SET writtenoffon_date = '2025-02-10' WHERE id = ?", writtenOff);
 
         final long current = loan("L-20", clientId, product, 100, "40000");
-        jdbc.update("UPDATE m_loan SET loan_purpose_cv_id = ? WHERE id = ?", stock, current);
+        jdbc.update("UPDATE m_loan SET loanpurpose_cv_id = ? WHERE id = ?", stock, current);
         bureau(current, "688", 0);
         jdbc.update("INSERT INTO m_loan_decision (loan_id, is_due_diligence_signed, is_reject_due_diligence, "
                 + "due_diligence_recommended_amount, due_diligence_term_frequency, due_diligence_term_period_frequency_type) "
