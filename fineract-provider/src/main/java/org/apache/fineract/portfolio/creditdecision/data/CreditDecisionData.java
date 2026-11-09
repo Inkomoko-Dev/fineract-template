@@ -165,6 +165,60 @@ public final class CreditDecisionData {
         private String createdOn;
     }
 
+    /** How many log rows each outcome has, under every filter except the outcome itself, so the filter tabs can show counts. */
+    @Getter
+    @AllArgsConstructor
+    public static class LogCounts {
+
+        private final long total;
+        private final long go;
+        private final long review;
+        private final long noGo;
+        private final long held;
+        private final long awaiting;
+    }
+
+    /** One page of the log. {@code total} counts every row that matches the filters, not just this page. */
+    @Getter
+    @AllArgsConstructor
+    public static class LogPageData {
+
+        private final List<LogEntryData> content;
+        private final long total;
+        private final int page;
+        private final int pageSize;
+        private final int totalPages;
+        private final LogCounts counts;
+    }
+
+    /** What the log can be narrowed by. Everything is optional; a blank value means no narrowing. */
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    public static class LogFilter {
+
+        /** GO, REVIEW, NO-GO, or NONE for requests the engine has not answered. */
+        private String decision;
+        /** DECIDED, HELD or AWAITING. */
+        private String status;
+        private Long profileId;
+        /** OFF, SHADOW or LIVE. */
+        private String mode;
+        /** Part of the application or customer reference. */
+        private String search;
+        /** Part of the reason codes. */
+        private String reason;
+        /** First day, as yyyy-MM-dd. */
+        private String from;
+        /** Last day, as yyyy-MM-dd. */
+        private String to;
+        /** date_desc (default), date_asc, score_desc or score_asc. */
+        private String sort;
+        /** First page is 1. */
+        private int page = 1;
+        private int pageSize = 25;
+    }
+
     // ---- request bodies ----
 
     @Getter

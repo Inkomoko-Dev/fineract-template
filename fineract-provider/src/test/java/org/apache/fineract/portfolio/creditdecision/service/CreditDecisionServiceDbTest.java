@@ -44,6 +44,9 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.Acti
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ConnectionData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.CreateProfileRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogEntryData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogFilter;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogPageData;
+import org.apache.fineract.portfolio.creditdecision.exception.CreditDecisionLogNotFoundException;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ParamData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ProductData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ProfileData;
@@ -70,6 +73,7 @@ class CreditDecisionServiceDbTest {
     private Connection connection;
     private JdbcTemplate jdbc;
     private CreditDecisionService service;
+    private CreditDecisionLogReader logs;
     private PlatformSecurityContext context;
     private AppUser current;
 
@@ -107,6 +111,7 @@ class CreditDecisionServiceDbTest {
 
         context = mock(PlatformSecurityContext.class);
         service = new CreditDecisionService(jdbc, context);
+        logs = new CreditDecisionLogReader(jdbc);
         actAs("credit.analyst");
     }
 
@@ -323,13 +328,189 @@ class CreditDecisionServiceDbTest {
         service.recordLog(held);
 
         assertThrows(PlatformApiDataValidationException.class, () -> service.recordLog(new LogEntryData()));
-        assertEquals(2, service.log(null, null, 50).size());
-        assertEquals(1, service.log("GO", null, 50).size());
-        assertEquals(1, service.log("NONE", null, 50).size());
-        assertEquals(1, service.log(null, "0232", 50).size());
-        final LogEntryData row = service.log("GO", null, 50).get(0);
+        assertEquals(2, logs.page(new LogFilter()).getTotal());
+        assertEquals(1, logs.page(filter("GO", null)).getTotal());
+        assertEquals(1, logs.page(filter("NONE", null)).getTotal());
+        assertEquals(1, logs.page(filter(null, "0232")).getTotal());
+        final LogEntryData row = logs.page(filter("GO", null)).getContent().get(0);
+        assertNull(row.getRequestJson(), "the list leaves the request and reply out, they are read when an entry is opened");
+        final LogEntryData full = logs.entry(row.getId());
+        assertEquals("{\"applicationId\":10231}", full.getRequestJson());
+        assertEquals("{\"decision\":\"GO\"}", full.getReplyJson());
+        assertThrows(CreditDecisionLogNotFoundException.class, () -> logs.entry(999_999L));
         assertEquals("Engine A", row.getProvider(), "the provider defaults to the one configured when the entry was recorded");
         assertEquals(0, new BigDecimal("82").compareTo(row.getScore()));
         assertEquals("DECIDED", row.getStatus());
+    }
+
+    private static LogFilter filter(final String decision, final String search) {
+        final LogFilter f = new LogFilter();
+        f.setDecision(decision);
+        f.setSearch(search);
+        return f;
+    }
+
+    private void log(final String ref, final String profile, final Long profileId, final String mode, final String status,
+            final String decision, final String score, final String reasons, final String when) {
+        jdbc.update("INSERT INTO m_credit_decision_log (application_ref, customer_ref, profile_id, profile_name, mode, status, decision, "
+                + "score, reason_codes, created_on) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", ref, "C" + ref, profileId, profile, mode,
+                status, decision, score == null ? null : new BigDecimal(score), reasons, java.sql.Timestamp.valueOf(when));
+    }
+
+    @Test
+    void theLogIsPagedAndFilteredOnTheServer() {
+        // 60 rows over three days: every third is held, the rest cycle through the outcomes
+        int go = 0;
+        int review = 0;
+        int noGo = 0;
+        int held = 0;
+        int arrears = 0;
+        for (int i = 1; i <= 60; i++) {
+            final boolean isHeld = i % 3 == 0;
+            final String decision = isHeld ? null : i % 2 == 0 ? "GO" : i % 4 == 1 ? "REVIEW" : "NO-GO";
+            final boolean late = !isHeld && i % 5 == 0;
+            if (isHeld) {
+                held++;
+            } else if ("GO".equals(decision)) {
+                go++;
+            } else if ("REVIEW".equals(decision)) {
+                review++;
+            } else {
+                noGo++;
+            }
+            if (late) {
+                arrears++;
+            }
+            final String day = i <= 20 ? "2026-11-07" : i <= 40 ? "2026-11-08" : "2026-11-09";
+            log(String.format("A%03d", i), i % 2 == 0 ? "Business" : "Agri", i % 2 == 0 ? 1L : 2L, i % 2 == 0 ? "LIVE" : "SHADOW",
+                    isHeld ? "HELD" : "DECIDED", decision, isHeld ? null : String.valueOf(300 + i),
+                    isHeld ? null : late ? "BUREAU_LISTED,CURRENT_ARREARS" : "ALL_CHECKS_PASSED",
+                    day + String.format(" %02d:%02d:00", 8 + i % 10, i % 60));
+        }
+
+        final LogFilter all = new LogFilter();
+        all.setPageSize(25);
+        LogPageData p1 = logs.page(all);
+        assertEquals(60, p1.getTotal());
+        assertEquals(25, p1.getContent().size());
+        assertEquals(3, p1.getTotalPages());
+        assertEquals(1, p1.getPage());
+        assertEquals(60, p1.getCounts().getTotal());
+        assertEquals(held, p1.getCounts().getHeld());
+        assertEquals(go, p1.getCounts().getGo());
+        assertEquals(review, p1.getCounts().getReview());
+        assertEquals(noGo, p1.getCounts().getNoGo());
+
+        all.setPage(3);
+        final LogPageData last = logs.page(all);
+        assertEquals(10, last.getContent().size(), "the last page holds what is left");
+        all.setPage(99);
+        assertEquals(3, logs.page(all).getPage(), "a page past the end is brought back to the last one");
+        all.setPage(1);
+        final java.util.Set<Long> seen = new java.util.HashSet<>();
+        for (int page = 1; page <= 3; page++) {
+            all.setPage(page);
+            logs.page(all).getContent().forEach(r -> assertTrue(seen.add(r.getId()), "no row appears on two pages"));
+        }
+        assertEquals(60, seen.size());
+
+        all.setPage(1);
+        all.setPageSize(1000);
+        assertEquals(CreditDecisionLogReader.MAX_PAGE_SIZE, logs.page(all).getPageSize());
+        all.setPageSize(0);
+        assertEquals(CreditDecisionLogReader.DEFAULT_PAGE_SIZE, logs.page(all).getPageSize());
+
+        // newest first by default, oldest first on request
+        final LogFilter newest = new LogFilter();
+        final LogFilter oldest = new LogFilter();
+        oldest.setSort("date_asc");
+        assertTrue(logs.page(newest).getContent().get(0).getCreatedOn().compareTo(logs.page(oldest).getContent().get(0).getCreatedOn()) > 0);
+
+        // outcome filters, with counts that ignore the outcome so every tab can show its own
+        final LogFilter goOnly = new LogFilter();
+        goOnly.setDecision("go");
+        final LogPageData goPage = logs.page(goOnly);
+        assertEquals(goPage.getCounts().getGo(), goPage.getTotal());
+        assertEquals(60, goPage.getCounts().getTotal());
+        assertEquals(go, goPage.getTotal());
+        final LogFilter heldOnly = new LogFilter();
+        heldOnly.setStatus("held");
+        assertEquals(held, logs.page(heldOnly).getTotal());
+        final LogFilter none = new LogFilter();
+        none.setDecision("NONE");
+        assertEquals(held, logs.page(none).getTotal());
+
+        // profile, mode, reason, search, dates
+        final LogFilter profile = new LogFilter();
+        profile.setProfileId(1L);
+        assertEquals(30, logs.page(profile).getTotal());
+        final LogFilter shadow = new LogFilter();
+        shadow.setMode("shadow");
+        assertEquals(30, logs.page(shadow).getTotal());
+        final LogFilter reason = new LogFilter();
+        reason.setReason("bureau_listed");
+        assertEquals(arrears, logs.page(reason).getTotal());
+        reason.setReason("CURRENT_ARR");
+        assertEquals(arrears, logs.page(reason).getTotal());
+        final LogFilter ref = new LogFilter();
+        ref.setSearch("A05");
+        assertEquals(10, logs.page(ref).getTotal());
+        final LogFilter wildcard = new LogFilter();
+        wildcard.setSearch("%");
+        assertEquals(0, logs.page(wildcard).getTotal(), "a typed percent sign is not a wildcard");
+
+        final LogFilter oneDay = new LogFilter();
+        oneDay.setFrom("2026-11-08");
+        oneDay.setTo("2026-11-08");
+        assertEquals(20, logs.page(oneDay).getTotal());
+        final LogFilter fromOnly = new LogFilter();
+        fromOnly.setFrom("2026-11-08");
+        assertEquals(40, logs.page(fromOnly).getTotal());
+        final LogFilter toOnly = new LogFilter();
+        toOnly.setTo("2026-11-07");
+        assertEquals(20, logs.page(toOnly).getTotal());
+
+        // filters combine, and the counts follow every filter but the outcome
+        final LogFilter combined = new LogFilter();
+        combined.setProfileId(1L);
+        combined.setFrom("2026-11-08");
+        combined.setDecision("REVIEW");
+        final LogPageData c = logs.page(combined);
+        assertEquals(c.getCounts().getReview(), c.getTotal());
+        assertTrue(c.getCounts().getTotal() <= 20);
+        assertEquals(c.getCounts().getTotal(), c.getCounts().getGo() + c.getCounts().getReview() + c.getCounts().getNoGo()
+                + c.getCounts().getHeld(), "outcomes add up to the total");
+    }
+
+    @Test
+    void aBadLogFilterIsRefusedAndNotRunAsSql() {
+        for (final String[] bad : new String[][] { { "decision", "maybe" }, { "status", "x" }, { "mode", "x" }, { "from", "08/11/2026" },
+                { "to", "tomorrow" }, { "sort", "id; DROP TABLE m_loan" } }) {
+            final LogFilter f = new LogFilter();
+            switch (bad[0]) {
+                case "decision":
+                    f.setDecision(bad[1]);
+                break;
+                case "status":
+                    f.setStatus(bad[1]);
+                break;
+                case "mode":
+                    f.setMode(bad[1]);
+                break;
+                case "from":
+                    f.setFrom(bad[1]);
+                break;
+                case "to":
+                    f.setTo(bad[1]);
+                break;
+                default:
+                    f.setSort(bad[1]);
+            }
+            assertThrows(PlatformApiDataValidationException.class, () -> logs.page(f), bad[0]);
+        }
+        final LogFilter backwards = new LogFilter();
+        backwards.setFrom("2026-11-09");
+        backwards.setTo("2026-11-01");
+        assertThrows(PlatformApiDataValidationException.class, () -> logs.page(backwards));
     }
 }

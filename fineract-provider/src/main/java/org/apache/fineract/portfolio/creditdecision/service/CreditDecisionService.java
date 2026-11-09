@@ -68,7 +68,6 @@ public class CreditDecisionService {
     public static final Set<String> MODES = Set.of("OFF", "SHADOW", "LIVE");
     private static final Set<String> NO_REPLY_POLICIES = Set.of("RETRY", "ALERT");
     private static final String SELF_APPROVAL_CONFIG = "credit-decision-allow-self-approval";
-    private static final int MAX_LOG_ROWS = 500;
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformSecurityContext context;
@@ -144,34 +143,6 @@ public class CreditDecisionService {
                 (rs, i) -> new ConnectionData(rs.getString("provider"), rs.getBoolean("enabled"), rs.getString("endpoint_url"),
                         rs.getInt("timeout_seconds"), rs.getInt("retries"), rs.getString("on_no_reply"), rs.getString("updated_by"),
                         iso(rs.getTimestamp("updated_on"))));
-    }
-
-    @Transactional(readOnly = true)
-    public List<LogEntryData> log(final String decision, final String search, final int limit) {
-        final StringBuilder sql = new StringBuilder("SELECT * FROM m_credit_decision_log WHERE 1 = 1");
-        final List<Object> args = new ArrayList<>();
-        if (decision != null && !decision.isBlank()) {
-            if ("NONE".equalsIgnoreCase(decision)) {
-                sql.append(" AND decision IS NULL");
-            } else {
-                sql.append(" AND decision = ?");
-                args.add(decision.trim().toUpperCase(Locale.ROOT));
-            }
-        }
-        if (search != null && !search.isBlank()) {
-            sql.append(" AND (application_ref LIKE ? OR customer_ref LIKE ?)");
-            args.add("%" + search.trim() + "%");
-            args.add("%" + search.trim() + "%");
-        }
-        sql.append(" ORDER BY created_on DESC, id DESC LIMIT ").append(Math.max(1, Math.min(limit, MAX_LOG_ROWS)));
-        return jdbcTemplate.query(sql.toString(),
-                (rs, i) -> new LogEntryData(rs.getLong("id"), rs.getString("application_ref"), (Long) rs.getObject("loan_id"),
-                        rs.getString("customer_ref"), (Long) rs.getObject("profile_id"), rs.getString("profile_name"),
-                        (Integer) rs.getObject("version_no"), rs.getString("mode"), rs.getString("provider"), rs.getString("status"),
-                        rs.getString("decision"), rs.getBigDecimal("score"), rs.getString("reason_codes"),
-                        (Integer) rs.getObject("reply_ms"), rs.getString("next_step"), rs.getString("request_json"),
-                        rs.getString("reply_json"), iso(rs.getTimestamp("created_on"))),
-                args.toArray());
     }
 
     // ------------------------------------------------------------------ profile and version changes

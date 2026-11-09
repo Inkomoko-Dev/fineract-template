@@ -42,12 +42,14 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.Comm
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ConnectionData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.CreateProfileRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogEntryData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogFilter;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ModeRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.NewDraftRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.SaveDraftRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.FlagRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.VerifyRequest;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLogReader;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionService;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -68,6 +70,7 @@ public class CreditDecisionApiResource {
 
     private final PlatformSecurityContext context;
     private final CreditDecisionService service;
+    private final CreditDecisionLogReader logReader;
     private final CreditDecisionLoanService loanService;
     private final DefaultToApiJsonSerializer<Object> toApiJsonSerializer;
     private final FromJsonHelper fromJsonHelper;
@@ -258,11 +261,36 @@ public class CreditDecisionApiResource {
     @GET
     @Path("log")
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Requests sent to the decision engine and the replies it gave")
-    public String log(@QueryParam("decision") final String decision, @QueryParam("search") final String search,
-            @QueryParam("limit") @DefaultValue("200") final int limit) {
+    @Operation(summary = "Requests sent to the decision engine and the replies it gave, one page at a time")
+    public String log(@QueryParam("decision") final String decision, @QueryParam("status") final String status,
+            @QueryParam("profileId") final Long profileId, @QueryParam("mode") final String mode,
+            @QueryParam("search") final String search, @QueryParam("reason") final String reason, @QueryParam("from") final String from,
+            @QueryParam("to") final String to, @QueryParam("sort") final String sort,
+            @QueryParam("page") @DefaultValue("1") final int page,
+            @QueryParam("pageSize") @DefaultValue("25") final int pageSize) {
         read();
-        return toApiJsonSerializer.serialize(service.log(decision, search, limit));
+        final LogFilter filter = new LogFilter();
+        filter.setDecision(decision);
+        filter.setStatus(status);
+        filter.setProfileId(profileId);
+        filter.setMode(mode);
+        filter.setSearch(search);
+        filter.setReason(reason);
+        filter.setFrom(from);
+        filter.setTo(to);
+        filter.setSort(sort);
+        filter.setPage(page);
+        filter.setPageSize(pageSize);
+        return toApiJsonSerializer.serialize(logReader.page(filter));
+    }
+
+    @GET
+    @Path("log/{logId}")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "One log entry in full, with the request and the reply")
+    public String logEntry(@PathParam("logId") final Long logId) {
+        read();
+        return toApiJsonSerializer.serialize(logReader.entry(logId));
     }
 
     @POST
