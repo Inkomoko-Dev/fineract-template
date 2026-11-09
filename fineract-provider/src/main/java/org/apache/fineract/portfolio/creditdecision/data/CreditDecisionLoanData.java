@@ -45,6 +45,15 @@ public final class CreditDecisionLoanData {
     public static final String BLOCKER_NOT_REQUIRED = "NOT_REQUIRED";
     public static final String BLOCKER_LOAN_NOT_PENDING = "LOAN_NOT_PENDING";
     public static final String BLOCKER_NOT_IN_REVIEW = "NOT_IN_REVIEW";
+    public static final String BLOCKER_OUTCOME_FINAL = "OUTCOME_FINAL";
+
+    public static final String EVENT_FLAGGED = "FLAGGED";
+    public static final String EVENT_UNFLAGGED = "UNFLAGGED";
+    public static final String EVENT_VERIFIED = "VERIFIED";
+    public static final String EVENT_REOPENED = "REOPENED";
+    public static final String EVENT_DECIDED = "DECIDED";
+    public static final String EVENT_FAILED = "FAILED";
+    public static final String EVENT_HELD = "HELD";
     public static final String BLOCKER_PENDING_VERIFICATION = "PENDING_VERIFICATION";
     public static final String BLOCKER_PROFILE_OFF = "PROFILE_OFF";
     public static final String BLOCKER_NO_ACTIVE_VERSION = "NO_ACTIVE_VERSION";
@@ -84,6 +93,8 @@ public final class CreditDecisionLoanData {
          * the decision can only be looked at.
          */
         private final boolean reviewStageOpen;
+        /** A request can be sent, or sent again, in this stage: from the review until Due Diligence has been accepted. */
+        private final boolean sendStageOpen;
         /** PENDING_VERIFICATION or VERIFIED */
         private final String verificationStatus;
         private final String verifiedBy;
@@ -125,5 +136,22 @@ public final class CreditDecisionLoanData {
     public static class VerifyRequest {
 
         private String note;
+    }
+
+    /** One thing done to the decision of an application. */
+    @Getter
+    @Builder
+    public static class EventData {
+
+        private final Long id;
+        /** FLAGGED, UNFLAGGED, VERIFIED, REOPENED, DECIDED, FAILED or HELD */
+        private final String eventType;
+        private final String actor;
+        private final String occurredOn;
+        private final String detail;
+        private final String decision;
+        private final BigDecimal score;
+        /** The decision log row holding the request and the reply, for a request that was sent. */
+        private final Long logId;
     }
 }

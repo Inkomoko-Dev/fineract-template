@@ -454,10 +454,10 @@ class CreditDecisionLoanServiceDbTest {
         final long loanId = readyApplication();
         jdbc.update("UPDATE m_credit_decision_connection SET retries = 2 WHERE id = 1");
         engine.script.add(new CreditDecisionEngineTransport.Response(503, "busy"));
-        engine.script.add(reply("{\"decision\":\"NO-GO\",\"score\":402}"));
+        engine.script.add(reply("{\"decision\":\"REVIEW\",\"score\":402}"));
         final LoanDecisionData decided = service.send(loanId);
         assertEquals(2, engine.bodies.size());
-        assertEquals("NO-GO", decided.getDecision());
+        assertEquals("REVIEW", decided.getDecision());
 
         engine.bodies.clear();
         engine.script.add(new CreditDecisionEngineTransport.Response(401, "bad key"));
@@ -590,6 +590,78 @@ class CreditDecisionLoanServiceDbTest {
         assertTrue(service.status(loanId).isCanChangeFlag());
         service.setRequired(loanId, false);
         assertFalse(service.isRequired(loanId));
+    }
+
+    @Test
+    void aReviewOutcomeCanBeAskedAgainEvenAfterDueDiligenceButAFinalOneCannot() {
+        profile("LIVE", "amount");
+        connectEngine();
+        extendedLifecycle(true);
+        final long loanId = applicant("A-1");
+        service.setRequired(loanId, true);
+        stage(loanId, 1000);
+        service.verify(loanId, null);
+        engine.script.add(reply("{\"decision\":\"REVIEW\",\"score\":640,\"reasonCodes\":[\"DUE_DILIGENCE_PENDING\"]}"));
+        assertEquals("REVIEW", service.send(loanId).getDecision());
+
+        // due diligence is accepted, which is what the engine was waiting for: the request can go again
+        stage(loanId, 1200);
+        final LoanDecisionData waiting = service.status(loanId);
+        assertTrue(waiting.isSendStageOpen());
+        assertFalse(waiting.isReviewStageOpen());
+        assertTrue(waiting.getBlockers().isEmpty(), waiting.getBlockers().toString());
+        engine.script.add(reply("{\"decision\":\"GO\",\"score\":720}"));
+        assertEquals("GO", service.send(loanId).getDecision());
+
+        // GO is final
+        final LoanDecisionData done = service.status(loanId);
+        assertEquals(List.of(CreditDecisionLoanData.BLOCKER_OUTCOME_FINAL), done.getBlockers());
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.send(loanId));
+
+        // and nothing is sent once the application is past due diligence
+        stage(loanId, 1900);
+        assertFalse(service.status(loanId).isSendStageOpen());
+    }
+
+    @Test
+    void whatWasDoneToTheDecisionIsKeptWithWhoAndWhen() {
+        profile("LIVE", "amount");
+        connectEngine();
+        final long loanId = applicant("A-1");
+        actAs("loan.officer");
+        service.setRequired(loanId, true);
+        actAs("credit.analyst");
+        service.verify(loanId, "Checked with the customer");
+        engine.script.add(reply("{\"decision\":\"REVIEW\",\"score\":640,\"reasonCodes\":[\"R1\",\"R2\"]}"));
+        service.send(loanId);
+        service.unverify(loanId);
+        service.setRequired(loanId, false);
+
+        final List<CreditDecisionLoanData.EventData> history = service.history(loanId);
+        assertEquals(List.of("UNFLAGGED", "REOPENED", "DECIDED", "VERIFIED", "FLAGGED"),
+                history.stream().map(CreditDecisionLoanData.EventData::getEventType).collect(java.util.stream.Collectors.toList()));
+        assertEquals("loan.officer", history.get(4).getActor());
+        assertEquals("credit.analyst", history.get(3).getActor());
+        assertEquals("Checked with the customer", history.get(3).getDetail());
+
+        final CreditDecisionLoanData.EventData decided = history.get(2);
+        assertEquals("REVIEW", decided.getDecision());
+        assertEquals(0, new BigDecimal("640").compareTo(decided.getScore()));
+        assertEquals("R1, R2", decided.getDetail());
+        // the request and the reply of that send are in the decision log
+        assertNotNull(decided.getLogId());
+        assertEquals("REVIEW", jdbc.queryForObject("SELECT decision FROM m_credit_decision_log WHERE id = ?", String.class, decided.getLogId()));
+        assertTrue(history.get(1).getDetail().contains("REVIEW"));
+        assertNotNull(decided.getOccurredOn());
+    }
+
+    @Test
+    void aFailedAndAHeldRequestAreKeptInTheHistoryToo() {
+        final long loanId = readyApplication();
+        engine.script.add(new java.io.IOException("connection refused"));
+        service.send(loanId);
+        assertEquals("FAILED", service.history(loanId).get(0).getEventType());
+        assertTrue(service.history(loanId).get(0).getDetail().contains("connection refused"));
     }
 
     @Test

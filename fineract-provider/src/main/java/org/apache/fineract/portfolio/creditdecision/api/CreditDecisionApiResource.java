@@ -207,6 +207,15 @@ public class CreditDecisionApiResource {
         return toApiJsonSerializer.serialize(loanService.status(loanId));
     }
 
+    @GET
+    @Path("loans/{loanId}/history")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "What was done to a loan application's automated credit decision, by whom and when, newest first")
+    public String loanHistory(@PathParam("loanId") final Long loanId) {
+        context.authenticatedUser().validateHasReadPermission(LOAN_RESOURCE);
+        return toApiJsonSerializer.serialize(loanService.history(loanId));
+    }
+
     @PUT
     @Path("loans/{loanId}/flag")
     @Consumes({ MediaType.APPLICATION_JSON })

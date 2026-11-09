@@ -40,6 +40,7 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.Conn
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogEntryData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ParamData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.EventData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.LoanDecisionData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.ProductProfileData;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
@@ -62,6 +63,8 @@ public class CreditDecisionLoanService {
     private static final int SUBMITTED_AND_PENDING_APPROVAL = 100;
     /** m_loan.loan_decision_state while the application is in the Review Application stage. */
     private static final int REVIEW_APPLICATION = 1000;
+    /** m_loan.loan_decision_state once Due Diligence has been accepted. */
+    private static final int DUE_DILIGENCE = 1200;
     /** With this switched on, an application goes through Review Application, Due Diligence, IC review and so on. */
     private static final String EXTENDED_LIFECYCLE = "Add-More-Stages-To-A-Loan-Life-Cycle";
     private static final long RETRY_PAUSE_MILLIS = 300;
@@ -87,7 +90,7 @@ public class CreditDecisionLoanService {
         return LoanDecisionData.builder().loanId(loanId).productId(loan.productId).productName(loan.productName).eligible(profile != null)
                 .profileName(profile == null ? null : profile.getProfileName()).profileMode(profile == null ? null : profile.getMode())
                 .activeVersionNo(profile == null ? null : profile.getActiveVersionNo()).required(required)
-                .canChangeFlag(profile != null && flagStageOpen(loan) && !decided).reviewStageOpen(reviewStageOpen(loan))
+                .canChangeFlag(profile != null && flagStageOpen(loan) && !decided).reviewStageOpen(reviewStageOpen(loan)).sendStageOpen(sendStageOpen(loan))
                 .verificationStatus(row == null ? CreditDecisionLoanData.PENDING_VERIFICATION : row.verificationStatus)
                 .verifiedBy(row == null ? null : row.verifiedBy).verifiedOn(row == null ? null : row.verifiedOn)
                 .verificationNote(row == null ? null : row.verificationNote)
@@ -129,6 +132,9 @@ public class CreditDecisionLoanService {
             jdbc.update("UPDATE m_loan_credit_decision SET required = ?, flagged_by = ?, flagged_on = ? WHERE loan_id = ?", required,
                     username(), now, loanId);
         }
+        if (row == null ? required : row.required != required) {
+            event(loanId, required ? CreditDecisionLoanData.EVENT_FLAGGED : CreditDecisionLoanData.EVENT_UNFLAGGED, null, null, null, null);
+        }
         return status(loanId);
     }
 
@@ -141,6 +147,7 @@ public class CreditDecisionLoanService {
         jdbc.update("UPDATE m_loan_credit_decision SET verification_status = ?, verified_by = ?, verified_on = ?, verification_note = ? "
                 + "WHERE loan_id = ?", CreditDecisionLoanData.VERIFIED, username(), Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem()),
                 note == null || note.isBlank() ? null : truncate(note.trim(), MAX_NOTE), loanId);
+        event(loanId, CreditDecisionLoanData.EVENT_VERIFIED, note == null || note.isBlank() ? null : note.trim(), null, null, null);
         return status(loanId);
     }
 
@@ -153,10 +160,14 @@ public class CreditDecisionLoanService {
         final LoanRow loan = loan(loanId);
         requireReviewStage(loan);
         requireFlagged(loanId);
+        final DecisionRow before = decision(loanId);
         jdbc.update("UPDATE m_loan_credit_decision SET verification_status = ?, verified_by = NULL, verified_on = NULL, "
                 + "verification_note = NULL, request_status = ?, decision = NULL, score = NULL, reason_codes = NULL, reply_ms = NULL, "
                 + "error_message = NULL, request_json = NULL, reply_json = NULL WHERE loan_id = ?",
                 CreditDecisionLoanData.PENDING_VERIFICATION, CreditDecisionLoanData.NOT_SENT, loanId);
+        final boolean cleared = before != null && CreditDecisionLoanData.DECIDED.equals(before.requestStatus);
+        event(loanId, CreditDecisionLoanData.EVENT_REOPENED, cleared ? "Cleared the earlier outcome: " + before.decision : null, null, null,
+                null);
         return status(loanId);
     }
 
@@ -192,8 +203,9 @@ public class CreditDecisionLoanService {
 
         if (!built.getHeld().isEmpty()) {
             final String missing = built.getHeld().stream().map(CreditDecisionLoanService::label).collect(Collectors.joining(", "));
-            profiles.recordLog(entry(loan, profile, "HELD", null, null, null, null, "Complete the missing details: " + missing,
-                    requestJson, null));
+            final Long heldLog = profiles.recordLog(entry(loan, profile, "HELD", null, null, null, null,
+                    "Complete the missing details: " + missing, requestJson, null));
+            event(loanId, CreditDecisionLoanData.EVENT_HELD, truncate("Not sent, missing: " + missing, MAX_NOTE), null, null, heldLog);
             throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.send.data.missing",
                     "The request was not sent because the profile needs these details and the application has none: " + missing
                             + ". Complete them on the application, then send again.");
@@ -235,18 +247,42 @@ public class CreditDecisionLoanService {
                     + "request_json = ?, reply_json = ? WHERE loan_id = ?", CreditDecisionLoanData.DECIDED, profile.getProfileId(),
                     profile.getProfileName(), profile.getVersionNo(), username(), now, reply.getDecision(), reply.getScore(),
                     reply.getReasonCodes(), replyMs, requestJson, replyJson, loanId);
-            profiles.recordLog(entry(loan, profile, "DECIDED", reply.getDecision(), reply.getScore(), reply.getReasonCodes(),
-                    replyMs, "Awaiting your decision on the outcome", requestJson, replyJson));
+            final Long logId = profiles.recordLog(entry(loan, profile, "DECIDED", reply.getDecision(), reply.getScore(),
+                    reply.getReasonCodes(), replyMs, "Awaiting your decision on the outcome", requestJson, replyJson));
+            event(loanId, CreditDecisionLoanData.EVENT_DECIDED, reply.getReasonCodes() == null ? null : truncate(reply.getReasonCodes(), MAX_NOTE),
+                    reply.getDecision(), reply.getScore(), logId);
         } else {
             jdbc.update("UPDATE m_loan_credit_decision SET request_status = ?, profile_id = ?, profile_name = ?, version_no = ?, "
                     + "requested_by = ?, requested_on = ?, decision = NULL, score = NULL, reason_codes = NULL, reply_ms = ?, "
                     + "error_message = ?, request_json = ?, reply_json = ? WHERE loan_id = ?", CreditDecisionLoanData.FAILED,
                     profile.getProfileId(), profile.getProfileName(), profile.getVersionNo(), username(), now, replyMs,
                     truncate(failure, MAX_NOTE), requestJson, replyJson, loanId);
-            profiles.recordLog(entry(loan, profile, "AWAITING", null, null, null, replyMs, "Send the request again",
-                    requestJson, replyJson));
+            final Long logId = profiles.recordLog(entry(loan, profile, "AWAITING", null, null, null, replyMs,
+                    "Send the request again", requestJson, replyJson));
+            event(loanId, CreditDecisionLoanData.EVENT_FAILED, truncate(failure, MAX_NOTE), null, null, logId);
         }
         return status(loanId);
+    }
+
+    // ------------------------------------------------------------------ history
+
+    /** What was done to this application's decision, newest first. */
+    @Transactional(readOnly = true)
+    public List<EventData> history(final Long loanId) {
+        loan(loanId); // not found for an unknown loan
+        return jdbc.query("SELECT id, event_type, actor, occurred_on, detail, decision, score, log_id FROM m_loan_credit_decision_event "
+                + "WHERE loan_id = ? ORDER BY occurred_on DESC, id DESC",
+                (rs, i) -> EventData.builder().id(rs.getLong("id")).eventType(rs.getString("event_type")).actor(rs.getString("actor"))
+                        .occurredOn(iso(rs.getTimestamp("occurred_on"))).detail(rs.getString("detail")).decision(rs.getString("decision"))
+                        .score(rs.getBigDecimal("score")).logId((Long) rs.getObject("log_id")).build(),
+                loanId);
+    }
+
+    private void event(final Long loanId, final String type, final String detail, final String decision, final BigDecimal score,
+            final Long logId) {
+        jdbc.update("INSERT INTO m_loan_credit_decision_event (loan_id, event_type, actor, occurred_on, detail, decision, score, log_id) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", loanId, type, username(), Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem()),
+                detail, decision, score, logId);
     }
 
     // ------------------------------------------------------------------ approval
@@ -321,8 +357,12 @@ public class CreditDecisionLoanService {
         final List<String> out = new ArrayList<>();
         if (loan.statusId != SUBMITTED_AND_PENDING_APPROVAL) {
             out.add(CreditDecisionLoanData.BLOCKER_LOAN_NOT_PENDING);
-        } else if (!reviewStageOpen(loan)) {
+        } else if (!sendStageOpen(loan)) {
             out.add(CreditDecisionLoanData.BLOCKER_NOT_IN_REVIEW);
+        }
+        // a REVIEW outcome can be asked for again once what caused it is put right, a GO or NO-GO is the engine's final word
+        if (CreditDecisionLoanData.DECIDED.equals(row.requestStatus) && !"REVIEW".equals(row.decision)) {
+            out.add(CreditDecisionLoanData.BLOCKER_OUTCOME_FINAL);
         }
         if (!CreditDecisionLoanData.VERIFIED.equals(row.verificationStatus)) {
             out.add(CreditDecisionLoanData.BLOCKER_PENDING_VERIFICATION);
@@ -346,7 +386,9 @@ public class CreditDecisionLoanService {
             case CreditDecisionLoanData.BLOCKER_LOAN_NOT_PENDING:
                 return "The request can only be sent while the application is waiting for approval.";
             case CreditDecisionLoanData.BLOCKER_NOT_IN_REVIEW:
-                return "The request can only be sent while the application is in the Review Application stage.";
+                return "The request can only be sent from the Review Application stage until Due Diligence is accepted.";
+            case CreditDecisionLoanData.BLOCKER_OUTCOME_FINAL:
+                return "The decision engine has given a final outcome for this application. Only a REVIEW outcome can be sent again.";
             case CreditDecisionLoanData.BLOCKER_PENDING_VERIFICATION:
                 return "Verify the application details before sending the request.";
             case CreditDecisionLoanData.BLOCKER_PROFILE_OFF:
@@ -434,6 +476,13 @@ public class CreditDecisionLoanService {
     private boolean flagStageOpen(final LoanRow loan) {
         return loan.statusId == SUBMITTED_AND_PENDING_APPROVAL
                 && (!extendedLifecycle() || loan.decisionState == null || loan.decisionState == REVIEW_APPLICATION);
+    }
+
+    /** A request is sent from the review until Due Diligence is accepted, because it asks the engine about what is known by then. */
+    private boolean sendStageOpen(final LoanRow loan) {
+        return loan.statusId == SUBMITTED_AND_PENDING_APPROVAL
+                && (!extendedLifecycle() || Integer.valueOf(REVIEW_APPLICATION).equals(loan.decisionState)
+                        || Integer.valueOf(DUE_DILIGENCE).equals(loan.decisionState));
     }
 
     private boolean reviewStageOpen(final LoanRow loan) {

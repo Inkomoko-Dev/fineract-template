@@ -74,6 +74,44 @@
                                  onDelete="CASCADE"/>
     </changeSet>
 
+    <!-- What was done to the decision of an application, by whom and when: flagged, verified, re-opened, and every request
+         with its outcome. The row above only holds the latest state, this keeps the history. -->
+
+    <changeSet id="CGLT-846-create-loan-credit-decision-event" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_credit_decision_event"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_credit_decision_event">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_type" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="actor" type="VARCHAR(100)"/>
+            <column name="occurred_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+            <column name="detail" type="VARCHAR(500)"/>
+            <column name="decision" type="VARCHAR(10)"/>
+            <column name="score" type="DECIMAL(10,2)"/>
+            <column name="log_id" type="BIGINT"/>
+        </createTable>
+        <createIndex tableName="m_loan_credit_decision_event" indexName="idx_loan_credit_decision_event_loan">
+            <column name="loan_id"/>
+            <column name="occurred_on"/>
+        </createIndex>
+        <addForeignKeyConstraint baseTableName="m_loan_credit_decision_event" baseColumnNames="loan_id"
+                                 constraintName="fk_loan_credit_decision_event_loan"
+                                 referencedTableName="m_loan" referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+    </changeSet>
+
     <changeSet id="CGLT-846-loan-credit-decision-permissions" author="omoi">
         <sql>
             INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
