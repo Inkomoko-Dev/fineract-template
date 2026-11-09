@@ -2,7 +2,6 @@ package org.apache.fineract.portfolio.loanaccount.service;
 
 import com.google.gson.Gson;
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,6 +11,7 @@ import javax.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.domain.EmailDetail;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.PlatformEmailService;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
@@ -63,7 +63,8 @@ public class TrancheReleaseNotificationService {
         if (this.noticeRepository.existsByLoanIdAndDisbursementDetailId(loan.getId(), assessment.previous.getId())) {
             return;
         }
-        this.noticeRepository.save(new TrancheReleaseNotice(loan.getId(), assessment.previous.getId(), OffsetDateTime.now()));
+        this.noticeRepository.save(new TrancheReleaseNotice(loan.getId(), assessment.previous.getId(),
+                DateUtils.getOffsetDateTimeOfTenant()));
         this.businessEventNotifierService.notifyPostBusinessEvent(new TrancheRepaymentThresholdMetBusinessEvent(loan));
         sendEmail(loan, assessment);
     }
