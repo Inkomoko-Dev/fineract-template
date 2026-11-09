@@ -60,6 +60,10 @@ public class CreditDecisionLoanService {
     static final String API_KEY_ENV = "CREDIT_DECISION_ENGINE_API_KEY";
     /** m_loan.loan_status_id of an application that was submitted and is waiting for approval. */
     private static final int SUBMITTED_AND_PENDING_APPROVAL = 100;
+    /** m_loan.loan_decision_state while the application is in the Review Application stage. */
+    private static final int REVIEW_APPLICATION = 1000;
+    /** With this switched on, an application goes through Review Application, Due Diligence, IC review and so on. */
+    private static final String EXTENDED_LIFECYCLE = "Add-More-Stages-To-A-Loan-Life-Cycle";
     private static final long RETRY_PAUSE_MILLIS = 300;
     private static final int MAX_NOTE = 500;
     private static final Gson GSON = new GsonBuilder().serializeNulls().create();
@@ -83,7 +87,7 @@ public class CreditDecisionLoanService {
         return LoanDecisionData.builder().loanId(loanId).productId(loan.productId).productName(loan.productName).eligible(profile != null)
                 .profileName(profile == null ? null : profile.getProfileName()).profileMode(profile == null ? null : profile.getMode())
                 .activeVersionNo(profile == null ? null : profile.getActiveVersionNo()).required(required)
-                .canChangeFlag(profile != null && loan.statusId == SUBMITTED_AND_PENDING_APPROVAL)
+                .canChangeFlag(profile != null && flagStageOpen(loan)).reviewStageOpen(reviewStageOpen(loan))
                 .verificationStatus(row == null ? CreditDecisionLoanData.PENDING_VERIFICATION : row.verificationStatus)
                 .verifiedBy(row == null ? null : row.verifiedBy).verifiedOn(row == null ? null : row.verifiedOn)
                 .verificationNote(row == null ? null : row.verificationNote)
@@ -101,7 +105,7 @@ public class CreditDecisionLoanService {
     @Transactional
     public LoanDecisionData setRequired(final Long loanId, final boolean required) {
         final LoanRow loan = loan(loanId);
-        requirePendingApproval(loan);
+        requireFlagStageOpen(loan);
         if (required && profiles.profileForProduct(loan.productId) == null) {
             throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.product.not.in.profile",
                     "'" + loan.productName + "' is not part of a credit decision profile, so its applications cannot ask for a decision.");
@@ -125,7 +129,7 @@ public class CreditDecisionLoanService {
     @Transactional
     public LoanDecisionData verify(final Long loanId, final String note) {
         final LoanRow loan = loan(loanId);
-        requirePendingApproval(loan);
+        requireReviewStage(loan);
         requireFlagged(loanId);
         jdbc.update("UPDATE m_loan_credit_decision SET verification_status = ?, verified_by = ?, verified_on = ?, verification_note = ? "
                 + "WHERE loan_id = ?", CreditDecisionLoanData.VERIFIED, username(), Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem()),
@@ -140,7 +144,7 @@ public class CreditDecisionLoanService {
     @Transactional
     public LoanDecisionData unverify(final Long loanId) {
         final LoanRow loan = loan(loanId);
-        requirePendingApproval(loan);
+        requireReviewStage(loan);
         requireFlagged(loanId);
         jdbc.update("UPDATE m_loan_credit_decision SET verification_status = ?, verified_by = NULL, verified_on = NULL, "
                 + "verification_note = NULL, request_status = ?, decision = NULL, score = NULL, reason_codes = NULL, reply_ms = NULL, "
@@ -246,6 +250,12 @@ public class CreditDecisionLoanService {
      */
     @Transactional(readOnly = true)
     public void assertOutcomeReceived(final Long loanId) {
+        assertOutcomeReceived(loanId, "approved");
+    }
+
+    /** The same hold, worded for the step that is being refused, for example "approved" or "moved to Due Diligence". */
+    @Transactional(readOnly = true)
+    public void assertOutcomeReceived(final Long loanId, final String action) {
         final List<Boolean> required = jdbc.queryForList(
                 "SELECT required FROM m_loan_credit_decision WHERE loan_id = ? AND request_status <> ?", Boolean.class, loanId,
                 CreditDecisionLoanData.DECIDED);
@@ -256,9 +266,45 @@ public class CreditDecisionLoanService {
         if (status.isBlocksApproval()) {
             final boolean verified = CreditDecisionLoanData.VERIFIED.equals(status.getVerificationStatus());
             throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.outcome.required",
-                    "This application needs an automated credit decision before it can be approved. "
+                    "This application needs an automated credit decision before it can be " + action + ". "
                             + (verified ? "Send the request to the decision engine and wait for its reply."
                                     : "Verify the application details, then send the request to the decision engine."));
+        }
+    }
+
+    // ------------------------------------------------------------------ rules the loan stages rely on
+
+    /** Whether this application was set to need an automated credit decision. */
+    @Transactional(readOnly = true)
+    public boolean isRequired(final Long loanId) {
+        final DecisionRow row = decision(loanId);
+        return row != null && row.required;
+    }
+
+    /**
+     * The automated credit decision stands in for IC review, so an application that needs one is never put through IC
+     * review.
+     */
+    @Transactional(readOnly = true)
+    public void assertIcReviewAllowed(final Long loanId) {
+        if (isRequired(loanId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.ic.review.not.allowed",
+                    "IC review cannot be done for this application because it needs an automated credit decision. "
+                            + "The decision engine takes the place of IC review.");
+        }
+    }
+
+    /**
+     * Once the engine has given its outcome, the application review cannot be returned: that would throw away the
+     * review the outcome was given for. Re-open the verification first, which clears the outcome.
+     */
+    @Transactional(readOnly = true)
+    public void assertReviewCanBeReturned(final Long loanId) {
+        final DecisionRow row = decision(loanId);
+        if (row != null && row.required && CreditDecisionLoanData.DECIDED.equals(row.requestStatus)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.review.cannot.be.returned",
+                    "The decision engine has already given its outcome for this application, so the application review cannot be "
+                            + "returned. Re-open the verification first, which clears the outcome.");
         }
     }
 
@@ -268,6 +314,8 @@ public class CreditDecisionLoanService {
         final List<String> out = new ArrayList<>();
         if (loan.statusId != SUBMITTED_AND_PENDING_APPROVAL) {
             out.add(CreditDecisionLoanData.BLOCKER_LOAN_NOT_PENDING);
+        } else if (!reviewStageOpen(loan)) {
+            out.add(CreditDecisionLoanData.BLOCKER_NOT_IN_REVIEW);
         }
         if (!CreditDecisionLoanData.VERIFIED.equals(row.verificationStatus)) {
             out.add(CreditDecisionLoanData.BLOCKER_PENDING_VERIFICATION);
@@ -290,6 +338,8 @@ public class CreditDecisionLoanService {
                 return "This application is not flagged for an automated credit decision.";
             case CreditDecisionLoanData.BLOCKER_LOAN_NOT_PENDING:
                 return "The request can only be sent while the application is waiting for approval.";
+            case CreditDecisionLoanData.BLOCKER_NOT_IN_REVIEW:
+                return "The request can only be sent while the application is in the Review Application stage.";
             case CreditDecisionLoanData.BLOCKER_PENDING_VERIFICATION:
                 return "Verify the application details before sending the request.";
             case CreditDecisionLoanData.BLOCKER_PROFILE_OFF:
@@ -349,6 +399,41 @@ public class CreditDecisionLoanService {
         }
     }
 
+    /** The flag can be set from the day the application is made until Review Application is done. */
+    private void requireFlagStageOpen(final LoanRow loan) {
+        requirePendingApproval(loan);
+        if (!flagStageOpen(loan)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.review.stage.over",
+                    "This can no longer be changed because the application is past the Review Application stage.");
+        }
+    }
+
+    /** Verifying, re-opening and sending belong to the Review Application stage. */
+    private void requireReviewStage(final LoanRow loan) {
+        requirePendingApproval(loan);
+        if (!reviewStageOpen(loan)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.not.in.review",
+                    "The automated credit decision is handled while the application is in the Review Application stage. "
+                            + (loan.decisionState == null ? "Accept the application review first."
+                                    : "This application is already past that stage."));
+        }
+    }
+
+    private boolean flagStageOpen(final LoanRow loan) {
+        return loan.statusId == SUBMITTED_AND_PENDING_APPROVAL
+                && (!extendedLifecycle() || loan.decisionState == null || loan.decisionState == REVIEW_APPLICATION);
+    }
+
+    private boolean reviewStageOpen(final LoanRow loan) {
+        return loan.statusId == SUBMITTED_AND_PENDING_APPROVAL
+                && (!extendedLifecycle() || Integer.valueOf(REVIEW_APPLICATION).equals(loan.decisionState));
+    }
+
+    private boolean extendedLifecycle() {
+        final List<Boolean> rows = jdbc.queryForList("SELECT enabled FROM c_configuration WHERE name = ?", Boolean.class, EXTENDED_LIFECYCLE);
+        return !rows.isEmpty() && Boolean.TRUE.equals(rows.get(0));
+    }
+
     private void requireFlagged(final Long loanId) {
         final DecisionRow row = decision(loanId);
         if (row == null || !row.required) {
@@ -371,11 +456,12 @@ public class CreditDecisionLoanService {
 
     private LoanRow loan(final Long loanId) {
         final List<LoanRow> rows = jdbc.query(
-                "SELECT l.id, l.account_no, l.product_id, l.loan_status_id, p.name AS product_name, c.account_no AS client_account_no "
+                "SELECT l.id, l.account_no, l.product_id, l.loan_status_id, l.loan_decision_state, p.name AS product_name, "
+                        + "c.account_no AS client_account_no "
                         + "FROM m_loan l JOIN m_product_loan p ON p.id = l.product_id LEFT JOIN m_client c ON c.id = l.client_id "
                         + "WHERE l.id = ?",
                 (rs, i) -> new LoanRow(rs.getLong("id"), rs.getString("account_no"), rs.getLong("product_id"), rs.getInt("loan_status_id"),
-                        rs.getString("product_name"), rs.getString("client_account_no")),
+                        (Integer) rs.getObject("loan_decision_state"), rs.getString("product_name"), rs.getString("client_account_no")),
                 loanId);
         if (rows.isEmpty()) {
             throw new LoanNotFoundException(loanId);
@@ -400,15 +486,17 @@ public class CreditDecisionLoanService {
         final String accountNo;
         final long productId;
         final int statusId;
+        final Integer decisionState;
         final String productName;
         final String clientAccountNo;
 
-        LoanRow(final long id, final String accountNo, final long productId, final int statusId, final String productName,
-                final String clientAccountNo) {
+        LoanRow(final long id, final String accountNo, final long productId, final int statusId, final Integer decisionState,
+                final String productName, final String clientAccountNo) {
             this.id = id;
             this.accountNo = accountNo;
             this.productId = productId;
             this.statusId = statusId;
+            this.decisionState = decisionState;
             this.productName = productName;
             this.clientAccountNo = clientAccountNo;
         }

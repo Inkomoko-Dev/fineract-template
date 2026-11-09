@@ -31,6 +31,7 @@ import java.util.Optional;
 import javax.persistence.PersistenceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.loanaccount.domain.DefaultLoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
@@ -114,6 +115,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private final LoanApprovalMatrixRepository loanApprovalMatrixRepository;
     private final LoanCollateralManagementRepository loanCollateralManagementRepository;
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
+    private final CreditDecisionLoanService creditDecisionLoanService;
     private final DocumentReadPlatformService documentReadPlatformService;
     private final MetropolCrbIdentityVerificationRepository metropolCrbIdentityVerificationRepository;
     private final TransunionCrbHeaderRepository transunionCrbHeaderRepository;
@@ -803,6 +805,8 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     @Override
     public CommandProcessingResult rejectLoanApplicationReview(final Long loanId, final JsonCommand command){
 
+        this.creditDecisionLoanService.assertReviewCanBeReturned(loanId);
+
         // Validate the current state
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
@@ -849,6 +853,8 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult applyDueDiligence(Long loanId, JsonCommand command) {
+
+        this.creditDecisionLoanService.assertOutcomeReceived(loanId, "moved to Due Diligence");
 
         final AppUser currentUser = getAppUserIfPresent();
 
@@ -951,7 +957,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         LoanDecision loanDecisionObj = loanDecisionAssembler.assembleDueDiligenceFrom(command, currentUser, loanDecision);
 
-        loanDecisionObj.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+        // The decision engine takes the place of IC review, so these applications go straight to the contract
+        final boolean automatedDecision = this.creditDecisionLoanService.isRequired(loanId);
+        loanDecisionObj.setNextLoanIcReviewDecisionState(
+                (automatedDecision ? LoanDecisionState.PREPARE_AND_SIGN_CONTRACT : LoanDecisionState.IC_REVIEW_LEVEL_ONE).getValue());
         Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
         final AppUser nextApprover = getNextApprover(command, nextStage);
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
@@ -1111,6 +1120,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelOne(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -1249,6 +1259,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelTwo(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -1387,6 +1398,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelThree(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -1525,6 +1537,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelFour(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -1663,6 +1676,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelFive(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -2170,6 +2184,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
      */
     @Override
     public CommandProcessingResult acceptIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
         validateDynamicIcReviewPermission(levelNumber, false);
 

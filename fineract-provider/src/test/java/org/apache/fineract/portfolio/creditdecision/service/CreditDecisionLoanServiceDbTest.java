@@ -126,7 +126,7 @@ class CreditDecisionLoanServiceDbTest {
         jdbc.execute("CREATE TABLE m_client (id BIGINT AUTO_INCREMENT PRIMARY KEY, account_no VARCHAR(20), date_of_birth DATE, "
                 + "submittedon_date DATE, activation_date DATE, client_classification_cv_id BIGINT)");
         jdbc.execute("CREATE TABLE m_loan (id BIGINT AUTO_INCREMENT PRIMARY KEY, account_no VARCHAR(20), client_id BIGINT, "
-                + "product_id BIGINT, loan_status_id INT, currency_code VARCHAR(3), principal_amount_proposed DECIMAL(19,6), "
+                + "product_id BIGINT, loan_status_id INT, loan_decision_state INT NULL, currency_code VARCHAR(3), principal_amount_proposed DECIMAL(19,6), "
                 + "term_frequency INT, term_period_frequency_enum INT, loanpurpose_cv_id BIGINT, writtenoffon_date DATE)");
         jdbc.execute("CREATE TABLE m_loan_repayment_schedule (id BIGINT AUTO_INCREMENT PRIMARY KEY, loan_id BIGINT, duedate DATE, "
                 + "obligations_met_on_date DATE, completed_derived TINYINT(1))");
@@ -481,6 +481,99 @@ class CreditDecisionLoanServiceDbTest {
         jdbc.update("UPDATE m_credit_decision_profile SET mode = 'SHADOW'");
         service.assertOutcomeReceived(second);
         assertFalse(service.status(second).isBlocksApproval());
+    }
+
+    // ---------------------------------------------------------------- loan stages
+
+    private void extendedLifecycle(final boolean on) {
+        jdbc.update("DELETE FROM c_configuration WHERE name = 'Add-More-Stages-To-A-Loan-Life-Cycle'");
+        jdbc.update("INSERT INTO c_configuration (name, enabled, is_trap_door) VALUES ('Add-More-Stages-To-A-Loan-Life-Cycle', ?, 0)", on);
+    }
+
+    private void stage(final long loanId, final Integer state) {
+        jdbc.update("UPDATE m_loan SET loan_decision_state = ? WHERE id = ?", state, loanId);
+    }
+
+    @Test
+    void withTheExtendedLifecycleTheDecisionIsWorkedAfterTheReviewAndBeforeDueDiligence() {
+        profile("LIVE", "amount");
+        connectEngine();
+        extendedLifecycle(true);
+        final long loanId = applicant("A-1");
+
+        // nothing has been reviewed yet: the flag can be set, but there is nothing to verify or send
+        service.setRequired(loanId, true);
+        assertTrue(service.status(loanId).isCanChangeFlag());
+        assertFalse(service.status(loanId).isReviewStageOpen());
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.verify(loanId, null));
+
+        // the review is accepted: verify and send
+        stage(loanId, 1000);
+        assertTrue(service.status(loanId).isReviewStageOpen());
+        service.verify(loanId, null);
+        service.send(loanId);
+
+        // Due Diligence is accepted: the decision is read-only from here
+        stage(loanId, 1200);
+        final LoanDecisionData later = service.status(loanId);
+        assertFalse(later.isReviewStageOpen());
+        assertFalse(later.isCanChangeFlag());
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.setRequired(loanId, false));
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.unverify(loanId));
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.send(loanId));
+        assertEquals(CreditDecisionLoanData.DECIDED, later.getRequestStatus());
+    }
+
+    @Test
+    void withoutTheExtendedLifecycleAnyPendingApplicationCanBeWorked() {
+        profile("LIVE", "amount");
+        final long loanId = applicant("A-1");
+        service.setRequired(loanId, true);
+        assertTrue(service.status(loanId).isReviewStageOpen());
+        service.verify(loanId, null);
+    }
+
+    @Test
+    void anApplicationThatNeedsADecisionIsNeverPutThroughIcReview() {
+        profile("LIVE", "amount");
+        final long loanId = applicant("A-1");
+        service.assertIcReviewAllowed(loanId);
+
+        assertFalse(service.isRequired(loanId));
+        service.setRequired(loanId, true);
+        assertTrue(service.isRequired(loanId));
+        final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> service.assertIcReviewAllowed(loanId));
+        assertEquals("error.msg.creditdecision.loan.ic.review.not.allowed", e.getGlobalisationMessageCode());
+
+        service.setRequired(loanId, false);
+        service.assertIcReviewAllowed(loanId);
+    }
+
+    @Test
+    void theReviewCannotBeReturnedOnceTheEngineHasGivenItsOutcome() {
+        final long loanId = readyApplication();
+        service.assertReviewCanBeReturned(loanId);
+
+        service.send(loanId);
+        final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> service.assertReviewCanBeReturned(loanId));
+        assertEquals("error.msg.creditdecision.loan.review.cannot.be.returned", e.getGlobalisationMessageCode());
+
+        // re-opening the verification clears the outcome and the review can be returned again
+        service.unverify(loanId);
+        service.assertReviewCanBeReturned(loanId);
+
+        final long other = applicant("A-2");
+        service.assertReviewCanBeReturned(other);
+    }
+
+    @Test
+    void theOutcomeHoldNamesTheStepThatIsRefused() {
+        final long loanId = readyApplication();
+        final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class,
+                () -> service.assertOutcomeReceived(loanId, "moved to Due Diligence"));
+        assertTrue(e.getDefaultUserMessage().contains("moved to Due Diligence"));
     }
 
     // ---------------------------------------------------------------- what is sent for a client

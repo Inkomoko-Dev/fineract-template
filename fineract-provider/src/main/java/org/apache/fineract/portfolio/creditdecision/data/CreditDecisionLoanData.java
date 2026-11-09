@@ -44,6 +44,7 @@ public final class CreditDecisionLoanData {
     /** Why the request cannot be sent right now. The screen words each one in the user's language. */
     public static final String BLOCKER_NOT_REQUIRED = "NOT_REQUIRED";
     public static final String BLOCKER_LOAN_NOT_PENDING = "LOAN_NOT_PENDING";
+    public static final String BLOCKER_NOT_IN_REVIEW = "NOT_IN_REVIEW";
     public static final String BLOCKER_PENDING_VERIFICATION = "PENDING_VERIFICATION";
     public static final String BLOCKER_PROFILE_OFF = "PROFILE_OFF";
     public static final String BLOCKER_NO_ACTIVE_VERSION = "NO_ACTIVE_VERSION";
@@ -78,6 +79,11 @@ public final class CreditDecisionLoanData {
         private final boolean required;
         /** The application is still waiting for approval, so the flag can still be changed. */
         private final boolean canChangeFlag;
+        /**
+         * The application is in the stage where the automated credit decision is worked: verified, sent and read. Past it,
+         * the decision can only be looked at.
+         */
+        private final boolean reviewStageOpen;
         /** PENDING_VERIFICATION or VERIFIED */
         private final String verificationStatus;
         private final String verifiedBy;
