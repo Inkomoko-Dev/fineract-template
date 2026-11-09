@@ -175,4 +175,5 @@
     <include file="parts/CGLT-577_external_organization_mapping.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-788_make_address_location_mandatory.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-846_credit_decision_profiles.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-846_loan_credit_decision.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

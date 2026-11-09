@@ -107,6 +107,7 @@ import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
 import org.apache.fineract.portfolio.collateralmanagement.service.LoanCollateralAssembler;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.fund.data.FundData;
 import org.apache.fineract.portfolio.fund.domain.Fund;
 import org.apache.fineract.portfolio.fund.service.FundReadPlatformService;
@@ -260,6 +261,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final PaymentTypeRepositoryWrapper paymentTypeRepository;
     private final ThirdPartySupplierDisbursementGuard thirdPartySupplierDisbursementGuard;
     private final SupplierDisbursementAuditService supplierDisbursementAuditService;
+    private final CreditDecisionLoanService creditDecisionLoanService;
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
     private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
@@ -1570,6 +1572,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         LocalDate expectedDisbursementDate = null;
 
         final Loan loan = retrieveLoanBy(loanId);
+        this.creditDecisionLoanService.assertOutcomeReceived(loanId);
         if (loan.getClient() != null) {
             this.clientAddressLocationValidator.validateClientHasLocation(loan.getClient().getId());
         }

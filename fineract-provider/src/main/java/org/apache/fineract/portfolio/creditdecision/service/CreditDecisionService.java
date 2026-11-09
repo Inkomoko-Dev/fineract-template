@@ -45,6 +45,7 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.Prod
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ProfileData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.SaveDraftRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.VersionData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.ProductProfileData;
 import org.apache.fineract.portfolio.creditdecision.exception.CreditDecisionProfileNotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -113,6 +114,24 @@ public class CreditDecisionService {
                     final ConnectionData conn = connection();
                     return new ActiveProfileData(rs.getLong("id"), rs.getString("name"), rs.getString("mode"), rs.getInt("version_no"),
                             conn.isEnabled(), conn.getProvider(), paramsOf(rs.getLong("version_id")));
+                }, productId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /**
+     * The profile that covers a product, whatever state its versions are in. Null when the product is in no profile.
+     */
+    @Transactional(readOnly = true)
+    public ProductProfileData profileForProduct(final Long productId) {
+        final List<ProductProfileData> rows = jdbcTemplate.query("SELECT p.id, p.name, p.mode, (SELECT MAX(a.version_no) FROM "
+                + "m_credit_decision_profile_version a WHERE a.profile_id = p.id AND a.status = 'ACTIVE') AS active_no "
+                + "FROM m_credit_decision_version_product vp JOIN m_credit_decision_profile_version v ON v.id = vp.version_id "
+                + "JOIN m_credit_decision_profile p ON p.id = v.profile_id WHERE vp.loan_product_id = ? "
+                + "AND v.status IN ('ACTIVE', 'PENDING', 'DRAFT') ORDER BY p.id LIMIT 1", (rs, i) -> {
+                    final int activeNo = rs.getInt("active_no");
+                    final boolean noActiveVersion = rs.wasNull();
+                    return new ProductProfileData(rs.getLong("id"), rs.getString("name"), rs.getString("mode"),
+                            noActiveVersion ? null : activeNo);
                 }, productId);
         return rows.isEmpty() ? null : rows.get(0);
     }

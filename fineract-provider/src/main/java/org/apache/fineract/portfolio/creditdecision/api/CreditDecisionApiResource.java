@@ -45,6 +45,9 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogE
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ModeRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.NewDraftRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.SaveDraftRequest;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.FlagRequest;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.VerifyRequest;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionService;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -61,9 +64,11 @@ import org.springframework.stereotype.Component;
 public class CreditDecisionApiResource {
 
     private static final String RESOURCE = "CREDITDECISION";
+    private static final String LOAN_RESOURCE = "LOAN";
 
     private final PlatformSecurityContext context;
     private final CreditDecisionService service;
+    private final CreditDecisionLoanService loanService;
     private final DefaultToApiJsonSerializer<Object> toApiJsonSerializer;
     private final FromJsonHelper fromJsonHelper;
 
@@ -178,6 +183,57 @@ public class CreditDecisionApiResource {
     public String mode(@PathParam("profileId") final Long profileId, final String body) {
         change();
         return toApiJsonSerializer.serialize(service.setMode(profileId, parse(body, ModeRequest.class).getMode()));
+    }
+
+    @GET
+    @Path("products/{productId}/profile")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "The decision profile a loan product belongs to, so the new loan form can offer the credit decision flag")
+    public String productProfile(@PathParam("productId") final Long productId) {
+        context.authenticatedUser().validateHasReadPermission(LOAN_RESOURCE);
+        final Object found = service.profileForProduct(productId);
+        return toApiJsonSerializer.serialize(found == null ? new LinkedHashMap<String, Object>() : found);
+    }
+
+    @GET
+    @Path("loans/{loanId}")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Whether a loan application needs an automated credit decision, its verification and the engine outcome")
+    public String loanDecision(@PathParam("loanId") final Long loanId) {
+        context.authenticatedUser().validateHasReadPermission(LOAN_RESOURCE);
+        return toApiJsonSerializer.serialize(loanService.status(loanId));
+    }
+
+    @PUT
+    @Path("loans/{loanId}/flag")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Say whether a loan application needs an automated credit decision")
+    public String flagLoan(@PathParam("loanId") final Long loanId, final String body) {
+        context.authenticatedUser().validateHasPermissionTo("UPDATE_CREDITDECISIONLOAN");
+        return toApiJsonSerializer.serialize(loanService.setRequired(loanId, parse(body, FlagRequest.class).isRequired()));
+    }
+
+    @POST
+    @Path("loans/{loanId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "command=verify or unverify the application details, or send the request to the decision engine")
+    public String loanCommand(@PathParam("loanId") final Long loanId, @QueryParam("command") @DefaultValue("") final String command,
+            final String body) {
+        switch (command) {
+            case "verify":
+                context.authenticatedUser().validateHasPermissionTo("VERIFY_CREDITDECISIONLOAN");
+                return toApiJsonSerializer.serialize(loanService.verify(loanId, parse(body, VerifyRequest.class).getNote()));
+            case "unverify":
+                context.authenticatedUser().validateHasPermissionTo("VERIFY_CREDITDECISIONLOAN");
+                return toApiJsonSerializer.serialize(loanService.unverify(loanId));
+            case "send":
+                context.authenticatedUser().validateHasPermissionTo("SEND_CREDITDECISIONLOAN");
+                return toApiJsonSerializer.serialize(loanService.send(loanId));
+            default:
+                throw new UnrecognizedQueryParamException("command", command, "verify", "unverify", "send");
+        }
     }
 
     @GET
