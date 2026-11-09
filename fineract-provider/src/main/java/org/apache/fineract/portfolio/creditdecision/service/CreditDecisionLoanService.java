@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -41,6 +42,7 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogE
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ParamData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.EventData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.ExceptionData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.LoanDecisionData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.ProductProfileData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionOutcome;
@@ -55,6 +57,7 @@ import org.springframework.transaction.annotation.Transactional;
  * request to the decision engine and keeping what it replied. Fineract only builds the request from the profile and
  * stores the reply. The engine makes the decision.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CreditDecisionLoanService {
@@ -70,6 +73,16 @@ public class CreditDecisionLoanService {
     /** With this switched on, an application goes through Review Application, Due Diligence, IC review and so on. */
     private static final String EXTENDED_LIFECYCLE = "Add-More-Stages-To-A-Loan-Life-Cycle";
     private static final long RETRY_PAUSE_MILLIS = 300;
+    /**
+     * How long after the n-th failed send in a row the next automatic retry is due. When the list runs out the credit team is
+     * alerted and the application waits in the exception queue for somebody to send it again.
+     */
+    static final int[] RETRY_DELAY_MINUTES = { 5, 15, 60, 240 };
+    /** A send that has not finished after its own time limit plus this many seconds is taken to have died. */
+    private static final int STALE_CLAIM_GRACE_SECONDS = 60;
+    private static final int MAX_EXCEPTIONS = 200;
+    private static final String ON_NO_REPLY_ALERT = "ALERT";
+    private static final String SEND_IN_PROGRESS_CODE = "error.msg.creditdecision.loan.send.in.progress";
     private static final int MAX_NOTE = 500;
     private static final Gson GSON = new GsonBuilder().serializeNulls().create();
 
@@ -102,7 +115,9 @@ public class CreditDecisionLoanService {
                 .decision(row == null ? null : row.decision).score(row == null ? null : row.score)
                 .riskTier(row == null ? null : row.riskTier).maxExposure(row == null ? null : row.maxExposure)
                 .modelVersion(row == null ? null : row.modelVersion).reasonCodes(row == null ? null : row.reasonCodes).replyMs(row == null ? null : row.replyMs)
-                .errorMessage(row == null ? null : row.errorMessage).provider(profiles.connection().getProvider())
+                .errorMessage(row == null ? null : row.errorMessage).requestId(row == null ? null : row.requestId)
+                .failureCount(row == null ? 0 : row.failureCount).nextRetryOn(row == null ? null : iso(row.nextRetryOn))
+                .alertedOn(row == null ? null : iso(row.alertedOn)).provider(profiles.connection().getProvider())
                 .requestedProfileName(row == null ? null : row.profileName).requestedVersionNo(row == null ? null : row.versionNo)
                 .requestJson(row == null ? null : row.requestJson).replyJson(row == null ? null : row.replyJson).blockers(blockers)
                 .blocksApproval(required && !decided && live(profile))
@@ -170,7 +185,8 @@ public class CreditDecisionLoanService {
         final DecisionRow before = decision(loanId);
         jdbc.update("UPDATE m_loan_credit_decision SET verification_status = ?, verified_by = NULL, verified_on = NULL, "
                 + "verification_note = NULL, request_status = ?, decision = NULL, score = NULL, reason_codes = NULL, risk_tier = NULL, max_exposure = NULL, model_version = NULL, "
-                + "reply_ms = NULL, error_message = NULL, request_json = NULL, reply_json = NULL WHERE loan_id = ?",
+                + "reply_ms = NULL, error_message = NULL, request_json = NULL, reply_json = NULL, request_id = NULL, last_attempt_on = NULL, "
+                + "failure_count = 0, next_retry_on = NULL, alerted_on = NULL WHERE loan_id = ?",
                 CreditDecisionLoanData.PENDING_VERIFICATION, CreditDecisionLoanData.NOT_SENT, loanId);
         final boolean cleared = before != null && CreditDecisionLoanData.DECIDED.equals(before.requestStatus);
         event(loanId, CreditDecisionLoanData.EVENT_REOPENED, cleared ? "Cleared the earlier outcome: " + before.decision : null, null, null,
@@ -182,16 +198,59 @@ public class CreditDecisionLoanService {
 
     /**
      * Builds the request from the profile, sends it to the decision engine and keeps the reply. A reply that cannot be
-     * used is kept as FAILED, with the reason, so the person can see it and try again.
+     * used is kept as FAILED, with the reason, so the person can see it and try again. Only one send per application runs at
+     * a time: a second one is refused while the first is under way.
      */
     public LoanDecisionData send(final Long loanId) {
         final LoanDecisionData before = status(loanId);
         if (!before.getBlockers().isEmpty()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.send.blocked", describe(before.getBlockers().get(0)));
+            throw refused(before.getBlockers().get(0));
         }
-        final LoanRow loan = loan(loanId);
+        claim(loanId);
+        try {
+            // somebody may have finished a send between the check above and the claim, so look again with the claim held
+            final LoanRow loan = loan(loanId);
+            final List<String> blockers = blockers(loan, profiles.profileForProduct(loan.productId), decision(loanId), true);
+            if (!blockers.isEmpty()) {
+                throw refused(blockers.get(0));
+            }
+            return sendClaimed(loanId, loan);
+        } finally {
+            release(loanId);
+        }
+    }
+
+    /** Takes the right to send for this application, or says another send is under way. Stands in for a lock across servers. */
+    private void claim(final Long loanId) {
+        final ConnectionData connection = profiles.connection();
+        final Timestamp now = Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem());
+        final int claimed = jdbc.update("UPDATE m_loan_credit_decision SET send_started_on = ? WHERE loan_id = ? AND required = TRUE "
+                + "AND (send_started_on IS NULL OR send_started_on < ?)", now, loanId, staleBefore(connection, now));
+        if (claimed == 0) {
+            throw refused(CreditDecisionLoanData.BLOCKER_SEND_IN_PROGRESS);
+        }
+    }
+
+    private static GeneralPlatformDomainRuleException refused(final String blocker) {
+        return new GeneralPlatformDomainRuleException(CreditDecisionLoanData.BLOCKER_SEND_IN_PROGRESS.equals(blocker) ? SEND_IN_PROGRESS_CODE
+                : "error.msg.creditdecision.loan.send.blocked", describe(blocker));
+    }
+
+    private void release(final Long loanId) {
+        jdbc.update("UPDATE m_loan_credit_decision SET send_started_on = NULL WHERE loan_id = ?", loanId);
+    }
+
+    /** A claim older than this was left by a send that died, so it no longer holds anything. */
+    private static Timestamp staleBefore(final ConnectionData connection, final Timestamp now) {
+        final long seconds = (long) Math.max(1, connection.getTimeoutSeconds()) * (1 + Math.max(0, connection.getRetries()))
+                + STALE_CLAIM_GRACE_SECONDS;
+        return Timestamp.valueOf(now.toLocalDateTime().minusSeconds(seconds));
+    }
+
+    private LoanDecisionData sendClaimed(final Long loanId, final LoanRow loan) {
         final ActiveProfileData profile = profiles.activeForProduct(loan.productId);
         final ConnectionData connection = profiles.connection();
+        final DecisionRow earlier = decision(loanId);
         final String profileLabel = profile.getProfileName() + " v" + profile.getVersionNo();
 
         final List<String> keys = profile.getParams().stream().filter(ParamData::isEnabled).map(ParamData::getKey)
@@ -199,19 +258,23 @@ public class CreditDecisionLoanService {
         final CreditDecisionRequestBuilder.Built built = CreditDecisionRequestBuilder.build(profile.getParams(),
                 facts.resolve(loanId, keys));
 
-        final Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("requestId", "req_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
-        payload.put("applicationId", loan.accountNo);
-        payload.put("customerId", loan.clientAccountNo);
-        payload.put("product", loan.productName);
-        payload.put("profile", profileLabel);
-        payload.put("parameters", built.getParameters());
-        final String requestJson = GSON.toJson(payload);
+        // a send that failed is asked again with the same identifier when nothing in it has changed, so the engine can
+        // recognise it as the same request, and a request whose content changed gets a new one
+        String reused = earlier != null && CreditDecisionLoanData.FAILED.equals(earlier.requestStatus) ? earlier.requestId : null;
+        if (reused != null && !payload(reused, loan, profileLabel, built).equals(earlier.requestJson)) {
+            reused = null;
+        }
+        final String requestId = reused == null ? newRequestId() : reused;
+        final String requestJson = payload(requestId, loan, profileLabel, built);
 
         if (!built.getHeld().isEmpty()) {
             final String missing = built.getHeld().stream().map(CreditDecisionLoanService::label).collect(Collectors.joining(", "));
-            final Long heldLog = profiles.recordLog(entry(loan, profile, "HELD", null, null, null, null,
-                    "Complete the missing details: " + missing, requestJson, null));
+            final LogEntryData heldEntry = entry(loan, profile, "HELD", null, null, null, null,
+                    "Complete the missing details: " + missing, requestJson, null);
+            heldEntry.setRequestId(requestId);
+            final Long heldLog = profiles.recordLog(heldEntry);
+            jdbc.update("UPDATE m_loan_credit_decision SET error_message = ?, last_attempt_on = ? WHERE loan_id = ?",
+                    truncate("Missing details: " + missing, MAX_NOTE), Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem()), loanId);
             event(loanId, CreditDecisionLoanData.EVENT_HELD, truncate("Not sent, missing: " + missing, MAX_NOTE), null, null, heldLog);
             throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.loan.send.data.missing",
                     "The request was not sent because the profile needs these details and the application has none: " + missing
@@ -251,32 +314,70 @@ public class CreditDecisionLoanService {
         if (failure == null) {
             jdbc.update("UPDATE m_loan_credit_decision SET request_status = ?, profile_id = ?, profile_name = ?, version_no = ?, "
                     + "requested_by = ?, requested_on = ?, decision = ?, score = ?, reason_codes = ?, risk_tier = ?, max_exposure = ?, "
-                    + "model_version = ?, reply_ms = ?, error_message = NULL, request_json = ?, reply_json = ? WHERE loan_id = ?",
+                    + "model_version = ?, reply_ms = ?, error_message = NULL, request_json = ?, reply_json = ?, request_id = ?, "
+                    + "last_attempt_on = ?, failure_count = 0, next_retry_on = NULL, alerted_on = NULL WHERE loan_id = ?",
                     CreditDecisionLoanData.DECIDED, profile.getProfileId(), profile.getProfileName(), profile.getVersionNo(), username(),
                     now, reply.getDecision(), reply.getScore(), reply.getReasonCodes(), reply.getRiskTier(), reply.getMaxExposure(),
-                    reply.getModelVersion(), replyMs, requestJson, replyJson, loanId);
+                    reply.getModelVersion(), replyMs, requestJson, replyJson, requestId, now, loanId);
             final boolean live = "LIVE".equals(profile.getMode());
             final LogEntryData logged = entry(loan, profile, "DECIDED", reply.getDecision(), reply.getScore(), reply.getReasonCodes(),
                     replyMs, nextStep(reply.getDecision(), live), requestJson, replyJson);
             logged.setRiskTier(reply.getRiskTier());
             logged.setMaxExposure(reply.getMaxExposure());
             logged.setModelVersion(reply.getModelVersion());
+            logged.setRequestId(requestId);
             final Long logId = profiles.recordLog(logged);
             event(loanId, CreditDecisionLoanData.EVENT_DECIDED, reply.getReasonCodes() == null ? null : truncate(reply.getReasonCodes(), MAX_NOTE),
                     reply.getDecision(), reply.getScore(), logId);
             events.publishEvent(new CreditDecisionOutcomeRecorded(loanId, reply.getDecision(), reply.getReasonCodes(), live));
         } else {
+            final int failures = (earlier == null ? 0 : earlier.failureCount) + 1;
+            final boolean alertInstead = ON_NO_REPLY_ALERT.equals(connection.getOnNoReply());
+            final Timestamp retryOn = alertInstead ? null : nextRetry(now, failures);
+            final boolean alert = retryOn == null;
             jdbc.update("UPDATE m_loan_credit_decision SET request_status = ?, profile_id = ?, profile_name = ?, version_no = ?, "
                     + "requested_by = ?, requested_on = ?, decision = NULL, score = NULL, reason_codes = NULL, risk_tier = NULL, "
                     + "max_exposure = NULL, model_version = NULL, reply_ms = ?, "
-                    + "error_message = ?, request_json = ?, reply_json = ? WHERE loan_id = ?", CreditDecisionLoanData.FAILED,
+                    + "error_message = ?, request_json = ?, reply_json = ?, request_id = ?, last_attempt_on = ?, failure_count = ?, "
+                    + "next_retry_on = ?, alerted_on = ? WHERE loan_id = ?", CreditDecisionLoanData.FAILED,
                     profile.getProfileId(), profile.getProfileName(), profile.getVersionNo(), username(), now, replyMs,
-                    truncate(failure, MAX_NOTE), requestJson, replyJson, loanId);
-            final Long logId = profiles.recordLog(entry(loan, profile, "AWAITING", null, null, null, replyMs,
-                    "Send the request again", requestJson, replyJson));
+                    truncate(failure, MAX_NOTE), requestJson, replyJson, requestId, now, failures, retryOn, alert ? now : null, loanId);
+            final LogEntryData failedEntry = entry(loan, profile, "AWAITING", null, null, null, replyMs,
+                    retryOn == null ? "Send the request again" : "Retried automatically at " + retryOn.toLocalDateTime().withNano(0),
+                    requestJson, replyJson);
+            failedEntry.setRequestId(requestId);
+            final Long logId = profiles.recordLog(failedEntry);
             event(loanId, CreditDecisionLoanData.EVENT_FAILED, truncate(failure, MAX_NOTE), null, null, logId);
+            if (alert) {
+                events.publishEvent(new CreditDecisionScoringFailed(loanId, loan.accountNo, truncate(failure, MAX_NOTE), failures,
+                        !alertInstead));
+            }
         }
         return status(loanId);
+    }
+
+    private static String newRequestId() {
+        return "req_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+    }
+
+    private static String payload(final String requestId, final LoanRow loan, final String profileLabel,
+            final CreditDecisionRequestBuilder.Built built) {
+        final Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("requestId", requestId);
+        payload.put("applicationId", loan.accountNo);
+        payload.put("customerId", loan.clientAccountNo);
+        payload.put("product", loan.productName);
+        payload.put("profile", profileLabel);
+        payload.put("parameters", built.getParameters());
+        return GSON.toJson(payload);
+    }
+
+    /** When the send that has just failed for the {@code failures}-th time in a row is tried again, or null when it is not. */
+    static Timestamp nextRetry(final Timestamp from, final int failures) {
+        if (failures < 1 || failures > RETRY_DELAY_MINUTES.length) {
+            return null;
+        }
+        return Timestamp.valueOf(from.toLocalDateTime().plusMinutes(RETRY_DELAY_MINUTES[failures - 1]));
     }
 
     // ------------------------------------------------------------------ automatic start and rejection
@@ -325,6 +426,71 @@ public class CreditDecisionLoanService {
     public void recordRejection(final Long loanId, final boolean rejected, final String detail) {
         event(loanId, rejected ? CreditDecisionLoanData.EVENT_REJECTED : CreditDecisionLoanData.EVENT_FAILED,
                 detail == null ? null : truncate(detail, MAX_NOTE), CreditDecisionOutcome.INELIGIBLE, null, null);
+    }
+
+    // ------------------------------------------------------------------ failed scoring: retry and exception queue
+
+    /**
+     * Sends again the requests that failed and whose retry time has come. Run by the scheduled job. Each application is
+     * handled on its own, so one that cannot be sent does not hold up the others. Returns how many were sent again.
+     */
+    public int retryDue() {
+        final List<Long> due = jdbc.queryForList("SELECT d.loan_id FROM m_loan_credit_decision d WHERE d.required = TRUE AND d.request_status = ? "
+                + "AND d.next_retry_on IS NOT NULL AND d.next_retry_on <= ? ORDER BY d.next_retry_on LIMIT " + MAX_EXCEPTIONS, Long.class,
+                CreditDecisionLoanData.FAILED, now());
+        int sent = 0;
+        for (final Long loanId : due) {
+            try {
+                send(loanId);
+                sent++;
+            } catch (final GeneralPlatformDomainRuleException e) {
+                if (!sendInProgress(e)) {
+                    // the application moved on or can no longer be scored, so stop asking for it and leave the reason on its history
+                    jdbc.update("UPDATE m_loan_credit_decision SET next_retry_on = NULL WHERE loan_id = ?", loanId);
+                    event(loanId, CreditDecisionLoanData.EVENT_FAILED, truncate("Automatic retry stopped: " + e.getDefaultUserMessage(), MAX_NOTE),
+                            null, null, null);
+                }
+            } catch (final RuntimeException e) {
+                // keep going with the rest, this one is tried again at its next turn
+                log.warn("Automatic retry of the credit decision for loan {} failed", loanId, e);
+            }
+        }
+        return sent;
+    }
+
+    private static boolean sendInProgress(final GeneralPlatformDomainRuleException e) {
+        return SEND_IN_PROGRESS_CODE.equals(e.getGlobalisationMessageCode());
+    }
+
+    /**
+     * Applications waiting for approval whose scoring needs somebody: the engine did not give a usable reply, details are
+     * missing, or a send began and never finished. The oldest come first.
+     */
+    @Transactional(readOnly = true)
+    public List<ExceptionData> exceptions() {
+        final Timestamp now = now();
+        final Timestamp stale = staleBefore(profiles.connection(), now);
+        return jdbc.query("SELECT d.loan_id, l.account_no, c.account_no AS client_account_no, p.name AS product_name, d.request_status, "
+                + "d.error_message, d.failure_count, d.last_attempt_on, d.next_retry_on, d.alerted_on, d.request_id, d.send_started_on "
+                + "FROM m_loan_credit_decision d JOIN m_loan l ON l.id = d.loan_id JOIN m_product_loan p ON p.id = l.product_id "
+                + "LEFT JOIN m_client c ON c.id = l.client_id WHERE d.required = TRUE AND l.loan_status_id = ? AND (d.request_status = ? "
+                + "OR (d.request_status = ? AND d.error_message IS NOT NULL) OR d.send_started_on < ?) "
+                + "ORDER BY COALESCE(d.last_attempt_on, d.send_started_on) ASC, d.loan_id ASC LIMIT " + MAX_EXCEPTIONS,
+                (rs, i) -> {
+                    final Timestamp claimed = rs.getTimestamp("send_started_on");
+                    final String status = rs.getString("request_status");
+                    final String kind = claimed != null && claimed.before(stale) ? CreditDecisionLoanData.EXCEPTION_STUCK
+                            : CreditDecisionLoanData.FAILED.equals(status) ? CreditDecisionLoanData.EXCEPTION_FAILED
+                                    : CreditDecisionLoanData.EXCEPTION_HELD;
+                    final String message = CreditDecisionLoanData.EXCEPTION_STUCK.equals(kind)
+                            ? "A send began and never finished. It can be sent again." : rs.getString("error_message");
+                    return ExceptionData.builder().loanId(rs.getLong("loan_id")).applicationRef(rs.getString("account_no"))
+                            .customerRef(rs.getString("client_account_no")).productName(rs.getString("product_name")).kind(kind)
+                            .message(message).failureCount(rs.getInt("failure_count")).lastAttemptOn(iso(rs.getTimestamp("last_attempt_on")))
+                            .nextRetryOn(iso(rs.getTimestamp("next_retry_on"))).alertedOn(iso(rs.getTimestamp("alerted_on")))
+                            .requestId(rs.getString("request_id")).build();
+                },
+                SUBMITTED_AND_PENDING_APPROVAL, CreditDecisionLoanData.FAILED, CreditDecisionLoanData.NOT_SENT, stale);
     }
 
     // ------------------------------------------------------------------ history
@@ -467,6 +633,11 @@ public class CreditDecisionLoanService {
     // ------------------------------------------------------------------ helpers
 
     private List<String> blockers(final LoanRow loan, final ProductProfileData profile, final DecisionRow row) {
+        return blockers(loan, profile, row, false);
+    }
+
+    /** {@code ownClaim} is true while the caller holds the send claim itself, which then is not a reason to wait. */
+    private List<String> blockers(final LoanRow loan, final ProductProfileData profile, final DecisionRow row, final boolean ownClaim) {
         final List<String> out = new ArrayList<>();
         if (loan.statusId != SUBMITTED_AND_PENDING_APPROVAL) {
             out.add(CreditDecisionLoanData.BLOCKER_LOAN_NOT_PENDING);
@@ -489,6 +660,9 @@ public class CreditDecisionLoanService {
         if (!connection.isEnabled() || connection.getEndpointUrl() == null || connection.getEndpointUrl().isBlank()) {
             out.add(CreditDecisionLoanData.BLOCKER_ENGINE_NOT_CONNECTED);
         }
+        if (!ownClaim && row.sendStartedOn != null && row.sendStartedOn.after(staleBefore(connection, now()))) {
+            out.add(CreditDecisionLoanData.BLOCKER_SEND_IN_PROGRESS);
+        }
         return out;
     }
 
@@ -510,6 +684,8 @@ public class CreditDecisionLoanService {
                 return "The decision profile for this product has no approved version yet.";
             case CreditDecisionLoanData.BLOCKER_ENGINE_NOT_CONNECTED:
                 return "The decision engine connection is switched off or has no address.";
+            case CreditDecisionLoanData.BLOCKER_SEND_IN_PROGRESS:
+                return "A request for this application is already being sent to the decision engine. Wait for its reply.";
             default:
                 return "The request cannot be sent right now.";
         }
@@ -614,6 +790,10 @@ public class CreditDecisionLoanService {
         }
     }
 
+    private static Timestamp now() {
+        return Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem());
+    }
+
     private String username() {
         return context.authenticatedUser().getUsername();
     }
@@ -679,7 +859,8 @@ public class CreditDecisionLoanService {
                         rs.getBigDecimal("score"), rs.getString("reason_codes"), rs.getString("risk_tier"), rs.getBigDecimal("max_exposure"),
                         rs.getString("model_version"), (Integer) rs.getObject("reply_ms"),
                         rs.getString("error_message"), rs.getString("profile_name"), (Integer) rs.getObject("version_no"),
-                        rs.getString("request_json"), rs.getString("reply_json")),
+                        rs.getString("request_json"), rs.getString("reply_json"), rs.getString("request_id"), rs.getInt("failure_count"),
+                        rs.getTimestamp("send_started_on"), rs.getTimestamp("next_retry_on"), rs.getTimestamp("alerted_on")),
                 loanId);
         return rows.isEmpty() ? null : rows.get(0);
     }
@@ -728,12 +909,23 @@ public class CreditDecisionLoanService {
         final Integer versionNo;
         final String requestJson;
         final String replyJson;
+        final String requestId;
+        final int failureCount;
+        final Timestamp sendStartedOn;
+        final Timestamp nextRetryOn;
+        final Timestamp alertedOn;
 
         DecisionRow(final boolean required, final String verificationStatus, final String verifiedBy, final String verifiedOn,
                 final String verificationNote, final String requestStatus, final String requestedBy, final String requestedOn,
                 final String decision, final BigDecimal score, final String reasonCodes, final String riskTier,
                 final BigDecimal maxExposure, final String modelVersion, final Integer replyMs, final String errorMessage, final String profileName, final Integer versionNo, final String requestJson,
-                final String replyJson) {
+                final String replyJson, final String requestId, final int failureCount, final Timestamp sendStartedOn,
+                final Timestamp nextRetryOn, final Timestamp alertedOn) {
+            this.requestId = requestId;
+            this.failureCount = failureCount;
+            this.sendStartedOn = sendStartedOn;
+            this.nextRetryOn = nextRetryOn;
+            this.alertedOn = alertedOn;
             this.required = required;
             this.verificationStatus = verificationStatus;
             this.verifiedBy = verifiedBy;

@@ -208,6 +208,15 @@ public class CreditDecisionApiResource {
     }
 
     @GET
+    @Path("exceptions")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Applications whose scoring failed, is held for missing details, or got stuck, oldest first")
+    public String exceptions() {
+        context.authenticatedUser().validateHasReadPermission(LOAN_RESOURCE);
+        return toApiJsonSerializer.serialize(loanService.exceptions());
+    }
+
+    @GET
     @Path("loans/{loanId}/history")
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "What was done to a loan application's automated credit decision, by whom and when, newest first")
@@ -273,7 +282,9 @@ public class CreditDecisionApiResource {
     @Operation(summary = "Requests sent to the decision engine and the replies it gave, one page at a time")
     public String log(@QueryParam("decision") final String decision, @QueryParam("status") final String status,
             @QueryParam("profileId") final Long profileId, @QueryParam("mode") final String mode,
-            @QueryParam("search") final String search, @QueryParam("reason") final String reason, @QueryParam("from") final String from,
+            @QueryParam("search") final String search, @QueryParam("reason") final String reason,
+            @QueryParam("riskTier") final String riskTier, @QueryParam("modelVersion") final String modelVersion,
+            @QueryParam("from") final String from,
             @QueryParam("to") final String to, @QueryParam("sort") final String sort,
             @QueryParam("page") @DefaultValue("1") final int page,
             @QueryParam("pageSize") @DefaultValue("25") final int pageSize) {
@@ -285,6 +296,8 @@ public class CreditDecisionApiResource {
         filter.setMode(mode);
         filter.setSearch(search);
         filter.setReason(reason);
+        filter.setRiskTier(riskTier);
+        filter.setModelVersion(modelVersion);
         filter.setFrom(from);
         filter.setTo(to);
         filter.setSort(sort);

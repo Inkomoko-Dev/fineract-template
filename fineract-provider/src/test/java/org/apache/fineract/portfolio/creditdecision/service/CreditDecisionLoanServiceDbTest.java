@@ -133,11 +133,23 @@ class CreditDecisionLoanServiceDbTest {
                 + "obligations_met_on_date DATE, completed_derived TINYINT(1))");
         jdbc.execute("CREATE TABLE m_loan_arrears_aging (loan_id BIGINT PRIMARY KEY, total_overdue_derived DECIMAL(19,6))");
         jdbc.execute("CREATE TABLE m_transunion_crb_header (id BIGINT AUTO_INCREMENT PRIMARY KEY, client_id BIGINT, loan_id BIGINT, "
-                + "report_date VARCHAR(255))");
+                + "report_date VARCHAR(255), request_no VARCHAR(255))");
         jdbc.execute("CREATE TABLE m_transunion_crb_score_output (id BIGINT AUTO_INCREMENT PRIMARY KEY, header_id BIGINT, "
                 + "positive_score VARCHAR(255))");
         jdbc.execute("CREATE TABLE m_transunion_crb_summary (id BIGINT AUTO_INCREMENT PRIMARY KEY, header_id BIGINT, "
-                + "npa_accounts_all_sectors INT, open_accounts_all_sectors INT)");
+                + "npa_accounts_all_sectors INT, open_accounts_all_sectors INT, fc_all_sectors INT)");
+        jdbc.execute("CREATE TABLE m_address (id BIGINT AUTO_INCREMENT PRIMARY KEY, country_id BIGINT NULL)");
+        jdbc.execute("CREATE TABLE m_client_address (id BIGINT AUTO_INCREMENT PRIMARY KEY, client_id BIGINT, address_id BIGINT, "
+                + "is_active TINYINT(1))");
+        jdbc.execute("CREATE TABLE m_business_detail (id BIGINT AUTO_INCREMENT PRIMARY KEY, client_id BIGINT, business_creation_date DATE)");
+        jdbc.execute("CREATE TABLE m_client_non_person (id BIGINT AUTO_INCREMENT PRIMARY KEY, client_id BIGINT, in_business_since DATE NULL)");
+        jdbc.execute("CREATE TABLE job (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), display_name VARCHAR(100), "
+                + "cron_expression VARCHAR(100), create_time DATETIME, task_priority SMALLINT, group_name VARCHAR(100), job_key VARCHAR(500), "
+                + "is_active TINYINT(1), currently_running TINYINT(1), updates_allowed TINYINT(1), scheduler_group SMALLINT, "
+                + "is_misfired TINYINT(1), node_id INT, is_mismatched_job TINYINT(1))");
+        jdbc.execute("CREATE TABLE m_appuser (id BIGINT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(100), is_deleted TINYINT(1) DEFAULT 0, "
+                + "enabled TINYINT(1) DEFAULT 1)");
+        jdbc.execute("CREATE TABLE m_appuser_role (appuser_id BIGINT, role_id BIGINT)");
         jdbc.execute("CREATE TABLE m_loan_decision (id BIGINT AUTO_INCREMENT PRIMARY KEY, loan_id BIGINT, "
                 + "is_due_diligence_signed TINYINT(1), is_reject_due_diligence TINYINT(1), due_diligence_recommended_amount DECIMAL(19,6), "
                 + "due_diligence_term_frequency INT, due_diligence_term_period_frequency_type INT)");
@@ -909,6 +921,14 @@ class CreditDecisionLoanServiceDbTest {
         final long current = loan("L-20", clientId, product, 100, "40000");
         jdbc.update("UPDATE m_loan SET loanpurpose_cv_id = ? WHERE id = ?", stock, current);
         bureau(current, "688", 0);
+        jdbc.update("UPDATE m_transunion_crb_header SET request_no = ' TU-2026-778 '");
+        jdbc.update("UPDATE m_transunion_crb_summary SET fc_all_sectors = 2");
+        jdbc.update("INSERT INTO m_code_value (code_value) VALUES ('Rwanda')");
+        final long rwanda = jdbc.queryForObject("SELECT id FROM m_code_value WHERE code_value = 'Rwanda'", Long.class);
+        jdbc.update("INSERT INTO m_address (country_id) VALUES (NULL), (?)", rwanda);
+        jdbc.update("INSERT INTO m_client_address (client_id, address_id, is_active) VALUES (?, 1, 1), (?, 2, 1)", clientId, clientId);
+        jdbc.update("INSERT INTO m_business_detail (client_id, business_creation_date) VALUES (?, '2025-11-09'), (?, '2024-05-20')", clientId,
+                clientId);
         jdbc.update("INSERT INTO m_loan_decision (loan_id, is_due_diligence_signed, is_reject_due_diligence, "
                 + "due_diligence_recommended_amount, due_diligence_term_frequency, due_diligence_term_period_frequency_type) "
                 + "VALUES (?, 1, 0, 35000, 10, 2)", current);
@@ -934,6 +954,10 @@ class CreditDecisionLoanServiceDbTest {
         assertEquals("No", values.get("blist"));
         assertEquals(2L, values.get("bactive"));
         assertEquals("2026-10-21", values.get("bdate"));
+        assertEquals("TU-2026-778", values.get("benq"));
+        assertEquals("Yes", values.get("bfraud"));
+        assertEquals("Rwanda", values.get("resid"), "the newest active address that names a country");
+        assertEquals(29L, values.get("bizMonths"), "whole months from the earliest business start, 2024-05-20");
         assertEquals("Yes", values.get("ddDone"));
         @SuppressWarnings("unchecked")
         final Map<String, Object> diligence = (Map<String, Object>) values.get("ddRes");
@@ -944,20 +968,22 @@ class CreditDecisionLoanServiceDbTest {
         // nothing in the core system holds these, so they are always missing
         assertFalse(values.containsKey("channel"));
         assertFalse(values.containsKey("kyc"));
+        assertFalse(values.containsKey("bbank"));
     }
 
     @Test
     void aFirstTimeCustomerHasNoHistoryRatherThanAPerfectOne() {
         final long current = applicant("A-9");
         final Map<String, Object> values = facts.resolve(current, List.of("cycles", "activeInt", "arrears", "prev", "wo", "dpd", "late", "bscore",
-                "blist", "ddDone", "ddRes", "purpose", "sector"), TODAY);
+                "blist", "ddDone", "ddRes", "purpose", "sector", "benq", "bfraud", "resid", "bizMonths"), TODAY);
 
         assertEquals(0L, values.get("cycles"));
         assertEquals(0L, values.get("activeInt"));
         assertEquals(0, BigDecimal.ZERO.compareTo((BigDecimal) values.get("arrears")));
         assertEquals("NONE", values.get("prev"));
         assertEquals("No", values.get("wo"));
-        for (final String missing : List.of("dpd", "late", "bscore", "blist", "ddDone", "ddRes", "purpose", "sector")) {
+        for (final String missing : List.of("dpd", "late", "bscore", "blist", "ddDone", "ddRes", "purpose", "sector", "benq", "bfraud", "resid",
+                "bizMonths")) {
             assertFalse(values.containsKey(missing), missing + " should be missing");
         }
     }
@@ -972,5 +998,434 @@ class CreditDecisionLoanServiceDbTest {
                     current);
             assertEquals((long) c.getValue()[2], facts.resolve(current, List.of("term"), TODAY).get("term"), c.getKey());
         }
+    }
+
+    @Test
+    void aCleanBureauReportSaysNoFraudAndAnEntityIsTimedFromItsInBusinessSinceDate() {
+        final long loanId = applicant("A-5");
+        final long clientId = jdbc.queryForObject("SELECT client_id FROM m_loan WHERE id = ?", Long.class, loanId);
+        bureau(loanId, "700", 0);
+        jdbc.update("UPDATE m_transunion_crb_summary SET fc_all_sectors = 0");
+        jdbc.update("INSERT INTO m_client_non_person (client_id, in_business_since) VALUES (?, '2026-05-09')", clientId);
+        jdbc.update("INSERT INTO m_address (country_id) VALUES (NULL)");
+        jdbc.update("INSERT INTO m_client_address (client_id, address_id, is_active) VALUES (?, 1, 1)", clientId);
+
+        final Map<String, Object> values = facts.resolve(loanId, List.of("bfraud", "benq", "bizMonths", "resid"), TODAY);
+
+        assertEquals("No", values.get("bfraud"));
+        assertEquals(6L, values.get("bizMonths"));
+        assertFalse(values.containsKey("benq"), "a report without a reference sends none");
+        assertFalse(values.containsKey("resid"), "an address that names no country says nothing about residence");
+    }
+
+    // ---------------------------------------------------------------- one send at a time, and the request identifier
+
+    private long claimedLoan() {
+        final long loanId = readyApplication();
+        jdbc.update("UPDATE m_loan_credit_decision SET send_started_on = ? WHERE loan_id = ?",
+                java.sql.Timestamp.valueOf(org.apache.fineract.infrastructure.core.service.DateUtils.getLocalDateTimeOfSystem()), loanId);
+        return loanId;
+    }
+
+    @Test
+    void aSecondSendIsRefusedWhileOneIsUnderWay() {
+        final long loanId = claimedLoan();
+
+        assertTrue(service.status(loanId).getBlockers().contains(CreditDecisionLoanData.BLOCKER_SEND_IN_PROGRESS));
+        final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class, () -> service.send(loanId));
+        assertEquals("error.msg.creditdecision.loan.send.in.progress", e.getGlobalisationMessageCode());
+        assertTrue(engine.bodies.isEmpty());
+        assertNotNull(jdbc.queryForObject("SELECT send_started_on FROM m_loan_credit_decision WHERE loan_id = ?", java.sql.Timestamp.class,
+                loanId), "the send that is under way keeps its claim");
+    }
+
+    @Test
+    void theClaimIsAtomicSoTwoSendsThatBothPassedTheChecksCannotBothRun() {
+        final long loanId = readyApplication();
+        // both have passed the checks, one of them claims first: the other finds the claim and is told so
+        final int first = jdbc.update("UPDATE m_loan_credit_decision SET send_started_on = NOW() WHERE loan_id = ? "
+                + "AND (send_started_on IS NULL OR send_started_on < NOW() - INTERVAL 5 MINUTE)", loanId);
+        final int second = jdbc.update("UPDATE m_loan_credit_decision SET send_started_on = NOW() WHERE loan_id = ? "
+                + "AND (send_started_on IS NULL OR send_started_on < NOW() - INTERVAL 5 MINUTE)", loanId);
+        assertEquals(1, first);
+        assertEquals(0, second);
+    }
+
+    @Test
+    void aClaimLeftByASendThatDiedStopsHoldingAnythingBack() {
+        final long loanId = readyApplication();
+        jdbc.update("UPDATE m_loan_credit_decision SET send_started_on = ? WHERE loan_id = ?",
+                java.sql.Timestamp.valueOf(org.apache.fineract.infrastructure.core.service.DateUtils.getLocalDateTimeOfSystem().minusHours(1)), loanId);
+
+        assertFalse(service.status(loanId).getBlockers().contains(CreditDecisionLoanData.BLOCKER_SEND_IN_PROGRESS));
+        assertEquals(CreditDecisionLoanData.DECIDED, service.send(loanId).getRequestStatus());
+    }
+
+    @Test
+    void theClaimIsReleasedWhateverBecomesOfTheSend() {
+        final long loanId = readyApplication();
+        engine.script.add(new IOException("connection refused"));
+        service.send(loanId);
+        assertNull(jdbc.queryForObject("SELECT send_started_on FROM m_loan_credit_decision WHERE loan_id = ?", java.sql.Timestamp.class,
+                loanId));
+        service.send(loanId);
+        assertNull(jdbc.queryForObject("SELECT send_started_on FROM m_loan_credit_decision WHERE loan_id = ?", java.sql.Timestamp.class,
+                loanId));
+
+        // a send that is held back for missing details releases it too
+        final long held = applicant("A-2"); // no bureau report, which the profile needs
+        service.setRequired(held, true);
+        service.verify(held, null);
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.send(held));
+        assertNull(jdbc.queryForObject("SELECT send_started_on FROM m_loan_credit_decision WHERE loan_id = ?", java.sql.Timestamp.class, held));
+    }
+
+    @Test
+    void aSendThatIsRunningIsNotJoinedByAnother() throws Exception {
+        final long loanId = readyApplication();
+        final java.util.concurrent.CountDownLatch inEngine = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        final CreditDecisionLoanService slow = new CreditDecisionLoanService(jdbc, context, profiles, facts,
+                (url, body, timeout, token) -> {
+                    inEngine.countDown();
+                    try {
+                        release.await(20, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (final InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return reply("{\"recommendation\":\"AUTO_APPROVE\"}");
+                }, published::add);
+
+        final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            final java.util.concurrent.Future<LoanDecisionData> running = pool.submit(() -> slow.send(loanId));
+            assertTrue(inEngine.await(20, java.util.concurrent.TimeUnit.SECONDS));
+
+            assertThrows(GeneralPlatformDomainRuleException.class, () -> service.send(loanId));
+            assertTrue(engine.bodies.isEmpty(), "the second send never reached the engine");
+
+            release.countDown();
+            assertEquals(CreditDecisionLoanData.DECIDED, running.get(20, java.util.concurrent.TimeUnit.SECONDS).getRequestStatus());
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void theRequestIdentifierIsKeptAndSharedWithTheLog() {
+        final long loanId = readyApplication();
+        final LoanDecisionData sent = service.send(loanId);
+
+        assertNotNull(sent.getRequestId());
+        assertTrue(sent.getRequestId().startsWith("req_"));
+        assertTrue(sent.getRequestJson().contains("\"requestId\":\"" + sent.getRequestId() + "\""));
+        assertEquals(sent.getRequestId(), jdbc.queryForObject("SELECT request_id FROM m_credit_decision_log", String.class));
+    }
+
+    @Test
+    void aFailedSendIsAskedAgainWithTheSameIdentifierWhileNothingInItHasChanged() {
+        final long loanId = readyApplication();
+        engine.script.add(new IOException("connection refused"));
+        final String first = service.send(loanId).getRequestId();
+        service.send(loanId); // answered, the engine's default reply is usable
+
+        assertEquals(2, engine.bodies.size());
+        assertTrue(engine.bodies.get(1).contains(first), "the retry carries the identifier of the request that failed");
+        assertEquals(first, service.status(loanId).getRequestId());
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM m_credit_decision_log WHERE request_id = ?", Integer.class, first));
+    }
+
+    @Test
+    void aRequestWhoseContentChangedGetsANewIdentifier() {
+        final long loanId = readyApplication();
+        engine.script.add(new IOException("connection refused"));
+        final String first = service.send(loanId).getRequestId();
+        jdbc.update("UPDATE m_loan SET principal_amount_proposed = 55000 WHERE id = ?", loanId);
+
+        final String second = service.send(loanId).getRequestId();
+
+        assertFalse(first.equals(second), "different details are a different request");
+    }
+
+    @Test
+    void askingAgainAfterAnOutcomeIsANewRequest() {
+        final long loanId = readyApplication();
+        engine.script.add(reply("{\"recommendation\":\"IC_REVIEW_REQUIRED\"}"));
+        final String first = service.send(loanId).getRequestId();
+        final String second = service.send(loanId).getRequestId();
+
+        assertFalse(first.equals(second));
+    }
+
+    // ---------------------------------------------------------------- failed scoring: retries, queue and alert
+
+    private List<CreditDecisionScoringFailed> alerts() {
+        final List<CreditDecisionScoringFailed> out = new ArrayList<>();
+        for (final Object event : published) {
+            if (event instanceof CreditDecisionScoringFailed) {
+                out.add((CreditDecisionScoringFailed) event);
+            }
+        }
+        return out;
+    }
+
+    private void fail(final long loanId) {
+        engine.script.add(new IOException("connection refused"));
+        service.send(loanId);
+    }
+
+    @Test
+    void theFirstFailureIsRetriedLaterAndNobodyIsAlertedYet() {
+        final long loanId = readyApplication();
+        final java.time.LocalDateTime before = org.apache.fineract.infrastructure.core.service.DateUtils.getLocalDateTimeOfSystem();
+
+        fail(loanId);
+
+        final LoanDecisionData status = service.status(loanId);
+        assertEquals(1, status.getFailureCount());
+        final java.time.LocalDateTime next = java.time.LocalDateTime.parse(status.getNextRetryOn());
+        assertTrue(next.isAfter(before.plusMinutes(4)) && next.isBefore(before.plusMinutes(6)), "the first retry is in 5 minutes: " + next);
+        assertNull(status.getAlertedOn());
+        assertTrue(alerts().isEmpty());
+    }
+
+    @Test
+    void theRetriesBackOffAndTheCreditTeamIsAlertedWhenTheyRunOut() {
+        final long loanId = readyApplication();
+        final int[] expectedMinutes = { 5, 15, 60, 240 };
+        for (int failure = 1; failure <= 4; failure++) {
+            fail(loanId);
+            final java.sql.Timestamp attempted = jdbc.queryForObject("SELECT last_attempt_on FROM m_loan_credit_decision WHERE loan_id = ?",
+                    java.sql.Timestamp.class, loanId);
+            final java.sql.Timestamp next = jdbc.queryForObject("SELECT next_retry_on FROM m_loan_credit_decision WHERE loan_id = ?",
+                    java.sql.Timestamp.class, loanId);
+            assertEquals(expectedMinutes[failure - 1], java.time.Duration.between(attempted.toLocalDateTime(), next.toLocalDateTime()).toMinutes());
+            assertTrue(alerts().isEmpty(), "no alert while there are retries left");
+        }
+
+        fail(loanId);
+
+        final LoanDecisionData status = service.status(loanId);
+        assertEquals(5, status.getFailureCount());
+        assertNull(status.getNextRetryOn(), "nothing more is tried by itself");
+        assertNotNull(status.getAlertedOn());
+        assertEquals(1, alerts().size());
+        assertEquals(loanId, (long) alerts().get(0).getLoanId());
+        assertEquals("A-1", alerts().get(0).getApplicationRef());
+        assertEquals(5, alerts().get(0).getFailures());
+        assertTrue(alerts().get(0).isRetriesExhausted());
+        assertTrue(alerts().get(0).getMessage().contains("could not be reached"));
+
+        // a person can still send it, and the failures stay counted until it succeeds
+        fail(loanId);
+        assertEquals(6, service.status(loanId).getFailureCount());
+        assertEquals(CreditDecisionLoanData.DECIDED, service.send(loanId).getRequestStatus());
+        final LoanDecisionData decided = service.status(loanId);
+        assertEquals(0, decided.getFailureCount());
+        assertNull(decided.getNextRetryOn());
+        assertNull(decided.getAlertedOn());
+    }
+
+    @Test
+    void whenTheConnectionSaysAlertTheTeamIsToldAtOnceAndNothingIsRetried() {
+        final long loanId = readyApplication();
+        jdbc.update("UPDATE m_credit_decision_connection SET on_no_reply = 'ALERT' WHERE id = 1");
+
+        fail(loanId);
+
+        assertNull(service.status(loanId).getNextRetryOn());
+        assertEquals(1, alerts().size());
+        assertFalse(alerts().get(0).isRetriesExhausted());
+        assertEquals(0, service.retryDue());
+    }
+
+    @Test
+    void nextRetryFollowsTheBackOffAndEndsWithIt() {
+        final java.sql.Timestamp from = java.sql.Timestamp.valueOf("2026-11-09 10:00:00");
+        assertNull(CreditDecisionLoanService.nextRetry(from, 0));
+        assertEquals(java.sql.Timestamp.valueOf("2026-11-09 10:05:00"), CreditDecisionLoanService.nextRetry(from, 1));
+        assertEquals(java.sql.Timestamp.valueOf("2026-11-09 14:00:00"), CreditDecisionLoanService.nextRetry(from, 4));
+        assertNull(CreditDecisionLoanService.nextRetry(from, 5));
+    }
+
+    @Test
+    void theJobSendsOnlyWhatIsDueAndTheReplyClearsTheFailure() {
+        final long loanId = readyApplication();
+        fail(loanId);
+        assertEquals(0, service.retryDue(), "the retry is not due yet");
+        assertEquals(1, engine.bodies.size());
+
+        jdbc.update("UPDATE m_loan_credit_decision SET next_retry_on = ? WHERE loan_id = ?",
+                java.sql.Timestamp.valueOf(org.apache.fineract.infrastructure.core.service.DateUtils.getLocalDateTimeOfSystem().minusMinutes(1)), loanId);
+        assertEquals(1, service.retryDue());
+
+        assertEquals(2, engine.bodies.size());
+        final LoanDecisionData status = service.status(loanId);
+        assertEquals(CreditDecisionLoanData.DECIDED, status.getRequestStatus());
+        assertEquals(0, status.getFailureCount());
+        assertEquals(0, service.retryDue(), "an application with an outcome is not picked up again");
+    }
+
+    @Test
+    void theJobStopsAskingForAnApplicationThatCanNoLongerBeScored() {
+        final long loanId = readyApplication();
+        fail(loanId);
+        jdbc.update("UPDATE m_loan_credit_decision SET next_retry_on = ? WHERE loan_id = ?",
+                java.sql.Timestamp.valueOf(org.apache.fineract.infrastructure.core.service.DateUtils.getLocalDateTimeOfSystem().minusMinutes(1)), loanId);
+        jdbc.update("UPDATE m_loan SET loan_status_id = 200 WHERE id = ?", loanId); // approved meanwhile
+
+        assertEquals(0, service.retryDue());
+
+        assertNull(service.status(loanId).getNextRetryOn());
+        assertTrue(service.history(loanId).get(0).getDetail().startsWith("Automatic retry stopped"));
+        assertEquals(1, engine.bodies.size());
+    }
+
+    @Test
+    void theJobLeavesAnApplicationAloneWhileASendIsUnderWay() {
+        final long loanId = readyApplication();
+        fail(loanId);
+        jdbc.update("UPDATE m_loan_credit_decision SET next_retry_on = ?, send_started_on = ? WHERE loan_id = ?",
+                java.sql.Timestamp.valueOf(org.apache.fineract.infrastructure.core.service.DateUtils.getLocalDateTimeOfSystem().minusMinutes(1)),
+                java.sql.Timestamp.valueOf(org.apache.fineract.infrastructure.core.service.DateUtils.getLocalDateTimeOfSystem()), loanId);
+
+        assertEquals(0, service.retryDue());
+
+        assertNotNull(service.status(loanId).getNextRetryOn(), "it is tried again at the next turn");
+    }
+
+    @Test
+    void theExceptionQueueListsWhatNeedsSomebodyOldestFirst() {
+        profile("LIVE", "amount", "bscore");
+        connectEngine();
+
+        // failed
+        final long failed = applicant("A-1");
+        bureau(failed, "688", 0);
+        service.setRequired(failed, true);
+        service.verify(failed, null);
+        fail(failed);
+        // held, for the bureau score it has not got
+        final long held = applicant("A-2");
+        service.setRequired(held, true);
+        service.verify(held, null);
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.send(held));
+        // a send that began and never finished
+        final long stuck = applicant("A-3");
+        bureau(stuck, "688", 0);
+        service.setRequired(stuck, true);
+        service.verify(stuck, null);
+        jdbc.update("UPDATE m_loan_credit_decision SET send_started_on = ? WHERE loan_id = ?",
+                java.sql.Timestamp.valueOf(org.apache.fineract.infrastructure.core.service.DateUtils.getLocalDateTimeOfSystem().minusHours(2)), stuck);
+        // fine: decided, and not flagged
+        final long decided = applicant("A-4");
+        bureau(decided, "688", 0);
+        service.setRequired(decided, true);
+        service.verify(decided, null);
+        service.send(decided);
+        applicant("A-5");
+
+        final List<CreditDecisionLoanData.ExceptionData> queue = service.exceptions();
+
+        assertEquals(3, queue.size());
+        final Map<Long, CreditDecisionLoanData.ExceptionData> byLoan = new java.util.HashMap<>();
+        queue.forEach(x -> byLoan.put(x.getLoanId(), x));
+        assertEquals(CreditDecisionLoanData.EXCEPTION_FAILED, byLoan.get(failed).getKind());
+        assertEquals(1, byLoan.get(failed).getFailureCount());
+        assertNotNull(byLoan.get(failed).getNextRetryOn());
+        assertNotNull(byLoan.get(failed).getRequestId());
+        assertTrue(byLoan.get(failed).getMessage().contains("could not be reached"));
+        assertEquals("A-1", byLoan.get(failed).getApplicationRef());
+        assertEquals("C-A-1", byLoan.get(failed).getCustomerRef());
+        assertEquals(CreditDecisionLoanData.EXCEPTION_HELD, byLoan.get(held).getKind());
+        assertTrue(byLoan.get(held).getMessage().contains("Bureau score"), byLoan.get(held).getMessage());
+        assertEquals(CreditDecisionLoanData.EXCEPTION_STUCK, byLoan.get(stuck).getKind());
+        assertEquals(stuck, queue.get(0).getLoanId(), "the send that began two hours ago is the oldest");
+
+        // one that is approved meanwhile leaves the queue, and so does one whose details were completed and sent
+        jdbc.update("UPDATE m_loan SET loan_status_id = 200 WHERE id = ?", failed);
+        bureau(held, "640", 0);
+        service.send(held);
+        jdbc.update("UPDATE m_loan_credit_decision SET send_started_on = NULL WHERE loan_id = ?", stuck);
+        assertEquals(0, service.exceptions().size());
+    }
+
+    @Test
+    void reopeningTheVerificationClearsWhatWasKeptAboutTheFailures() {
+        final long loanId = readyApplication();
+        fail(loanId);
+        service.unverify(loanId);
+
+        final LoanDecisionData status = service.status(loanId);
+        assertEquals(0, status.getFailureCount());
+        assertNull(status.getNextRetryOn());
+        assertNull(status.getRequestId());
+        assertTrue(service.exceptions().isEmpty());
+    }
+
+    @Test
+    void theRetryJobIsScheduledEveryFiveMinutes() {
+        assertEquals("0 */5 * * * ?", jdbc.queryForObject("SELECT cron_expression FROM job WHERE name = 'Retry Failed Credit Decisions'",
+                String.class));
+        assertEquals(1, jdbc.queryForObject("SELECT is_active FROM job WHERE name = 'Retry Failed Credit Decisions'", Integer.class));
+    }
+
+    // ---------------------------------------------------------------- the alert
+
+    @Test
+    void theAlertGoesToEveryEnabledUserWhoCanSendARequest() {
+        jdbc.update("INSERT INTO m_permission (code) VALUES ('ALL_FUNCTIONS'), ('READ_LOAN')");
+        final long all = jdbc.queryForObject("SELECT id FROM m_permission WHERE code = 'ALL_FUNCTIONS'", Long.class);
+        final long send = jdbc.queryForObject("SELECT id FROM m_permission WHERE code = 'SEND_CREDITDECISIONLOAN'", Long.class);
+        final long read = jdbc.queryForObject("SELECT id FROM m_permission WHERE code = 'READ_LOAN'", Long.class);
+        jdbc.update("INSERT INTO m_role (name) VALUES ('Admin'), ('Credit'), ('Reader')");
+        final long admin = jdbc.queryForObject("SELECT id FROM m_role WHERE name = 'Admin'", Long.class);
+        final long credit = jdbc.queryForObject("SELECT id FROM m_role WHERE name = 'Credit'", Long.class);
+        final long reader = jdbc.queryForObject("SELECT id FROM m_role WHERE name = 'Reader'", Long.class);
+        jdbc.update("INSERT INTO m_role_permission (role_id, permission_id) VALUES (?, ?), (?, ?), (?, ?)", admin, all, credit, send, reader, read);
+        jdbc.update("INSERT INTO m_appuser (username, is_deleted, enabled) VALUES ('admin', 0, 1), ('analyst', 0, 1), ('reader', 0, 1), "
+                + "('gone', 1, 1), ('off', 0, 0)");
+        final Map<String, Long> users = new java.util.HashMap<>();
+        for (final String name : List.of("admin", "analyst", "reader", "gone", "off")) {
+            users.put(name, jdbc.queryForObject("SELECT id FROM m_appuser WHERE username = ?", Long.class, name));
+        }
+        jdbc.update("INSERT INTO m_appuser_role (appuser_id, role_id) VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)", users.get("admin"), admin,
+                users.get("analyst"), credit, users.get("reader"), reader, users.get("gone"), credit, users.get("off"), credit);
+        final org.apache.fineract.notification.service.NotificationWritePlatformService notifications = mock(
+                org.apache.fineract.notification.service.NotificationWritePlatformService.class);
+        final CreditDecisionAlertListener listener = new CreditDecisionAlertListener(jdbc, notifications);
+
+        listener.onScoringFailed(new CreditDecisionScoringFailed(77L, "A-77", "The decision engine could not be reached", 5, true));
+
+        org.mockito.Mockito.verify(notifications).notify(org.mockito.ArgumentMatchers.eq(List.of(users.get("admin"), users.get("analyst"))),
+                org.mockito.ArgumentMatchers.eq("CREDIT_DECISION"), org.mockito.ArgumentMatchers.eq(77L),
+                org.mockito.ArgumentMatchers.eq("SCORING_FAILED"), org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.contains("A-77 after 5 attempts and will not be retried automatically"),
+                org.mockito.ArgumentMatchers.eq(true));
+    }
+
+    @Test
+    void anAlertThatCannotBeDeliveredNeverBreaksTheSend() {
+        final org.apache.fineract.notification.service.NotificationWritePlatformService notifications = mock(
+                org.apache.fineract.notification.service.NotificationWritePlatformService.class);
+        final CreditDecisionAlertListener listener = new CreditDecisionAlertListener(jdbc, notifications);
+
+        // nobody holds the permission: only logged
+        listener.onScoringFailed(new CreditDecisionScoringFailed(1L, "A-1", "x", 1, false));
+        org.mockito.Mockito.verifyNoInteractions(notifications);
+
+        // the notification service fails: swallowed
+        jdbc.update("INSERT INTO m_permission (code) VALUES ('ALL_FUNCTIONS')");
+        jdbc.update("INSERT INTO m_role (name) VALUES ('Admin2')");
+        jdbc.update("INSERT INTO m_role_permission (role_id, permission_id) SELECT r.id, p.id FROM m_role r, m_permission p "
+                + "WHERE r.name = 'Admin2' AND p.code = 'ALL_FUNCTIONS'");
+        jdbc.update("INSERT INTO m_appuser (username) VALUES ('boss')");
+        jdbc.update("INSERT INTO m_appuser_role (appuser_id, role_id) SELECT u.id, r.id FROM m_appuser u, m_role r "
+                + "WHERE u.username = 'boss' AND r.name = 'Admin2'");
+        when(notifications.notify(org.mockito.ArgumentMatchers.<java.util.Collection<Long>>any(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyBoolean())).thenThrow(new IllegalStateException("down"));
+        listener.onScoringFailed(new CreditDecisionScoringFailed(1L, "A-1", "x", 1, false));
     }
 }

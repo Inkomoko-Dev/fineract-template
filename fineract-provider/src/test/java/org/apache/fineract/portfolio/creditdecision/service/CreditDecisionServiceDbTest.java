@@ -97,6 +97,10 @@ class CreditDecisionServiceDbTest {
         jdbc.execute("CREATE TABLE m_permission (id BIGINT AUTO_INCREMENT PRIMARY KEY, `grouping` VARCHAR(45), code VARCHAR(100) UNIQUE, "
                 + "entity_name VARCHAR(100), action_name VARCHAR(100), can_maker_checker TINYINT(1))");
         jdbc.execute("CREATE TABLE m_loan (id BIGINT AUTO_INCREMENT PRIMARY KEY)");
+        jdbc.execute("CREATE TABLE job (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), display_name VARCHAR(100), "
+                + "cron_expression VARCHAR(100), create_time DATETIME, task_priority SMALLINT, group_name VARCHAR(100), job_key VARCHAR(500), "
+                + "is_active TINYINT(1), currently_running TINYINT(1), updates_allowed TINYINT(1), scheduler_group SMALLINT, "
+                + "is_misfired TINYINT(1), node_id INT, is_mismatched_job TINYINT(1))");
         jdbc.execute("CREATE TABLE m_role (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100))");
         jdbc.execute("CREATE TABLE m_role_permission (role_id BIGINT, permission_id BIGINT)");
         jdbc.execute("CREATE TABLE c_configuration (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), value BIGINT NULL, "
@@ -310,6 +314,42 @@ class CreditDecisionServiceDbTest {
         assertTrue(saved.isEnabled());
         assertEquals("ALERT", saved.getOnNoReply());
         assertEquals("credit.analyst", saved.getUpdatedBy());
+    }
+
+    @Test
+    void theLogKeepsTheRequestIdentifierRiskTierAndModelVersionAndFiltersByThem() {
+        for (final String[] row : new String[][] { { "10301", "req_aaa", "LOW", "1.0" }, { "10302", "req_bbb", "HIGH", "1.0" },
+                { "10303", "req_ccc", "LOW", "1.1" } }) {
+            final LogEntryData entry = new LogEntryData();
+            entry.setApplicationRef(row[0]);
+            entry.setRequestId(row[1]);
+            entry.setRiskTier(row[2]);
+            entry.setModelVersion(row[3]);
+            entry.setStatus("DECIDED");
+            entry.setDecision("AUTO_APPROVE");
+            entry.setMaxExposure(new BigDecimal("500000"));
+            service.recordLog(entry);
+        }
+
+        final LogEntryData stored = logs.page(filter(null, "10301")).getContent().get(0);
+        assertEquals("req_aaa", stored.getRequestId());
+        assertEquals("LOW", stored.getRiskTier());
+        assertEquals("1.0", stored.getModelVersion());
+        assertEquals(0, new BigDecimal("500000").compareTo(stored.getMaxExposure()));
+
+        final LogFilter byTier = new LogFilter();
+        byTier.setRiskTier("LOW");
+        assertEquals(2, logs.page(byTier).getTotal());
+        final LogFilter byModel = new LogFilter();
+        byModel.setModelVersion("1.1");
+        assertEquals(1, logs.page(byModel).getTotal());
+        byModel.setRiskTier("HIGH");
+        assertEquals(0, logs.page(byModel).getTotal(), "the filters narrow each other");
+        assertEquals(1, logs.page(filter(null, "req_bbb")).getTotal(), "the request identifier can be searched for");
+
+        final LogPageData page = logs.page(new LogFilter());
+        assertEquals(java.util.List.of("HIGH", "LOW"), page.getRiskTiers());
+        assertEquals(java.util.List.of("1.0", "1.1"), page.getModelVersions());
     }
 
     @Test

@@ -35,8 +35,8 @@ import org.springframework.stereotype.Component;
 /**
  * Reads the values the catalogue talks about for one loan application, from the loan, the client, their loan history,
  * the credit bureau report and the due diligence. A key that cannot be worked out is left out of the result, which the
- * profile then treats as missing data. Channel and KYC status are not held anywhere in the core system, so they are
- * always missing until a source is added.
+ * profile then treats as missing data. Channel, KYC status and bankruptcy are not held anywhere in the core system, so
+ * they are always missing until a source is added.
  */
 @Component
 @RequiredArgsConstructor
@@ -124,12 +124,20 @@ public class CreditDecisionLoanFacts {
                     return bureauNumber("open_accounts_all_sectors", false);
                 case "bdate":
                     return bureauReportDate();
+                case "benq":
+                    return bureauEnquiryReference();
+                case "bfraud":
+                    return bureauNumber("fc_all_sectors", true);
+                case "resid":
+                    return countryOfResidence();
+                case "bizMonths":
+                    return monthsInBusiness();
                 case "ddDone":
                     return diligence() == null ? null : (isTrue(diligence().get("is_due_diligence_signed")) ? YES : NO);
                 case "ddRes":
                     return dueDiligenceResult();
                 default:
-                    // channel and kyc: not held anywhere yet
+                    // channel, kyc and bankruptcy: not held anywhere yet
                     return null;
             }
         }
@@ -177,6 +185,34 @@ public class CreditDecisionLoanFacts {
             if (since == null) {
                 since = date(client.get("activation_date"));
             }
+            return since == null || since.isAfter(today) ? null : (Object) ChronoUnit.MONTHS.between(since, today);
+        }
+
+        /** The country on the client's address that is in use, the newest one if there are several. */
+        private Object countryOfResidence() {
+            final Long id = clientId();
+            if (id == null) {
+                return null;
+            }
+            final List<String> rows = jdbc.queryForList("SELECT cv.code_value FROM m_client_address ca "
+                    + "JOIN m_address a ON a.id = ca.address_id JOIN m_code_value cv ON cv.id = a.country_id "
+                    + "WHERE ca.client_id = ? AND ca.is_active = 1 ORDER BY ca.id DESC LIMIT 1", String.class, id);
+            return rows.isEmpty() ? null : rows.get(0);
+        }
+
+        /**
+         * Whole months since the business was started: the earliest start date on the client's business details, or for
+         * a business entity the "in business since" date.
+         */
+        private Object monthsInBusiness() {
+            final Long id = clientId();
+            if (id == null) {
+                return null;
+            }
+            final List<Date> rows = jdbc.queryForList("SELECT MIN(started) FROM (SELECT business_creation_date AS started FROM "
+                    + "m_business_detail WHERE client_id = ? UNION ALL SELECT in_business_since FROM m_client_non_person WHERE client_id = ?) b",
+                    Date.class, id, id);
+            final LocalDate since = rows.isEmpty() || rows.get(0) == null ? null : rows.get(0).toLocalDate();
             return since == null || since.isAfter(today) ? null : (Object) ChronoUnit.MONTHS.between(since, today);
         }
 
@@ -297,7 +333,8 @@ public class CreditDecisionLoanFacts {
             }
             if (bureauSummary == null) {
                 final List<Map<String, Object>> rows = jdbc.queryForList(
-                        "SELECT npa_accounts_all_sectors, open_accounts_all_sectors FROM m_transunion_crb_summary WHERE header_id = ? "
+                        "SELECT npa_accounts_all_sectors, open_accounts_all_sectors, fc_all_sectors FROM m_transunion_crb_summary "
+                                + "WHERE header_id = ? "
                                 + "ORDER BY id DESC LIMIT 1",
                         header());
                 bureauSummary = rows.isEmpty() ? Map.of() : rows.get(0);
@@ -317,6 +354,16 @@ public class CreditDecisionLoanFacts {
             final List<String> rows = jdbc.queryForList("SELECT report_date FROM m_transunion_crb_header WHERE id = ?", String.class,
                     header());
             return rows.isEmpty() || rows.get(0) == null || rows.get(0).isBlank() ? null : rows.get(0);
+        }
+
+        /** The reference the bureau gave the enquiry, so the engine and the bureau can be matched up. */
+        private Object bureauEnquiryReference() {
+            if (header() == null) {
+                return null;
+            }
+            final List<String> rows = jdbc.queryForList("SELECT request_no FROM m_transunion_crb_header WHERE id = ?", String.class,
+                    header());
+            return rows.isEmpty() || rows.get(0) == null || rows.get(0).isBlank() ? null : rows.get(0).trim();
         }
 
         // ---------------------------------------------------------------- due diligence

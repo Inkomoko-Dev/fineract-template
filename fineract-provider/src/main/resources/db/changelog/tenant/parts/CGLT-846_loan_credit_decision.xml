@@ -134,6 +134,45 @@
         </sql>
     </changeSet>
 
+    <!-- One send at a time per application, a request identifier that is kept so a retry can reuse it, and what is needed to
+         retry a failed send by the clock and to alert the credit team: how many sends failed in a row, when the next
+         automatic retry is due, and whether the team was told. send_started_on is the claim a running send holds. -->
+
+    <changeSet id="CGLT-846-credit-decision-send-lock-and-retry" author="omoi">
+        <sql>
+            ALTER TABLE m_loan_credit_decision ADD COLUMN request_id VARCHAR(40) NULL, ADD COLUMN send_started_on DATETIME NULL,
+                ADD COLUMN last_attempt_on DATETIME NULL, ADD COLUMN failure_count INT NOT NULL DEFAULT 0,
+                ADD COLUMN next_retry_on DATETIME NULL, ADD COLUMN alerted_on DATETIME NULL;
+            CREATE INDEX idx_loan_credit_decision_retry ON m_loan_credit_decision (request_status, next_retry_on);
+            ALTER TABLE m_credit_decision_log ADD COLUMN request_id VARCHAR(40) NULL;
+            CREATE INDEX idx_credit_decision_log_request ON m_credit_decision_log (request_id);
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-846-retry-failed-credit-decisions-job" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM job WHERE name = 'Retry Failed Credit Decisions'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="job">
+            <column name="name" value="Retry Failed Credit Decisions"/>
+            <column name="display_name" value="Retry Failed Credit Decisions"/>
+            <column name="cron_expression" value="0 */5 * * * ?"/>
+            <column name="create_time" valueDate="NOW()"/>
+            <column name="task_priority" valueNumeric="5"/>
+            <column name="group_name"/>
+            <column name="job_key" value="Retry Failed Credit Decisions _ DEFAULT"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="currently_running" valueBoolean="false"/>
+            <column name="updates_allowed" valueBoolean="true"/>
+            <column name="scheduler_group" valueNumeric="0"/>
+            <column name="is_misfired" valueBoolean="false"/>
+            <column name="node_id" valueNumeric="1"/>
+            <column name="is_mismatched_job" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
     <changeSet id="CGLT-846-loan-credit-decision-permissions" author="omoi">
         <sql>
             INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)

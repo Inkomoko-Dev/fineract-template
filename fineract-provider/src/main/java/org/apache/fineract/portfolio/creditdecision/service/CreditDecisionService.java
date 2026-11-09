@@ -328,13 +328,13 @@ public class CreditDecisionService {
         return insert(
                 "INSERT INTO m_credit_decision_log (application_ref, loan_id, customer_ref, profile_id, profile_name, version_no, mode, "
                         + "provider, status, decision, score, reason_codes, reply_ms, next_step, request_json, reply_json, created_on, "
-                        + "risk_tier, max_exposure, model_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        + "risk_tier, max_exposure, model_version, request_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 entry.getApplicationRef().trim(), entry.getLoanId(), entry.getCustomerRef(), entry.getProfileId(), entry.getProfileName(),
                 entry.getVersionNo(), entry.getMode(),
                 entry.getProvider() == null || entry.getProvider().isBlank() ? conn.getProvider() : entry.getProvider(), status,
                 entry.getDecision(), entry.getScore(), entry.getReasonCodes(), entry.getReplyMs(), entry.getNextStep(),
                 entry.getRequestJson(), entry.getReplyJson(), Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem()), entry.getRiskTier(),
-                entry.getMaxExposure(), entry.getModelVersion());
+                entry.getMaxExposure(), entry.getModelVersion(), entry.getRequestId());
     }
 
     // ------------------------------------------------------------------ helpers

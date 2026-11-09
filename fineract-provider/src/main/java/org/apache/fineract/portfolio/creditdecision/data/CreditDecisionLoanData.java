@@ -59,6 +59,12 @@ public final class CreditDecisionLoanData {
     public static final String BLOCKER_PROFILE_OFF = "PROFILE_OFF";
     public static final String BLOCKER_NO_ACTIVE_VERSION = "NO_ACTIVE_VERSION";
     public static final String BLOCKER_ENGINE_NOT_CONNECTED = "ENGINE_NOT_CONNECTED";
+    public static final String BLOCKER_SEND_IN_PROGRESS = "SEND_IN_PROGRESS";
+
+    /** What is wrong with an application in the exception queue. */
+    public static final String EXCEPTION_FAILED = "FAILED";
+    public static final String EXCEPTION_HELD = "HELD";
+    public static final String EXCEPTION_STUCK = "STUCK";
 
     /** The decision profile that covers a loan product, whatever state its versions are in. */
     @Getter
@@ -114,6 +120,12 @@ public final class CreditDecisionLoanData {
         private final String modelVersion;
         private final Integer replyMs;
         private final String errorMessage;
+        /** The identifier of the request that was sent. A retry of the same request keeps it, so the engine can recognise it. */
+        private final String requestId;
+        /** How many sends have failed in a row, when the next automatic retry is due, and when the credit team was alerted. */
+        private final int failureCount;
+        private final String nextRetryOn;
+        private final String alertedOn;
         private final String provider;
         /** The profile and version the request was built from, kept even if the profile has changed since. */
         private final String requestedProfileName;
@@ -165,5 +177,26 @@ public final class CreditDecisionLoanData {
         private final BigDecimal score;
         /** The decision log row holding the request and the reply, for a request that was sent. */
         private final Long logId;
+    }
+
+    /** An application that needs somebody's attention because its scoring did not go through. */
+    @Getter
+    @Builder
+    public static class ExceptionData {
+
+        private final Long loanId;
+        private final String applicationRef;
+        private final String customerRef;
+        private final String productName;
+        /** FAILED (the engine did not give a usable reply), HELD (details missing) or STUCK (a send that never finished). */
+        private final String kind;
+        private final String message;
+        private final int failureCount;
+        private final String lastAttemptOn;
+        /** Null when no automatic retry is planned. */
+        private final String nextRetryOn;
+        /** Set once the credit team was told. */
+        private final String alertedOn;
+        private final String requestId;
     }
 }

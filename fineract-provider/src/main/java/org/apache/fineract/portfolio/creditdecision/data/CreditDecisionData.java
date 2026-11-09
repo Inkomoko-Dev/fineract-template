@@ -166,6 +166,8 @@ public final class CreditDecisionData {
         private String riskTier;
         private BigDecimal maxExposure;
         private String modelVersion;
+        /** The identifier the request carried, shared by the sends of one request that was retried. */
+        private String requestId;
     }
 
     /** How many log rows each outcome has, under every filter except the outcome itself, so the filter tabs can show counts. */
@@ -192,6 +194,9 @@ public final class CreditDecisionData {
         private final int pageSize;
         private final int totalPages;
         private final LogCounts counts;
+        /** The risk tiers and model versions the log holds, to offer as filters. */
+        private final List<String> riskTiers;
+        private final List<String> modelVersions;
     }
 
     /** What the log can be narrowed by. Everything is optional; a blank value means no narrowing. */
@@ -207,8 +212,12 @@ public final class CreditDecisionData {
         private Long profileId;
         /** OFF, SHADOW or LIVE. */
         private String mode;
-        /** Part of the application or customer reference. */
+        /** Part of the application or customer reference, or the request identifier. */
         private String search;
+        /** The risk tier the engine reported, exactly. */
+        private String riskTier;
+        /** The model version the engine reported, exactly. */
+        private String modelVersion;
         /** Part of the reason codes. */
         private String reason;
         /** First day, as yyyy-MM-dd. */

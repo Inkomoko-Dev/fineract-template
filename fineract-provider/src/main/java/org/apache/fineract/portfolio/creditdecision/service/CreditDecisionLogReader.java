@@ -55,7 +55,7 @@ public class CreditDecisionLogReader {
             "created_on ASC, id ASC", "score_desc", "score DESC, id DESC", "score_asc", "score IS NULL, score ASC, id ASC");
 
     private static final String LIST_COLUMNS = "id, application_ref, loan_id, customer_ref, profile_id, profile_name, version_no, mode, "
-            + "provider, status, decision, score, reason_codes, reply_ms, next_step, created_on, risk_tier, max_exposure, model_version";
+            + "provider, status, decision, score, reason_codes, reply_ms, next_step, created_on, risk_tier, max_exposure, model_version, request_id";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -115,7 +115,13 @@ public class CreditDecisionLogReader {
         args.add((long) (page - 1) * pageSize);
         final List<LogEntryData> rows = jdbcTemplate.query("SELECT " + LIST_COLUMNS + " FROM m_credit_decision_log" + narrowed.sql
                 + " ORDER BY " + SORTS.get(sortKey) + " LIMIT ? OFFSET ?", (rs, i) -> entry(rs, false), args.toArray());
-        return new LogPageData(rows, total, page, pageSize, totalPages, counts);
+        return new LogPageData(rows, total, page, pageSize, totalPages, counts, distinct("risk_tier"), distinct("model_version"));
+    }
+
+    /** What a column holds, for the filters to offer. Capped, since a model version is free text from the engine. */
+    private List<String> distinct(final String column) {
+        return jdbcTemplate.queryForList("SELECT DISTINCT " + column + " FROM m_credit_decision_log WHERE " + column
+                + " IS NOT NULL AND " + column + " <> '' ORDER BY " + column + " LIMIT 50", String.class);
     }
 
     /** One entry in full, with the request and the reply. */
@@ -139,7 +145,13 @@ public class CreditDecisionLogReader {
         }
         if (!blank(filter.getSearch())) {
             final String like = "%" + escapeLike(filter.getSearch().trim()) + "%";
-            where.and("(application_ref LIKE ? OR customer_ref LIKE ?)", like, like);
+            where.and("(application_ref LIKE ? OR customer_ref LIKE ? OR request_id LIKE ?)", like, like, like);
+        }
+        if (!blank(filter.getRiskTier())) {
+            where.and("risk_tier = ?", filter.getRiskTier().trim());
+        }
+        if (!blank(filter.getModelVersion())) {
+            where.and("model_version = ?", filter.getModelVersion().trim());
         }
         if (!blank(filter.getReason())) {
             where.and("reason_codes LIKE ?", "%" + escapeLike(filter.getReason().trim()) + "%");
@@ -169,7 +181,7 @@ public class CreditDecisionLogReader {
                 rs.getString("decision"), rs.getBigDecimal("score"), rs.getString("reason_codes"), (Integer) rs.getObject("reply_ms"),
                 rs.getString("next_step"), withBodies ? rs.getString("request_json") : null,
                 withBodies ? rs.getString("reply_json") : null, rs.getTimestamp("created_on").toLocalDateTime().toString(),
-                rs.getString("risk_tier"), rs.getBigDecimal("max_exposure"), rs.getString("model_version"));
+                rs.getString("risk_tier"), rs.getBigDecimal("max_exposure"), rs.getString("model_version"), rs.getString("request_id"));
     }
 
     private static String decision(final String raw, final Map<String, String> problems) {

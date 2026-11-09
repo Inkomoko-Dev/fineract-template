@@ -54,7 +54,9 @@ public final class CreditDecisionCatalogue {
         groups.add(group("Applicant", "CBS client record", item("age", "applicantAge", "Age", "In completed years", MISSING_NULL),
                 item("tenure", "customerTenureMonths", "Months as a customer", "Since the client was first registered", MISSING_NULL),
                 item("sector", "businessSector", "Business sector", "Main activity of the business", MISSING_NULL),
-                item("kyc", "kycStatus", "KYC status", "Verified, pending or rejected", MISSING_BLOCK)));
+                item("kyc", "kycStatus", "KYC status", "Verified, pending or rejected", MISSING_BLOCK),
+                item("resid", "countryOfResidence", "Country of residence", "Country on the client's active address", MISSING_NULL),
+                item("bizMonths", "monthsInBusiness", "Months in business", "Since the business was started", MISSING_NULL)));
         groups.add(group("Loan history", "CBS loan accounts",
                 item("cycles", "completedCycles", "Completed loan cycles", "Loans fully repaid with Inkomoko", MISSING_NULL),
                 item("dpd", "maxDaysPastDue12m", "Max days past due", "Worst delay in the last 12 months", MISSING_NULL),
@@ -67,7 +69,12 @@ public final class CreditDecisionCatalogue {
                 item("bscore", "bureauScore", "Bureau score", "Score on the latest bureau report", MISSING_BLOCK),
                 item("blist", "bureauListed", "Listed as defaulter", "Flag on the bureau report", MISSING_BLOCK),
                 item("bactive", "bureauActiveLoans", "Active loans at other lenders", "From the bureau report", MISSING_NULL),
-                item("bdate", "bureauReportDate", "Report date", "When the bureau report was pulled", MISSING_NULL)));
+                item("bdate", "bureauReportDate", "Report date", "When the bureau report was pulled", MISSING_NULL),
+                item("benq", "bureauEnquiryReference", "Enquiry reference", "The bureau's reference for the enquiry", MISSING_NULL),
+                item("bfraud", "bureauFraudAlert", "Fraud alert", "Fraud recorded against the client on the bureau report",
+                        MISSING_NULL),
+                item("bbank", "bureauBankruptcy", "Bankruptcy", "Not held yet: the stored bureau report has no bankruptcy field",
+                        MISSING_OMIT)));
         groups.add(group("Due diligence", "IMS and SurveyCTO",
                 item("ddDone", "dueDiligenceCompleted", "Due diligence completed", "Yes or no", MISSING_BLOCK),
                 item("ddRes", "dueDiligenceResult", "Due diligence result", "Recommended amount and finding", MISSING_NULL)));
