@@ -228,6 +228,17 @@ public class LoanProductData implements Serializable {
     private Boolean maintainInterestOnLoanTermExtension;
     private Boolean isIslamic;
     private Boolean enableThirdPartyDisbursement;
+    private String tranchePrincipalPercentages;
+    private BigDecimal previousTrancheRepaidPercentage;
+    private BigDecimal firstInstallmentPrincipal;
+
+    private Boolean firstInstallmentAsPercentage;
+
+    private Integer minTrancheCount;
+
+    private Boolean firstTrancheAsPercentage;
+
+    private BigDecimal firstTrancheAmount;
     private String thirdPartyDisbursementProvider;
     private Collection<String> thirdPartyDisbursementProviderOptions;
     private BigDecimal allowableDSCR;
@@ -1021,6 +1032,13 @@ public class LoanProductData implements Serializable {
         this.thirdPartyDisbursementProvider = productData.thirdPartyDisbursementProvider;
         this.thirdPartyDisbursementProviderOptions = productData.thirdPartyDisbursementProviderOptions;
         this.allowableDSCR = productData.allowableDSCR;
+        this.tranchePrincipalPercentages = productData.tranchePrincipalPercentages;
+        this.previousTrancheRepaidPercentage = productData.previousTrancheRepaidPercentage;
+        this.firstInstallmentPrincipal = productData.firstInstallmentPrincipal;
+        this.firstInstallmentAsPercentage = productData.firstInstallmentAsPercentage;
+        this.minTrancheCount = productData.minTrancheCount;
+        this.firstTrancheAsPercentage = productData.firstTrancheAsPercentage;
+        this.firstTrancheAmount = productData.firstTrancheAmount;
     }
 
     private Collection<ChargeData> nullIfEmpty(final Collection<ChargeData> charges) {
@@ -1532,6 +1550,62 @@ public class LoanProductData implements Serializable {
 
     public void setEnableThirdPartyDisbursement(final Boolean enableThirdPartyDisbursement) {
         this.enableThirdPartyDisbursement = enableThirdPartyDisbursement;
+    }
+
+    public String getTranchePrincipalPercentages() {
+        return tranchePrincipalPercentages;
+    }
+
+    public void setTranchePrincipalPercentages(final String tranchePrincipalPercentages) {
+        this.tranchePrincipalPercentages = tranchePrincipalPercentages;
+    }
+
+    public BigDecimal getPreviousTrancheRepaidPercentage() {
+        return previousTrancheRepaidPercentage;
+    }
+
+    public void setPreviousTrancheRepaidPercentage(final BigDecimal previousTrancheRepaidPercentage) {
+        this.previousTrancheRepaidPercentage = previousTrancheRepaidPercentage;
+    }
+
+    public BigDecimal getFirstInstallmentPrincipal() {
+        return firstInstallmentPrincipal;
+    }
+
+    public void setFirstInstallmentPrincipal(final BigDecimal firstInstallmentPrincipal) {
+        this.firstInstallmentPrincipal = firstInstallmentPrincipal;
+    }
+
+    public Boolean getFirstInstallmentAsPercentage() {
+        return this.firstInstallmentAsPercentage;
+    }
+
+    public void setFirstInstallmentAsPercentage(final Boolean firstInstallmentAsPercentage) {
+        this.firstInstallmentAsPercentage = firstInstallmentAsPercentage;
+    }
+
+    public Integer getMinTrancheCount() {
+        return this.minTrancheCount;
+    }
+
+    public void setMinTrancheCount(final Integer minTrancheCount) {
+        this.minTrancheCount = minTrancheCount;
+    }
+
+    public Boolean getFirstTrancheAsPercentage() {
+        return this.firstTrancheAsPercentage;
+    }
+
+    public void setFirstTrancheAsPercentage(final Boolean firstTrancheAsPercentage) {
+        this.firstTrancheAsPercentage = firstTrancheAsPercentage;
+    }
+
+    public BigDecimal getFirstTrancheAmount() {
+        return this.firstTrancheAmount;
+    }
+
+    public void setFirstTrancheAmount(final BigDecimal firstTrancheAmount) {
+        this.firstTrancheAmount = firstTrancheAmount;
     }
 
     public String getThirdPartyDisbursementProvider() {

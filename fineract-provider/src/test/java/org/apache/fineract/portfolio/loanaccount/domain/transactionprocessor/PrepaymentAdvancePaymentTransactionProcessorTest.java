@@ -131,10 +131,98 @@ class PrepaymentAdvancePaymentTransactionProcessorTest {
 
         processor.handleTransaction(repayment, KES, installments, Set.of());
 
-        // Principal is not inflated beyond the payment: the pro-rata accrued interest on the current
-        // installment (~80.65) is taken first, leaving 9,919.35 mapped to principal.
-        assertAmount("9919.35", repayment.getPrincipalPortion(KES).getAmount());
-        assertAmount("10000.00", repayment.getAmount(KES).getAmount());
+        // Not an early settlement of the whole loan, so each installment is cleared contractually
+        // before any amount moves on. Portions must add back to the cash received, and no later
+        // installment may be touched while an earlier one still has a balance.
+        assertAmount("10000.00", repayment.getPrincipalPortion(KES).getAmount().add(repayment.getInterestPortion(KES).getAmount()));
+        assertNoOutstandingBeforeALaterPayment(installments);
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            assertAmount("0.00", installment.getInterestCancelled(KES).getAmount());
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("processors")
+    void twoEarlyPaymentsThatEqualTheInstallmentDoNotCreateAFalseAdvance(
+            final AbstractLoanRepaymentScheduleTransactionProcessor processor) {
+        final LoanRepaymentScheduleInstallment first = installment(1, LocalDate.of(2026, 9, 14), LocalDate.of(2026, 10, 14), "75000.00",
+                "7500.00");
+        final LoanRepaymentScheduleInstallment second = installment(2, LocalDate.of(2026, 10, 14), LocalDate.of(2026, 11, 14), "75000.00",
+                "7500.00");
+        final List<LoanRepaymentScheduleInstallment> installments = new ArrayList<>(List.of(first, second));
+
+        processor.handleTransaction(repayment("48500.00", LocalDate.of(2026, 9, 30)), KES, installments, Set.of());
+        processor.handleTransaction(repayment("34000.00", LocalDate.of(2026, 10, 10)), KES, installments, Set.of());
+
+        assertAmount("0.00", first.getTotalOutstanding(KES).getAmount());
+        assertAmount("7500.00", first.getInterestPaid(KES).getAmount());
+        assertAmount("75000.00", first.getPrincipalCompleted(KES).getAmount());
+        assertAmount("0.00", first.getInterestCancelled(KES).getAmount());
+        assertAmount("0.00", second.getPrincipalCompleted(KES).getAmount());
+        assertAmount("0.00", second.getInterestPaid(KES).getAmount());
+        assertAmount("0.00", second.getInterestCancelled(KES).getAmount());
+        assertAmount("82500.00", second.getTotalOutstanding(KES).getAmount());
+    }
+
+    @ParameterizedTest
+    @MethodSource("processors")
+    void overpaymentSettlesTheCurrentInstallmentBeforeAnyAdvance(final AbstractLoanRepaymentScheduleTransactionProcessor processor) {
+        final LoanRepaymentScheduleInstallment first = installment(1, LocalDate.of(2026, 9, 14), LocalDate.of(2026, 10, 14), "75000.00",
+                "7500.00");
+        final LoanRepaymentScheduleInstallment second = installment(2, LocalDate.of(2026, 10, 14), LocalDate.of(2026, 11, 14), "75000.00",
+                "7500.00");
+        final List<LoanRepaymentScheduleInstallment> installments = new ArrayList<>(List.of(first, second));
+
+        processor.handleTransaction(repayment("90000.00", LocalDate.of(2026, 10, 10)), KES, installments, Set.of());
+
+        assertAmount("0.00", first.getTotalOutstanding(KES).getAmount());
+        assertAmount("7500.00", first.getInterestPaid(KES).getAmount());
+        assertAmount("0.00", second.getInterestCancelled(KES).getAmount());
+        assertAmount("7500.00", second.getPrincipalCompleted(KES).getAmount().add(second.getInterestPaid(KES).getAmount()));
+    }
+
+    @ParameterizedTest
+    @MethodSource("processors")
+    void underpaymentLeavesTheShortfallOnTheCurrentInstallment(final AbstractLoanRepaymentScheduleTransactionProcessor processor) {
+        final LoanRepaymentScheduleInstallment first = installment(1, LocalDate.of(2026, 9, 14), LocalDate.of(2026, 10, 14), "75000.00",
+                "7500.00");
+        final LoanRepaymentScheduleInstallment second = installment(2, LocalDate.of(2026, 10, 14), LocalDate.of(2026, 11, 14), "75000.00",
+                "7500.00");
+        final List<LoanRepaymentScheduleInstallment> installments = new ArrayList<>(List.of(first, second));
+
+        processor.handleTransaction(repayment("50000.00", LocalDate.of(2026, 10, 10)), KES, installments, Set.of());
+
+        assertAmount("32500.00", first.getTotalOutstanding(KES).getAmount());
+        assertAmount("0.00", second.getPrincipalCompleted(KES).getAmount());
+        assertAmount("0.00", second.getInterestPaid(KES).getAmount());
+        assertAmount("0.00", first.getInterestCancelled(KES).getAmount());
+    }
+
+    private static void assertNoOutstandingBeforeALaterPayment(final List<LoanRepaymentScheduleInstallment> installments) {
+        for (int earlier = 0; earlier < installments.size(); earlier++) {
+            boolean laterInstallmentWasPaid = false;
+            for (int later = earlier + 1; later < installments.size(); later++) {
+                if (installments.get(later).getPrincipalCompleted(KES).isGreaterThanZero()
+                        || installments.get(later).getInterestPaid(KES).isGreaterThanZero()) {
+                    laterInstallmentWasPaid = true;
+                    break;
+                }
+            }
+            if (laterInstallmentWasPaid) {
+                assertAmount("0.00", installments.get(earlier).getTotalOutstanding(KES).getAmount());
+            }
+        }
+    }
+
+    private static LoanRepaymentScheduleInstallment installment(final int number, final LocalDate fromDate, final LocalDate dueDate,
+            final String principal, final String interest) {
+        return new LoanRepaymentScheduleInstallment(null, number, fromDate, dueDate, new BigDecimal(principal), new BigDecimal(interest),
+                BigDecimal.ZERO, BigDecimal.ZERO, false, null);
+    }
+
+    private static LoanTransaction repayment(final String amount, final LocalDate transactionDate) {
+        return LoanTransaction.repaymentType(LoanTransactionType.REPAYMENT, mock(Office.class), Money.of(KES, new BigDecimal(amount)), null,
+                transactionDate, null);
     }
 
     private static BigDecimal defaultZero(final BigDecimal value) {

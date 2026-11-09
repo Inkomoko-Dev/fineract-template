@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet author="inkomoko" id="tranche-percentage-release-columns">
+        <addColumn tableName="m_product_loan">
+            <column name="tranche_principal_percentages" type="VARCHAR(255)"/>
+            <column name="previous_tranche_repaid_percentage" type="DECIMAL(5,2)"/>
+        </addColumn>
+        <createTable tableName="m_loan_tranche_release_notice">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="disbursement_detail_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="notified_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="m_loan_tranche_release_notice"
+                             columnNames="loan_id,disbursement_detail_id"
+                             constraintName="uk_tranche_release_notice"/>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="tranche-release-repayments-report">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                select count(*) from stretchy_report where report_name = 'Tranche release repayments'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report">
+            <column name="report_name" value="Tranche release repayments"/>
+            <column name="report_type" value="Table"/>
+            <column name="report_category" value="Loan"/>
+            <column name="description" value="Repayments that count toward the next tranche once the configured percentage of the previous tranche has been paid."/>
+            <column name="self_service_user_report" valueBoolean="false"/>
+            <column name="report_sql">
+                <![CDATA[
+SELECT
+    ml.account_no AS loanAccount,
+    mc.display_name AS clientName,
+    ms.display_name AS loanOfficer,
+    prev.principal AS previousTranchePrincipal,
+    lp.previous_tranche_repaid_percentage AS requiredPercent,
+    ROUND(prev.principal * lp.previous_tranche_repaid_percentage / 100, 2) AS requiredPrincipal,
+    repaid.principal_repaid AS principalRepaid,
+    lt.id AS repaymentId,
+    lt.transaction_date AS repaymentDate,
+    lt.amount AS repaymentAmount,
+    lt.principal_portion_derived AS principalPortion
+FROM m_loan ml
+JOIN m_product_loan lp ON lp.id = ml.product_id
+LEFT JOIN m_client mc ON mc.id = ml.client_id
+LEFT JOIN m_staff ms ON ms.id = ml.loan_officer_id
+JOIN m_loan_disbursement_detail prev ON prev.loan_id = ml.id AND prev.disbursedon_date IS NOT NULL
+JOIN m_loan_disbursement_detail nxt ON nxt.loan_id = ml.id AND nxt.disbursedon_date IS NULL
+JOIN m_loan_transaction lt ON lt.loan_id = ml.id
+    AND lt.transaction_type_enum = 2
+    AND lt.is_reversed = 0
+    AND lt.transaction_date >= prev.disbursedon_date
+JOIN (
+    SELECT t.loan_id, p.disbursedon_date, COALESCE(SUM(t.principal_portion_derived), 0) AS principal_repaid
+    FROM m_loan_transaction t
+    JOIN m_loan_disbursement_detail p ON p.loan_id = t.loan_id AND p.disbursedon_date IS NOT NULL
+    WHERE t.transaction_type_enum = 2
+      AND t.is_reversed = 0
+      AND t.transaction_date >= p.disbursedon_date
+      AND p.id = (
+          SELECT p2.id FROM m_loan_disbursement_detail p2
+          WHERE p2.loan_id = t.loan_id AND p2.disbursedon_date IS NOT NULL
+          ORDER BY p2.disbursedon_date DESC, p2.id DESC
+          LIMIT 1
+      )
+    GROUP BY t.loan_id, p.disbursedon_date
+) repaid ON repaid.loan_id = ml.id AND repaid.disbursedon_date = prev.disbursedon_date
+WHERE lp.allow_multiple_disbursals = 1
+  AND lp.previous_tranche_repaid_percentage IS NOT NULL
+  AND prev.id = (
+      SELECT p3.id FROM m_loan_disbursement_detail p3
+      WHERE p3.loan_id = ml.id AND p3.disbursedon_date IS NOT NULL
+      ORDER BY p3.disbursedon_date DESC, p3.id DESC
+      LIMIT 1
+  )
+  AND repaid.principal_repaid >= ROUND(prev.principal * lp.previous_tranche_repaid_percentage / 100, 2)
+ORDER BY ml.account_no, lt.transaction_date, lt.id
+]]>
+            </column>
+            <column name="core_report" valueBoolean="false"/>
+            <column name="use_report" valueBoolean="true"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="first-installment-principal-column">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_product_loan" columnName="first_installment_principal"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_product_loan">
+            <column name="first_installment_principal" type="DECIMAL(19,6)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="loan-tranche-setting-overrides">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan" columnName="first_installment_principal"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan">
+            <column name="first_installment_principal" type="DECIMAL(19,6)"/>
+            <column name="tranche_principal_percentages" type="VARCHAR(255)"/>
+            <column name="previous_tranche_repaid_percentage" type="DECIMAL(19,6)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="tranche-release-report-uses-loan-override">
+        <update tableName="stretchy_report">
+            <column name="report_sql">
+                <![CDATA[
+SELECT
+    ml.account_no AS loanAccount,
+    mc.display_name AS clientName,
+    ms.display_name AS loanOfficer,
+    prev.principal AS previousTranchePrincipal,
+    COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) AS requiredPercent,
+    ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2) AS requiredPrincipal,
+    repaid.principal_repaid AS principalRepaid,
+    lt.id AS repaymentId,
+    lt.transaction_date AS repaymentDate,
+    lt.amount AS repaymentAmount,
+    lt.principal_portion_derived AS principalPortion
+FROM m_loan ml
+JOIN m_product_loan lp ON lp.id = ml.product_id
+LEFT JOIN m_client mc ON mc.id = ml.client_id
+LEFT JOIN m_staff ms ON ms.id = ml.loan_officer_id
+JOIN m_loan_disbursement_detail prev ON prev.loan_id = ml.id AND prev.disbursedon_date IS NOT NULL
+JOIN m_loan_disbursement_detail nxt ON nxt.loan_id = ml.id AND nxt.disbursedon_date IS NULL
+JOIN m_loan_transaction lt ON lt.loan_id = ml.id
+    AND lt.transaction_type_enum = 2
+    AND lt.is_reversed = 0
+    AND lt.transaction_date >= prev.disbursedon_date
+JOIN (
+    SELECT t.loan_id, p.disbursedon_date, COALESCE(SUM(t.principal_portion_derived), 0) AS principal_repaid
+    FROM m_loan_transaction t
+    JOIN m_loan_disbursement_detail p ON p.loan_id = t.loan_id AND p.disbursedon_date IS NOT NULL
+    WHERE t.transaction_type_enum = 2
+      AND t.is_reversed = 0
+      AND t.transaction_date >= p.disbursedon_date
+      AND p.id = (
+          SELECT p2.id FROM m_loan_disbursement_detail p2
+          WHERE p2.loan_id = t.loan_id AND p2.disbursedon_date IS NOT NULL
+          ORDER BY p2.disbursedon_date DESC, p2.id DESC
+          LIMIT 1
+      )
+    GROUP BY t.loan_id, p.disbursedon_date
+) repaid ON repaid.loan_id = ml.id AND repaid.disbursedon_date = prev.disbursedon_date
+WHERE lp.allow_multiple_disbursals = 1
+  AND COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) IS NOT NULL
+  AND prev.id = (
+      SELECT p3.id FROM m_loan_disbursement_detail p3
+      WHERE p3.loan_id = ml.id AND p3.disbursedon_date IS NOT NULL
+      ORDER BY p3.disbursedon_date DESC, p3.id DESC
+      LIMIT 1
+  )
+  AND repaid.principal_repaid >= ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2)
+ORDER BY ml.account_no, lt.transaction_date, lt.id
+]]>
+            </column>
+            <where>report_name = 'Tranche release repayments'</where>
+        </update>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="tranche-repaid-minimum">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_disbursement_detail" columnName="previous_tranche_repaid_minimum"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan">
+            <column name="previous_tranche_threshold_as_percentage" type="BOOLEAN"/>
+        </addColumn>
+        <addColumn tableName="m_loan_disbursement_detail">
+            <column name="previous_tranche_repaid_minimum" type="DECIMAL(19,6)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="tranche-row-amount-and-repayment-choice">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_disbursement_detail" columnName="principal_as_percentage"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan_disbursement_detail">
+            <column name="principal_as_percentage" type="BOOLEAN"/>
+            <column name="principal_percentage" type="DECIMAL(19,6)"/>
+            <column name="previous_tranche_repaid_as_percentage" type="BOOLEAN"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="default-first-tranche">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_product_loan" columnName="first_tranche_amount"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_product_loan">
+            <column name="first_tranche_as_percentage" type="BOOLEAN"/>
+            <column name="first_tranche_amount" type="DECIMAL(19,6)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="min-tranche-count">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_product_loan" columnName="min_tranche_count"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_product_loan">
+            <column name="min_tranche_count" type="INT"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="first-installment-as-percentage">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_product_loan" columnName="first_installment_as_percentage"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_product_loan">
+            <column name="first_installment_as_percentage" type="BOOLEAN"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="loan-first-installment-as-percentage">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan" columnName="first_installment_as_percentage"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan">
+            <column name="first_installment_as_percentage" type="BOOLEAN"/>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>

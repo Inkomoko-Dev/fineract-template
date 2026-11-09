@@ -1477,14 +1477,16 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 .build();
     }
 
-    public void validateMultiDisbursementData(final JsonCommand command, LocalDate expectedDisbursementDate) {
+    public void validateMultiDisbursementData(final JsonCommand command, LocalDate expectedDisbursementDate,
+            final LoanProduct loanProduct) {
         final String json = command.json();
         final JsonElement element = this.fromJsonHelper.parse(json);
 
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
         final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan");
         final BigDecimal principal = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("approvedLoanAmount", element);
-        fromApiJsonDeserializer.validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal);
+        fromApiJsonDeserializer.validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal,
+                loanProduct);
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
@@ -1614,7 +1616,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             expectedDisbursementDate = loan.getExpectedDisbursedOnLocalDate();
         }
         if (loan.loanProduct().isMultiDisburseLoan()) {
-            this.validateMultiDisbursementData(command, expectedDisbursementDate);
+            this.validateMultiDisbursementData(command, expectedDisbursementDate, loan.loanProduct());
         }
 
         checkClientOrGroupActive(loan);

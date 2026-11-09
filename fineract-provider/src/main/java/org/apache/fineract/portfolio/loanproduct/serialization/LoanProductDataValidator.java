@@ -43,6 +43,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.calendar.service.CalendarUtils;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
@@ -89,7 +90,10 @@ public final class LoanProductDataValidator {
             LoanProductConstants.INTEREST_RATE_VARIATIONS_FOR_BORROWER_CYCLE_PARAMETER_NAME,
             LoanProductConstants.NUMBER_OF_REPAYMENT_VARIATIONS_FOR_BORROWER_CYCLE_PARAMETER_NAME, LoanProductConstants.SHORT_NAME,
             LoanProductConstants.MULTI_DISBURSE_LOAN_PARAMETER_NAME, LoanProductConstants.OUTSTANDING_LOAN_BALANCE_PARAMETER_NAME,
-            LoanProductConstants.MAX_TRANCHE_COUNT_PARAMETER_NAME, LoanProductConstants.GRACE_ON_ARREARS_AGEING_PARAMETER_NAME,
+            LoanProductConstants.MAX_TRANCHE_COUNT_PARAMETER_NAME, LoanProductConstants.MIN_TRANCHE_COUNT_PARAMETER_NAME, LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES,
+            LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL,
+            LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE,
+            LoanProductConstants.FIRST_TRANCHE_AS_PERCENTAGE, LoanProductConstants.FIRST_TRANCHE_AMOUNT, LoanProductConstants.GRACE_ON_ARREARS_AGEING_PARAMETER_NAME,
             LoanProductConstants.OVERDUE_DAYS_FOR_NPA_PARAMETER_NAME, LoanProductConstants.IS_INTEREST_RECALCULATION_ENABLED_PARAMETER_NAME,
             LoanProductConstants.DAYS_IN_YEAR_TYPE_PARAMETER_NAME, LoanProductConstants.DAYS_IN_MONTH_TYPE_PARAMETER_NAME,
             LoanProductConstants.rescheduleStrategyMethodParameterName,
@@ -869,6 +873,71 @@ public final class LoanProductDataValidator {
                     .extractIntegerNamed(LoanProductConstants.MAX_TRANCHE_COUNT_PARAMETER_NAME, element, Locale.getDefault());
             baseDataValidator.reset().parameter(LoanProductConstants.MAX_TRANCHE_COUNT_PARAMETER_NAME).value(maxTrancheCount).notNull()
                     .integerGreaterThanZero();
+            Integer minTrancheCount = null;
+            if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.MIN_TRANCHE_COUNT_PARAMETER_NAME, element)) {
+                minTrancheCount = this.fromApiJsonHelper.extractIntegerNamed(LoanProductConstants.MIN_TRANCHE_COUNT_PARAMETER_NAME, element,
+                        Locale.getDefault());
+                baseDataValidator.reset().parameter(LoanProductConstants.MIN_TRANCHE_COUNT_PARAMETER_NAME).value(minTrancheCount)
+                        .ignoreIfNull().integerGreaterThanZero();
+            }
+            if (minTrancheCount != null && maxTrancheCount != null && minTrancheCount > maxTrancheCount) {
+                baseDataValidator.reset().parameter(LoanProductConstants.MIN_TRANCHE_COUNT_PARAMETER_NAME).value(minTrancheCount)
+                        .failWithCode("cannot.be.greater.than.max.tranche.count");
+            }
+
+            if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES, element)) {
+                final String percentages = this.fromApiJsonHelper
+                        .extractStringNamed(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES, element);
+                if (percentages != null && !percentages.isBlank()) {
+                    try {
+                        final java.util.List<java.math.BigDecimal> parsed = org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules
+                                .parsePercentages(percentages);
+                        if (maxTrancheCount != null && parsed.size() > maxTrancheCount) {
+                            baseDataValidator.reset().parameter(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES)
+                                    .failWithCode("exceeds.max.tranche.count");
+                        }
+                    } catch (IllegalArgumentException ex) {
+                        baseDataValidator.reset().parameter(LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES).value(percentages)
+                                .failWithCode("must.add.to.100");
+                    }
+                }
+            }
+            if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, element)) {
+                final java.math.BigDecimal repaidPercentage = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(
+                        LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE, element);
+                baseDataValidator.reset().parameter(LoanProductConstants.PREVIOUS_TRANCHE_REPAID_PERCENTAGE).value(repaidPercentage)
+                        .ignoreIfNull().positiveAmount().notGreaterThanMax(java.math.BigDecimal.valueOf(100));
+            }
+            final Boolean firstInstallmentAsPercentage = this.fromApiJsonHelper
+                    .parameterExists(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE, element)
+                            ? this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE, element)
+                            : null;
+            if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, element)) {
+                final java.math.BigDecimal firstInstallmentPrincipal = this.fromApiJsonHelper
+                        .extractBigDecimalWithLocaleNamed(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, element);
+                baseDataValidator.reset().parameter(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL).value(firstInstallmentPrincipal)
+                        .ignoreIfNull().positiveAmount();
+                if (Boolean.TRUE.equals(firstInstallmentAsPercentage) && firstInstallmentPrincipal != null
+                        && !TrancheReleaseRules.acceptablePrincipalPercentage(firstInstallmentPrincipal)) {
+                    baseDataValidator.reset().parameter(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL).value(firstInstallmentPrincipal)
+                            .failWithCode("must.be.at.most.100");
+                }
+            }
+            final Boolean firstTrancheAsPercentage = this.fromApiJsonHelper
+                    .parameterExists(LoanProductConstants.FIRST_TRANCHE_AS_PERCENTAGE, element)
+                            ? this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.FIRST_TRANCHE_AS_PERCENTAGE, element)
+                            : null;
+            if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.FIRST_TRANCHE_AMOUNT, element)) {
+                final java.math.BigDecimal firstTrancheAmount = this.fromApiJsonHelper
+                        .extractBigDecimalWithLocaleNamed(LoanProductConstants.FIRST_TRANCHE_AMOUNT, element);
+                baseDataValidator.reset().parameter(LoanProductConstants.FIRST_TRANCHE_AMOUNT).value(firstTrancheAmount).ignoreIfNull()
+                        .positiveAmount();
+                if (Boolean.TRUE.equals(firstTrancheAsPercentage) && firstTrancheAmount != null
+                        && !TrancheReleaseRules.acceptablePrincipalPercentage(firstTrancheAmount)) {
+                    baseDataValidator.reset().parameter(LoanProductConstants.FIRST_TRANCHE_AMOUNT).value(firstTrancheAmount)
+                            .failWithCode("must.be.at.most.100");
+                }
+            }
 
             // CGLT-641: allow flat interest for multi-disburse products. Previously interestType was forced to
             // DECLINING_BALANCE here; the FLAT schedule generator supports tranche disbursements, so the restriction

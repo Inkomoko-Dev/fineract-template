@@ -153,6 +153,11 @@ public interface LoanApiConstants {
     String dueDateParamName = "dueDate";
     String modifiedDueDateParamName = "modifiedDueDate";
     String principalParamName = "principal";
+    String PREVIOUS_TRANCHE_THRESHOLD_AS_PERCENTAGE = "previousTrancheThresholdAsPercentage";
+    String PREVIOUS_TRANCHE_REPAID_MINIMUM = "previousTrancheRepaidMinimum";
+    String PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE = "previousTrancheRepaidAsPercentage";
+    String PRINCIPAL_AS_PERCENTAGE = "principalAsPercentage";
+    String PRINCIPAL_PERCENTAGE = "principalPercentage";
     String parentAccountParamName = "isParentAccount";
     String totalLoanParamName = "totalLoan";
     String installmentAmountParamName = "installmentAmount";

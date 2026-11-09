@@ -720,7 +720,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 + " SELECT l.id AS loanId," + " coalesce(ls.principal_amount, 0) - coalesce(ls.principal_writtenoff_derived, 0)"
                 + " - coalesce(ls.principal_completed_derived, 0) AS principalDue,"
                 + " coalesce(ls.interest_amount, 0) - coalesce(ls.interest_completed_derived, 0)"
-                + " - coalesce(ls.interest_waived_derived, 0) - coalesce(ls.interest_writtenoff_derived, 0) AS interestDue,"
+                + " - coalesce(ls.interest_waived_derived, 0) - coalesce(ls.interest_writtenoff_derived, 0)"
+                + " - coalesce(ls.interest_cancelled_derived, 0) AS interestDue,"
                 + " coalesce(ls.fee_charges_amount, 0) - coalesce(ls.fee_charges_completed_derived, 0)"
                 + " - coalesce(ls.fee_charges_writtenoff_derived, 0) - coalesce(ls.fee_charges_waived_derived, 0) AS feeDue,"
                 + " coalesce(ls.penalty_charges_amount, 0) - coalesce(ls.penalty_charges_completed_derived, 0)"
@@ -1339,6 +1340,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " l.is_bnpl_loan as isBnplLoan, lp.residual_auto_close_enabled as residualAutoCloseEnabled, "
                     + " lp.residual_closure_threshold as residualClosureThreshold, "
                     + " l.requires_equity_contribution as requiresEquityContribution, l.equity_contribution_loan_percentage as equityContributionLoanPercentage, "
+                    + " l.first_installment_principal as firstInstallmentPrincipal, l.first_installment_as_percentage as firstInstallmentAsPercentage, l.tranche_principal_percentages as tranchePrincipalPercentages, "
+                    + " l.previous_tranche_repaid_percentage as previousTrancheRepaidPercentage, "
+                    + " l.previous_tranche_threshold_as_percentage as previousTrancheThresholdAsPercentage, "
                     + " lp.can_use_for_topup as canUseForTopup, " + " l.is_topup as isTopup, " + " topup.closure_loan_id as closureLoanId, "
                     + " l.total_recovered_derived as totalRecovered" + ", topuploan.account_no as closureLoanAccountNo, "
                     + " topup.topup_amount as topupAmount ,l.department_cv_id as departmentId,departmentV.code_value as departmentCode, "
@@ -1758,6 +1762,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             loanAccountData.setThirdPartyDisbursementProvider(rs.getString("thirdPartyDisbursementProvider"));
             loanAccountData.setRequiresEquityContribution(requiresEquityContribution);
             loanAccountData.setEquityContributionLoanPercentage(equityContributionLoanPercentage);
+            loanAccountData.setFirstInstallmentPrincipal(rs.getBigDecimal("firstInstallmentPrincipal"));
+            loanAccountData.setFirstInstallmentAsPercentage(
+                    rs.getObject("firstInstallmentAsPercentage") == null ? null : rs.getBoolean("firstInstallmentAsPercentage"));
+            loanAccountData.setTranchePrincipalPercentages(rs.getString("tranchePrincipalPercentages"));
+            loanAccountData.setPreviousTrancheRepaidPercentage(rs.getBigDecimal("previousTrancheRepaidPercentage"));
+            loanAccountData.setPreviousTrancheThresholdAsPercentage(
+                    rs.getObject("previousTrancheThresholdAsPercentage") == null ? null
+                            : rs.getBoolean("previousTrancheThresholdAsPercentage"));
             loanAccountData.setDepartment(department);
             loanAccountData.setLoanDecisionState(loanDecisionStateEnumData);
             loanAccountData.setNextLoanIcReviewDecisionState(nextLoanIcReviewDecisionStateEnumData);
@@ -1787,7 +1799,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         public String schema() {
             return " ls.loan_id as loanId, ls.installment as period, ls.fromdate as fromDate, ls.duedate as dueDate, ls.obligations_met_on_date as obligationsMetOnDate, ls.completed_derived as complete,"
                     + " ls.principal_amount as principalDue, ls.principal_completed_derived as principalPaid, ls.principal_writtenoff_derived as principalWrittenOff, "
-                    + " ls.interest_amount as interestDue, ls.interest_completed_derived as interestPaid, ls.interest_waived_derived as interestWaived, ls.interest_writtenoff_derived as interestWrittenOff, "
+                    + " ls.interest_amount as interestDue, ls.interest_completed_derived as interestPaid, ls.interest_waived_derived as interestWaived, ls.interest_writtenoff_derived as interestWrittenOff, ls.interest_cancelled_derived as interestCancelled, "
                     + " ls.fee_charges_amount as feeChargesDue, ls.fee_charges_completed_derived as feeChargesPaid, ls.fee_charges_waived_derived as feeChargesWaived, ls.fee_charges_writtenoff_derived as feeChargesWrittenOff, "
                     + " ls.penalty_charges_amount as penaltyChargesDue, ls.penalty_charges_completed_derived as penaltyChargesPaid, ls.penalty_charges_waived_derived as penaltyChargesWaived, ls.penalty_charges_writtenoff_derived as penaltyChargesWrittenOff, "
                     + " ls.total_paid_in_advance_derived as totalPaidInAdvanceForPeriod, ls.total_paid_late_derived as totalPaidLateForPeriod, "
@@ -1817,8 +1829,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final BigDecimal interestPaid = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestPaid");
             final BigDecimal interestWaived = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWaived");
             final BigDecimal interestWrittenOff = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWrittenOff");
+            final BigDecimal interestCancelled = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestCancelled");
 
-            final BigDecimal interestActualDue = interestExpectedDue.subtract(interestWaived).subtract(interestWrittenOff);
+            final BigDecimal interestActualDue = interestExpectedDue.subtract(interestWaived).subtract(interestWrittenOff)
+                    .subtract(interestCancelled);
             final BigDecimal interestOutstanding = interestActualDue.subtract(interestPaid);
 
             final Integer installmentNumber = JdbcSupport.getIntegerDefaultToNullIfZero(rs, "period");
@@ -1947,7 +1961,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
 
             return " ls.loan_id as loanId, ls.installment as period, ls.fromdate as fromDate, ls.duedate as dueDate, ls.obligations_met_on_date as obligationsMetOnDate, ls.completed_derived as complete,"
                     + " ls.principal_amount as principalDue, ls.principal_completed_derived as principalPaid, ls.principal_writtenoff_derived as principalWrittenOff, "
-                    + " ls.interest_amount as interestDue, ls.interest_completed_derived as interestPaid, ls.interest_waived_derived as interestWaived, ls.interest_writtenoff_derived as interestWrittenOff, "
+                    + " ls.interest_amount as interestDue, ls.interest_completed_derived as interestPaid, ls.interest_waived_derived as interestWaived, ls.interest_writtenoff_derived as interestWrittenOff, ls.interest_cancelled_derived as interestCancelled, "
                     + " ls.fee_charges_amount as feeChargesDue, ls.fee_charges_completed_derived as feeChargesPaid, ls.fee_charges_waived_derived as feeChargesWaived, ls.fee_charges_writtenoff_derived as feeChargesWrittenOff, "
                     + " ls.penalty_charges_amount as penaltyChargesDue, ls.penalty_charges_completed_derived as penaltyChargesPaid, ls.penalty_charges_waived_derived as penaltyChargesWaived, ls.penalty_charges_writtenoff_derived as penaltyChargesWrittenOff, "
                     + " ls.total_paid_in_advance_derived as totalPaidInAdvanceForPeriod, ls.total_paid_late_derived as totalPaidLateForPeriod "
@@ -2070,10 +2084,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 final BigDecimal interestPaid = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestPaid");
                 final BigDecimal interestWaived = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWaived");
                 final BigDecimal interestWrittenOff = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWrittenOff");
+                final BigDecimal interestCancelled = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestCancelled");
                 final BigDecimal totalInstallmentAmount = totalPrincipalPaid.zero().plus(principalDue).plus(interestExpectedDue)
                         .getAmount();
 
-                final BigDecimal interestActualDue = interestExpectedDue.subtract(interestWaived).subtract(interestWrittenOff);
+                final BigDecimal interestActualDue = interestExpectedDue.subtract(interestWaived).subtract(interestWrittenOff)
+                        .subtract(interestCancelled);
                 final BigDecimal interestOutstanding = interestActualDue.subtract(interestPaid);
 
                 final BigDecimal feeChargesExpectedDue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "feeChargesDue");
@@ -2603,7 +2619,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " dd.payment_to as paymentTo, dd.disbursement_type as disbursementType, dd.beneficiary_name as beneficiaryName, "
                     + " dd.client_phone_number as clientPhoneNumber, dd.client_account_number as clientAccountNumber, "
                     + " dd.client_bank_name as clientBankName, dd.payment_type_id as paymentTypeId, pt.value as paymentTypeName, "
-                    + " dd.supplier_id as supplierId, s.external_id as supplierExternalId, s.name as supplierName, s.source_system as supplierSourceSystem "
+                    + " dd.supplier_id as supplierId, s.external_id as supplierExternalId, s.name as supplierName, s.source_system as supplierSourceSystem, "
+                    + " dd.previous_tranche_repaid_minimum as previousTrancheRepaidMinimum, "
+                    + " dd.previous_tranche_repaid_as_percentage as previousTrancheRepaidAsPercentage, "
+                    + " dd.principal_as_percentage as principalAsPercentage, dd.principal_percentage as principalPercentage "
                     + "from m_loan l inner join m_loan_disbursement_detail dd on dd.loan_id = l.id "
                     + "left join m_payment_type pt on pt.id = dd.payment_type_id " + "left join m_supplier s on s.id = dd.supplier_id "
                     + "left join m_loan_tranche_disbursement_charge tdc on tdc.disbursement_detail_id=dd.id "
@@ -2623,12 +2642,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             if (chargeAmount != null && waivedAmount != null) {
                 chargeAmount = chargeAmount.subtract(waivedAmount);
             }
-            return new DisbursementData(id, expectedDisbursementdate, actualDisbursementdate, principal, netDisbursalAmount, loanChargeId,
-                    chargeAmount, waivedAmount, JdbcSupport.getInteger(rs, "paymentTo"), rs.getString("disbursementType"),
-                    rs.getString("beneficiaryName"), rs.getString("clientPhoneNumber"), rs.getString("clientAccountNumber"),
-                    rs.getString("clientBankName"), JdbcSupport.getLong(rs, "paymentTypeId"), rs.getString("paymentTypeName"),
-                    JdbcSupport.getLong(rs, "supplierId"), rs.getString("supplierExternalId"), rs.getString("supplierName"),
-                    rs.getString("supplierSourceSystem"));
+            final DisbursementData data = new DisbursementData(id, expectedDisbursementdate, actualDisbursementdate, principal,
+                    netDisbursalAmount, loanChargeId, chargeAmount, waivedAmount, JdbcSupport.getInteger(rs, "paymentTo"),
+                    rs.getString("disbursementType"), rs.getString("beneficiaryName"), rs.getString("clientPhoneNumber"),
+                    rs.getString("clientAccountNumber"), rs.getString("clientBankName"), JdbcSupport.getLong(rs, "paymentTypeId"),
+                    rs.getString("paymentTypeName"), JdbcSupport.getLong(rs, "supplierId"), rs.getString("supplierExternalId"),
+                    rs.getString("supplierName"), rs.getString("supplierSourceSystem"));
+            data.setPreviousTrancheRepaidMinimum(rs.getBigDecimal("previousTrancheRepaidMinimum"));
+            data.setPreviousTrancheRepaidAsPercentage(rs.getObject("previousTrancheRepaidAsPercentage") == null ? null
+                    : rs.getBoolean("previousTrancheRepaidAsPercentage"));
+            data.setPrincipalAsPercentage(
+                    rs.getObject("principalAsPercentage") == null ? null : rs.getBoolean("principalAsPercentage"));
+            data.setPrincipalPercentage(rs.getBigDecimal("principalPercentage"));
+            return data;
         }
 
     }
@@ -2678,7 +2704,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 " where (recaldet.is_compounding_to_be_posted_as_transaction is null or recaldet.is_compounding_to_be_posted_as_transaction = false) ")
                 .append(" and (((ls.fee_charges_amount <> COALESCE(ls.accrual_fee_charges_derived, 0))")
                 .append(" or ( ls.penalty_charges_amount <> COALESCE(ls.accrual_penalty_charges_derived, 0))")
-                .append(" or ( ls.interest_amount <> COALESCE(ls.accrual_interest_derived, 0)))")
+                .append(" or ((ls.interest_amount - COALESCE(ls.interest_cancelled_derived, 0) - COALESCE(ls.interest_waived_derived, 0)")
+                .append(" - COALESCE(ls.interest_writtenoff_derived, 0)) <> COALESCE(ls.accrual_interest_derived, 0)))")
                 .append(" and loan.loan_status_id=:active and mpl.accounting_type=:type and loan.is_npa=false and ls.duedate <= :currentDate) ");
         if (organisationStartDate != null) {
             sqlBuilder.append(" and ls.duedate > :organisationStartDate ");
@@ -2703,7 +2730,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                 " where  (recaldet.is_compounding_to_be_posted_as_transaction is null or recaldet.is_compounding_to_be_posted_as_transaction = false) ")
                 .append(" and (((ls.fee_charges_amount <> COALESCE(ls.accrual_fee_charges_derived, 0))")
                 .append(" or (ls.penalty_charges_amount <> COALESCE(ls.accrual_penalty_charges_derived, 0))")
-                .append(" or (ls.interest_amount <> COALESCE(ls.accrual_interest_derived, 0)))")
+                .append(" or ((ls.interest_amount - COALESCE(ls.interest_cancelled_derived, 0) - COALESCE(ls.interest_waived_derived, 0)")
+                .append(" - COALESCE(ls.interest_writtenoff_derived, 0)) <> COALESCE(ls.accrual_interest_derived, 0)))")
                 .append(" and loan.loan_status_id=:active and mpl.accounting_type=:type and (loan.closedon_date <= :tillDate or loan.closedon_date is null)")
                 .append(" and loan.is_npa=false and (ls.duedate <= :tillDate or (ls.duedate > :tillDate and ls.fromdate < :tillDate))) ");
         Map<String, Object> paramMap = new HashMap<>(4);
@@ -2719,6 +2747,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
         return this.namedParameterJdbcTemplate.query(sqlBuilder.toString(), paramMap, mapper);
     }
 
+    private static BigDecimal interestIncomeNetOfCancelledAndWrittenOff(final java.sql.ResultSet rs) throws SQLException {
+        final BigDecimal interest = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interest");
+        final BigDecimal cancelled = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestCancelled");
+        final BigDecimal writtenOff = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWrittenOff");
+        final BigDecimal net = interest.subtract(cancelled).subtract(writtenOff);
+        if (net.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return net;
+    }
+
     private static final class LoanSchedulePeriodicAccrualMapper implements RowMapper<LoanScheduleAccrualData> {
 
         public String schema() {
@@ -2729,6 +2768,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     .append("ls.installment as installmentNumber, ")
                     .append("ls.duedate as duedate,ls.fromdate as fromdate ,ls.id as scheduleId,loan.product_id as productId,")
                     .append("ls.interest_amount as interest, ls.interest_waived_derived as interestWaived,")
+                    .append("ls.interest_cancelled_derived as interestCancelled, ls.interest_writtenoff_derived as interestWrittenOff,")
                     .append("ls.penalty_charges_amount as penalty, ").append("ls.fee_charges_amount as charges, ")
                     .append("ls.accrual_interest_derived as accinterest,ls.accrual_fee_charges_derived as accfeecharege,ls.accrual_penalty_charges_derived as accpenalty,")
                     .append(" loan.currency_code as currencyCode,loan.currency_digits as currencyDigits,loan.currency_multiplesof as inMultiplesOf,")
@@ -2757,7 +2797,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final LocalDate fromDate = JdbcSupport.getLocalDate(rs, "fromdate");
             final Long repaymentScheduleId = rs.getLong("scheduleId");
             final Long loanProductId = rs.getLong("productId");
-            final BigDecimal interestIncome = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "interest");
+            final BigDecimal interestIncome = interestIncomeNetOfCancelledAndWrittenOff(rs);
             final BigDecimal feeIncome = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "charges");
             final BigDecimal penaltyIncome = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "penalty");
             final BigDecimal interestIncomeWaived = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "interestWaived");
@@ -2789,6 +2829,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     .append("ls.duedate as duedate,ls.fromdate as fromdate,ls.id as scheduleId,loan.product_id as productId,")
                     .append("ls.installment as installmentNumber, ")
                     .append("ls.interest_amount as interest, ls.interest_waived_derived as interestWaived,")
+                    .append("ls.interest_cancelled_derived as interestCancelled, ls.interest_writtenoff_derived as interestWrittenOff,")
                     .append("ls.penalty_charges_amount as penalty, ").append("ls.fee_charges_amount as charges, ")
                     .append("ls.accrual_interest_derived as accinterest,ls.accrual_fee_charges_derived as accfeecharege,ls.accrual_penalty_charges_derived as accpenalty,")
                     .append(" loan.currency_code as currencyCode,loan.currency_digits as currencyDigits,loan.currency_multiplesof as inMultiplesOf,")
@@ -2811,7 +2852,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final LocalDate fromdate = JdbcSupport.getLocalDate(rs, "fromdate");
             final Long repaymentScheduleId = rs.getLong("scheduleId");
             final Long loanProductId = rs.getLong("productId");
-            final BigDecimal interestIncome = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "interest");
+            final BigDecimal interestIncome = interestIncomeNetOfCancelledAndWrittenOff(rs);
             final BigDecimal feeIncome = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "charges");
             final BigDecimal penaltyIncome = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "penalty");
             final BigDecimal interestIncomeWaived = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "interestWaived");
@@ -3391,7 +3432,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                     + " coalesce(ls.principal_amount, 0) - coalesce(ls.principal_writtenoff_derived, 0)"
                     + " - coalesce(ls.principal_completed_derived, 0) as principalDue,"
                     + " coalesce(ls.interest_amount, 0) - coalesce(ls.interest_completed_derived, 0)"
-                    + " - coalesce(ls.interest_waived_derived, 0) - coalesce(ls.interest_writtenoff_derived, 0) as interestDue,"
+                    + " - coalesce(ls.interest_waived_derived, 0) - coalesce(ls.interest_writtenoff_derived, 0)"
+                    + " - coalesce(ls.interest_cancelled_derived, 0) as interestDue,"
                     + " coalesce(ls.fee_charges_amount, 0) - coalesce(ls.fee_charges_completed_derived, 0)"
                     + " - coalesce(ls.fee_charges_writtenoff_derived, 0) - coalesce(ls.fee_charges_waived_derived, 0) as feeDue,"
                     + " coalesce(ls.penalty_charges_amount, 0) - coalesce(ls.penalty_charges_completed_derived, 0)"
@@ -3671,7 +3713,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(
                     " (COALESCE(sch.principal_amount, 0.0) - (COALESCE(sch.principal_completed_derived, 0.0) + COALESCE(sch.principal_writtenoff_derived, 0.0)))   as principalAmountOutStanding, ");
             sqlBuilder.append(
-                    " (COALESCE(sch.interest_amount, 0.0) - (COALESCE(sch.interest_completed_derived, 0.0) + COALESCE(sch.interest_waived_derived, 0.0) +COALESCE(sch.interest_writtenoff_derived, 0.0)))  as interestAmountOutStanding, ");
+                    " (COALESCE(sch.interest_amount, 0.0) - (COALESCE(sch.interest_completed_derived, 0.0) + COALESCE(sch.interest_waived_derived, 0.0) + COALESCE(sch.interest_writtenoff_derived, 0.0) + COALESCE(sch.interest_cancelled_derived, 0.0)))  as interestAmountOutStanding, ");
             sqlBuilder.append(
                     " (COALESCE(sch.fee_charges_amount, 0.0) - (COALESCE(sch.fee_charges_completed_derived, 0.0) + COALESCE(sch.fee_charges_waived_derived, 0.0) +COALESCE(sch.fee_charges_writtenoff_derived, 0.0)))   as feesChargeAmountOutStanding, ");
             sqlBuilder.append(
@@ -3680,7 +3722,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(
                     " ((COALESCE(sch.principal_amount, 0.0) - (COALESCE(sch.principal_completed_derived, 0.0) + COALESCE(sch.principal_writtenoff_derived, 0.0))) + ");
             sqlBuilder.append(
-                    " (COALESCE(sch.interest_amount, 0.0) - (COALESCE(sch.interest_completed_derived, 0.0) + COALESCE(sch.interest_waived_derived, 0.0) +COALESCE(sch.interest_writtenoff_derived, 0.0))) + ");
+                    " (COALESCE(sch.interest_amount, 0.0) - (COALESCE(sch.interest_completed_derived, 0.0) + COALESCE(sch.interest_waived_derived, 0.0) + COALESCE(sch.interest_writtenoff_derived, 0.0) + COALESCE(sch.interest_cancelled_derived, 0.0))) + ");
             sqlBuilder.append(
                     " (COALESCE(sch.fee_charges_amount, 0.0) - (COALESCE(sch.fee_charges_completed_derived, 0.0) + COALESCE(sch.fee_charges_waived_derived, 0.0) +COALESCE(sch.fee_charges_writtenoff_derived, 0.0))) + ");
             sqlBuilder.append(
@@ -3867,7 +3909,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(
                     " (COALESCE(sch.principal_amount, 0.0) - (COALESCE(sch.principal_completed_derived, 0.0) + COALESCE(sch.principal_writtenoff_derived, 0.0)))   as principalAmountOutStanding, ");
             sqlBuilder.append(
-                    " (COALESCE(sch.interest_amount, 0.0) - (COALESCE(sch.interest_completed_derived, 0.0) + COALESCE(sch.interest_waived_derived, 0.0) +COALESCE(sch.interest_writtenoff_derived, 0.0)))  as interestAmountOutStanding, ");
+                    " (COALESCE(sch.interest_amount, 0.0) - (COALESCE(sch.interest_completed_derived, 0.0) + COALESCE(sch.interest_waived_derived, 0.0) + COALESCE(sch.interest_writtenoff_derived, 0.0) + COALESCE(sch.interest_cancelled_derived, 0.0)))  as interestAmountOutStanding, ");
             sqlBuilder.append(
                     " (COALESCE(sch.fee_charges_amount, 0.0) - (COALESCE(sch.fee_charges_completed_derived, 0.0) + COALESCE(sch.fee_charges_waived_derived, 0.0) +COALESCE(sch.fee_charges_writtenoff_derived, 0.0)))   as feesChargeAmountOutStanding, ");
             sqlBuilder.append(
@@ -3876,7 +3918,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(
                     " ((COALESCE(sch.principal_amount, 0.0) - (COALESCE(sch.principal_completed_derived, 0.0) + COALESCE(sch.principal_writtenoff_derived, 0.0))) + ");
             sqlBuilder.append(
-                    " (COALESCE(sch.interest_amount, 0.0) - (COALESCE(sch.interest_completed_derived, 0.0) + COALESCE(sch.interest_waived_derived, 0.0) +COALESCE(sch.interest_writtenoff_derived, 0.0))) + ");
+                    " (COALESCE(sch.interest_amount, 0.0) - (COALESCE(sch.interest_completed_derived, 0.0) + COALESCE(sch.interest_waived_derived, 0.0) + COALESCE(sch.interest_writtenoff_derived, 0.0) + COALESCE(sch.interest_cancelled_derived, 0.0))) + ");
             sqlBuilder.append(
                     " (COALESCE(sch.fee_charges_amount, 0.0) - (COALESCE(sch.fee_charges_completed_derived, 0.0) + COALESCE(sch.fee_charges_waived_derived, 0.0) +COALESCE(sch.fee_charges_writtenoff_derived, 0.0))) + ");
             sqlBuilder.append(
@@ -3891,7 +3933,21 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             sqlBuilder.append(" sch.duedate < ");
             sqlBuilder.append(sqlGenerator.addDate(sqlGenerator.currentBusinessDate(), numberOfDaysToDueDate.toString()));
             sqlBuilder.append(
-                    " and sch.completed_derived = false   and sch.obligations_met_on_date is null   and l.loan_status_id = 300 ORDER BY l.id ,sch.duedate,sch.installment ASC ");
+                    " and sch.completed_derived = false   and sch.obligations_met_on_date is null   and l.loan_status_id = 300 ");
+            // Skip the reminder when money already applied in advance on a later installment covers this balance.
+            sqlBuilder.append(" and (");
+            sqlBuilder.append(
+                    " (COALESCE(sch.principal_amount, 0.0) - (COALESCE(sch.principal_completed_derived, 0.0) + COALESCE(sch.principal_writtenoff_derived, 0.0))) + ");
+            sqlBuilder.append(
+                    " (COALESCE(sch.interest_amount, 0.0) - (COALESCE(sch.interest_completed_derived, 0.0) + COALESCE(sch.interest_waived_derived, 0.0) + COALESCE(sch.interest_writtenoff_derived, 0.0) + COALESCE(sch.interest_cancelled_derived, 0.0))) + ");
+            sqlBuilder.append(
+                    " (COALESCE(sch.fee_charges_amount, 0.0) - (COALESCE(sch.fee_charges_completed_derived, 0.0) + COALESCE(sch.fee_charges_waived_derived, 0.0) +COALESCE(sch.fee_charges_writtenoff_derived, 0.0))) + ");
+            sqlBuilder.append(
+                    " (COALESCE(sch.penalty_charges_amount, 0.0) - (COALESCE(sch.penalty_charges_amount, 0.0) + COALESCE(sch.penalty_charges_waived_derived, 0.0) +COALESCE(sch.penalty_charges_writtenoff_derived, 0.0)))");
+            sqlBuilder.append(") > COALESCE((SELECT SUM(COALESCE(later.total_paid_in_advance_derived, 0))");
+            sqlBuilder.append(" FROM m_loan_repayment_schedule later WHERE later.loan_id = sch.loan_id");
+            sqlBuilder.append(" AND later.installment > sch.installment), 0)");
+            sqlBuilder.append(" ORDER BY l.id ,sch.duedate,sch.installment ASC ");
 
             return sqlBuilder.toString();
         }
@@ -3937,7 +3993,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
                             + " lrs.principal_amount as principalOriginalDue, lrs.principal_completed_derived as principalPaid, "
                             + " lrs.principal_writtenoff_derived as principalWrittenOff, lrs.interest_amount as interestAmount, "
                             + " lrs.interest_completed_derived as interestPaid, lrs.interest_writtenoff_derived as interestWrittenOff, "
-                            + " lrs.interest_waived_derived as interestWaived, lrs.accrual_interest_derived as accrualInterest, lrs.reschedule_interest_portion as rescheduleInterest, "
+                            + " lrs.interest_waived_derived as interestWaived, lrs.interest_cancelled_derived as interestCancelled, lrs.accrual_interest_derived as accrualInterest, lrs.reschedule_interest_portion as rescheduleInterest, "
                             + " lrs.fee_charges_amount as feeChargesDue, lrs.fee_charges_completed_derived as feeChargesPaid, lrs.fee_charges_writtenoff_derived as feeChargesWrittenOff, "
                             + " lrs.fee_charges_waived_derived as feeChargesWaived, lrs.accrual_fee_charges_derived as accrualFeeCharges, lrs.penalty_charges_amount as penaltyChargesDue, lrs.penalty_charges_completed_derived as penaltyChargesPaid, "
                             + " lrs.penalty_charges_writtenoff_derived as penaltyChargesWrittenOff, lrs.penalty_charges_waived_derived as penaltyChargesWaived, lrs.accrual_penalty_charges_derived as accrualPenaltyCharges, "
@@ -3968,8 +4024,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService {
             final BigDecimal interestPaid = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestPaid");
             final BigDecimal interestWrittenOff = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWrittenOff");
             final BigDecimal interestWaived = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestWaived");
+            final BigDecimal interestCancelled = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestCancelled");
             final BigDecimal interestOutstanding = interestAmount.subtract(interestPaid).subtract(interestWrittenOff)
-                    .subtract(interestWaived);
+                    .subtract(interestWaived).subtract(interestCancelled);
 
             final BigDecimal feeChargesDue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "feeChargesDue");
             final BigDecimal feeChargesPaid = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "feeChargesPaid");
