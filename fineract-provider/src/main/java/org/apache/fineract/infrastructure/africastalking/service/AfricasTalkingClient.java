@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.africastalking.service;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
@@ -141,7 +142,15 @@ public class AfricasTalkingClient {
 
     public AfricasTalkingApiResponse createWhatsAppTemplateFromJson(final String apiRequestBodyAsJson) throws IOException {
         validateConfigured();
-        final JsonObject requestBody = JsonParser.parseString(apiRequestBodyAsJson).getAsJsonObject();
+        if (StringUtils.isBlank(apiRequestBodyAsJson)) {
+            throw new IllegalArgumentException("WhatsApp template request body must not be blank.");
+        }
+        final JsonElement parsed = JsonParser.parseString(apiRequestBodyAsJson);
+        if (parsed == null || !parsed.isJsonObject()) {
+            throw new IllegalArgumentException("WhatsApp template request body must be a JSON object.");
+        }
+        final JsonObject requestBody = parsed.getAsJsonObject();
+        // Always overwrite credentials from server config — never trust client-supplied keys.
         requestBody.addProperty("username", properties.getUsername());
         requestBody.addProperty("waNumber", properties.getWhatsapp().getSenderNumber());
 

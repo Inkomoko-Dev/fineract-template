@@ -20,7 +20,6 @@ package org.apache.fineract.infrastructure.notifications.channel;
 
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.service.CommunicationMessageDispatchService;
@@ -45,12 +44,13 @@ public class WhatsAppNotificationChannel {
                     command.getClient(), command.getStaff(), command.getTemplateName(), command.getTemplateLanguage(),
                     command.getTemplateBodyValuesJson(), command.getMessageBody(), command.getCampaignId());
         } else {
+            // FREEFORM: never persist template fields — dispatch must use body.message until AT approves a template.
             message = CommunicationMessage.pendingOutbound(org.apache.fineract.infrastructure.africastalking.domain.CommunicationChannel.WHATSAPP,
                     command.getPhoneNumber(), command.getRecipientType(), command.getClient(), command.getStaff(),
                     command.getMessageBody());
-            if (StringUtils.isNotBlank(command.getTemplateName())) {
-                message.setTemplateName(command.getTemplateName());
-            }
+            message.setTemplateName(null);
+            message.setTemplateLanguage(null);
+            message.setTemplateBodyValues(null);
         }
 
         if (command.isSendImmediately()) {

@@ -20,7 +20,6 @@ package org.apache.fineract.infrastructure.africastalking.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,8 +30,10 @@ import java.util.List;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import okio.Buffer;
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
 import org.apache.fineract.infrastructure.core.service.IntegrationHttpRetryService;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,7 +82,7 @@ class AfricasTalkingClientTest {
 
         when(integrationHttpRetryService.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
             final Request req = invocation.getArgument(3);
-            final String bodyJson = req.body().string();
+            final String bodyJson = readRequestBody(req.body());
             final var bodyObj = JsonParser.parseString(bodyJson).getAsJsonObject();
             final var bodyContent = bodyObj.getAsJsonObject("body");
             final var bodyValues = bodyContent.getAsJsonArray("bodyValues");
@@ -123,7 +124,7 @@ class AfricasTalkingClientTest {
 
         when(integrationHttpRetryService.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
             final Request req = invocation.getArgument(3);
-            final String bodyJson = req.body().string();
+            final String bodyJson = readRequestBody(req.body());
             final var bodyObj = JsonParser.parseString(bodyJson).getAsJsonObject();
             final var bodyValues = bodyObj.getAsJsonObject("body").getAsJsonArray("bodyValues");
             assertEquals(List.of("John", "[N/A]"),
@@ -170,7 +171,7 @@ class AfricasTalkingClientTest {
 
         when(integrationHttpRetryService.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
             final Request req = invocation.getArgument(3);
-            final String bodyJson = req.body().string();
+            final String bodyJson = readRequestBody(req.body());
             final var bodyObj = JsonParser.parseString(bodyJson).getAsJsonObject();
             assertEquals("Inkomoko-Capital", bodyObj.get("username").getAsString());
             assertEquals("+254711082867", bodyObj.get("waNumber").getAsString());
@@ -214,7 +215,7 @@ class AfricasTalkingClientTest {
 
         when(integrationHttpRetryService.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
             final Request req = invocation.getArgument(3);
-            final String bodyJson = req.body().string();
+            final String bodyJson = readRequestBody(req.body());
             final var bodyObj = JsonParser.parseString(bodyJson).getAsJsonObject();
             assertEquals("Inkomoko-Capital", bodyObj.get("username").getAsString());
             assertEquals("+254711082867", bodyObj.get("waNumber").getAsString());
@@ -230,5 +231,39 @@ class AfricasTalkingClientTest {
         client.createWhatsAppTemplateFromJson(apiRequestBody);
 
         verify(httpClient).newCall(any(Request.class));
+    }
+
+    @Test
+    void createWhatsAppTemplateFromJsonOverwritesClientSuppliedCredentials() throws IOException {
+        final String apiRequestBody = """
+            {
+              "username": "client-supplied-username",
+              "waNumber": "+19999999999",
+              "name": "promo_offer",
+              "language": "en",
+              "category": "MARKETING",
+              "components": {
+                "body": { "type": "BODY", "kind": "TEXT", "text": "Hello" }
+              }
+            }
+            """;
+
+        when(integrationHttpRetryService.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
+            final Request req = invocation.getArgument(3);
+            final var bodyObj = JsonParser.parseString(readRequestBody(req.body())).getAsJsonObject();
+            assertEquals("Inkomoko-Capital", bodyObj.get("username").getAsString());
+            assertEquals("+254711082867", bodyObj.get("waNumber").getAsString());
+            return new Response.Builder().request(req).protocol(okhttp3.Protocol.HTTP_1_1).code(201).message("Created")
+                    .body(ResponseBody.create(MediaType.parse("application/json"), "{\"status\":\"PENDING_APPROVAL\"}"))
+                    .build();
+        });
+
+        client.createWhatsAppTemplateFromJson(apiRequestBody);
+    }
+
+    private static String readRequestBody(final RequestBody body) throws IOException {
+        final Buffer buffer = new Buffer();
+        body.writeTo(buffer);
+        return buffer.readUtf8();
     }
 }

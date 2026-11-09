@@ -150,9 +150,8 @@ public class AfricasTalkingApiResource {
     public String createTemplate(final String apiRequestBodyAsJson) throws IOException {
         this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
         var response = this.africastalkingClient.createWhatsAppTemplateFromJson(apiRequestBodyAsJson);
-        final CommandProcessingResult result = new CommandProcessingResult(
-                response.statusCode() == 200 ? 1L : null
-        );
+        final boolean success = response.statusCode() >= 200 && response.statusCode() < 300;
+        final CommandProcessingResult result = new CommandProcessingResult(success ? 1L : null);
         return this.commandProcessingResultSerializer.serializeResult(result);
     }
 

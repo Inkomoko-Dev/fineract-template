@@ -90,7 +90,7 @@ public class WhatsAppCampaignValidator {
             Arrays.asList(localeParamName, dateFormatParamName, closureDateParamName));
 
     protected static final Set<String> PREVIEW_REQUEST_DATA_PARAMETERS = new HashSet<>(
-            Arrays.asList(paramValue, runReportId, atTemplateName, languageCode, bodyVariableMapping));
+            Arrays.asList(paramValue, runReportId, atTemplateName, languageCode, bodyVariableMapping, messageType, message));
 
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -166,7 +166,10 @@ public class WhatsAppCampaignValidator {
 
         validateBodyVariableMapping(element, baseDataValidator);
 
-        if (this.fromApiJsonHelper.parameterExists(message, element)) {
+        if (isFreeform) {
+            final String messageValue = this.fromApiJsonHelper.extractStringNamed(message, element);
+            baseDataValidator.reset().parameter(message).value(messageValue).notBlank().notExceedingLengthOf(480);
+        } else if (this.fromApiJsonHelper.parameterExists(message, element)) {
             final String messageValue = this.fromApiJsonHelper.extractStringNamed(message, element);
             baseDataValidator.reset().parameter(message).value(messageValue).notExceedingLengthOf(480);
         }
@@ -190,6 +193,10 @@ public class WhatsAppCampaignValidator {
     }
 
     public void validateForUpdate(final String json) {
+        validateForUpdate(json, WhatsAppMessageType.TEMPLATE);
+    }
+
+    public void validateForUpdate(final String json, final WhatsAppMessageType existingMessageType) {
         if (StringUtils.isBlank(json)) {
             throw new InvalidJsonException();
         }
@@ -231,27 +238,45 @@ public class WhatsAppCampaignValidator {
             baseDataValidator.reset().parameter(runReportId).value(runReportIdValue).notNull().integerGreaterThanZero();
         }
 
-        if (this.fromApiJsonHelper.parameterExists(atTemplateName, element)) {
-            final String atTemplateNameValue = this.fromApiJsonHelper.extractStringNamed(atTemplateName, element);
-            baseDataValidator.reset().parameter(atTemplateName).value(atTemplateNameValue).notExceedingLengthOf(100);
-        }
-
-        if (this.fromApiJsonHelper.parameterExists(languageCode, element)) {
-            final String languageCodeValue = this.fromApiJsonHelper.extractStringNamed(languageCode, element);
-            baseDataValidator.reset().parameter(languageCode).value(languageCodeValue).notExceedingLengthOf(15);
-        }
-
+        WhatsAppMessageType effectiveMessageType = existingMessageType == null ? WhatsAppMessageType.TEMPLATE : existingMessageType;
         if (this.fromApiJsonHelper.parameterExists(messageType, element)) {
             final String messageTypeValue = this.fromApiJsonHelper.extractStringNamed(messageType, element);
             baseDataValidator.reset().parameter(messageType).value(messageTypeValue).notBlank()
                     .isOneOfTheseStringValues(WhatsAppMessageType.TEMPLATE.name(), WhatsAppMessageType.FREEFORM.name());
+            if (StringUtils.isNotBlank(messageTypeValue)) {
+                effectiveMessageType = WhatsAppMessageType.valueOf(messageTypeValue.trim().toUpperCase(java.util.Locale.ENGLISH));
+            }
+        }
+        final boolean isFreeform = effectiveMessageType == WhatsAppMessageType.FREEFORM;
+
+        if (this.fromApiJsonHelper.parameterExists(atTemplateName, element)) {
+            final String atTemplateNameValue = this.fromApiJsonHelper.extractStringNamed(atTemplateName, element);
+            if (isFreeform) {
+                baseDataValidator.reset().parameter(atTemplateName).value(atTemplateNameValue).notExceedingLengthOf(100);
+            } else {
+                baseDataValidator.reset().parameter(atTemplateName).value(atTemplateNameValue).notBlank().notExceedingLengthOf(100);
+            }
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(languageCode, element)) {
+            final String languageCodeValue = this.fromApiJsonHelper.extractStringNamed(languageCode, element);
+            if (isFreeform) {
+                baseDataValidator.reset().parameter(languageCode).value(languageCodeValue).notExceedingLengthOf(15);
+            } else {
+                baseDataValidator.reset().parameter(languageCode).value(languageCodeValue).notBlank().notExceedingLengthOf(15);
+            }
         }
 
         if (this.fromApiJsonHelper.parameterExists(bodyVariableMapping, element)) {
             validateBodyVariableMapping(element, baseDataValidator);
         }
 
-        if (this.fromApiJsonHelper.parameterExists(message, element)) {
+        if (isFreeform) {
+            if (this.fromApiJsonHelper.parameterExists(message, element)) {
+                final String messageValue = this.fromApiJsonHelper.extractStringNamed(message, element);
+                baseDataValidator.reset().parameter(message).value(messageValue).notBlank().notExceedingLengthOf(480);
+            }
+        } else if (this.fromApiJsonHelper.parameterExists(message, element)) {
             final String messageValue = this.fromApiJsonHelper.extractStringNamed(message, element);
             baseDataValidator.reset().parameter(message).value(messageValue).notExceedingLengthOf(480);
         }
@@ -283,11 +308,23 @@ public class WhatsAppCampaignValidator {
         final Long runReportIdValue = this.fromApiJsonHelper.extractLongNamed(runReportId, element);
         baseDataValidator.reset().parameter(runReportId).value(runReportIdValue).notNull().integerGreaterThanZero();
 
-        final String atTemplateNameValue = this.fromApiJsonHelper.extractStringNamed(atTemplateName, element);
-        baseDataValidator.reset().parameter(atTemplateName).value(atTemplateNameValue).notBlank();
+        final String messageTypeValue = this.fromApiJsonHelper.parameterExists(messageType, element)
+                ? this.fromApiJsonHelper.extractStringNamed(messageType, element)
+                : WhatsAppMessageType.TEMPLATE.name();
+        baseDataValidator.reset().parameter(messageType).value(messageTypeValue).notBlank()
+                .isOneOfTheseStringValues(WhatsAppMessageType.TEMPLATE.name(), WhatsAppMessageType.FREEFORM.name());
+        final boolean isFreeform = WhatsAppMessageType.FREEFORM.name().equalsIgnoreCase(messageTypeValue);
 
-        final String languageCodeValue = this.fromApiJsonHelper.extractStringNamed(languageCode, element);
-        baseDataValidator.reset().parameter(languageCode).value(languageCodeValue).notBlank();
+        if (isFreeform) {
+            final String messageValue = this.fromApiJsonHelper.extractStringNamed(message, element);
+            baseDataValidator.reset().parameter(message).value(messageValue).notBlank().notExceedingLengthOf(480);
+        } else {
+            final String atTemplateNameValue = this.fromApiJsonHelper.extractStringNamed(atTemplateName, element);
+            baseDataValidator.reset().parameter(atTemplateName).value(atTemplateNameValue).notBlank();
+
+            final String languageCodeValue = this.fromApiJsonHelper.extractStringNamed(languageCode, element);
+            baseDataValidator.reset().parameter(languageCode).value(languageCodeValue).notBlank();
+        }
 
         validateBodyVariableMapping(element, baseDataValidator);
 

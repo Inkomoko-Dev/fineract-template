@@ -191,8 +191,8 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
         final Long triggerType = command.longValueOfParameterNamed(TRIGGER_TYPE);
         final String paramValue = command.jsonFragment(PARAM_VALUE);
         final String message = command.stringValueOfParameterNamed(MESSAGE);
-        final String atTemplateName = command.stringValueOfParameterNamed(AT_TEMPLATE_NAME);
-        final String languageCode = command.stringValueOfParameterNamed(LANGUAGE_CODE);
+        final String atTemplateName = StringUtils.defaultString(command.stringValueOfParameterNamedAllowingNull(AT_TEMPLATE_NAME));
+        final String languageCode = StringUtils.defaultString(command.stringValueOfParameterNamedAllowingNull(LANGUAGE_CODE));
         final String bodyVariableMapping = command.jsonFragment(BODY_VARIABLE_MAPPING);
         final WhatsAppMessageType messageType = resolveMessageType(command.stringValueOfParameterNamedAllowingNull(MESSAGE_TYPE));
         final RecipientType recipientType = resolveRecipientType(command.stringValueOfParameterNamedAllowingNull(RECIPIENT_TYPE));
@@ -258,14 +258,14 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
             this.paramValue = StringUtils.defaultIfEmpty(newValue, null);
         }
         if (command.isChangeInStringParameterNamed(AT_TEMPLATE_NAME, this.atTemplateName)) {
-            final String newValue = command.stringValueOfParameterNamed(AT_TEMPLATE_NAME);
+            final String newValue = StringUtils.defaultString(command.stringValueOfParameterNamedAllowingNull(AT_TEMPLATE_NAME));
             actualChanges.put(AT_TEMPLATE_NAME, newValue);
-            this.atTemplateName = StringUtils.defaultIfEmpty(newValue, null);
+            this.atTemplateName = newValue;
         }
         if (command.isChangeInStringParameterNamed(LANGUAGE_CODE, this.languageCode)) {
-            final String newValue = command.stringValueOfParameterNamed(LANGUAGE_CODE);
+            final String newValue = StringUtils.defaultString(command.stringValueOfParameterNamedAllowingNull(LANGUAGE_CODE));
             actualChanges.put(LANGUAGE_CODE, newValue);
-            this.languageCode = StringUtils.defaultIfEmpty(newValue, null);
+            this.languageCode = newValue;
         }
         if (command.isChangeInStringParameterNamed(BODY_VARIABLE_MAPPING, this.bodyVariableMapping)) {
             final String newValue = command.jsonFragment(BODY_VARIABLE_MAPPING);

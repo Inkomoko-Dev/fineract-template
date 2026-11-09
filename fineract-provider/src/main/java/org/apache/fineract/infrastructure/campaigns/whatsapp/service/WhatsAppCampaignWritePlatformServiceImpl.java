@@ -26,7 +26,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.time.LocalDate;
-import com.google.common.util.concurrent.RateLimiter;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -90,9 +89,6 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
 
     private static final Logger LOG = LoggerFactory.getLogger(WhatsAppCampaignWritePlatformServiceImpl.class);
 
-    // Rate limiter to throttle WhatsApp message sends and respect provider MPS limits
-    private final RateLimiter rateLimiter = RateLimiter.create(10.0); // 10 messages per second default
-
     private final PlatformSecurityContext context;
     private final WhatsAppCampaignRepository whatsAppCampaignRepository;
     private final WhatsAppCampaignValidator whatsAppCampaignValidator;
@@ -103,13 +99,15 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final StaffRepositoryWrapper staffRepositoryWrapper;
     private final PhoneNumberNormalizer phoneNumberNormalizer;
+    private final WhatsAppCampaignSendRateLimiter sendRateLimiter;
 
     @Autowired
     public WhatsAppCampaignWritePlatformServiceImpl(final PlatformSecurityContext context,
             final WhatsAppCampaignRepository whatsAppCampaignRepository, final WhatsAppCampaignValidator whatsAppCampaignValidator,
             final ReportRepository reportRepository, final FromJsonHelper fromJsonHelper, final ReadReportingService readReportingService,
             final NotificationCommandService notificationCommandService, final ClientRepositoryWrapper clientRepositoryWrapper,
-            final StaffRepositoryWrapper staffRepositoryWrapper, final PhoneNumberNormalizer phoneNumberNormalizer) {
+            final StaffRepositoryWrapper staffRepositoryWrapper, final PhoneNumberNormalizer phoneNumberNormalizer,
+            final WhatsAppCampaignSendRateLimiter sendRateLimiter) {
         this.context = context;
         this.whatsAppCampaignRepository = whatsAppCampaignRepository;
         this.whatsAppCampaignValidator = whatsAppCampaignValidator;
@@ -120,6 +118,7 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         this.clientRepositoryWrapper = clientRepositoryWrapper;
         this.staffRepositoryWrapper = staffRepositoryWrapper;
         this.phoneNumberNormalizer = phoneNumberNormalizer;
+        this.sendRateLimiter = sendRateLimiter;
     }
 
     @Transactional
@@ -152,9 +151,9 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         try {
             this.context.authenticatedUser();
             final String normalizedJson = ensureMessageDefault(json);
-            this.whatsAppCampaignValidator.validateForUpdate(normalizedJson);
             final WhatsAppCampaign campaign = this.whatsAppCampaignRepository.findById(resourceId)
                     .orElseThrow(() -> new WhatsAppCampaignNotFoundException(resourceId));
+            this.whatsAppCampaignValidator.validateForUpdate(normalizedJson, campaign.getMessageType());
             if (campaign.isActive()) {
                 throw new GeneralPlatformDomainRuleException("error.msg.whatsapp.campaign.cannot.be.updated",
                         "Campaign with identifier " + resourceId + " cannot be updated as it is not in `Closed` state.", resourceId);
@@ -276,6 +275,11 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         final String bodyVariableMappingJson = mappingArray != null ? mappingArray.toString() : "[]";
         final String atTemplateNameValue = this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.atTemplateName, element);
         final String languageCodeValue = this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.languageCode, element);
+        final String messageTypeValue = this.fromJsonHelper.parameterExists(WhatsAppCampaignValidator.messageType, element)
+                ? this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.messageType, element)
+                : WhatsAppMessageType.TEMPLATE.name();
+        final boolean isFreeform = WhatsAppMessageType.FREEFORM.name().equalsIgnoreCase(messageTypeValue);
+        final String freeformMessage = this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.message, element);
 
         try {
             final HashMap<String, String> campaignParams = new ObjectMapper().readValue(paramValueJson,
@@ -300,13 +304,15 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             if (runReportObject != null && !runReportObject.isEmpty()) {
                 final HashMap<String, Object> entry = runReportObject.get(0);
                 final List<String> bodyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, entry);
-                final String previewMessage = buildPreviewMessage(atTemplateNameValue, languageCodeValue, bodyValues);
+                final String previewMessage = isFreeform ? WhatsAppFreeformMessageResolver.resolve(freeformMessage, entry)
+                        : buildPreviewMessage(atTemplateNameValue, languageCodeValue, bodyValues);
                 return new WhatsAppPreviewData(bodyValues, previewMessage, enqueueable, skipped);
             }
             final List<String> emptyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, Map.of());
-            return new WhatsAppPreviewData(emptyValues,
-                    "Report preview requires valid parameters. Template: " + atTemplateNameValue + " (" + languageCodeValue + ")",
-                    enqueueable, skipped);
+            final String fallback = isFreeform
+                    ? WhatsAppFreeformMessageResolver.resolve(StringUtils.defaultString(freeformMessage), Map.of())
+                    : "Report preview requires valid parameters. Template: " + atTemplateNameValue + " (" + languageCodeValue + ")";
+            return new WhatsAppPreviewData(emptyValues, fallback, enqueueable, skipped);
         } catch (final IOException e) {
             LOG.error("Error generating WhatsApp campaign preview.", e);
             final List<String> emptyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, Map.of());
@@ -424,7 +430,11 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         final List<String> bodyValues = WhatsAppTemplateVariableMapper
                 .toBodyValues(campaign.getBodyVariableMapping(), entry);
         final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
-        final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
+        final String resolvedFreeform = campaign.getMessageType() == WhatsAppMessageType.FREEFORM
+                ? WhatsAppFreeformMessageResolver.resolve(campaign.getMessage(), entry)
+                : null;
+        final String auditMessageBody = campaign.getMessageType() == WhatsAppMessageType.FREEFORM ? resolvedFreeform
+                : (bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues));
 
         Client client = null;
         Staff staff = null;
@@ -437,13 +447,12 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             }
         }
 
-        // Throttle message sends to respect provider throughput limits
-        rateLimiter.acquire();
+        this.sendRateLimiter.acquire();
 
         final NotificationCommand command;
         if (campaign.getMessageType() == WhatsAppMessageType.FREEFORM) {
             command = NotificationCommand.freeformWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
-                    campaign.getRecipientType(), client, staff, auditMessageBody, true);
+                    campaign.getRecipientType(), client, staff, resolvedFreeform, true);
         } else {
             command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
                     campaign.getRecipientType(), client, staff, campaign.getAtTemplateName(), campaign.getLanguageCode(),

@@ -81,6 +81,7 @@ public class WhatsAppCampaignDomainServiceImpl implements WhatsAppCampaignDomain
     private final GroupRepository groupRepository;
     private final PhoneNumberNormalizer phoneNumberNormalizer;
     private final NotificationCommandService notificationCommandService;
+    private final WhatsAppCampaignSendRateLimiter sendRateLimiter;
 
     @PostConstruct
     public void addListeners() {
@@ -267,11 +268,16 @@ public class WhatsAppCampaignDomainServiceImpl implements WhatsAppCampaignDomain
             final List<String> bodyValues = WhatsAppTemplateVariableMapper
                     .toBodyValues(campaign.getBodyVariableMapping(), data);
             final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
-            final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
+            final String resolvedFreeform = campaign.getMessageType() == WhatsAppMessageType.FREEFORM
+                    ? WhatsAppFreeformMessageResolver.resolve(campaign.getMessage(), data)
+                    : null;
+            final String auditMessageBody = campaign.getMessageType() == WhatsAppMessageType.FREEFORM ? resolvedFreeform
+                    : (bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues));
+            this.sendRateLimiter.acquire();
             final NotificationCommand command;
             if (campaign.getMessageType() == WhatsAppMessageType.FREEFORM) {
                 command = NotificationCommand.freeformWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
-                        RecipientType.CLIENT, client, null, auditMessageBody, true);
+                        RecipientType.CLIENT, client, null, resolvedFreeform, true);
             } else {
                 command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
                         RecipientType.CLIENT, client, null, campaign.getAtTemplateName(), campaign.getLanguageCode(),

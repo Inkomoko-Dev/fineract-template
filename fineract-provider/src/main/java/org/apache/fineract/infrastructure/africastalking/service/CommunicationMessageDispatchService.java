@@ -39,6 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class CommunicationMessageDispatchService {
 
+    private static final int HTTP_CLIENT_ERROR_MIN = 400;
+    private static final int HTTP_CLIENT_ERROR_MAX = 500;
+
     private final WhatsAppProviderRouter whatsAppProviderRouter;
     private final CommunicationMessageRepository communicationMessageRepository;
     private final WhatsAppPhoneWhitelistService whatsAppPhoneWhitelistService;
@@ -66,34 +69,65 @@ public class CommunicationMessageDispatchService {
             communicationMessageRepository.save(message);
             return;
         }
+        final boolean templateMode = StringUtils.isNotBlank(message.getTemplateName());
+        final String mode = templateMode ? "TEMPLATE" : "TEXT";
         try {
-            final WhatsAppTransportResult response;
-            if (StringUtils.isNotBlank(message.getTemplateName())) {
+            WhatsAppTransportResult response;
+            if (templateMode) {
                 final List<String> bodyValues = parseBodyValues(message.getTemplateBodyValues());
                 response = whatsAppProviderRouter.sendTemplate(message.getPhoneNumber(), message.getTemplateName(),
                         message.getTemplateLanguage(), bodyValues);
+                if (!response.successful() && isClientError(response.statusCode()) && StringUtils.isNotBlank(message.getMessageBody())) {
+                    log.warn(
+                            "WhatsApp template→text fallback messageId={} phone={} templateName={} httpStatus={} detail={}",
+                            message.getId(), CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), message.getTemplateName(),
+                            response.statusCode(),
+                            CommunicationLogSanitizer.truncateDetail(StringUtils.defaultIfBlank(response.errorDetail(), response.body())));
+                    response = whatsAppProviderRouter.sendText(message.getPhoneNumber(), message.getMessageBody());
+                    modeAfterFallback(message, response);
+                    return;
+                }
             } else {
                 response = whatsAppProviderRouter.sendText(message.getPhoneNumber(), message.getMessageBody());
             }
-            message.setProvider(response.provider() == null ? null : response.provider().name());
-            if (response.successful()) {
-                message.setStatus(CommunicationMessageStatus.SENT);
-                message.setExternalId(response.externalId());
-                message.setStatusDetail(null);
-                log.info("WhatsApp dispatch succeeded messageId={} phone={} provider={}", message.getId(),
-                        CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), response.provider());
-            } else {
-                applyDispatchFailure(message, response.statusCode(),
-                        StringUtils.defaultIfBlank(response.errorDetail(), response.body()));
-            }
+            applyDispatchResult(message, mode, response);
         } catch (Exception e) {
-            log.error("WhatsApp dispatch failed messageId={} phone={}", message.getId(),
-                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), e);
+            log.error("WhatsApp dispatch failed messageId={} phone={} mode={} templateName={}", message.getId(),
+                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), mode, message.getTemplateName(), e);
             final CommunicationDispatchErrorClassifier.Classification classification = CommunicationDispatchErrorClassifier
                     .classifyException(e);
             applyClassification(message, classification, CommunicationLogSanitizer.truncateDetail(e.getMessage()));
         }
         communicationMessageRepository.save(message);
+    }
+
+    private void modeAfterFallback(final CommunicationMessage message, final WhatsAppTransportResult response) {
+        applyDispatchResult(message, "TEXT_FALLBACK", response);
+        communicationMessageRepository.save(message);
+    }
+
+    private void applyDispatchResult(final CommunicationMessage message, final String mode, final WhatsAppTransportResult response) {
+        message.setProvider(response.provider() == null ? null : response.provider().name());
+        if (response.successful()) {
+            message.setStatus(CommunicationMessageStatus.SENT);
+            message.setExternalId(response.externalId());
+            message.setStatusDetail(null);
+            log.info("WhatsApp dispatch succeeded messageId={} phone={} provider={} mode={} templateName={}", message.getId(),
+                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), response.provider(), mode, message.getTemplateName());
+        } else {
+            final String rawDetail = StringUtils.defaultIfBlank(response.errorDetail(), response.body());
+            final String prefixed = "mode=" + mode
+                    + (StringUtils.isNotBlank(message.getTemplateName()) ? " template=" + message.getTemplateName() : "") + " "
+                    + StringUtils.defaultString(rawDetail);
+            log.warn("WhatsApp dispatch failed messageId={} phone={} httpStatus={} mode={} templateName={} detail={}", message.getId(),
+                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), response.statusCode(), mode, message.getTemplateName(),
+                    CommunicationLogSanitizer.truncateDetail(rawDetail));
+            applyDispatchFailure(message, response.statusCode(), prefixed);
+        }
+    }
+
+    private static boolean isClientError(final int statusCode) {
+        return statusCode >= HTTP_CLIENT_ERROR_MIN && statusCode < HTTP_CLIENT_ERROR_MAX;
     }
 
     private void applyDispatchFailure(final CommunicationMessage message, final int statusCode, final String responseBody) {
@@ -102,8 +136,6 @@ public class CommunicationMessageDispatchService {
         final String detail = classification.code() + ": "
                 + CommunicationLogSanitizer.truncateDetail(
                         StringUtils.isNotBlank(responseBody) ? "HTTP " + statusCode + ": " + responseBody : "HTTP " + statusCode);
-        log.warn("WhatsApp dispatch failed messageId={} phone={} httpStatus={} category={}", message.getId(),
-                CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), statusCode, classification.category());
         applyClassification(message, classification, detail);
     }
 
