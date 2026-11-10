@@ -81,7 +81,7 @@ public class LoanTransactionEnumData {
         this.refundForActiveLoans = Long.valueOf(18).equals(this.id);
         this.creditBalanceRefund = Long.valueOf(20).equals(this.id);
         this.payOff = Long.valueOf(28).equals(this.id);
-        this.futureInterestCancellation = Long.valueOf(30).equals(this.id);
+        this.futureInterestCancellation = Long.valueOf(34).equals(this.id);
         this.partialWriteOff = Long.valueOf(31).equals(this.id);
         this.residualBalanceAdjustment = Long.valueOf(32).equals(this.id);
         this.writeOffReversal = Long.valueOf(33).equals(this.id);
@@ -206,6 +206,10 @@ public class LoanTransactionEnumData {
 
     public boolean isDisbursementChargeAdjustment() {
         return Long.valueOf(LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT.getValue()).equals(this.id);
+    }
+
+    public boolean isInsuranceChargeAdjustment() {
+        return Long.valueOf(LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT.getValue()).equals(this.id);
     }
 
     public boolean isDepositRedraw() {
