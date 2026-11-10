@@ -67,20 +67,17 @@ public final class TrancheMilestoneRules {
             return null;
         }
         final SurveyAnswer answer = survey == null ? SurveyAnswer.NONE : survey;
-        if (current != null && current.isRequiresReview()) {
-            if (milestoneRequired && answer == SurveyAnswer.NEGATIVE) {
-                return LoanSubStatus.EXPIRED;
-            }
-            return LoanSubStatus.REQUIRES_REVIEW;
-        }
+        // A completed negative survey expires the tranche once repayment is met or the deadline passed.
         if (milestoneRequired && answer == SurveyAnswer.NEGATIVE && (repaymentMet || pastDeadline)) {
             return LoanSubStatus.EXPIRED;
         }
-        if (answer == SurveyAnswer.POSITIVE && repaymentMet && milestoneRequired) {
-            if (pastDeadline && current != LoanSubStatus.SURVEY_SUCCESSFUL && current != LoanSubStatus.EXPIRED) {
-                return LoanSubStatus.REQUIRES_REVIEW;
-            }
+        // A completed positive survey clears Requires review and marks the tranche ready, even late.
+        if (milestoneRequired && answer == SurveyAnswer.POSITIVE && repaymentMet) {
             return LoanSubStatus.SURVEY_SUCCESSFUL;
+        }
+        // Past-deadline incomplete cases stay in Requires review until a final survey answer arrives.
+        if (current != null && current.isRequiresReview()) {
+            return LoanSubStatus.REQUIRES_REVIEW;
         }
         if (!repaymentMet) {
             if (milestoneRequired && pastDeadline) {

@@ -246,11 +246,8 @@ public class TrancheReleaseNotificationService {
     private void addSurveyWarning(final Map<String, Object> report, final Loan loan) {
         final TrancheMilestoneEligibilityService.Refresh milestone = this.eligibility.preview(loan);
         final LoanSubStatus status = milestone.status;
-        final boolean surveyOutstanding = milestone.milestoneRequired && (status == LoanSubStatus.REPAYMENT_NOT_MET
-                || status == LoanSubStatus.AWAITING_SURVEY || status == LoanSubStatus.REQUIRES_REVIEW);
-        final boolean surveyNegative = milestone.milestoneRequired && status == LoanSubStatus.EXPIRED;
-        report.put("surveyOutstanding", surveyOutstanding);
-        report.put("surveyNegative", surveyNegative);
+        report.put("surveyOutstanding", milestone.surveyOutstanding());
+        report.put("surveyNegative", milestone.surveyNegative());
         report.put("milestoneRequired", milestone.milestoneRequired);
         report.put("trancheMilestoneStatus", status == null ? null : status.getValue());
     }
