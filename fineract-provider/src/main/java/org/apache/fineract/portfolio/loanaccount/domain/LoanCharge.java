@@ -124,7 +124,10 @@ public class LoanCharge extends AbstractPersistableCustom {
     @Column(name = "max_cap", scale = 6, precision = 19, nullable = true)
     private BigDecimal maxCap;
 
-    @OneToMany(cascade = CascadeType.ALL, mappedBy = "loancharge", orphanRemoval = true, fetch = FetchType.EAGER)
+    // LAZY: EAGER bidirectional graphs (installment/overdue/paid-by ↔ transaction) StackOverflow EclipseLink's
+    // NoIndirectionPolicy when a loan has many late-fee charges. Callers already touch these within a persistence
+    // context, so lazy load is safe.
+    @OneToMany(cascade = CascadeType.ALL, mappedBy = "loancharge", orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<LoanInstallmentCharge> loanInstallmentCharge = new HashSet<>();
 
     @Column(name = "is_active", nullable = false)
@@ -133,13 +136,13 @@ public class LoanCharge extends AbstractPersistableCustom {
     @Column(name = "external_id")
     private String externalId;
 
-    @OneToOne(mappedBy = "loancharge", cascade = CascadeType.ALL, optional = true, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToOne(mappedBy = "loancharge", cascade = CascadeType.ALL, optional = true, orphanRemoval = true, fetch = FetchType.LAZY)
     private LoanOverdueInstallmentCharge overdueInstallmentCharge;
 
-    @OneToOne(mappedBy = "loancharge", cascade = CascadeType.ALL, optional = true, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToOne(mappedBy = "loancharge", cascade = CascadeType.ALL, optional = true, orphanRemoval = true, fetch = FetchType.LAZY)
     private LoanTrancheDisbursementCharge loanTrancheDisbursementCharge;
 
-    @OneToMany(mappedBy = "loanCharge", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "loanCharge", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<LoanChargePaidBy> loanChargePaidBySet;
 
     public static LoanCharge createNewFromJson(final Loan loan, final Charge chargeDefinition, final JsonCommand command) {
