@@ -148,41 +148,53 @@ class TrancheScheduleRulesTest {
     }
 
     @Test
-    void laterTrancheLeavesInstallmentsAlreadyDueAndSplitsAcrossThoseAfterIt() {
-        final List<LocalDate> dueDates = List.of(LocalDate.of(2026, 7, 1), LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 1),
-                LocalDate.of(2026, 10, 1), LocalDate.of(2026, 11, 1), LocalDate.of(2026, 12, 1), LocalDate.of(2027, 1, 1));
-        final List<LocalDate> disbursedOn = List.of(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 1), LocalDate.of(2026, 11, 5));
-        final List<BigDecimal> tranches = List.of(new BigDecimal("6500"), new BigDecimal("14250"), new BigDecimal("14250"));
-
-        final List<BigDecimal> principals = TrancheScheduleRules.principalsForDisbursedTranches(disbursedOn, tranches, dueDates,
-                new BigDecimal("5000"), 1, 2);
+    void laterTrancheRebuildsEqualInstallmentsAfterGraceAndTheFixedFirstRepayment() {
+        final List<BigDecimal> principals = TrancheScheduleRules.principalsForDisbursedAmount(new BigDecimal("35000"),
+                new BigDecimal("5000"), 1, 7, 2);
 
         assertEquals(new BigDecimal("0.00"), principals.get(0));
         assertEquals(new BigDecimal("5000.00"), principals.get(1));
-        assertEquals(new BigDecimal("300.00"), principals.get(2));
-        assertEquals(new BigDecimal("3862.50"), principals.get(3));
-        assertEquals(new BigDecimal("3862.50"), principals.get(4));
-        assertEquals(new BigDecimal("10987.50"), principals.get(5));
-        assertEquals(new BigDecimal("10987.50"), principals.get(6));
+        assertEquals(new BigDecimal("6000.00"), principals.get(2));
+        assertEquals(new BigDecimal("6000.00"), principals.get(3));
+        assertEquals(new BigDecimal("6000.00"), principals.get(4));
+        assertEquals(new BigDecimal("6000.00"), principals.get(5));
+        assertEquals(new BigDecimal("6000.00"), principals.get(6));
         assertEquals(new BigDecimal("35000.00"), sum(principals));
     }
 
     @Test
-    void laterTrancheRemainderStaysOnTheLastInstallmentAfterTheDisbursement() {
-        final List<LocalDate> dueDates = List.of(LocalDate.of(2026, 7, 1), LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 1),
-                LocalDate.of(2026, 10, 1));
-        final List<BigDecimal> before = TrancheScheduleRules.principalsForDisbursedTranches(List.of(LocalDate.of(2026, 6, 1)),
-                List.of(new BigDecimal("100")), dueDates, new BigDecimal("10"), 1, 2);
+    void eightMonthTermSplitsTheRemainderAcrossMonthsThreeToEight() {
+        final List<BigDecimal> principals = TrancheScheduleRules.principalsForDisbursedAmount(new BigDecimal("250"), new BigDecimal("50"), 1,
+                8, 2);
 
-        final List<BigDecimal> principals = TrancheScheduleRules.principalsForDisbursedTranches(
-                List.of(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 8, 15)), List.of(new BigDecimal("100"), new BigDecimal("10.01")),
-                dueDates, new BigDecimal("10"), 1, 2);
+        assertEquals(new BigDecimal("0.00"), principals.get(0));
+        assertEquals(new BigDecimal("50.00"), principals.get(1));
+        assertEquals(new BigDecimal("33.33"), principals.get(2));
+        assertEquals(new BigDecimal("33.33"), principals.get(3));
+        assertEquals(new BigDecimal("33.33"), principals.get(4));
+        assertEquals(new BigDecimal("33.33"), principals.get(5));
+        assertEquals(new BigDecimal("33.33"), principals.get(6));
+        assertEquals(new BigDecimal("33.35"), principals.get(7));
+        assertEquals(new BigDecimal("250.00"), sum(principals));
+    }
 
-        assertEquals(before.get(0), principals.get(0));
-        assertEquals(before.get(1), principals.get(1));
+    @Test
+    void twoMonthGraceUsesTheThirdInstallmentAsTheFixedFirstRepayment() {
+        final List<BigDecimal> principals = TrancheScheduleRules.principalsForDisbursedAmount(new BigDecimal("250"), new BigDecimal("50"), 2,
+                7, 2);
+
+        assertEquals(new BigDecimal("0.00"), principals.get(0));
+        assertEquals(new BigDecimal("0.00"), principals.get(1));
         assertEquals(new BigDecimal("50.00"), principals.get(2));
-        assertEquals(new BigDecimal("50.01"), principals.get(3));
-        assertEquals(new BigDecimal("110.01"), sum(principals));
+        assertEquals(new BigDecimal("50.00"), principals.get(3));
+        assertEquals(new BigDecimal("50.00"), principals.get(6));
+        assertEquals(new BigDecimal("250.00"), sum(principals));
+    }
+
+    @Test
+    void maturityIsKeptWhenTheGeneratorMovesTheLastDueDate() {
+        assertEquals(LocalDate.of(2027, 1, 15),
+                TrancheScheduleRules.maturityToRetain(LocalDate.of(2027, 1, 15), LocalDate.of(2027, 2, 1), LocalDate.of(2026, 12, 1)));
     }
 
     @Test

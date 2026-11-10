@@ -1443,6 +1443,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public void updateLoanSchedule(final LoanScheduleModel modifiedLoanSchedule) {
+        final LocalDate originalMaturity = this.expectedMaturityDate;
         final List<LoanRepaymentScheduleInstallment> newInstallments = new ArrayList<>();
         for (final LoanScheduleModelPeriod scheduledLoanInstallment : modifiedLoanSchedule.getPeriods()) {
 
@@ -1464,9 +1465,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         updateLoanSummaryDerivedFields();
         applyAccurals();
         TrancheScheduleRules.apply(this);
+        TrancheScheduleRules.keepOriginalMaturity(this, originalMaturity);
     }
 
     public void updateLoanSchedule(final Collection<LoanRepaymentScheduleInstallment> newInstallments) {
+        final LocalDate originalMaturity = this.expectedMaturityDate;
         validateNoDuplicateInstallmentNumbers(newInstallments);
         for (final LoanRepaymentScheduleInstallment installment : newInstallments) {
             LoanRepaymentScheduleInstallment existingInstallment = findByInstallmentNumber(getRepaymentScheduleInstallments(),
@@ -1484,6 +1487,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         updateLoanSummaryDerivedFields();
         applyAccurals();
         TrancheScheduleRules.apply(this);
+        TrancheScheduleRules.keepOriginalMaturity(this, originalMaturity);
     }
 
     private boolean existInstallment(final Collection<LoanRepaymentScheduleInstallment> installments, final Integer installmentNumber) {
@@ -1628,6 +1632,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             this.expectedMaturityDate = determineExpectedMaturityDate();
             this.actualMaturityDate = determineExpectedMaturityDate();
         }
+    }
+
+    void retainMaturityDate(final LocalDate maturity) {
+        this.expectedMaturityDate = maturity;
+        this.actualMaturityDate = maturity;
     }
 
     public void updateLoanSummaryDerivedFields() {
