@@ -21,11 +21,13 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.persistence.PersistenceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +42,10 @@ import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.audit.AuditChangeRecorder;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
+import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.documentmanagement.data.DocumentData;
 import org.apache.fineract.infrastructure.documentmanagement.service.DocumentReadPlatformService;
@@ -1848,6 +1853,15 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     public CommandProcessingResult rejectPrepareAndSignContract(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
 
+        final String noteText = StringUtils.trimToNull(command.stringValueOfParameterNamed("note"));
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        new DataValidatorBuilder(dataValidationErrors).resource("loan.prepareandsigncontract.reject").parameter("note").value(noteText)
+                .notBlank().notExceedingLengthOf(960);
+        if (!dataValidationErrors.isEmpty()) {
+            throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                    dataValidationErrors);
+        }
+
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         final LoanDecision loanDecision = this.loanDecisionRepository.findLoanDecisionByLoanId(loan.getId());
 
@@ -1856,16 +1870,16 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                     "Loan Account not found in decision engine. Operation [Return to Prepare and Sign Contract] is not allowed");
         }
 
-        final boolean isApprovalStage = Boolean.TRUE.equals(loanDecision.getPrepareAndSignContractSigned()) || loan.status().isApproved();
         final boolean isPrepareAndSignStage = LoanDecisionState.fromInt(loan.getLoanDecisionState()).isPrepareAndSignContract();
+        final boolean isApprovalStage = loan.status().isApproved()
+                || (isPrepareAndSignStage && Boolean.TRUE.equals(loanDecision.getPrepareAndSignContractSigned()));
 
         if (!isApprovalStage && !isPrepareAndSignStage) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.decision.state.invalid.for.reject",
-                    "Loan Decision state is invalid for reject operation. Expected PREPARE_AND_SIGN_CONTRACT or Approval stage.");
+                    "This loan is no longer at the Prepare and Sign Contract or Approval stage, so it cannot be returned. Refresh the loan to see its current stage.");
         }
 
         Note note = null;
-        final String noteText = command.stringValueOfParameterNamed("note");
 
         if (isApprovalStage) {
             // Return from Approval stage back to Prepare and Sign Contract step
@@ -1873,9 +1887,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 loan.undoApproval(defaultLoanLifecycleStateMachine());
             }
 
+            final Integer previousLoanDecisionState = resolvePreviousIcReviewDecisionState(loanDecision);
             loanDecision.setPrepareAndSignContractSigned(Boolean.FALSE);
-            loan.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
-            loanDecision.setLoanDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
+            loan.setLoanDecisionState(previousLoanDecisionState);
+            loanDecision.setLoanDecisionState(previousLoanDecisionState);
             loanDecision.setNextLoanIcReviewDecisionState(LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue());
             loanDecision.setRejectPrepareAndSignContractSigned(Boolean.TRUE);
 
@@ -1883,16 +1898,13 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 note = Note.loanNote(loan, "Returned to Prepare and Sign Contract : " + noteText);
                 this.noteRepository.save(note);
             }
-            log.info("Loan {} (ID: {}) returned to Prepare and Sign Contract stage by user {} (ID: {})",
-                    loan.getAccountNumber(), loan.getId(),
+            log.info("Loan {} (ID: {}) returned from approval to stage {} with Prepare and Sign Contract pending by user {} (ID: {})",
+                    loan.getAccountNumber(), loan.getId(), previousLoanDecisionState,
                     currentUser != null ? currentUser.getUsername() : "system",
                     currentUser != null ? currentUser.getId() : "null");
         } else {
             // Revert from Prepare & Sign Contract stage back to previous IC stage
-            Integer previousLoanDecisionState = loanDecision.getPreviousLoanIcReviewDecisionState();
-            if (previousLoanDecisionState == null) {
-                previousLoanDecisionState = LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue();
-            }
+            final Integer previousLoanDecisionState = resolvePreviousIcReviewDecisionState(loanDecision);
 
             loan.setLoanDecisionState(previousLoanDecisionState);
             loanDecision.setLoanDecisionState(previousLoanDecisionState);
@@ -1925,6 +1937,37 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 .withLoanId(loanId)
                 .withResourceIdAsString(loanDecision.getId().toString())
                 .build();
+    }
+
+    private Integer resolvePreviousIcReviewDecisionState(final LoanDecision loanDecision) {
+        final Integer recorded = loanDecision.getPreviousLoanIcReviewDecisionState();
+        if (recorded != null && recorded >= LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue()
+                && recorded < LoanDecisionState.PREPARE_AND_SIGN_CONTRACT.getValue()) {
+            return recorded;
+        }
+
+        final Optional<Integer> highestSignedDynamicLevel = loanDecision.getDecisionLevels() == null ? Optional.empty()
+                : loanDecision.getDecisionLevels().stream()
+                        .filter(level -> Boolean.TRUE.equals(level.getIsSigned()) && !Boolean.TRUE.equals(level.getIsRejected()))
+                        .filter(level -> level.getIcReviewLevel() != null && level.getIcReviewLevel().getDecisionStateValue() != null)
+                        .map(level -> level.getIcReviewLevel().getDecisionStateValue()).max(Integer::compareTo);
+        if (highestSignedDynamicLevel.isPresent()) {
+            return highestSignedDynamicLevel.get();
+        }
+
+        if (Boolean.TRUE.equals(loanDecision.getIcReviewDecisionLevelFiveSigned())) {
+            return LoanDecisionState.IC_REVIEW_LEVEL_FIVE.getValue();
+        }
+        if (Boolean.TRUE.equals(loanDecision.getIcReviewDecisionLevelFourSigned())) {
+            return LoanDecisionState.IC_REVIEW_LEVEL_FOUR.getValue();
+        }
+        if (Boolean.TRUE.equals(loanDecision.getIcReviewDecisionLevelThreeSigned())) {
+            return LoanDecisionState.IC_REVIEW_LEVEL_THREE.getValue();
+        }
+        if (Boolean.TRUE.equals(loanDecision.getIcReviewDecisionLevelTwoSigned())) {
+            return LoanDecisionState.IC_REVIEW_LEVEL_TWO.getValue();
+        }
+        return LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue();
     }
 
     private void validateDueDiligenceBusinessRule(JsonCommand command, Loan loan, LoanDecision loanDecision) {
