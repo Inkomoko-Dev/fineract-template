@@ -23,11 +23,27 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
+    <!-- Split + preconditions: MySQL DDL auto-commits, so a prior partial run can leave
+         m_loan_tranche_release_notice (or product columns) without recording this changeSet. -->
     <changeSet author="inkomoko" id="tranche-percentage-release-columns">
+        <validCheckSum>ANY</validCheckSum>
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_product_loan" columnName="tranche_principal_percentages"/>
+            </not>
+        </preConditions>
         <addColumn tableName="m_product_loan">
             <column name="tranche_principal_percentages" type="VARCHAR(255)"/>
             <column name="previous_tranche_repaid_percentage" type="DECIMAL(5,2)"/>
         </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="tranche-percentage-release-notice-table">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_tranche_release_notice"/>
+            </not>
+        </preConditions>
         <createTable tableName="m_loan_tranche_release_notice">
             <column autoIncrement="true" name="id" type="BIGINT">
                 <constraints primaryKey="true" nullable="false"/>
@@ -42,6 +58,17 @@
                 <constraints nullable="false"/>
             </column>
         </createTable>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="tranche-percentage-release-notice-uk">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="m_loan_tranche_release_notice"/>
+                <not>
+                    <indexExists tableName="m_loan_tranche_release_notice" indexName="uk_tranche_release_notice"/>
+                </not>
+            </and>
+        </preConditions>
         <addUniqueConstraint tableName="m_loan_tranche_release_notice"
                              columnNames="loan_id,disbursement_detail_id"
                              constraintName="uk_tranche_release_notice"/>
