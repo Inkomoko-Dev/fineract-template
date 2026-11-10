@@ -72,6 +72,7 @@ import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRu
 import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.ingestion.LogReporter;
 import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
@@ -158,6 +159,8 @@ public class OdooServiceImpl implements OdooService {
     private ObjectProvider<JournalEntryEventPublisher> journalEntryEventPublisher;
     @Autowired
     private ObjectProvider<ClientEventPublisher> clientEventPublisher;
+    @Autowired
+    private LogReporter logReporter;
     private ClientRepositoryWrapper clientRepository;
     private ConfigurationDomainService configurationDomainService;
 
@@ -486,11 +489,13 @@ public class OdooServiceImpl implements OdooService {
         final String responseCode = getStringField(outcome, "responseCode");
         if (clientId == null) {
             LOG.warn("Odoo client sync outcome without a clientId: {}", outcome);
+            logReporter.odooSyncFailed("CLIENT", null, "Odoo client sync outcome without a clientId");
             return;
         }
         if (("CREATED".equals(responseCode) || "UPDATED".equals(responseCode)) && partnerId != null) {
             if (this.clientRepository.markSyncedToOdoo(clientId, partnerId.intValue()) == 0) {
                 LOG.warn("Odoo client sync outcome for unknown client {}", clientId);
+                logReporter.odooSyncFailed("CLIENT", clientId, "Odoo synced a client CBS doesn't know");
             } else {
                 LOG.info("Client {} synced to Odoo partner {} ({})", clientId, partnerId, responseCode);
             }
@@ -522,6 +527,7 @@ public class OdooServiceImpl implements OdooService {
                 syncClientToOdoo(clientId);
             } catch (Exception e) {
                 LOG.warn("Client {} not synced to Odoo, the client sync job will retry: {}", clientId, e.getMessage());
+                logReporter.odooSyncFailed("CLIENT", clientId, e);
             }
         }));
     }
@@ -765,6 +771,7 @@ public class OdooServiceImpl implements OdooService {
 
         if (transactionId == null) {
             logMissingJournalReference(odooRequest);
+            logReporter.odooSyncFailed("JOURNALENTRY", null, "Odoo journal response without a transaction reference (" + responseCode + ")");
             response.addProperty("success", false);
             response.addProperty("message", "cbs_journal_entry_id not found");
             response.addProperty("data", odooRequest.toString());
@@ -835,7 +842,12 @@ public class OdooServiceImpl implements OdooService {
                                     + "and will be retried by the daily sweep, but this may indicate the Odoo move is missing lines "
                                     + "(e.g. an id collision on cbs_journal_entry_id).",
                             transactionId, responseCode, toSave.size(), journalEntries.size(), journalEntryMap.keySet(), echoedIds);
+                    logReporter.odooSyncFailed("JOURNALENTRY", transactionId, "Odoo matched only some journal lines of the transaction ("
+                            + toSave.size() + " of " + journalEntries.size() + ")");
                 }
+            } else {
+                logReporter.odooSyncFailed("JOURNALENTRY", transactionId,
+                        "Odoo answered " + responseCode + " without journal_entry_no or journalDetails");
             }
 
         } else if ("NOT_FOUND".equals(responseCode)) {
@@ -1160,6 +1172,7 @@ public class OdooServiceImpl implements OdooService {
             this.genericExecutorService.execute(new PostLoanJournalEntryToOddo(loanTransactionId, context));
         } catch (Exception ex) {
             // don't throw exception here — the is_oddo_posted=false cron sweep is the safety net
+            logReporter.odooSyncFailed("JOURNALENTRY", loanTransactionId, ex);
         }
     }
 
@@ -1231,7 +1244,10 @@ public class OdooServiceImpl implements OdooService {
         if (!CollectionUtils.isEmpty(journalEntryDebitCredit)) {
             try {
 
-                if (journalEntryDebitCredit.size() > 1) {
+                if (journalEntryDebitCredit.size() < 2) {
+                    logReporter.odooSyncFailed("JOURNALENTRY", loanTransactionId,
+                            "Transaction has a single unposted journal line, not sent to Odoo");
+                } else {
                     JsonObject odooAck = createJournalEntryToOddo(journalEntryDebitCredit, loanTransactionId, transactionType, isReversed, loanAccountNo, location, fundId);
 
                     boolean ack =  getBooleanField(odooAck,"ack");
@@ -1255,6 +1271,7 @@ public class OdooServiceImpl implements OdooService {
                         LOG.error("Error occurred while Posting Journals to Odoo with Loan Transaction Id  " + loanTransactionId + " and Type "
                                 + transactionType + message);
                         errors.add(throwable);
+                        logReporter.odooSyncFailed("JOURNALENTRY", loanTransactionId, "Posting to odoo failed: " + message);
                     }
                 }
             } catch (Exception e) {
@@ -1265,6 +1282,7 @@ public class OdooServiceImpl implements OdooService {
                 LOG.error("Error occurred while Posting Journals to Odoo with Loan Transaction Id  " + loanTransactionId + " and Type "
                         + transactionType + realCause.getMessage());
                 errors.add(realCause);
+                logReporter.odooSyncFailed("JOURNALENTRY", loanTransactionId, realCause);
             }
         }
     }
@@ -1331,6 +1349,7 @@ public class OdooServiceImpl implements OdooService {
                 postJournalEntryToOddo(null, null, null, null, loanTransactionId);
             } catch (Exception ex) {
                 LOG.error("Real-time Odoo posting failed for loan transaction " + loanTransactionId, ex);
+                logReporter.odooSyncFailed("JOURNALENTRY", loanTransactionId, ex);
             }
         }
 
