@@ -31,7 +31,7 @@ import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 @Setter
 @Entity
 @Table(name = "m_loan_tranche_milestone", uniqueConstraints = {
-        @UniqueConstraint(columnNames = { "loan_id", "disbursement_detail_id" }, name = "uk_tranche_milestone_tranche"),
+        @UniqueConstraint(columnNames = { "loan_id" }, name = "uk_tranche_milestone_loan"),
         @UniqueConstraint(columnNames = { "submission_id" }, name = "uk_tranche_milestone_submission") })
 public class LoanTrancheMilestone extends AbstractPersistableCustom {
 

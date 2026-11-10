@@ -19,9 +19,15 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 /**
- * Decides the loan sub-status for the tranche that is waiting to be disbursed.
- * A negative survey is a business that is not operational, or that does not need additional funds.
- * A positive survey also needs both BGS and Investment verifiers for each answer.
+ * Reads one milestone survey. The request has two yes/no answers, operational and additional funding, and each
+ * answer can name a BGS verifier and an Investment verifier.
+ *
+ * <p>Positive means the business is operational, it needs funds, and both verifiers confirmed each answer.
+ * Negative means it is not operational or it does not need funds. A missing answer or verifier is incomplete.
+ * No survey at all is none.
+ *
+ * <p>The waiting tranche's sub-status follows that result together with the repayment threshold and the deadline.
+ * The previous sub-status is not an input: a loan has one survey, so the same answers always give the same status.
  */
 public final class TrancheMilestoneRules {
 
@@ -35,10 +41,6 @@ public final class TrancheMilestoneRules {
     }
 
     private TrancheMilestoneRules() {}
-
-    public static SurveyAnswer answer(final String operationalStatus, final String additionalFunding) {
-        return answer(operationalStatus, additionalFunding, null, null, null, null);
-    }
 
     public static SurveyAnswer answer(final String operationalStatus, final String additionalFunding,
             final Boolean operationalVerifiedByBgs, final Boolean operationalVerifiedByInvestment,
@@ -62,35 +64,23 @@ public final class TrancheMilestoneRules {
     }
 
     public static LoanSubStatus decide(final boolean openTranche, final boolean repaymentMet, final boolean milestoneRequired,
-            final SurveyAnswer survey, final boolean pastDeadline, final LoanSubStatus current) {
+            final SurveyAnswer survey, final boolean pastDeadline) {
         if (!openTranche) {
             return null;
         }
         final SurveyAnswer answer = survey == null ? SurveyAnswer.NONE : survey;
-        // A completed negative survey expires the tranche once repayment is met or the deadline passed.
         if (milestoneRequired && answer == SurveyAnswer.NEGATIVE && (repaymentMet || pastDeadline)) {
             return LoanSubStatus.EXPIRED;
         }
-        // A completed positive survey clears Requires review and marks the tranche ready, even late.
         if (milestoneRequired && answer == SurveyAnswer.POSITIVE && repaymentMet) {
             return LoanSubStatus.SURVEY_SUCCESSFUL;
         }
-        // Past-deadline incomplete cases stay in Requires review until a final survey answer arrives.
-        if (current != null && current.isRequiresReview()) {
-            return LoanSubStatus.REQUIRES_REVIEW;
-        }
         if (!repaymentMet) {
-            if (milestoneRequired && pastDeadline) {
-                return LoanSubStatus.REQUIRES_REVIEW;
-            }
-            return LoanSubStatus.REPAYMENT_NOT_MET;
+            return milestoneRequired && pastDeadline ? LoanSubStatus.REQUIRES_REVIEW : LoanSubStatus.REPAYMENT_NOT_MET;
         }
         if (!milestoneRequired) {
             return LoanSubStatus.REPAYMENT_MET;
         }
-        if (pastDeadline) {
-            return LoanSubStatus.REQUIRES_REVIEW;
-        }
-        return LoanSubStatus.AWAITING_SURVEY;
+        return pastDeadline ? LoanSubStatus.REQUIRES_REVIEW : LoanSubStatus.AWAITING_SURVEY;
     }
 }

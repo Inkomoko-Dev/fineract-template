@@ -27,93 +27,71 @@ public class TrancheMilestoneRulesTest {
 
     @Test
     public void repaymentBelowTheRuleStaysUnmet() {
-        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET, decide(false, true, SurveyAnswer.NONE, false, null));
+        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET, decide(false, true, SurveyAnswer.NONE, false));
     }
 
     @Test
     public void repaymentMetWithoutAMilestoneIsReady() {
-        assertEquals(LoanSubStatus.REPAYMENT_MET, decide(true, false, SurveyAnswer.POSITIVE, false, null));
-        assertEquals(LoanSubStatus.REPAYMENT_MET, decide(true, false, SurveyAnswer.NONE, true, null));
-        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET, decide(false, false, SurveyAnswer.NONE, true, null));
+        assertEquals(LoanSubStatus.REPAYMENT_MET, decide(true, false, SurveyAnswer.POSITIVE, false));
+        assertEquals(LoanSubStatus.REPAYMENT_MET, decide(true, false, SurveyAnswer.NONE, true));
+        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET, decide(false, false, SurveyAnswer.NONE, true));
     }
 
     @Test
     public void nothingSubmittedAfterRepaymentIsAwaitingSurvey() {
-        assertEquals(LoanSubStatus.AWAITING_SURVEY, decide(true, true, SurveyAnswer.NONE, false, null));
-        assertEquals(LoanSubStatus.AWAITING_SURVEY, decide(true, true, SurveyAnswer.INCOMPLETE, false, null));
+        assertEquals(LoanSubStatus.AWAITING_SURVEY, decide(true, true, SurveyAnswer.NONE, false));
+        assertEquals(LoanSubStatus.AWAITING_SURVEY, decide(true, true, SurveyAnswer.INCOMPLETE, false));
     }
 
     @Test
     public void operationalAndNeedsFundsIsSuccessfulOnlyWhenBothVerifiersConfirmEachAnswer() {
-        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS"));
-        assertEquals(SurveyAnswer.INCOMPLETE,
-                TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS", true, true, true, false));
-        assertEquals(SurveyAnswer.POSITIVE,
-                TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS", true, true, true, true));
-        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL,
-                decide(true, true, SurveyAnswer.POSITIVE, false, LoanSubStatus.AWAITING_SURVEY));
+        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS", null, null, null, null));
+        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS", true, true, true, false));
+        assertEquals(SurveyAnswer.POSITIVE, TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS", true, true, true, true));
+        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL, decide(true, true, SurveyAnswer.POSITIVE, false));
     }
 
     @Test
     public void notOperationalOrNoFurtherFundsIsExpired() {
         assertEquals(SurveyAnswer.NEGATIVE, TrancheMilestoneRules.answer("NOT_OPERATIONAL", "NEEDS_FUNDS", true, true, true, true));
         assertEquals(SurveyAnswer.NEGATIVE, TrancheMilestoneRules.answer("OPERATIONAL", "DOES_NOT_NEED_FUNDS", true, true, true, true));
-        assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, false, LoanSubStatus.AWAITING_SURVEY));
+        assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, false));
     }
 
     @Test
     public void aSurveyStoredBeforeRepaymentWaitsForTheRepayment() {
-        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET,
-                decide(false, true, SurveyAnswer.POSITIVE, false, LoanSubStatus.REPAYMENT_NOT_MET));
-        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL,
-                decide(true, true, SurveyAnswer.POSITIVE, false, LoanSubStatus.REPAYMENT_NOT_MET));
-        assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, false, LoanSubStatus.REPAYMENT_NOT_MET));
+        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET, decide(false, true, SurveyAnswer.POSITIVE, false));
+        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL, decide(true, true, SurveyAnswer.POSITIVE, false));
+        assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, false));
     }
 
     @Test
     public void passingTheFirstRepaymentDateRequiresReviewUntilAFinalSurvey() {
-        assertEquals(LoanSubStatus.REQUIRES_REVIEW,
-                decide(false, true, SurveyAnswer.NONE, true, LoanSubStatus.REPAYMENT_NOT_MET));
-        assertEquals(LoanSubStatus.REQUIRES_REVIEW,
-                decide(true, true, SurveyAnswer.NONE, true, LoanSubStatus.AWAITING_SURVEY));
-        assertEquals(LoanSubStatus.REQUIRES_REVIEW,
-                decide(true, true, SurveyAnswer.INCOMPLETE, true, LoanSubStatus.AWAITING_SURVEY));
-        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL,
-                decide(true, true, SurveyAnswer.POSITIVE, true, LoanSubStatus.AWAITING_SURVEY));
-        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL,
-                decide(true, true, SurveyAnswer.POSITIVE, true, LoanSubStatus.REQUIRES_REVIEW));
-        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL,
-                decide(true, true, SurveyAnswer.POSITIVE, true, LoanSubStatus.SURVEY_SUCCESSFUL));
-        assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, true, LoanSubStatus.REQUIRES_REVIEW));
-        assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, true, LoanSubStatus.EXPIRED));
-    }
-
-    @Test
-    public void aLaterSubmissionMovesBetweenSuccessfulAndExpired() {
-        assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, false, LoanSubStatus.SURVEY_SUCCESSFUL));
-        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL, decide(true, true, SurveyAnswer.POSITIVE, false, LoanSubStatus.EXPIRED));
+        assertEquals(LoanSubStatus.REQUIRES_REVIEW, decide(false, true, SurveyAnswer.NONE, true));
+        assertEquals(LoanSubStatus.REQUIRES_REVIEW, decide(true, true, SurveyAnswer.NONE, true));
+        assertEquals(LoanSubStatus.REQUIRES_REVIEW, decide(true, true, SurveyAnswer.INCOMPLETE, true));
+        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL, decide(true, true, SurveyAnswer.POSITIVE, true));
+        assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, true));
     }
 
     @Test
     public void reversingTheQualifyingRepaymentReturnsToUnmetAndKeepsTheDateRule() {
-        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET,
-                decide(false, true, SurveyAnswer.POSITIVE, false, LoanSubStatus.SURVEY_SUCCESSFUL));
-        assertEquals(LoanSubStatus.REQUIRES_REVIEW,
-                decide(false, true, SurveyAnswer.POSITIVE, true, LoanSubStatus.SURVEY_SUCCESSFUL));
+        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET, decide(false, true, SurveyAnswer.POSITIVE, false));
+        assertEquals(LoanSubStatus.REQUIRES_REVIEW, decide(false, true, SurveyAnswer.POSITIVE, true));
     }
 
     @Test
     public void aClosedTrancheClearsTheMilestoneStatus() {
-        assertEquals(null, TrancheMilestoneRules.decide(false, true, true, SurveyAnswer.POSITIVE, false, LoanSubStatus.AWAITING_SURVEY));
+        assertEquals(null, TrancheMilestoneRules.decide(false, true, true, SurveyAnswer.POSITIVE, false));
     }
 
     @Test
     public void blankOrMissingAnswersAreNoneOrIncomplete() {
-        assertEquals(SurveyAnswer.NONE, TrancheMilestoneRules.answer(null, null));
-        assertEquals(SurveyAnswer.NONE, TrancheMilestoneRules.answer("", "  "));
-        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer("OPERATIONAL", null));
-        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer(null, "NEEDS_FUNDS"));
-        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer("OPERATIONAL", ""));
+        assertEquals(SurveyAnswer.NONE, TrancheMilestoneRules.answer(null, null, null, null, null, null));
+        assertEquals(SurveyAnswer.NONE, TrancheMilestoneRules.answer("", "  ", null, null, null, null));
+        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer("OPERATIONAL", null, null, null, null, null));
+        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer(null, "NEEDS_FUNDS", null, null, null, null));
+        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer("OPERATIONAL", "", null, null, null, null));
     }
 
     @Test
@@ -130,40 +108,25 @@ public class TrancheMilestoneRulesTest {
 
     @Test
     public void negativeSurveyBeforeRepaymentAndDeadlineStaysUnmet() {
-        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET,
-                decide(false, true, SurveyAnswer.NEGATIVE, false, LoanSubStatus.REPAYMENT_NOT_MET));
-        assertEquals(LoanSubStatus.EXPIRED, decide(false, true, SurveyAnswer.NEGATIVE, true, LoanSubStatus.REPAYMENT_NOT_MET));
+        assertEquals(LoanSubStatus.REPAYMENT_NOT_MET, decide(false, true, SurveyAnswer.NEGATIVE, false));
+        assertEquals(LoanSubStatus.EXPIRED, decide(false, true, SurveyAnswer.NEGATIVE, true));
     }
 
     @Test
     public void nullSurveyIsTreatedAsNone() {
-        assertEquals(LoanSubStatus.AWAITING_SURVEY, decide(true, true, null, false, null));
-        assertEquals(LoanSubStatus.REPAYMENT_MET, decide(true, false, null, false, null));
-    }
-
-    @Test
-    public void requiresReviewSticksOnlyWhileTheSurveyIsStillIncomplete() {
-        assertEquals(LoanSubStatus.REQUIRES_REVIEW,
-                decide(false, true, SurveyAnswer.NONE, true, LoanSubStatus.REQUIRES_REVIEW));
-        assertEquals(LoanSubStatus.REQUIRES_REVIEW,
-                decide(true, true, SurveyAnswer.INCOMPLETE, true, LoanSubStatus.REQUIRES_REVIEW));
-        assertEquals(LoanSubStatus.REQUIRES_REVIEW,
-                decide(false, true, SurveyAnswer.POSITIVE, true, LoanSubStatus.REQUIRES_REVIEW));
-        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL,
-                decide(true, true, SurveyAnswer.POSITIVE, false, LoanSubStatus.REQUIRES_REVIEW));
-        assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, false, LoanSubStatus.REQUIRES_REVIEW));
+        assertEquals(LoanSubStatus.AWAITING_SURVEY, decide(true, true, null, false));
+        assertEquals(LoanSubStatus.REPAYMENT_MET, decide(true, false, null, false));
     }
 
     @Test
     public void pastDeadlineWithIncompleteSurveyRequiresReviewEvenWhenRepaymentIsMet() {
-        assertEquals(LoanSubStatus.REQUIRES_REVIEW,
-                decide(true, true, SurveyAnswer.INCOMPLETE, true, LoanSubStatus.AWAITING_SURVEY));
-        assertEquals(LoanSubStatus.REQUIRES_REVIEW, decide(true, true, SurveyAnswer.NONE, true, null));
-        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL, decide(true, true, SurveyAnswer.POSITIVE, true, null));
+        assertEquals(LoanSubStatus.REQUIRES_REVIEW, decide(true, true, SurveyAnswer.INCOMPLETE, true));
+        assertEquals(LoanSubStatus.REQUIRES_REVIEW, decide(true, true, SurveyAnswer.NONE, true));
+        assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL, decide(true, true, SurveyAnswer.POSITIVE, true));
     }
 
     private static LoanSubStatus decide(final boolean repaymentMet, final boolean milestoneRequired, final SurveyAnswer survey,
-            final boolean pastDeadline, final LoanSubStatus current) {
-        return TrancheMilestoneRules.decide(true, repaymentMet, milestoneRequired, survey, pastDeadline, current);
+            final boolean pastDeadline) {
+        return TrancheMilestoneRules.decide(true, repaymentMet, milestoneRequired, survey, pastDeadline);
     }
 }

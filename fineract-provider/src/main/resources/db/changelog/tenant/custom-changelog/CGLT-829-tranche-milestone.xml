@@ -486,6 +486,23 @@ ORDER BY ml.account_no
         </sql>
     </changeSet>
 
+    <changeSet author="inkomoko" id="CGLT-829-drop-milestone-history">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_loan_tranche_milestone_history"/>
+        </preConditions>
+        <dropTable tableName="m_loan_tranche_milestone_history"/>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-one-per-loan">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan_tranche_milestone" indexName="uk_tranche_milestone_loan"/>
+            </not>
+        </preConditions>
+        <addUniqueConstraint tableName="m_loan_tranche_milestone" columnNames="loan_id"
+                             constraintName="uk_tranche_milestone_loan"/>
+    </changeSet>
+
     <changeSet author="inkomoko" id="CGLT-828-retire-tranche-release-repayments-report">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">

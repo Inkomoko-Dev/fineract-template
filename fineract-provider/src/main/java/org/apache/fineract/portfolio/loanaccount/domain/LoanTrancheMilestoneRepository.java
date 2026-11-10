@@ -25,5 +25,9 @@ public interface LoanTrancheMilestoneRepository extends JpaRepository<LoanTranch
 
     Optional<LoanTrancheMilestone> findByLoanIdAndDisbursementDetailId(Long loanId, Long disbursementDetailId);
 
+    Optional<LoanTrancheMilestone> findFirstByLoanIdOrderBySubmittedOnDescIdDesc(Long loanId);
+
+    boolean existsByLoanId(Long loanId);
+
     Optional<LoanTrancheMilestone> findBySubmissionId(String submissionId);
 }
