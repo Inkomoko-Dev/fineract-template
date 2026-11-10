@@ -252,4 +252,224 @@ ORDER BY ml.account_no
         </addColumn>
     </changeSet>
 
+    <changeSet author="inkomoko" id="CGLT-828-tranche-loan-status-parameter">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'trancheLoanStatusSelectAll'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="trancheLoanStatusSelectAll"/>
+            <column name="parameter_variable" value="loanStatusId"/>
+            <column name="parameter_label" value="Loan status"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="-1"/>
+            <column name="selectAll" value="Y"/>
+            <column name="parameter_sql"><![CDATA[(select -1 as id, 'All' as name) union all (select 100, 'Submitted and pending approval') union all (select 200, 'Approved') union all (select 300, 'Active') union all (select 303, 'Transfer in progress') union all (select 304, 'Transfer on hold') union all (select 400, 'Withdrawn by client') union all (select 500, 'Rejected') union all (select 600, 'Closed') union all (select 601, 'Written off') union all (select 602, 'Rescheduled') union all (select 700, 'Overpaid')]]></column>
+        </insert>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-combined-tranche-eligibility-report">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                select count(*) from stretchy_report where report_name = 'Multi-tranche eligibility'
+            </sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="description" value="Multi-tranche loan statuses with repayment threshold and survey eligibility. Filter by office, loan officer, product, loan status, and tranche sub-status."/>
+            <column name="report_sql">
+                <![CDATA[
+SELECT
+    ounder.name AS office,
+    ms.display_name AS loanOfficer,
+    mc.display_name AS clientName,
+    ml.account_no AS loanAccount,
+    lp.name AS product,
+    CASE ml.loan_status_id
+        WHEN 100 THEN 'Submitted and pending approval'
+        WHEN 200 THEN 'Approved'
+        WHEN 300 THEN 'Active'
+        WHEN 303 THEN 'Transfer in progress'
+        WHEN 304 THEN 'Transfer on hold'
+        WHEN 400 THEN 'Withdrawn by client'
+        WHEN 500 THEN 'Rejected'
+        WHEN 600 THEN 'Closed'
+        WHEN 601 THEN 'Written off'
+        WHEN 602 THEN 'Rescheduled'
+        WHEN 700 THEN 'Overpaid'
+        ELSE CAST(ml.loan_status_id AS CHAR)
+    END AS loanStatus,
+    (SELECT COUNT(*) + 1 FROM m_loan_disbursement_detail d
+        WHERE d.loan_id = ml.id AND d.disbursedon_date IS NOT NULL) AS trancheNumber,
+    CASE ml.loan_sub_status_id
+        WHEN 400 THEN 'Repayment conditions not met'
+        WHEN 410 THEN 'Repayment conditions met'
+        WHEN 420 THEN 'Awaiting survey'
+        WHEN 430 THEN 'Survey successful'
+        WHEN 440 THEN 'Expired'
+        WHEN 450 THEN 'Requires review'
+        ELSE ''
+    END AS trancheStatus,
+    prev.principal AS previousTranchePrincipal,
+    CASE
+        WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+            THEN nxt.previous_tranche_repaid_minimum
+        WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+            THEN NULL
+        ELSE COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage)
+    END AS requiredPercent,
+    CASE
+        WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+            THEN ROUND(prev.principal * nxt.previous_tranche_repaid_minimum / 100, 2)
+        WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+            THEN nxt.previous_tranche_repaid_minimum
+        WHEN COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) IS NOT NULL
+            THEN ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2)
+        ELSE NULL
+    END AS requiredPrincipal,
+    COALESCE(repaid.principal_repaid, 0) AS principalRepaid,
+    CASE
+        WHEN nxt.id IS NULL THEN NULL
+        WHEN (
+            CASE
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+                    THEN ROUND(prev.principal * nxt.previous_tranche_repaid_minimum / 100, 2)
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+                    THEN nxt.previous_tranche_repaid_minimum
+                WHEN COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) IS NOT NULL
+                    THEN ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2)
+                ELSE NULL
+            END
+        ) IS NULL THEN 1
+        WHEN COALESCE(repaid.principal_repaid, 0) >= (
+            CASE
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+                    THEN ROUND(prev.principal * nxt.previous_tranche_repaid_minimum / 100, 2)
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+                    THEN nxt.previous_tranche_repaid_minimum
+                ELSE ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2)
+            END
+        ) THEN 1
+        ELSE 0
+    END AS thresholdMet,
+    sched.duedate AS eligibilityDeadline,
+    mile.operational_status AS operationalStatus,
+    mile.operational_verified_by_bgs AS operationalVerifiedByBgs,
+    mile.operational_verified_by_investment AS operationalVerifiedByInvestment,
+    mile.additional_funding AS additionalFunding,
+    mile.funding_verified_by_bgs AS fundingVerifiedByBgs,
+    mile.funding_verified_by_investment AS fundingVerifiedByInvestment,
+    mile.conducted_by AS conductedBy,
+    mile.conducted_on AS conductedOn
+FROM m_loan ml
+JOIN m_product_loan lp ON lp.id = ml.product_id
+LEFT JOIN m_client mc ON mc.id = ml.client_id
+LEFT JOIN m_office ounder ON ounder.id = mc.office_id
+JOIN m_office o ON ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+LEFT JOIN m_staff ms ON ms.id = ml.loan_officer_id
+LEFT JOIN m_loan_repayment_schedule sched ON sched.loan_id = ml.id
+    AND sched.installment = COALESCE(ml.grace_on_principal_periods, 0) + 1
+LEFT JOIN m_loan_disbursement_detail nxt ON nxt.loan_id = ml.id AND nxt.disbursedon_date IS NULL
+    AND nxt.id = (
+        SELECT n2.id FROM m_loan_disbursement_detail n2
+        WHERE n2.loan_id = ml.id AND n2.disbursedon_date IS NULL
+        ORDER BY n2.expected_disburse_date, n2.id
+        LIMIT 1
+    )
+LEFT JOIN m_loan_disbursement_detail prev ON prev.loan_id = ml.id AND prev.disbursedon_date IS NOT NULL
+    AND prev.id = (
+        SELECT p2.id FROM m_loan_disbursement_detail p2
+        WHERE p2.loan_id = ml.id AND p2.disbursedon_date IS NOT NULL
+        ORDER BY p2.disbursedon_date DESC, p2.id DESC
+        LIMIT 1
+    )
+LEFT JOIN (
+    SELECT t.loan_id, p.id AS previous_id, COALESCE(SUM(t.principal_portion_derived), 0) AS principal_repaid
+    FROM m_loan_transaction t
+    JOIN m_loan_disbursement_detail p ON p.loan_id = t.loan_id AND p.disbursedon_date IS NOT NULL
+    WHERE t.transaction_type_enum = 2
+      AND t.is_reversed = 0
+      AND t.transaction_date >= p.disbursedon_date
+      AND p.id = (
+          SELECT p2.id FROM m_loan_disbursement_detail p2
+          WHERE p2.loan_id = t.loan_id AND p2.disbursedon_date IS NOT NULL
+          ORDER BY p2.disbursedon_date DESC, p2.id DESC
+          LIMIT 1
+      )
+    GROUP BY t.loan_id, p.id
+) repaid ON repaid.loan_id = ml.id AND repaid.previous_id = prev.id
+LEFT JOIN m_loan_tranche_milestone mile ON mile.loan_id = ml.id AND mile.disbursement_detail_id = nxt.id
+WHERE lp.allow_multiple_disbursals = 1
+  AND (o.id = ${officeId} OR (${officeId} IN (-1, 0) AND o.hierarchy = '${currentUserHierarchy}'))
+  AND (ml.loan_officer_id = ${loanOfficerId} OR ${loanOfficerId} IN (-1, -10, 0))
+  AND (ml.product_id = ${loanProductId} OR ${loanProductId} IN (-1, 0))
+  AND (ml.loan_status_id = ${loanStatusId} OR ${loanStatusId} = -1)
+  AND (ml.loan_sub_status_id = ${trancheMilestoneStatusId} OR ${trancheMilestoneStatusId} = -1)
+ORDER BY ml.account_no
+]]>
+            </column>
+            <where>report_name = 'Multi-tranche eligibility'</where>
+        </update>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-combined-tranche-eligibility-report-parameters">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                WHERE sr.report_name = 'Multi-tranche eligibility'
+                  AND srp.report_parameter_name = 'officeId'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            DELETE srp FROM stretchy_report_parameter srp
+            JOIN stretchy_report sr ON sr.id = srp.report_id
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'officeId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'OfficeIdSelectOne'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'loanOfficerId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'loanOfficerIdSelectAll'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'loanProductId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'loanProductIdSelectAll'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'loanStatusId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'trancheLoanStatusSelectAll'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'trancheMilestoneStatusId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'trancheMilestoneStatusSelectAll'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+        </sql>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-retire-tranche-release-repayments-report">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                select count(*) from stretchy_report where report_name = 'Tranche release repayments' and use_report = 1
+            </sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="use_report" valueBoolean="false"/>
+            <column name="description" value="Retired: use Multi-tranche eligibility for repayment threshold and survey status."/>
+            <where>report_name = 'Tranche release repayments'</where>
+        </update>
+    </changeSet>
+
 </databaseChangeLog>
