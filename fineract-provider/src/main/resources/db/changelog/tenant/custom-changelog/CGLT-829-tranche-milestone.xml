@@ -416,6 +416,8 @@ ORDER BY ml.account_no
     </changeSet>
 
     <changeSet author="inkomoko" id="CGLT-828-combined-tranche-eligibility-report-parameters">
+        <!-- Accept checksum from environments that linked Product via loanProductIdSelectAll. -->
+        <validCheckSum>8:4efca36b59e003f447468db78eca24b4</validCheckSum>
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
                 SELECT COUNT(*) FROM stretchy_report_parameter srp
