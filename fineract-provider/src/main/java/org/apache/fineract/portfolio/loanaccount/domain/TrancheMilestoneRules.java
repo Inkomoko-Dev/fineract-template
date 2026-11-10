@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 /**
  * Decides the loan sub-status for the tranche that is waiting to be disbursed.
  * A negative survey is a business that is not operational, or that does not need additional funds.
+ * A positive survey also needs both BGS and Investment verifiers for each answer.
  */
 public final class TrancheMilestoneRules {
 
@@ -36,6 +37,12 @@ public final class TrancheMilestoneRules {
     private TrancheMilestoneRules() {}
 
     public static SurveyAnswer answer(final String operationalStatus, final String additionalFunding) {
+        return answer(operationalStatus, additionalFunding, null, null, null, null);
+    }
+
+    public static SurveyAnswer answer(final String operationalStatus, final String additionalFunding,
+            final Boolean operationalVerifiedByBgs, final Boolean operationalVerifiedByInvestment,
+            final Boolean fundingVerifiedByBgs, final Boolean fundingVerifiedByInvestment) {
         final boolean operationalKnown = operationalStatus != null && !operationalStatus.isBlank();
         final boolean fundingKnown = additionalFunding != null && !additionalFunding.isBlank();
         if (!operationalKnown && !fundingKnown) {
@@ -44,10 +51,14 @@ public final class TrancheMilestoneRules {
         if (!operationalKnown || !fundingKnown) {
             return SurveyAnswer.INCOMPLETE;
         }
-        if (OPERATIONAL.equals(operationalStatus) && NEEDS_FUNDS.equals(additionalFunding)) {
-            return SurveyAnswer.POSITIVE;
+        if (!OPERATIONAL.equals(operationalStatus) || !NEEDS_FUNDS.equals(additionalFunding)) {
+            return SurveyAnswer.NEGATIVE;
         }
-        return SurveyAnswer.NEGATIVE;
+        if (!Boolean.TRUE.equals(operationalVerifiedByBgs) || !Boolean.TRUE.equals(operationalVerifiedByInvestment)
+                || !Boolean.TRUE.equals(fundingVerifiedByBgs) || !Boolean.TRUE.equals(fundingVerifiedByInvestment)) {
+            return SurveyAnswer.INCOMPLETE;
+        }
+        return SurveyAnswer.POSITIVE;
     }
 
     public static LoanSubStatus decide(final boolean openTranche, final boolean repaymentMet, final boolean milestoneRequired,

@@ -44,16 +44,20 @@ public class TrancheMilestoneRulesTest {
     }
 
     @Test
-    public void operationalAndNeedsFundsIsSuccessful() {
-        assertEquals(SurveyAnswer.POSITIVE, TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS"));
+    public void operationalAndNeedsFundsIsSuccessfulOnlyWhenBothVerifiersConfirmEachAnswer() {
+        assertEquals(SurveyAnswer.INCOMPLETE, TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS"));
+        assertEquals(SurveyAnswer.INCOMPLETE,
+                TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS", true, true, true, false));
+        assertEquals(SurveyAnswer.POSITIVE,
+                TrancheMilestoneRules.answer("OPERATIONAL", "NEEDS_FUNDS", true, true, true, true));
         assertEquals(LoanSubStatus.SURVEY_SUCCESSFUL,
                 decide(true, true, SurveyAnswer.POSITIVE, false, LoanSubStatus.AWAITING_SURVEY));
     }
 
     @Test
     public void notOperationalOrNoFurtherFundsIsExpired() {
-        assertEquals(SurveyAnswer.NEGATIVE, TrancheMilestoneRules.answer("NOT_OPERATIONAL", "NEEDS_FUNDS"));
-        assertEquals(SurveyAnswer.NEGATIVE, TrancheMilestoneRules.answer("OPERATIONAL", "DOES_NOT_NEED_FUNDS"));
+        assertEquals(SurveyAnswer.NEGATIVE, TrancheMilestoneRules.answer("NOT_OPERATIONAL", "NEEDS_FUNDS", true, true, true, true));
+        assertEquals(SurveyAnswer.NEGATIVE, TrancheMilestoneRules.answer("OPERATIONAL", "DOES_NOT_NEED_FUNDS", true, true, true, true));
         assertEquals(LoanSubStatus.EXPIRED, decide(true, true, SurveyAnswer.NEGATIVE, false, LoanSubStatus.AWAITING_SURVEY));
     }
 

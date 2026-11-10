@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -49,7 +48,7 @@ public class LoanTrancheMilestone extends AbstractPersistableCustom {
     private String conductedBy;
 
     @Column(name = "conducted_on")
-    private LocalDate conductedOn;
+    private OffsetDateTime conductedOn;
 
     @Column(name = "operational_status", length = 32)
     private String operationalStatus;
