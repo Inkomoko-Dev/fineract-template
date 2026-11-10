@@ -46,7 +46,7 @@
             </column>
             <column name="submission_id" type="VARCHAR(100)"/>
             <column name="conducted_by" type="VARCHAR(200)"/>
-            <column name="conducted_on" type="DATE"/>
+            <column name="conducted_on" type="DATETIME"/>
             <column name="operational_status" type="VARCHAR(32)"/>
             <column name="operational_verified_by_bgs" type="BOOLEAN"/>
             <column name="operational_bgs_name" type="VARCHAR(200)"/>
@@ -77,9 +77,17 @@
             </column>
             <column name="submission_id" type="VARCHAR(100)"/>
             <column name="conducted_by" type="VARCHAR(200)"/>
-            <column name="conducted_on" type="DATE"/>
+            <column name="conducted_on" type="DATETIME"/>
             <column name="operational_status" type="VARCHAR(32)"/>
+            <column name="operational_verified_by_bgs" type="BOOLEAN"/>
+            <column name="operational_bgs_name" type="VARCHAR(200)"/>
+            <column name="operational_verified_by_investment" type="BOOLEAN"/>
+            <column name="operational_investment_name" type="VARCHAR(200)"/>
             <column name="additional_funding" type="VARCHAR(32)"/>
+            <column name="funding_verified_by_bgs" type="BOOLEAN"/>
+            <column name="funding_bgs_name" type="VARCHAR(200)"/>
+            <column name="funding_verified_by_investment" type="BOOLEAN"/>
+            <column name="funding_investment_name" type="VARCHAR(200)"/>
             <column name="loan_sub_status_id" type="INT"/>
             <column name="recorded_on" type="DATETIME">
                 <constraints nullable="false"/>
@@ -216,6 +224,32 @@ ORDER BY ml.account_no
             JOIN stretchy_parameter sp ON sp.parameter_name = 'trancheMilestoneStatusSelectAll'
             WHERE sr.report_name = 'Multi-tranche eligibility'
         </sql>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-conducted-on-datetime">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="m_loan_tranche_milestone" columnName="conducted_on"/>
+        </preConditions>
+        <modifyDataType tableName="m_loan_tranche_milestone" columnName="conducted_on" newDataType="DATETIME"/>
+        <modifyDataType tableName="m_loan_tranche_milestone_history" columnName="conducted_on" newDataType="DATETIME"/>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-history-verifiers">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_tranche_milestone_history" columnName="operational_verified_by_bgs"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan_tranche_milestone_history">
+            <column name="operational_verified_by_bgs" type="BOOLEAN"/>
+            <column name="operational_bgs_name" type="VARCHAR(200)"/>
+            <column name="operational_verified_by_investment" type="BOOLEAN"/>
+            <column name="operational_investment_name" type="VARCHAR(200)"/>
+            <column name="funding_verified_by_bgs" type="BOOLEAN"/>
+            <column name="funding_bgs_name" type="VARCHAR(200)"/>
+            <column name="funding_verified_by_investment" type="BOOLEAN"/>
+            <column name="funding_investment_name" type="VARCHAR(200)"/>
+        </addColumn>
     </changeSet>
 
 </databaseChangeLog>

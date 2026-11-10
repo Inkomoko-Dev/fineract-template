@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -44,13 +43,37 @@ public class LoanTrancheMilestoneHistory extends AbstractPersistableCustom {
     private String conductedBy;
 
     @Column(name = "conducted_on")
-    private LocalDate conductedOn;
+    private OffsetDateTime conductedOn;
 
     @Column(name = "operational_status", length = 32)
     private String operationalStatus;
 
+    @Column(name = "operational_verified_by_bgs")
+    private Boolean operationalVerifiedByBgs;
+
+    @Column(name = "operational_bgs_name", length = 200)
+    private String operationalBgsName;
+
+    @Column(name = "operational_verified_by_investment")
+    private Boolean operationalVerifiedByInvestment;
+
+    @Column(name = "operational_investment_name", length = 200)
+    private String operationalInvestmentName;
+
     @Column(name = "additional_funding", length = 32)
     private String additionalFunding;
+
+    @Column(name = "funding_verified_by_bgs")
+    private Boolean fundingVerifiedByBgs;
+
+    @Column(name = "funding_bgs_name", length = 200)
+    private String fundingBgsName;
+
+    @Column(name = "funding_verified_by_investment")
+    private Boolean fundingVerifiedByInvestment;
+
+    @Column(name = "funding_investment_name", length = 200)
+    private String fundingInvestmentName;
 
     @Column(name = "loan_sub_status_id")
     private Integer loanSubStatusId;
@@ -68,7 +91,15 @@ public class LoanTrancheMilestoneHistory extends AbstractPersistableCustom {
         this.conductedBy = milestone.getConductedBy();
         this.conductedOn = milestone.getConductedOn();
         this.operationalStatus = milestone.getOperationalStatus();
+        this.operationalVerifiedByBgs = milestone.getOperationalVerifiedByBgs();
+        this.operationalBgsName = milestone.getOperationalBgsName();
+        this.operationalVerifiedByInvestment = milestone.getOperationalVerifiedByInvestment();
+        this.operationalInvestmentName = milestone.getOperationalInvestmentName();
         this.additionalFunding = milestone.getAdditionalFunding();
+        this.fundingVerifiedByBgs = milestone.getFundingVerifiedByBgs();
+        this.fundingBgsName = milestone.getFundingBgsName();
+        this.fundingVerifiedByInvestment = milestone.getFundingVerifiedByInvestment();
+        this.fundingInvestmentName = milestone.getFundingInvestmentName();
         this.loanSubStatusId = loanSubStatusId;
         this.recordedOn = recordedOn;
     }

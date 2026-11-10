@@ -19,8 +19,12 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import java.sql.Date;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -74,12 +78,22 @@ public class TrancheMilestoneEligibilityService {
         }
 
         public boolean sendSurveyNotice() {
-            return this.milestoneRequired && this.status == LoanSubStatus.AWAITING_SURVEY;
+            return this.milestoneRequired
+                    && (this.status == LoanSubStatus.AWAITING_SURVEY || this.status == LoanSubStatus.REQUIRES_REVIEW);
         }
     }
 
     @Transactional
     public Refresh refresh(final Loan loan) {
+        final Refresh result = preview(loan);
+        if (loan != null && loan.getId() != null && loan.loanProduct() != null && loan.loanProduct().isMultiDisburseLoan()) {
+            storeSubStatus(loan, result.status);
+        }
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public Refresh preview(final Loan loan) {
         if (loan == null || loan.getId() == null || loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan()) {
             return new Refresh(null, false, null, 0);
         }
@@ -94,13 +108,14 @@ public class TrancheMilestoneEligibilityService {
                 ? this.milestoneRepository.findByLoanIdAndDisbursementDetailId(loan.getId(), next.getId()).orElse(null)
                 : null;
         final TrancheMilestoneRules.SurveyAnswer survey = milestone == null ? TrancheMilestoneRules.SurveyAnswer.NONE
-                : TrancheMilestoneRules.answer(milestone.getOperationalStatus(), milestone.getAdditionalFunding());
-        final LocalDate dueDate = firstRepaymentDueDate(loan.getId());
+                : TrancheMilestoneRules.answer(milestone.getOperationalStatus(), milestone.getAdditionalFunding(),
+                        milestone.getOperationalVerifiedByBgs(), milestone.getOperationalVerifiedByInvestment(),
+                        milestone.getFundingVerifiedByBgs(), milestone.getFundingVerifiedByInvestment());
+        final LocalDate dueDate = eligibilityDeadline(loan);
         final boolean pastDeadline = dueDate != null && DateUtils.getBusinessLocalDate().isAfter(dueDate);
         final LoanSubStatus current = currentMilestoneStatus(loan.getLoanSubStatus());
         final LoanSubStatus nextStatus = TrancheMilestoneRules.decide(openTranche, repaymentMet, requiresMilestone, survey, pastDeadline,
                 current);
-        storeSubStatus(loan, nextStatus);
         final int trancheNumber = next == null ? 0 : loan.getDisbursementTrancheNumber(next);
         return new Refresh(nextStatus, requiresMilestone, dueDate, trancheNumber);
     }
@@ -116,9 +131,9 @@ public class TrancheMilestoneEligibilityService {
             throw validation("A milestone can be stored after a tranche has been disbursed and while another tranche is waiting.",
                     "tranche.milestone.no.open.tranche");
         }
-        final String submissionId = text(element, "submissionId");
+        String submissionId = text(element, "submissionId");
         if (submissionId == null || submissionId.isBlank()) {
-            throw validation("A submission id is required.", "submissionId");
+            submissionId = loan.getAccountNumber() + "-" + DateUtils.getOffsetDateTimeOfTenant().toInstant().toEpochMilli();
         }
         if (this.milestoneRepository.findBySubmissionId(submissionId).isPresent()
                 || this.historyRepository.existsBySubmissionId(submissionId)) {
@@ -150,16 +165,10 @@ public class TrancheMilestoneEligibilityService {
         body.put("loanId", loan.getId());
         body.put("accountNo", loan.getAccountNumber());
         body.put("trancheNumber", next == null ? null : loan.getDisbursementTrancheNumber(next));
-        body.put("status", status == null ? null : LoanSubStatus.loanSubStatus(status.getValue()));
-        body.put("firstRepaymentDueDate", firstRepaymentDueDate(loan.getId()));
+        body.put("status", status == null ? null : statusValue(status));
+        body.put("firstRepaymentDueDate", dateText(eligibilityDeadline(loan)));
         body.put("milestoneRequired", productRequiresMilestone(loan));
-        if (milestone != null) {
-            body.put("conductedBy", milestone.getConductedBy());
-            body.put("conductedOn", milestone.getConductedOn());
-            body.put("operationalStatus", milestone.getOperationalStatus());
-            body.put("additionalFunding", milestone.getAdditionalFunding());
-            body.put("submissionId", milestone.getSubmissionId());
-        }
+        putSurvey(body, milestone);
         return new com.google.gson.Gson().toJson(body);
     }
 
@@ -172,7 +181,8 @@ public class TrancheMilestoneEligibilityService {
                 + "WHERE lp.id = l.product_id AND lp.allow_multiple_disbursals = 1 AND lp.require_milestone_survey = 1) "
                 + "AND EXISTS (SELECT 1 FROM m_loan_disbursement_detail d WHERE d.loan_id = l.id AND d.disbursedon_date IS NOT NULL) "
                 + "AND EXISTS (SELECT 1 FROM m_loan_disbursement_detail u WHERE u.loan_id = l.id AND u.disbursedon_date IS NULL) "
-                + "AND EXISTS (SELECT 1 FROM m_loan_repayment_schedule rs WHERE rs.loan_id = l.id AND rs.installment = 1 AND rs.duedate < ?)",
+                + "AND EXISTS (SELECT 1 FROM m_loan_repayment_schedule rs WHERE rs.loan_id = l.id "
+                + "AND rs.installment = COALESCE(l.grace_on_principal_periods, 0) + 1 AND rs.duedate < ?)",
                 LoanSubStatus.REQUIRES_REVIEW.getValue(), LoanSubStatus.REPAYMENT_NOT_MET.getValue(),
                 LoanSubStatus.AWAITING_SURVEY.getValue(), Date.valueOf(today));
     }
@@ -180,72 +190,188 @@ public class TrancheMilestoneEligibilityService {
     private void applySubmission(final LoanTrancheMilestone milestone, final JsonElement element, final String submissionId) {
         final List<ApiParameterError> errors = new ArrayList<>();
         milestone.setSubmissionId(submissionId);
-        if (this.fromApiJsonHelper.parameterExists("conductedBy", element)) {
-            milestone.setConductedBy(text(element, "conductedBy"));
+        final String conductedBy = text(element, "conductedBy");
+        if (conductedBy != null) {
+            milestone.setConductedBy(conductedBy);
         }
-        if (this.fromApiJsonHelper.parameterExists("conductedOn", element)) {
-            milestone.setConductedOn(conductedOn(element));
+        if (field(element, "conductedOn") != null) {
+            milestone.setConductedOn(conductedOn(element, errors));
         }
-        if (this.fromApiJsonHelper.parameterExists("operationalStatus", element)) {
-            final String value = text(element, "operationalStatus");
-            if (value != null && !TrancheMilestoneRules.OPERATIONAL.equals(value) && !TrancheMilestoneRules.NOT_OPERATIONAL.equals(value)) {
-                errors.add(ApiParameterError.parameterError("validation.msg.tranche.milestone.operational.status.invalid",
-                        "Operational status must be OPERATIONAL or NOT_OPERATIONAL.", "operationalStatus", value));
-            }
-            milestone.setOperationalStatus(value);
-        }
-        if (this.fromApiJsonHelper.parameterExists("additionalFunding", element)) {
-            final String value = text(element, "additionalFunding");
-            if (value != null && !TrancheMilestoneRules.NEEDS_FUNDS.equals(value)
-                    && !TrancheMilestoneRules.DOES_NOT_NEED_FUNDS.equals(value)) {
-                errors.add(ApiParameterError.parameterError("validation.msg.tranche.milestone.additional.funding.invalid",
-                        "Additional funding must be NEEDS_FUNDS or DOES_NOT_NEED_FUNDS.", "additionalFunding", value));
-            }
-            milestone.setAdditionalFunding(value);
-        }
-        copyBoolean(element, "operationalVerifiedByBgs", milestone::setOperationalVerifiedByBgs);
-        copyText(element, "operationalBgsName", milestone::setOperationalBgsName);
-        copyBoolean(element, "operationalVerifiedByInvestment", milestone::setOperationalVerifiedByInvestment);
-        copyText(element, "operationalInvestmentName", milestone::setOperationalInvestmentName);
-        copyBoolean(element, "fundingVerifiedByBgs", milestone::setFundingVerifiedByBgs);
-        copyText(element, "fundingBgsName", milestone::setFundingBgsName);
-        copyBoolean(element, "fundingVerifiedByInvestment", milestone::setFundingVerifiedByInvestment);
-        copyText(element, "fundingInvestmentName", milestone::setFundingInvestmentName);
+        applyAnswer(milestone, element, errors, true);
+        applyAnswer(milestone, element, errors, false);
         if (!errors.isEmpty()) {
             throw new PlatformApiDataValidationException(errors);
         }
     }
 
-    private void copyBoolean(final JsonElement element, final String name,
-            final java.util.function.Consumer<Boolean> setter) {
-        if (this.fromApiJsonHelper.parameterExists(name, element)) {
-            setter.accept(this.fromApiJsonHelper.extractBooleanNamed(name, element));
+    private void applyAnswer(final LoanTrancheMilestone milestone, final JsonElement element, final List<ApiParameterError> errors,
+            final boolean operational) {
+        final String nodeName = operational ? "operationalStatus" : "additionalFundingRequired";
+        final String flatName = operational ? "operational" : "additionalFundingRequired";
+        final JsonElement node = field(element, nodeName);
+        final boolean nested = node != null && node.isJsonObject();
+        final JsonElement source = nested ? node : element;
+        final JsonElement answer = nested ? firstField(node, "operational", "required", "value")
+                : firstField(element, flatName, operational ? "operationalStatus" : "additionalFunding");
+        if (answer != null) {
+            final String stored = operational ? operationalCode(answer, errors) : fundingCode(answer, errors);
+            if (stored != null) {
+                if (operational) {
+                    milestone.setOperationalStatus(stored);
+                } else {
+                    milestone.setAdditionalFunding(stored);
+                }
+            }
+        }
+        final Boolean verifiedByBgs = nested ? bool(source, "verifiedByBgs")
+                : bool(source, operational ? "operationalVerifiedByBgs" : "fundingVerifiedByBgs");
+        final Boolean verifiedByInvestment = nested ? bool(source, "verifiedByInvestment")
+                : bool(source, operational ? "operationalVerifiedByInvestment" : "fundingVerifiedByInvestment");
+        final String bgsName = nested ? text(source, "bgsName", "bgsVerifierName")
+                : text(source, operational ? "operationalBgsName" : "fundingBgsName");
+        final String investmentName = nested ? text(source, "investmentName", "investmentVerifierName")
+                : text(source, operational ? "operationalInvestmentName" : "fundingInvestmentName");
+        if (operational) {
+            if (verifiedByBgs != null) {
+                milestone.setOperationalVerifiedByBgs(verifiedByBgs);
+            }
+            if (bgsName != null) {
+                milestone.setOperationalBgsName(bgsName);
+            }
+            if (verifiedByInvestment != null) {
+                milestone.setOperationalVerifiedByInvestment(verifiedByInvestment);
+            }
+            if (investmentName != null) {
+                milestone.setOperationalInvestmentName(investmentName);
+            }
+        } else {
+            if (verifiedByBgs != null) {
+                milestone.setFundingVerifiedByBgs(verifiedByBgs);
+            }
+            if (bgsName != null) {
+                milestone.setFundingBgsName(bgsName);
+            }
+            if (verifiedByInvestment != null) {
+                milestone.setFundingVerifiedByInvestment(verifiedByInvestment);
+            }
+            if (investmentName != null) {
+                milestone.setFundingInvestmentName(investmentName);
+            }
         }
     }
 
-    private void copyText(final JsonElement element, final String name, final java.util.function.Consumer<String> setter) {
-        if (this.fromApiJsonHelper.parameterExists(name, element)) {
-            setter.accept(text(element, name));
+    private String operationalCode(final JsonElement answer, final List<ApiParameterError> errors) {
+        final Boolean value = boolValue(answer);
+        if (value != null) {
+            return value ? TrancheMilestoneRules.OPERATIONAL : TrancheMilestoneRules.NOT_OPERATIONAL;
         }
+        final String text = primitiveText(answer);
+        if (TrancheMilestoneRules.OPERATIONAL.equals(text) || TrancheMilestoneRules.NOT_OPERATIONAL.equals(text)) {
+            return text;
+        }
+        errors.add(ApiParameterError.parameterError("validation.msg.tranche.milestone.operational.status.invalid",
+                "Operational status must be true when the business is operational, or false when it is not.", "operational", text));
+        return null;
     }
 
-    private LocalDate conductedOn(final JsonElement element) {
-        final String raw = text(element, "conductedOn");
+    private String fundingCode(final JsonElement answer, final List<ApiParameterError> errors) {
+        final Boolean value = boolValue(answer);
+        if (value != null) {
+            return value ? TrancheMilestoneRules.NEEDS_FUNDS : TrancheMilestoneRules.DOES_NOT_NEED_FUNDS;
+        }
+        final String text = primitiveText(answer);
+        if (TrancheMilestoneRules.NEEDS_FUNDS.equals(text) || TrancheMilestoneRules.DOES_NOT_NEED_FUNDS.equals(text)) {
+            return text;
+        }
+        errors.add(ApiParameterError.parameterError("validation.msg.tranche.milestone.additional.funding.invalid",
+                "Additional funding required must be true when more funds are needed, or false when they are not.",
+                "additionalFundingRequired", text));
+        return null;
+    }
+
+    private OffsetDateTime conductedOn(final JsonElement element, final List<ApiParameterError> errors) {
+        final String raw = primitiveText(field(element, "conductedOn"));
         if (raw == null || raw.isBlank()) {
             return null;
         }
         try {
-            return LocalDate.parse(raw);
-        } catch (DateTimeParseException ex) {
-            return this.fromApiJsonHelper.extractLocalDateNamed("conductedOn", element);
+            return OffsetDateTime.parse(raw);
+        } catch (DateTimeParseException ignored) {
+            try {
+                return LocalDateTime.parse(raw).atZone(DateUtils.getDateTimeZoneOfTenant()).toOffsetDateTime();
+            } catch (DateTimeParseException ignoredAgain) {
+                try {
+                    return LocalDate.parse(raw).atStartOfDay(DateUtils.getDateTimeZoneOfTenant()).toOffsetDateTime();
+                } catch (DateTimeParseException failed) {
+                    errors.add(ApiParameterError.parameterError("validation.msg.tranche.milestone.conducted.on.invalid",
+                            "Conducted on must be a date-time such as 2026-11-10T09:15:00+03:00.", "conductedOn", raw));
+                    return null;
+                }
+            }
         }
     }
 
-    private String text(final JsonElement element, final String name) {
-        if (!this.fromApiJsonHelper.parameterExists(name, element)) {
+    private static JsonElement field(final JsonElement element, final String name) {
+        if (element == null || !element.isJsonObject()) {
             return null;
         }
-        return this.fromApiJsonHelper.extractStringNamed(name, element);
+        final JsonObject object = element.getAsJsonObject();
+        if (!object.has(name) || object.get(name).isJsonNull()) {
+            return null;
+        }
+        return object.get(name);
+    }
+
+    private static JsonElement firstField(final JsonElement element, final String... names) {
+        for (final String name : names) {
+            final JsonElement value = field(element, name);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static Boolean bool(final JsonElement element, final String... names) {
+        return boolValue(firstField(element, names));
+    }
+
+    private static Boolean boolValue(final JsonElement value) {
+        final JsonPrimitive primitive = primitive(value);
+        if (primitive == null) {
+            return null;
+        }
+        if (primitive.isBoolean()) {
+            return primitive.getAsBoolean();
+        }
+        if (primitive.isString()) {
+            if ("true".equalsIgnoreCase(primitive.getAsString())) {
+                return true;
+            }
+            if ("false".equalsIgnoreCase(primitive.getAsString())) {
+                return false;
+            }
+        }
+        return null;
+    }
+
+    private static String text(final JsonElement element, final String... names) {
+        return primitiveText(firstField(element, names));
+    }
+
+    private static String primitiveText(final JsonElement value) {
+        final JsonPrimitive primitive = primitive(value);
+        if (primitive == null || !primitive.isString()) {
+            return null;
+        }
+        return primitive.getAsString();
+    }
+
+    private static JsonPrimitive primitive(final JsonElement value) {
+        if (value == null || !value.isJsonPrimitive()) {
+            return null;
+        }
+        return value.getAsJsonPrimitive();
     }
 
     private void storeSubStatus(final Loan loan, final LoanSubStatus status) {
@@ -278,37 +404,102 @@ public class TrancheMilestoneEligibilityService {
         return loan.loanProduct() != null && loan.loanProduct().isRequireMilestoneSurvey();
     }
 
-    private LocalDate firstRepaymentDueDate(final Long loanId) {
+    /**
+     * Deadline is the due date of the first repayment after grace. One month of grace uses
+     * installment 2; two months of grace uses installment 3.
+     */
+    private LocalDate eligibilityDeadline(final Loan loan) {
+        if (loan == null || loan.getId() == null) {
+            return null;
+        }
+        final Integer grace = loan.repaymentScheduleDetail() == null ? null : loan.repaymentScheduleDetail().graceOnPrincipalPayment();
+        final int installment = Math.max(1, (grace == null ? 0 : grace) + 1);
         return this.jdbcTemplate.query(
-                "select min(duedate) from m_loan_repayment_schedule where loan_id = ? and installment = 1", rs -> {
+                "select min(duedate) from m_loan_repayment_schedule where loan_id = ? and installment = ?", rs -> {
                     if (!rs.next() || rs.getDate(1) == null) {
                         return null;
                     }
                     return rs.getDate(1).toLocalDate();
-                }, loanId);
+                }, loan.getId(), installment);
     }
 
     private Loan findLoan(final String loanKey) {
-        if (loanKey != null && loanKey.chars().allMatch(Character::isDigit)) {
+        if (loanKey == null || loanKey.isBlank()) {
+            throw new LoanNotFoundException(loanKey);
+        }
+        final Loan byAccount = this.loanRepository.findLoanAccountByAccountNumber(loanKey);
+        if (byAccount != null) {
+            return byAccount;
+        }
+        if (loanKey.chars().allMatch(Character::isDigit)) {
             final Long id = Long.valueOf(loanKey);
             return this.loanRepository.findById(id).orElseThrow(() -> new LoanNotFoundException(id));
         }
-        final Loan loan = this.loanRepository.findLoanAccountByAccountNumber(loanKey);
-        if (loan == null) {
-            throw new LoanNotFoundException(loanKey);
-        }
-        return loan;
+        throw new LoanNotFoundException(loanKey);
     }
 
     private String response(final Loan loan, final Refresh refresh, final boolean duplicate) {
+        final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
+        final LoanTrancheMilestone milestone = next == null || next.getId() == null ? null
+                : this.milestoneRepository.findByLoanIdAndDisbursementDetailId(loan.getId(), next.getId()).orElse(null);
         final Map<String, Object> body = new LinkedHashMap<>();
         body.put("loanId", loan.getId());
         body.put("accountNo", loan.getAccountNumber());
         body.put("trancheNumber", refresh.trancheNumber);
         body.put("duplicate", duplicate);
-        body.put("status", refresh.status == null ? null : LoanSubStatus.loanSubStatus(refresh.status.getValue()));
-        body.put("firstRepaymentDueDate", refresh.firstRepaymentDueDate);
+        body.put("status", refresh.status == null ? null : statusValue(refresh.status));
+        body.put("firstRepaymentDueDate", dateText(refresh.firstRepaymentDueDate));
+        putSurvey(body, milestone);
         return new com.google.gson.Gson().toJson(body);
+    }
+
+    private static void putSurvey(final Map<String, Object> body, final LoanTrancheMilestone milestone) {
+        body.put("submissionId", milestone == null ? null : milestone.getSubmissionId());
+        body.put("conductedBy", milestone == null ? null : milestone.getConductedBy());
+        body.put("conductedOn", milestone == null || milestone.getConductedOn() == null ? null : milestone.getConductedOn().toString());
+        body.put("operational", milestone == null ? null : operationalBoolean(milestone.getOperationalStatus()));
+        body.put("operationalVerifiedByBgs", milestone == null ? null : milestone.getOperationalVerifiedByBgs());
+        body.put("operationalBgsName", milestone == null ? null : milestone.getOperationalBgsName());
+        body.put("operationalVerifiedByInvestment", milestone == null ? null : milestone.getOperationalVerifiedByInvestment());
+        body.put("operationalInvestmentName", milestone == null ? null : milestone.getOperationalInvestmentName());
+        body.put("additionalFundingRequired", milestone == null ? null : fundingBoolean(milestone.getAdditionalFunding()));
+        body.put("fundingVerifiedByBgs", milestone == null ? null : milestone.getFundingVerifiedByBgs());
+        body.put("fundingBgsName", milestone == null ? null : milestone.getFundingBgsName());
+        body.put("fundingVerifiedByInvestment", milestone == null ? null : milestone.getFundingVerifiedByInvestment());
+        body.put("fundingInvestmentName", milestone == null ? null : milestone.getFundingInvestmentName());
+    }
+
+    private static Boolean operationalBoolean(final String stored) {
+        if (TrancheMilestoneRules.OPERATIONAL.equals(stored)) {
+            return true;
+        }
+        if (TrancheMilestoneRules.NOT_OPERATIONAL.equals(stored)) {
+            return false;
+        }
+        return null;
+    }
+
+    private static Boolean fundingBoolean(final String stored) {
+        if (TrancheMilestoneRules.NEEDS_FUNDS.equals(stored)) {
+            return true;
+        }
+        if (TrancheMilestoneRules.DOES_NOT_NEED_FUNDS.equals(stored)) {
+            return false;
+        }
+        return null;
+    }
+
+    private static Map<String, Object> statusValue(final LoanSubStatus status) {
+        final org.apache.fineract.infrastructure.core.data.EnumOptionData option = LoanSubStatus.loanSubStatus(status.getValue());
+        final Map<String, Object> value = new LinkedHashMap<>();
+        value.put("id", option.getId());
+        value.put("code", option.getCode());
+        value.put("value", option.getValue());
+        return value;
+    }
+
+    private static String dateText(final LocalDate date) {
+        return date == null ? null : date.toString();
     }
 
     private static PlatformApiDataValidationException validation(final String message, final String parameter) {
