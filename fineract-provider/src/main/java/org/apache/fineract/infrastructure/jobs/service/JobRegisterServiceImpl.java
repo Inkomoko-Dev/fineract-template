@@ -41,6 +41,7 @@ import org.apache.fineract.infrastructure.jobs.domain.SchedulerDetail;
 import org.apache.fineract.infrastructure.jobs.exception.JobNodeIdMismatchingException;
 import org.apache.fineract.infrastructure.jobs.exception.JobNotFoundException;
 import org.apache.fineract.infrastructure.security.service.TenantDetailsService;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.quartz.JobDataMap;
 import org.quartz.JobDetail;
 import org.quartz.JobKey;
@@ -58,6 +59,8 @@ import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.scheduling.quartz.CronTriggerFactoryBean;
 import org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean;
 import org.springframework.scheduling.quartz.SchedulerFactoryBean;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 /**
@@ -126,6 +129,10 @@ public class JobRegisterServiceImpl implements JobRegisterService, ApplicationLi
                 triggerType = SchedulerServiceConstants.TRIGGER_TYPE_APPLICATION;
             }
             jobDataMap.put(SchedulerServiceConstants.TRIGGER_TYPE_REFERENCE, triggerType);
+            final Long triggeredByUserId = currentUserId();
+            if (SchedulerServiceConstants.TRIGGER_TYPE_APPLICATION.equals(triggerType) && triggeredByUserId != null) {
+                jobDataMap.put(SchedulerServiceConstants.TRIGGERED_BY_USER_ID, triggeredByUserId);
+            }
             jobDataMap.put(SchedulerServiceConstants.TENANT_IDENTIFIER, ThreadLocalContextUtil.getTenant().getTenantIdentifier());
             final String key = scheduledJobDetail.getJobKey();
             final JobKey jobKey = constructJobKey(key);
@@ -228,6 +235,14 @@ public class JobRegisterServiceImpl implements JobRegisterService, ApplicationLi
             this.schedularWritePlatformService.saveOrUpdate(scheduledJobDetail);
             throw new JobNodeIdMismatchingException(nodeIdStored, fineractProperties.getNodeId());
         }
+    }
+
+    private Long currentUserId() {
+        final Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof AppUser) {
+            return ((AppUser) authentication.getPrincipal()).getId();
+        }
+        return null;
     }
 
     @Override

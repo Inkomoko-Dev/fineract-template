@@ -55,6 +55,7 @@ import org.apache.fineract.infrastructure.codes.service.CodeValueReadPlatformSer
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.core.service.IntegrationHttpRetryService;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.dataqueries.data.GenericResultsetData;
 import org.apache.fineract.infrastructure.dataqueries.data.ResultsetColumnHeaderData;
 import org.apache.fineract.infrastructure.dataqueries.data.ResultsetRowData;
@@ -152,6 +153,7 @@ public class KivaLoanServiceImpl implements KivaLoanService {
     private static final String STAGE_PREFLIGHT_VALIDATION = "PREFLIGHT_VALIDATION";
     private static final String STAGE_PAYLOAD_MAPPING = "PAYLOAD_MAPPING";
     private static final String STAGE_KIVA_POST_LOAN_DRAFT = "KIVA_POST_LOAN_DRAFT";
+    private static final String STAGE_AUTHENTICATION = "AUTHENTICATION";
     private static final String CATEGORY_MISSING_PROFILE_IMAGE = "MISSING_PROFILE_IMAGE";
     private static final String CATEGORY_UNSUPPORTED_PROFILE_IMAGE_TYPE = "UNSUPPORTED_PROFILE_IMAGE_TYPE";
     private static final String CATEGORY_MISSING_DESCRIPTION = "MISSING_DESCRIPTION";
@@ -166,24 +168,36 @@ public class KivaLoanServiceImpl implements KivaLoanService {
     private static final String CATEGORY_KIVA_REJECTION = "KIVA_REJECTION";
     private static final String CATEGORY_KIVA_SYSTEM_ERROR = "KIVA_SYSTEM_ERROR";
     private static final String CATEGORY_UNEXPECTED_ERROR = "UNEXPECTED_ERROR";
+    private static final String CATEGORY_KIVA_AUTHENTICATION_FAILED = "KIVA_AUTHENTICATION_FAILED";
 
     @JsonIgnoreProperties({"stackTrace", "suppressed", "localizedMessage"})
     static abstract class ThrowableMixin {}
     @Override
     @CronTarget(jobName = JobName.POST_LOAN_ACCOUNTS_TO_KIVA)
     public void postLoanAccountsToKiva() {
-        // Authenticate to KIVA
-        String accessToken = authenticateToKiva();
         final AppUser currentUser = this.context.authenticatedUser();
         final String batchId = UUID.randomUUID().toString();
         final LocalDate date = LocalDate.now(ZoneId.systemDefault());
+        List<Loan> loanList = loanRepository.findLoanAccountsToBePostedToKiva();
+
+        String accessToken;
+        try {
+            accessToken = requestKivaAccessToken();
+        } catch (Exception e) {
+            log.error("Authentication to KIVA has failed", e);
+            if (!CollectionUtils.isEmpty(loanList)) {
+                for (Loan loan : loanList) {
+                    saveKivaPostingLogger(loan, batchId, false, STAGE_AUTHENTICATION, CATEGORY_KIVA_AUTHENTICATION_FAILED, null,
+                            getExceptionMessage(e), null, currentUser, date);
+                }
+            }
+            throw new RuntimeException(new JobExecutionException(List.<Throwable>of(e)));
+        }
 
         List<KivaLoanAccountSchedule> kivaLoanAccountSchedules = new ArrayList<>();
         List<KivaLoanAccount> kivaLoanAccounts = new ArrayList<>();
         List<Boolean> notPictured = new ArrayList<>(); // use it when need to send group loans
         notPictured.add(Boolean.TRUE);
-
-        List<Loan> loanList = loanRepository.findLoanAccountsToBePostedToKiva();
 
         ArrayList<KivaLoanExceptions> kivaLoanExceptions = new ArrayList<>();
 
@@ -279,6 +293,8 @@ public class KivaLoanServiceImpl implements KivaLoanService {
         String clientName = client != null ? client.getDisplayName() : null;
         KivaPostingLogger logger = new KivaPostingLogger(batchId, hasPassed, loan.getId(), loan.getAccountNumber(), loan.getClientId(),
                 clientName, failureStage, failureCategory, kivaResponseId, errorLogs, sanitizeKivaPayloadForLogging(payload), date);
+        logger.setTriggerType(ThreadLocalContextUtil.getJobTriggerType());
+        logger.setTriggeredByUserId(ThreadLocalContextUtil.getJobTriggeredByUserId());
         logger.setCreatedBy(currentUser.getId());
         logger.setLastModifiedBy(currentUser.getId());
         kivaPostingLoggerRepository.saveAndFlush(logger);
@@ -680,6 +696,15 @@ public class KivaLoanServiceImpl implements KivaLoanService {
     }
 
     private String authenticateToKiva() {
+        try {
+            return requestKivaAccessToken();
+        } catch (Exception e) {
+            log.error("Authentication to KIVA has failed" + e);
+            throw new RuntimeException(new JobExecutionException(List.<Throwable>of(e)));
+        }
+    }
+
+    private String requestKivaAccessToken() {
         HttpUrl.Builder urlBuilder = HttpUrl.parse(getConfigProperty("fineract.integrations.kiva.oAuthUrl")).newBuilder();
         String url = urlBuilder.build().toString();
 
@@ -691,36 +716,19 @@ public class KivaLoanServiceImpl implements KivaLoanService {
 
         Request request = new Request.Builder().url(url).header(FORM_URL_CONTENT_TYPE, FORM_URL_ENCODED).post(formBody).build();
 
-        List<Throwable> exceptions = new ArrayList<>();
-
         try (Response response = integrationHttpRetryService.execute("Kiva", "authenticate", kivaHttpClient, request)) {
             String resObject = response.body() != null ? response.body().string() : "";
-            if (response.isSuccessful()) {
-
-                JsonObject jsonResponse = JsonParser.parseString(resObject).getAsJsonObject();
-                String accessToken = jsonResponse.get("access_token").getAsString();
-
-                log.info("Login to KIVA is Successful");
-
-                return accessToken;
-            } else {
+            if (!response.isSuccessful()) {
                 log.error("Login to KIVA failed with Message:" + resObject);
-
                 handleAPIIntegrityIssues(resObject);
-
             }
-        } catch (Exception e) {
-            log.error("Authentication to KIVA has failed" + e);
-            exceptions.add(e);
+            JsonObject jsonResponse = JsonParser.parseString(resObject).getAsJsonObject();
+            String accessToken = jsonResponse.get("access_token").getAsString();
+            log.info("Login to KIVA is Successful");
+            return accessToken;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
-        if (!CollectionUtils.isEmpty(exceptions)) {
-            try {
-                throw new JobExecutionException(exceptions);
-            } catch (JobExecutionException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return null;
     }
 
     private void handleAPIIntegrityIssues(String httpResponse) {
