@@ -165,6 +165,72 @@ class TrancheReleaseRulesTest {
         assertEquals(new BigDecimal("100.00"), amounts.get(1));
     }
 
+    @Test
+    void blankPercentagesAreEmptyAndInvalidTokensAreRejected() {
+        assertEquals(List.of(), TrancheReleaseRules.parsePercentages(null));
+        assertEquals(List.of(), TrancheReleaseRules.parsePercentages("  "));
+        assertThrows(IllegalArgumentException.class, () -> TrancheReleaseRules.parsePercentages("100"));
+        assertThrows(IllegalArgumentException.class, () -> TrancheReleaseRules.parsePercentages("50,abc"));
+        assertThrows(IllegalArgumentException.class, () -> TrancheReleaseRules.parsePercentages("0,100"));
+        assertThrows(IllegalArgumentException.class, () -> TrancheReleaseRules.parsePercentages("101, -1"));
+        assertThrows(IllegalArgumentException.class, () -> TrancheReleaseRules.parsePercentages("-10,110"));
+    }
+
+    @Test
+    void normalizeStripsWhitespaceAndTrailingZeros() {
+        assertNull(TrancheReleaseRules.normalize(null));
+        assertEquals("60,40", TrancheReleaseRules.normalize(" 60.0 , 40.00 "));
+        assertEquals("33.33,33.33,33.34", TrancheReleaseRules.normalize("33.33,33.33,33.34"));
+    }
+
+    @Test
+    void requiredFromPreviousReturnsNullWhenInputsAreMissing() {
+        assertNull(TrancheReleaseRules.requiredFromPrevious(null, new BigDecimal("40"), true, 2));
+        assertNull(TrancheReleaseRules.requiredFromPrevious(new BigDecimal("150"), null, true, 2));
+    }
+
+    @Test
+    void assessmentMetIsTrueOnlyWhenRepaidMeetsOrExceedsRequired() {
+        assertTrue(new TrancheReleaseRules.Assessment(null, null, null, new BigDecimal("100.00"), new BigDecimal("100.00"), List.of())
+                .met());
+        assertTrue(new TrancheReleaseRules.Assessment(null, null, null, new BigDecimal("100.00"), new BigDecimal("100.01"), List.of())
+                .met());
+        assertFalse(new TrancheReleaseRules.Assessment(null, null, null, new BigDecimal("100.00"), new BigDecimal("99.99"), List.of())
+                .met());
+    }
+
+    @Test
+    void resolvePrincipalsReturnsNullForMissingApprovedOrEmptyRows() {
+        assertNull(TrancheReleaseRules.resolvePrincipals(null, List.of(tranche(new BigDecimal("100"))), true, new BigDecimal("60"), 2));
+        assertNull(TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"), List.of(), true, new BigDecimal("60"), 2));
+        assertNull(TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"), null, true, new BigDecimal("60"), 2));
+    }
+
+    @Test
+    void nextTrancheAmountTreatsNullValueAsZeroAndCapsNegativeToZero() {
+        assertEquals(new BigDecimal("0.00"), TrancheReleaseRules.nextTrancheAmount(new BigDecimal("100"), false, null, 2));
+        assertEquals(new BigDecimal("0.00"), TrancheReleaseRules.nextTrancheAmount(new BigDecimal("100"), false, new BigDecimal("-5"), 2));
+        assertEquals(new BigDecimal("0.00"), TrancheReleaseRules.nextTrancheAmount(null, true, new BigDecimal("50"), 2));
+    }
+
+    @Test
+    void threeTranchesPutResidualOnTheLastUndisbursedRow() {
+        final List<BigDecimal> amounts = TrancheReleaseRules.resolvePrincipals(new BigDecimal("300"),
+                List.of(tranche(new BigDecimal("1")), tranche(new BigDecimal("1")), tranche(new BigDecimal("1"))), true,
+                new BigDecimal("40"), 2);
+
+        assertEquals(new BigDecimal("120.00"), amounts.get(0));
+        assertEquals(new BigDecimal("1.00"), amounts.get(1));
+        assertEquals(new BigDecimal("179.00"), amounts.get(2));
+        assertEquals(new BigDecimal("300.00"), amounts.get(0).add(amounts.get(1)).add(amounts.get(2)));
+    }
+
+    @Test
+    void singleUndisbursedProductFirstTrancheKeepsSubmittedPrincipals() {
+        assertNull(TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"), List.of(tranche(new BigDecimal("250"))), true,
+                new BigDecimal("60"), 2));
+    }
+
     private static TrancheReleaseRules.PlannedTranche tranche(final BigDecimal principal) {
         return new TrancheReleaseRules.PlannedTranche(false, principal, null, null);
     }

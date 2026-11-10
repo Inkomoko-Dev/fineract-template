@@ -20,11 +20,14 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.junit.jupiter.api.Test;
 
 class TrancheScheduleRulesTest {
@@ -207,6 +210,62 @@ class TrancheScheduleRulesTest {
     @Test
     void rescheduleIsAllowedWhenTheProductSetsAFirstInstallment() {
         assertTrue(TrancheScheduleRules.rescheduleAllowed(true, false, new BigDecimal("50")));
+    }
+
+    @Test
+    void emptyInstallmentCountReturnsNoPrincipals() {
+        assertEquals(List.of(), TrancheScheduleRules.installmentPrincipals(new BigDecimal("100"), new BigDecimal("10"), 0, 0, 2));
+        assertEquals(List.of(), TrancheScheduleRules.installmentPrincipals(new BigDecimal("100"), new BigDecimal("10"), 1, -1, 2));
+    }
+
+    @Test
+    void zeroDisbursedPrincipalReturnsZeroInstallments() {
+        final List<BigDecimal> principals = TrancheScheduleRules.installmentPrincipals(BigDecimal.ZERO, new BigDecimal("50"), 1, 7, 2);
+
+        assertEquals(7, principals.size());
+        assertEquals(new BigDecimal("0.00"), sum(principals));
+    }
+
+    @Test
+    void graceCoveringTheWholeTermPutsEverythingOnTheLastInstallment() {
+        final List<BigDecimal> principals = TrancheScheduleRules.installmentPrincipals(new BigDecimal("100"), new BigDecimal("50"), 5, 4,
+                2);
+
+        assertEquals(new BigDecimal("0.00"), principals.get(0));
+        assertEquals(new BigDecimal("0.00"), principals.get(2));
+        assertEquals(new BigDecimal("100.00"), principals.get(3));
+        assertEquals(new BigDecimal("100.00"), sum(principals));
+    }
+
+    @Test
+    void nullFirstInstallmentLeavesGraceThenPutsAllRemainingOnOneInstallmentWhenNoTail() {
+        final List<BigDecimal> noTail = TrancheScheduleRules.installmentPrincipals(new BigDecimal("80"), null, 0, 1, 2);
+        assertEquals(List.of(new BigDecimal("80.00")), noTail);
+
+        final List<BigDecimal> withTail = TrancheScheduleRules.installmentPrincipals(new BigDecimal("90"), null, 0, 3, 2);
+        assertEquals(new BigDecimal("0.00"), withTail.get(0));
+        assertEquals(new BigDecimal("45.00"), withTail.get(1));
+        assertEquals(new BigDecimal("45.00"), withTail.get(2));
+        assertEquals(new BigDecimal("90.00"), sum(withTail));
+    }
+
+    @Test
+    void firstRepaymentPrincipalReturnsNullWhenNotConfigured() {
+        assertNull(TrancheScheduleRules.firstRepaymentPrincipal(null, true, new BigDecimal("250"), 2));
+    }
+
+    @Test
+    void nullOriginalMaturityKeepsTheGeneratedLastDueDate() {
+        assertEquals(LocalDate.of(2027, 2, 1),
+                TrancheScheduleRules.maturityToRetain(null, LocalDate.of(2027, 2, 1), LocalDate.of(2026, 12, 1)));
+    }
+
+    @Test
+    void originalMaturityNotAfterPreviousInstallmentIsRejected() {
+        assertThrows(PlatformApiDataValidationException.class, () -> TrancheScheduleRules.maturityToRetain(LocalDate.of(2026, 11, 1),
+                LocalDate.of(2027, 2, 1), LocalDate.of(2026, 12, 1)));
+        assertThrows(PlatformApiDataValidationException.class, () -> TrancheScheduleRules.maturityToRetain(LocalDate.of(2026, 12, 1),
+                LocalDate.of(2027, 2, 1), LocalDate.of(2026, 12, 1)));
     }
 
     private static BigDecimal sum(final List<BigDecimal> amounts) {
