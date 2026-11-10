@@ -444,7 +444,7 @@ ORDER BY ml.account_no
             INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
             SELECT sr.id, sp.id, 'loanProductId'
             FROM stretchy_report sr
-            JOIN stretchy_parameter sp ON sp.parameter_name = 'loanProductIdSelectAll'
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'loanProductIdSelectAllWithoutCurrency'
             WHERE sr.report_name = 'Multi-tranche eligibility';
 
             INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
@@ -458,6 +458,29 @@ ORDER BY ml.account_no
             FROM stretchy_report sr
             JOIN stretchy_parameter sp ON sp.parameter_name = 'trancheMilestoneStatusSelectAll'
             WHERE sr.report_name = 'Multi-tranche eligibility';
+        </sql>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-fix-multitranche-product-filter-without-currency">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
+                WHERE sr.report_name = 'Multi-tranche eligibility'
+                  AND srp.report_parameter_name = 'loanProductId'
+                  AND sp.parameter_name = 'loanProductIdSelectAll'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE stretchy_report_parameter srp
+            JOIN stretchy_report sr ON sr.id = srp.report_id
+            JOIN stretchy_parameter oldp ON oldp.id = srp.parameter_id
+            JOIN stretchy_parameter newp ON newp.parameter_name = 'loanProductIdSelectAllWithoutCurrency'
+            SET srp.parameter_id = newp.id
+            WHERE sr.report_name = 'Multi-tranche eligibility'
+              AND srp.report_parameter_name = 'loanProductId'
+              AND oldp.parameter_name = 'loanProductIdSelectAll';
         </sql>
     </changeSet>
 
