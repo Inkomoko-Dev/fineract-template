@@ -68,18 +68,33 @@ public class TrancheMilestoneEligibilityService {
         public final boolean milestoneRequired;
         public final LocalDate firstRepaymentDueDate;
         public final int trancheNumber;
+        public final TrancheMilestoneRules.SurveyAnswer survey;
 
         public Refresh(final LoanSubStatus status, final boolean milestoneRequired, final LocalDate firstRepaymentDueDate,
                 final int trancheNumber) {
+            this(status, milestoneRequired, firstRepaymentDueDate, trancheNumber, TrancheMilestoneRules.SurveyAnswer.NONE);
+        }
+
+        public Refresh(final LoanSubStatus status, final boolean milestoneRequired, final LocalDate firstRepaymentDueDate,
+                final int trancheNumber, final TrancheMilestoneRules.SurveyAnswer survey) {
             this.status = status;
             this.milestoneRequired = milestoneRequired;
             this.firstRepaymentDueDate = firstRepaymentDueDate;
             this.trancheNumber = trancheNumber;
+            this.survey = survey == null ? TrancheMilestoneRules.SurveyAnswer.NONE : survey;
         }
 
         public boolean sendSurveyNotice() {
-            return this.milestoneRequired
-                    && (this.status == LoanSubStatus.AWAITING_SURVEY || this.status == LoanSubStatus.REQUIRES_REVIEW);
+            return this.milestoneRequired && surveyOutstanding();
+        }
+
+        public boolean surveyOutstanding() {
+            return this.milestoneRequired && (this.survey == TrancheMilestoneRules.SurveyAnswer.NONE
+                    || this.survey == TrancheMilestoneRules.SurveyAnswer.INCOMPLETE);
+        }
+
+        public boolean surveyNegative() {
+            return this.milestoneRequired && this.survey == TrancheMilestoneRules.SurveyAnswer.NEGATIVE;
         }
     }
 
@@ -95,7 +110,7 @@ public class TrancheMilestoneEligibilityService {
     @Transactional(readOnly = true)
     public Refresh preview(final Loan loan) {
         if (loan == null || loan.getId() == null || loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan()) {
-            return new Refresh(null, false, null, 0);
+            return new Refresh(null, false, null, 0, TrancheMilestoneRules.SurveyAnswer.NONE);
         }
         final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
         final boolean disbursed = loan.getDisbursementDetails() != null
@@ -117,7 +132,7 @@ public class TrancheMilestoneEligibilityService {
         final LoanSubStatus nextStatus = TrancheMilestoneRules.decide(openTranche, repaymentMet, requiresMilestone, survey, pastDeadline,
                 current);
         final int trancheNumber = next == null ? 0 : loan.getDisbursementTrancheNumber(next);
-        return new Refresh(nextStatus, requiresMilestone, dueDate, trancheNumber);
+        return new Refresh(nextStatus, requiresMilestone, dueDate, trancheNumber, survey);
     }
 
     @Transactional
@@ -154,20 +169,20 @@ public class TrancheMilestoneEligibilityService {
         return response(loan, refresh, false);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public String read(final String loanKey) {
         final Loan loan = findLoan(loanKey);
+        final Refresh refresh = refresh(loan);
         final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
         final LoanTrancheMilestone milestone = next == null || next.getId() == null ? null
                 : this.milestoneRepository.findByLoanIdAndDisbursementDetailId(loan.getId(), next.getId()).orElse(null);
-        final LoanSubStatus status = currentMilestoneStatus(loan.getLoanSubStatus());
         final Map<String, Object> body = new LinkedHashMap<>();
         body.put("loanId", loan.getId());
         body.put("accountNo", loan.getAccountNumber());
         body.put("trancheNumber", next == null ? null : loan.getDisbursementTrancheNumber(next));
-        body.put("status", status == null ? null : statusValue(status));
-        body.put("firstRepaymentDueDate", dateText(eligibilityDeadline(loan)));
-        body.put("milestoneRequired", productRequiresMilestone(loan));
+        body.put("status", refresh.status == null ? null : statusValue(refresh.status));
+        body.put("firstRepaymentDueDate", dateText(refresh.firstRepaymentDueDate));
+        body.put("milestoneRequired", refresh.milestoneRequired);
         putSurvey(body, milestone);
         return new com.google.gson.Gson().toJson(body);
     }
