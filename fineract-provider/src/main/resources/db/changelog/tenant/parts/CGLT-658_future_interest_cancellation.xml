@@ -23,6 +23,60 @@
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
+    <changeSet id="CGLT-658-future-interest-cancellation-transaction-type-enum" author="willy">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM r_enum_value
+                WHERE enum_name = 'loan_transaction_type_enum' AND enum_id = 34
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="r_enum_value">
+            <column name="enum_name" value="loan_transaction_type_enum"/>
+            <column name="enum_id" valueNumeric="34"/>
+            <column name="enum_message_property" value="loanTransactionType.futureInterestCancellation"/>
+            <column name="enum_value" value="FUTURE_INTEREST_CANCELLATION"/>
+            <column name="enum_type" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="CGLT-658-remap-legacy-fic-transaction-type-30-to-34" author="nelsonomoi">
+        <comment>
+            Environments that ran inkomoko-prod before the production remap wrote Future Interest Cancellation as
+            transaction_type_enum 30. Align to 34 so id 30 can stay reserved for insurance charge adjustment.
+            Match interest-only / zero fee-penalty-principal rows so insurance adjustments (fee portion) are left alone.
+            original_transaction_id is not required: some FIC rows were saved before the settling txn id was available.
+        </comment>
+        <sql>
+            UPDATE m_loan_transaction
+            SET transaction_type_enum = 34
+            WHERE transaction_type_enum = 30
+              AND COALESCE(interest_portion_derived, 0) &gt; 0
+              AND COALESCE(principal_portion_derived, 0) = 0
+              AND COALESCE(fee_charges_portion_derived, 0) = 0
+              AND COALESCE(penalty_charges_portion_derived, 0) = 0
+        </sql>
+    </changeSet>
+
+    <changeSet id="CGLT-658_remap_stretchy_report_fic_type_30_to_34" author="nelsonomoi">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="stretchy_report"/>
+        </preConditions>
+        <comment>
+            CGLT-766 reports on inkomoko-prod treated Future Interest Cancellation as transaction_type_enum 30.
+            Production uses 34 for FIC and 30 for insurance charge adjustment. Update stored report SQL in place
+            rather than rewriting already-applied CGLT-766 changesets.
+        </comment>
+        <sql>
+            UPDATE stretchy_report
+            SET report_sql = REPLACE(report_sql, 'transaction_type_enum = 30', 'transaction_type_enum = 34')
+            WHERE report_sql LIKE '%transaction_type_enum = 30%'
+              AND (
+                    report_sql LIKE '%Cancellation%'
+                 OR report_sql LIKE '%int_cancelled_amt%'
+              )
+        </sql>
+    </changeSet>
+
     <changeSet id="CGLT-658-add-interest-cancelled-to-m_loan" author="willy">
         <preConditions onFail="MARK_RAN">
             <not>
