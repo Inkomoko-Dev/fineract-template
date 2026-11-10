@@ -24,6 +24,8 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
     <changeSet author="inkomoko" id="CGLT-829-milestone-columns">
+        <!-- Accept checksum from environments that ran the original DATE / history-without-verifiers shape. -->
+        <validCheckSum>8:cb5ece147afbea3689b62ecb4af89a78</validCheckSum>
         <preConditions onFail="MARK_RAN">
             <not>
                 <columnExists tableName="m_product_loan" columnName="require_milestone_survey"/>
