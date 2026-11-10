@@ -107,7 +107,9 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
     @Column(name = "external_id", length = 100, nullable = true, unique = true)
     private String externalId;
 
-    @OneToMany(cascade = CascadeType.ALL, mappedBy = "loanTransaction", orphanRemoval = true, fetch = FetchType.EAGER)
+    // LAZY: EAGER with LoanCharge.loanChargePaidBySet formed a bidirectional cycle that StackOverflows EclipseLink
+    // when many charge-applied / waiver transactions exist on one loan.
+    @OneToMany(cascade = CascadeType.ALL, mappedBy = "loanTransaction", orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<LoanChargePaidBy> loanChargesPaid = new HashSet<>();
 
     @Column(name = "outstanding_loan_balance_derived", scale = 6, precision = 19, nullable = true)
