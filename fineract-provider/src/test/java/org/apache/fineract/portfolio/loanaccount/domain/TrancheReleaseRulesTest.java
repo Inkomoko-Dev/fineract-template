@@ -136,6 +136,18 @@ class TrancheReleaseRulesTest {
     }
 
     @Test
+    void theLastUndisbursedTrancheAlwaysReceivesTheResidualEvenWhenItIsAPercentage() {
+        final List<BigDecimal> amounts = TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"),
+                List.of(new TrancheReleaseRules.PlannedTranche(false, new BigDecimal("1"), true, new BigDecimal("40")),
+                        new TrancheReleaseRules.PlannedTranche(false, new BigDecimal("1"), true, new BigDecimal("60"))),
+                null, null, 2);
+
+        assertEquals(new BigDecimal("100.00"), amounts.get(0));
+        assertEquals(new BigDecimal("150.00"), amounts.get(1));
+        assertEquals(new BigDecimal("250.00"), amounts.get(0).add(amounts.get(1)));
+    }
+
+    @Test
     void submittedPrincipalsStayWhenTheProductDoesNotSetAFirstTranche() {
         final List<BigDecimal> amounts = TrancheReleaseRules.resolvePrincipals(new BigDecimal("250"),
                 List.of(tranche(new BigDecimal("150")), tranche(new BigDecimal("100"))), null, null, 2);
