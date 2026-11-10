@@ -99,8 +99,14 @@ public class TrancheReleaseNotificationService {
                 return;
             }
             this.businessEventNotifierService.notifyPostBusinessEvent(new TrancheRepaymentThresholdMetBusinessEvent(loan));
-            final TrancheMilestoneEligibilityService.Refresh noticeRefresh = refresh;
-            AfterCommitExecutor.execute(() -> sendSurveyEmail(loan, noticeRefresh));
+            final String surveyEmail = loanOfficerEmail(loan);
+            final String surveyOfficerName = loan.getLoanOfficer() == null ? "Investment Officer" : loan.getLoanOfficer().displayName();
+            final String surveyClientName = loan.getClient() == null ? "" : loan.getClient().getDisplayName();
+            final String surveyAccount = loan.getAccountNumber();
+            final String surveyDeadline = refresh.firstRepaymentDueDate == null ? ""
+                    : refresh.firstRepaymentDueDate.format(DateTimeFormatter.ofPattern("dd MMMM yyyy"));
+            AfterCommitExecutor.execute(
+                    () -> sendSurveyEmail(surveyEmail, surveyOfficerName, surveyClientName, surveyAccount, surveyDeadline));
             return;
         }
         if (assessment == null || assessment.previous == null || assessment.previous.getId() == null) {
@@ -117,8 +123,11 @@ public class TrancheReleaseNotificationService {
             return;
         }
         this.businessEventNotifierService.notifyPostBusinessEvent(new TrancheRepaymentThresholdMetBusinessEvent(loan));
-        final TrancheReleaseRules.Assessment noticeAssessment = assessment;
-        AfterCommitExecutor.execute(() -> sendEmail(loan, noticeAssessment));
+        final String releaseEmail = loanOfficerEmail(loan);
+        final String releaseOfficerName = loan.getLoanOfficer() == null ? "Loan officer" : loan.getLoanOfficer().displayName();
+        final String releaseSubject = "Next tranche can be disbursed for loan " + loan.getAccountNumber();
+        final String releaseBody = emailBody(loan, assessment);
+        AfterCommitExecutor.execute(() -> sendEmail(releaseEmail, releaseOfficerName, releaseSubject, releaseBody));
     }
 
     /**
@@ -148,22 +157,17 @@ public class TrancheReleaseNotificationService {
         return next == null ? null : next.getId();
     }
 
-    private void sendSurveyEmail(final Loan loan, final TrancheMilestoneEligibilityService.Refresh refresh) {
-        final String email = loanOfficerEmail(loan);
-        final Staff officer = loan.getLoanOfficer();
+    private void sendSurveyEmail(final String email, final String officerName, final String clientName, final String accountNo,
+            final String deadline) {
         if (email == null || email.isBlank()) {
-            log.warn("Tranche repayment conditions are met for loan {} but the loan officer has no email.", loan.getId());
+            log.warn("Tranche repayment conditions are met for loan {} but the loan officer has no email.", accountNo);
             return;
         }
-        final String officerName = officer == null ? "Investment Officer" : officer.displayName();
-        final String deadline = refresh.firstRepaymentDueDate == null ? ""
-                : refresh.firstRepaymentDueDate.format(DateTimeFormatter.ofPattern("dd MMMM yyyy"));
-        final String clientName = loan.getClient() == null ? "" : loan.getClient().getDisplayName();
-        final String subject = "Action Required: Second-Tranche Due Diligence – " + loan.getAccountNumber();
+        final String subject = "Action Required: Second-Tranche Due Diligence – " + accountNo;
         final String body = "<html><body style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.5;\">"
                 + "<p>Dear " + html(officerName) + ",</p>"
                 + "<p>The first required repayment has been received for the loan below.</p>"
-                + "<p style=\"margin:0 0 8px;\"><strong>Loan ID:</strong> " + html(loan.getAccountNumber()) + "</p>"
+                + "<p style=\"margin:0 0 8px;\"><strong>Loan ID:</strong> " + html(accountNo) + "</p>"
                 + "<p style=\"margin:0 0 8px;\"><strong>Client Name:</strong> " + html(clientName) + "</p>"
                 + "<p style=\"margin:0 0 16px;\"><strong>Second-Tranche Deadline:</strong> " + html(deadline) + "</p>"
                 + "<p>Please complete the business verification and additional funding needs assessment in SurveyCTO "
@@ -172,24 +176,19 @@ public class TrancheReleaseNotificationService {
         try {
             this.emailService.sendDefinedEmail(new EmailDetail(subject, body, email, officerName));
         } catch (RuntimeException ex) {
-            log.error("Tranche milestone email could not be sent for loan {}. The repayment was still posted.", loan.getId(), ex);
+            log.error("Tranche milestone email could not be sent for loan {}. The repayment was still posted.", accountNo, ex);
         }
     }
 
-    private void sendEmail(final Loan loan, final TrancheReleaseRules.Assessment assessment) {
-        final String email = loanOfficerEmail(loan);
-        final Staff officer = loan.getLoanOfficer();
+    private void sendEmail(final String email, final String officerName, final String subject, final String body) {
         if (email == null || email.isBlank()) {
-            log.warn("Tranche repayment threshold met for loan {} but the loan officer has no email.", loan.getId());
+            log.warn("Tranche repayment threshold met but the loan officer has no email.");
             return;
         }
-        final String officerName = officer == null ? "Loan officer" : officer.displayName();
-        final EmailDetail detail = new EmailDetail("Next tranche can be disbursed for loan " + loan.getAccountNumber(),
-                emailBody(loan, assessment), email, officerName);
         try {
-            this.emailService.sendDefinedEmail(detail);
+            this.emailService.sendDefinedEmail(new EmailDetail(subject, body, email, officerName));
         } catch (RuntimeException ex) {
-            log.error("Tranche release email could not be sent for loan {}. The repayment was still posted.", loan.getId(), ex);
+            log.error("Tranche release email could not be sent. The repayment was still posted.", ex);
         }
     }
 
