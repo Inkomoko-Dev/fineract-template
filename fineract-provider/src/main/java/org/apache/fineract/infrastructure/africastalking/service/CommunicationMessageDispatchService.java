@@ -66,34 +66,63 @@ public class CommunicationMessageDispatchService {
             communicationMessageRepository.save(message);
             return;
         }
+        final boolean templateMode = StringUtils.isNotBlank(message.getTemplateName());
+        final String mode = templateMode ? "TEMPLATE" : "TEXT";
         try {
             final WhatsAppTransportResult response;
-            if (StringUtils.isNotBlank(message.getTemplateName())) {
+            if (templateMode) {
                 final List<String> bodyValues = parseBodyValues(message.getTemplateBodyValues());
+                if (hasBlankBodyValue(bodyValues)) {
+                    message.setStatus(CommunicationMessageStatus.FAILED);
+                    message.setStatusDetail(StringUtils.left("mode=TEMPLATE TEMPLATE_MISMATCH: blank bodyValues", 255));
+                    log.warn("WhatsApp template dispatch skipped blank bodyValues messageId={} phone={} templateName={}", message.getId(),
+                            CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), message.getTemplateName());
+                    communicationMessageRepository.save(message);
+                    return;
+                }
                 response = whatsAppProviderRouter.sendTemplate(message.getPhoneNumber(), message.getTemplateName(),
                         message.getTemplateLanguage(), bodyValues);
             } else {
                 response = whatsAppProviderRouter.sendText(message.getPhoneNumber(), message.getMessageBody());
             }
-            message.setProvider(response.provider() == null ? null : response.provider().name());
-            if (response.successful()) {
-                message.setStatus(CommunicationMessageStatus.SENT);
-                message.setExternalId(response.externalId());
-                message.setStatusDetail(null);
-                log.info("WhatsApp dispatch succeeded messageId={} phone={} provider={}", message.getId(),
-                        CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), response.provider());
-            } else {
-                applyDispatchFailure(message, response.statusCode(),
-                        StringUtils.defaultIfBlank(response.errorDetail(), response.body()));
-            }
+            applyDispatchResult(message, mode, response);
         } catch (Exception e) {
-            log.error("WhatsApp dispatch failed messageId={} phone={}", message.getId(),
-                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), e);
+            log.error("WhatsApp dispatch failed messageId={} phone={} mode={} templateName={}", message.getId(),
+                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), mode, message.getTemplateName(), e);
             final CommunicationDispatchErrorClassifier.Classification classification = CommunicationDispatchErrorClassifier
                     .classifyException(e);
             applyClassification(message, classification, CommunicationLogSanitizer.truncateDetail(e.getMessage()));
         }
         communicationMessageRepository.save(message);
+    }
+
+    private void applyDispatchResult(final CommunicationMessage message, final String mode, final WhatsAppTransportResult response) {
+        message.setProvider(response.provider() == null ? null : response.provider().name());
+        if (response.successful()) {
+            message.setStatus(CommunicationMessageStatus.SENT);
+            message.setExternalId(response.externalId());
+            message.setStatusDetail(null);
+            log.info("WhatsApp dispatch succeeded messageId={} phone={} provider={} mode={} templateName={}", message.getId(),
+                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), response.provider(), mode, message.getTemplateName());
+        } else {
+            final String rawDetail = StringUtils.defaultIfBlank(response.errorDetail(), response.body());
+            final String prefixed = "mode=" + mode
+                    + (StringUtils.isNotBlank(message.getTemplateName()) ? " template=" + message.getTemplateName() : "") + " "
+                    + StringUtils.defaultString(rawDetail);
+            log.warn("WhatsApp dispatch failed messageId={} phone={} httpStatus={} mode={} templateName={} detail={}", message.getId(),
+                    CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), response.statusCode(), mode, message.getTemplateName(),
+                    CommunicationLogSanitizer.truncateDetail(rawDetail));
+            applyDispatchFailure(message, response.statusCode(), prefixed);
+        }
+    }
+
+    private static boolean hasBlankBodyValue(final List<String> bodyValues) {
+        for (final String value : bodyValues) {
+            if (StringUtils.isBlank(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void applyDispatchFailure(final CommunicationMessage message, final int statusCode, final String responseBody) {
@@ -102,8 +131,6 @@ public class CommunicationMessageDispatchService {
         final String detail = classification.code() + ": "
                 + CommunicationLogSanitizer.truncateDetail(
                         StringUtils.isNotBlank(responseBody) ? "HTTP " + statusCode + ": " + responseBody : "HTTP " + statusCode);
-        log.warn("WhatsApp dispatch failed messageId={} phone={} httpStatus={} category={}", message.getId(),
-                CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), statusCode, classification.category());
         applyClassification(message, classification, detail);
     }
 

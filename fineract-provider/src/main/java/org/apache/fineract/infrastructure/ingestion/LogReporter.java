@@ -50,7 +50,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-// sends failed commands and scheduled jobs to ingestion-service, which posts them to Slack; never throws
+// sends failed commands, scheduled jobs and Odoo syncs to ingestion-service, which posts them to Slack; never throws
 @Slf4j
 @Component
 public class LogReporter {
@@ -122,6 +122,32 @@ public class LogReporter {
             send("JOB." + jobName, messageOf(error), payload);
         } catch (Exception e) {
             log.warn("Failed job {} not reported to ingestion-service: {}", jobName, e.getMessage());
+        }
+    }
+
+    // one client or journal entry Odoo didn't get, reported as it happens rather than when the job ends
+    public void odooSyncFailed(String entity, Object entityId, String message) {
+        odooSyncFailed(entity, entityId, message, null);
+    }
+
+    public void odooSyncFailed(String entity, Object entityId, Throwable error) {
+        odooSyncFailed(entity, entityId, messageOf(error), error);
+    }
+
+    private void odooSyncFailed(String entity, Object entityId, String message, Throwable error) {
+        if (!isEnabled()) {
+            return;
+        }
+        try {
+            JsonObject payload = context();
+            payload.addProperty("entity", entity);
+            payload.addProperty("entityId", entityId == null ? null : entityId.toString());
+            if (error != null) {
+                addError(payload, error);
+            }
+            send("ODOO_SYNC." + entity, message, payload);
+        } catch (Exception e) {
+            log.warn("Odoo sync failure for {} {} not reported to ingestion-service: {}", entity, entityId, e.getMessage());
         }
     }
 
@@ -213,11 +239,14 @@ public class LogReporter {
     }
 
     private void post(String eventType, String body) {
-        Request request = new Request.Builder().url(StringUtils.removeEnd(baseUrl, "/") + "/api/v1/logs")
-                .post(RequestBody.create(MediaType.parse("application/json"), body)).addHeader("Authorization", "Bearer " + apiKey).build();
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                log.warn("ingestion-service rejected {} with HTTP {}", eventType, response.code());
+        try {
+            Request request = new Request.Builder().url(StringUtils.removeEnd(baseUrl, "/") + "/api/v1/logs")
+                    .post(RequestBody.create(MediaType.parse("application/json"), body)).addHeader("Authorization", "Bearer " + apiKey)
+                    .build();
+            try (Response response = httpClient.newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    log.warn("ingestion-service rejected {} with HTTP {}", eventType, response.code());
+                }
             }
         } catch (Exception e) {
             log.warn("{} not sent to ingestion-service: {}", eventType, e.getMessage());
