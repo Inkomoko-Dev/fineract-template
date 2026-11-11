@@ -19,7 +19,9 @@
 package org.apache.fineract.infrastructure.africastalking.service;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -95,8 +97,10 @@ public class AfricasTalkingClient {
         }
         final JsonArray values = new JsonArray();
         if (bodyValues != null) {
+            final String placeholder = properties.getTemplatePlaceholder();
             for (final String v : bodyValues) {
-                values.add(v == null ? "" : v);
+                final String resolved = StringUtils.isBlank(v) ? placeholder : v;
+                values.add(resolved);
             }
         }
         body.add("bodyValues", values);
@@ -114,6 +118,49 @@ public class AfricasTalkingClient {
                 .addHeader("Accept", "application/json")
                 .addHeader("Content-Type", "application/json").build();
         return executeRequest("send WhatsApp template", request);
+    }
+
+    public AfricasTalkingApiResponse createWhatsAppTemplate(final String templateName, final String language,
+            final String category, final JsonObject components) throws IOException {
+        validateConfigured();
+        final JsonObject requestBody = new JsonObject();
+        requestBody.addProperty("username", properties.getUsername());
+        requestBody.addProperty("waNumber", properties.getWhatsapp().getSenderNumber());
+        requestBody.addProperty("name", templateName);
+        requestBody.addProperty("language", language);
+        requestBody.addProperty("category", category);
+        requestBody.add("components", components);
+
+        final HttpUrl url = HttpUrl.parse(properties.getWhatsappBaseUrl() + AfricasTalkingConstants.WHATSAPP_TEMPLATE_SEND_PATH);
+        final Request request = new Request.Builder().url(url)
+                .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
+                .addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
+                .addHeader("Accept", "application/json")
+                .addHeader("Content-Type", "application/json").build();
+        return executeRequest("create WhatsApp template", request);
+    }
+
+    public AfricasTalkingApiResponse createWhatsAppTemplateFromJson(final String apiRequestBodyAsJson) throws IOException {
+        validateConfigured();
+        if (StringUtils.isBlank(apiRequestBodyAsJson)) {
+            throw new IllegalArgumentException("WhatsApp template request body must not be blank.");
+        }
+        final JsonElement parsed = JsonParser.parseString(apiRequestBodyAsJson);
+        if (parsed == null || !parsed.isJsonObject()) {
+            throw new IllegalArgumentException("WhatsApp template request body must be a JSON object.");
+        }
+        final JsonObject requestBody = parsed.getAsJsonObject();
+        // Always overwrite credentials from server config — never trust client-supplied keys.
+        requestBody.addProperty("username", properties.getUsername());
+        requestBody.addProperty("waNumber", properties.getWhatsapp().getSenderNumber());
+
+        final HttpUrl url = HttpUrl.parse(properties.getWhatsappBaseUrl() + AfricasTalkingConstants.WHATSAPP_TEMPLATE_SEND_PATH);
+        final Request request = new Request.Builder().url(url)
+                .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
+                .addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
+                .addHeader("Accept", "application/json")
+                .addHeader("Content-Type", "application/json").build();
+        return executeRequest("create WhatsApp template from json", request);
     }
 
     public void validateWhatsAppConfigured() {

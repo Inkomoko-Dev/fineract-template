@@ -39,6 +39,7 @@ import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.campaigns.constants.CampaignType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppMessageType;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
@@ -63,6 +64,7 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
     private static final String AT_TEMPLATE_NAME = "atTemplateName";
     private static final String LANGUAGE_CODE = "languageCode";
     private static final String BODY_VARIABLE_MAPPING = "bodyVariableMapping";
+    private static final String MESSAGE_TYPE = "messageType";
     private static final String ACTIVATION_DATE = "activationDate";
     private static final String RECURRENCE_START_DATE = "recurrenceStartDate";
     private static final String DATE_TIME_FORMAT = "dateTimeFormat";
@@ -108,6 +110,10 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
     @Column(name = "body_variable_mapping", nullable = false, columnDefinition = "TEXT")
     private String bodyVariableMapping;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "message_type", nullable = false, length = 10)
+    private WhatsAppMessageType messageType;
+
     @Column(name = "closedon_date", nullable = true)
     private LocalDate closureDate;
 
@@ -152,8 +158,8 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
 
     private WhatsAppCampaign(final String campaignName, final Integer campaignType, final Integer triggerType, final Report businessRuleId,
             final String paramValue, final String message, final String atTemplateName, final String languageCode,
-            final String bodyVariableMapping, final LocalDate submittedOnDate, final AppUser submittedBy, final String recurrence,
-            final LocalDateTime localDateTime, final RecipientType recipientType) {
+            final String bodyVariableMapping, final WhatsAppMessageType messageType, final LocalDate submittedOnDate,
+            final AppUser submittedBy, final String recurrence, final LocalDateTime localDateTime, final RecipientType recipientType) {
         this.recipientType = recipientType == null ? RecipientType.CLIENT : recipientType;
         this.campaignName = campaignName;
         this.campaignType = campaignType;
@@ -165,6 +171,7 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
         this.atTemplateName = atTemplateName;
         this.languageCode = languageCode;
         this.bodyVariableMapping = bodyVariableMapping;
+        this.messageType = messageType;
         this.submittedOnDate = submittedOnDate;
         this.submittedBy = submittedBy;
         this.recurrence = recurrence;
@@ -184,9 +191,10 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
         final Long triggerType = command.longValueOfParameterNamed(TRIGGER_TYPE);
         final String paramValue = command.jsonFragment(PARAM_VALUE);
         final String message = command.stringValueOfParameterNamed(MESSAGE);
-        final String atTemplateName = command.stringValueOfParameterNamed(AT_TEMPLATE_NAME);
-        final String languageCode = command.stringValueOfParameterNamed(LANGUAGE_CODE);
+        final String atTemplateName = StringUtils.defaultString(command.stringValueOfParameterNamedAllowingNull(AT_TEMPLATE_NAME));
+        final String languageCode = StringUtils.defaultString(command.stringValueOfParameterNamedAllowingNull(LANGUAGE_CODE));
         final String bodyVariableMapping = command.jsonFragment(BODY_VARIABLE_MAPPING);
+        final WhatsAppMessageType messageType = resolveMessageType(command.stringValueOfParameterNamedAllowingNull(MESSAGE_TYPE));
         final RecipientType recipientType = resolveRecipientType(command.stringValueOfParameterNamedAllowingNull(RECIPIENT_TYPE));
 
         LocalDate submittedOnDate = DateUtils.getBusinessLocalDate();
@@ -212,8 +220,8 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
         }
 
         return new WhatsAppCampaign(campaignName, campaignType.intValue(), triggerType.intValue(), report, paramValue, message,
-                atTemplateName, languageCode, bodyVariableMapping, submittedOnDate, submittedBy, recurrence, recurrenceStartDate,
-                recipientType);
+                atTemplateName, languageCode, bodyVariableMapping, messageType, submittedOnDate, submittedBy, recurrence,
+                recurrenceStartDate, recipientType);
     }
 
     private static RecipientType resolveRecipientType(final String value) {
@@ -221,6 +229,13 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
             return RecipientType.CLIENT;
         }
         return RecipientType.valueOf(value.trim().toUpperCase(Locale.ENGLISH));
+    }
+
+    private static WhatsAppMessageType resolveMessageType(final String value) {
+        if (StringUtils.isBlank(value)) {
+            return WhatsAppMessageType.TEMPLATE;
+        }
+        return WhatsAppMessageType.valueOf(value.trim().toUpperCase(Locale.ENGLISH));
     }
 
     public Map<String, Object> update(final JsonCommand command) {
@@ -243,19 +258,24 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
             this.paramValue = StringUtils.defaultIfEmpty(newValue, null);
         }
         if (command.isChangeInStringParameterNamed(AT_TEMPLATE_NAME, this.atTemplateName)) {
-            final String newValue = command.stringValueOfParameterNamed(AT_TEMPLATE_NAME);
+            final String newValue = StringUtils.defaultString(command.stringValueOfParameterNamedAllowingNull(AT_TEMPLATE_NAME));
             actualChanges.put(AT_TEMPLATE_NAME, newValue);
-            this.atTemplateName = StringUtils.defaultIfEmpty(newValue, null);
+            this.atTemplateName = newValue;
         }
         if (command.isChangeInStringParameterNamed(LANGUAGE_CODE, this.languageCode)) {
-            final String newValue = command.stringValueOfParameterNamed(LANGUAGE_CODE);
+            final String newValue = StringUtils.defaultString(command.stringValueOfParameterNamedAllowingNull(LANGUAGE_CODE));
             actualChanges.put(LANGUAGE_CODE, newValue);
-            this.languageCode = StringUtils.defaultIfEmpty(newValue, null);
+            this.languageCode = newValue;
         }
         if (command.isChangeInStringParameterNamed(BODY_VARIABLE_MAPPING, this.bodyVariableMapping)) {
             final String newValue = command.jsonFragment(BODY_VARIABLE_MAPPING);
             actualChanges.put(BODY_VARIABLE_MAPPING, newValue);
             this.bodyVariableMapping = StringUtils.defaultIfEmpty(newValue, null);
+        }
+        if (command.isChangeInStringParameterNamed(MESSAGE_TYPE, this.messageType != null ? this.messageType.name() : null)) {
+            final String newValue = command.stringValueOfParameterNamed(MESSAGE_TYPE);
+            actualChanges.put(MESSAGE_TYPE, newValue);
+            this.messageType = resolveMessageType(newValue);
         }
         if (command.parameterExists(RECIPIENT_TYPE)) {
             final RecipientType newValue = resolveRecipientType(command.stringValueOfParameterNamedAllowingNull(RECIPIENT_TYPE));
@@ -552,6 +572,10 @@ public class WhatsAppCampaign extends AbstractPersistableCustom {
 
     public String getBodyVariableMapping() {
         return this.bodyVariableMapping;
+    }
+
+    public WhatsAppMessageType getMessageType() {
+        return this.messageType;
     }
 
     public RecipientType getRecipientType() {
