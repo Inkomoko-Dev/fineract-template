@@ -207,7 +207,18 @@ class CreditDecisionLoanServiceDbTest {
         actAs("credit.head");
         profiles.approve(created.getId(), 1);
         actAs("credit.analyst");
-        return "OFF".equals(mode) ? created : profiles.setMode(created.getId(), mode);
+        if ("OFF".equals(mode)) {
+            return created;
+        }
+        final ProfileData asked = profiles.setMode(created.getId(), mode);
+        if (asked.getPendingMode() == null) {
+            return asked;
+        }
+        // going live is asked for by one person and approved by another
+        actAs("credit.head");
+        final ProfileData live = profiles.approveMode(created.getId());
+        actAs("credit.analyst");
+        return live;
     }
 
     private void connectEngine() {

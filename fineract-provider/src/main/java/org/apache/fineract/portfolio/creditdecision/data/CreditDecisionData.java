@@ -79,6 +79,54 @@ public final class CreditDecisionData {
         private final String decidedOn;
         private final List<Long> productIds;
         private final List<ParamData> params;
+        /** The eligibility policy this version publishes: limits, cutoffs and scorecard weights. */
+        private final List<PolicyValueData> rules;
+        /** Who sent it for approval and when. Different from the preparer when someone else made the last edit. */
+        private final String submittedBy;
+        private final String submittedOn;
+    }
+
+    /** One policy setting: a number for a rule, for everyone, a country (by currency) or a loan product. */
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PolicyValueData {
+
+        /** GLOBAL, COUNTRY or PRODUCT */
+        private String scope;
+        /** "*" for everyone, the currency code for a country, the loan product id for a product. */
+        private String scopeKey;
+        private String key;
+        private BigDecimal value;
+    }
+
+    /** A policy setting as it applies to one product, and where it came from. */
+    @Getter
+    @AllArgsConstructor
+    public static class EffectiveRuleData {
+
+        private final String key;
+        private final BigDecimal value;
+        /** GLOBAL, COUNTRY or PRODUCT */
+        private final String scope;
+        private final String scopeKey;
+    }
+
+    /** One line of the change history of a profile: who did what, when, and the field that changed with its old and new value. */
+    @Getter
+    @AllArgsConstructor
+    public static class AuditData {
+
+        private final Long id;
+        /** The version it concerns, or null when it concerns the profile. */
+        private final Integer versionNo;
+        private final String action;
+        private final String field;
+        private final String oldValue;
+        private final String newValue;
+        private final String actedBy;
+        private final String actedOn;
     }
 
     @Getter
@@ -92,6 +140,13 @@ public final class CreditDecisionData {
         private final String createdBy;
         private final String createdOn;
         private final List<VersionData> versions;
+        /** Who last changed the mode and when. Null until it has been changed. */
+        private final String modeChangedBy;
+        private final String modeChangedOn;
+        /** Set while a switch to Live waits for a second person to approve it. */
+        private final String pendingMode;
+        private final String pendingBy;
+        private final String pendingOn;
     }
 
     @Getter
@@ -136,6 +191,8 @@ public final class CreditDecisionData {
         private final boolean sendingEnabled;
         private final String provider;
         private final List<ParamData> params;
+        /** The approved policy as it applies to this product: its own setting, else its country's, else the global one. */
+        private final List<EffectiveRuleData> policy;
     }
 
     @Getter
@@ -250,6 +307,8 @@ public final class CreditDecisionData {
 
         private List<ParamData> params;
         private List<Long> productIds;
+        /** The whole policy. Leave out to keep the policy as it is. */
+        private List<PolicyValueData> rules;
     }
 
     @Getter

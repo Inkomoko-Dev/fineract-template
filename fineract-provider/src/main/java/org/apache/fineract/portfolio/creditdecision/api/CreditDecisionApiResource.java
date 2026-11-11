@@ -20,7 +20,9 @@ package org.apache.fineract.portfolio.creditdecision.api;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DefaultValue;
@@ -47,6 +49,7 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.Mode
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.NewDraftRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.SaveDraftRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.FlagRequest;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionPolicy;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.VerifyRequest;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLogReader;
@@ -85,6 +88,26 @@ public class CreditDecisionApiResource {
     }
 
     @GET
+    @Path("policy")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "The policy settings a version can hold (limits, knockout rules, risk cutoffs, scorecard weights) and the countries they can be set for")
+    public String policy() {
+        read();
+        final List<Map<String, String>> countries = new ArrayList<>();
+        CreditDecisionPolicy.countries().forEach((code, name) -> {
+            final Map<String, String> country = new LinkedHashMap<>();
+            country.put("currency", code);
+            country.put("name", name);
+            countries.add(country);
+        });
+        final Map<String, Object> out = new LinkedHashMap<>();
+        out.put("rules", CreditDecisionPolicy.rules());
+        out.put("countries", countries);
+        out.put("maxScore", CreditDecisionPolicy.MAX_SCORE);
+        return toApiJsonSerializer.serialize(out);
+    }
+
+    @GET
     @Path("products")
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Loan products and the profile that already uses each one")
@@ -109,6 +132,15 @@ public class CreditDecisionApiResource {
     public String profile(@PathParam("profileId") final Long profileId) {
         read();
         return toApiJsonSerializer.serialize(service.profile(profileId));
+    }
+
+    @GET
+    @Path("profiles/{profileId}/history")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "What was done to a profile, by whom and when, with each field before and after, newest first")
+    public String history(@PathParam("profileId") final Long profileId) {
+        read();
+        return toApiJsonSerializer.serialize(service.history(profileId));
     }
 
     @GET
@@ -182,10 +214,28 @@ public class CreditDecisionApiResource {
     @Path("profiles/{profileId}/mode")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Switch a profile Off, to Shadow (recorded only) or Live")
+    @Operation(summary = "Switch a profile Off or to Shadow (recorded only) at once, or ask for Live, which a second authorised person must approve")
     public String mode(@PathParam("profileId") final Long profileId, final String body) {
         change();
         return toApiJsonSerializer.serialize(service.setMode(profileId, parse(body, ModeRequest.class).getMode()));
+    }
+
+    @POST
+    @Path("profiles/{profileId}/mode")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Answer a request to go Live: command=approve (a second person) or cancel")
+    public String modeCommand(@PathParam("profileId") final Long profileId, @QueryParam("command") @DefaultValue("") final String command) {
+        switch (command) {
+            case "approve":
+                approve();
+                return toApiJsonSerializer.serialize(service.approveMode(profileId));
+            case "cancel":
+                approve();
+                return toApiJsonSerializer.serialize(service.cancelMode(profileId));
+            default:
+                throw new UnrecognizedQueryParamException("command", command, "approve", "cancel");
+        }
     }
 
     @GET

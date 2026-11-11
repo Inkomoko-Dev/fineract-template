@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -31,6 +32,7 @@ import java.io.File;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.ArrayList;
 import java.util.List;
 import liquibase.Liquibase;
 import liquibase.database.Database;
@@ -41,6 +43,9 @@ import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRu
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ActiveProfileData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.AuditData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.EffectiveRuleData;
+import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.PolicyValueData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.ConnectionData;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.CreateProfileRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.LogEntryData;
@@ -57,6 +62,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
@@ -280,7 +286,7 @@ class CreditDecisionServiceDbTest {
         assertNull(service.activeForProduct(a), "a profile is Off until someone switches it on");
         assertThrows(GeneralPlatformDomainRuleException.class, () -> service.setMode(createdOffProfile().getId(), "SHADOW"));
 
-        service.setMode(live.getId(), "live");
+        goLive(live.getId());
         final ActiveProfileData active = service.activeForProduct(a);
 
         assertNotNull(active);
@@ -292,6 +298,16 @@ class CreditDecisionServiceDbTest {
 
         service.setMode(live.getId(), "OFF");
         assertNull(service.activeForProduct(a));
+    }
+
+    /** Live is asked for by one authorised person and approved by another. */
+    private ProfileData goLive(final long profileId) {
+        final String me = current.getUsername();
+        service.setMode(profileId, "live");
+        actAs("credit.head");
+        final ProfileData live = service.approveMode(profileId);
+        actAs(me);
+        return live;
     }
 
     private ProfileData createdOffProfile() {
@@ -557,5 +573,351 @@ class CreditDecisionServiceDbTest {
         backwards.setFrom("2026-11-09");
         backwards.setTo("2026-11-01");
         assertThrows(PlatformApiDataValidationException.class, () -> logs.page(backwards));
+    }
+
+    // ---- the eligibility policy, second-person approval, claims, audit, Live approval and the cache ----
+
+    private static PolicyValueData rule(final String scope, final String scopeKey, final String key, final String value) {
+        return new PolicyValueData(scope, scopeKey, key, new BigDecimal(value));
+    }
+
+    private static List<PolicyValueData> starterWith(final PolicyValueData... changes) {
+        final List<PolicyValueData> rules = new ArrayList<>(org.apache.fineract.portfolio.creditdecision.data.CreditDecisionPolicy.starter());
+        for (final PolicyValueData change : changes) {
+            rules.removeIf(r -> r.getScope().equals(change.getScope()) && r.getScopeKey().equals(change.getScopeKey())
+                    && r.getKey().equals(change.getKey()));
+            rules.add(change);
+        }
+        return rules;
+    }
+
+    private ProfileData saveRules(final long profileId, final int versionNo, final List<PolicyValueData> rules) {
+        final SaveDraftRequest request = new SaveDraftRequest();
+        request.setRules(rules);
+        return service.saveDraft(profileId, versionNo, request);
+    }
+
+    private static BigDecimal value(final ActiveProfileData active, final String key) {
+        return active.getPolicy().stream().filter(e -> e.getKey().equals(key)).map(EffectiveRuleData::getValue).findFirst().orElse(null);
+    }
+
+    private static List<PolicyValueData> rulesOf(final ProfileData profile, final int versionNo) {
+        return version(profile, versionNo).getRules();
+    }
+
+    private static BigDecimal ruleValue(final List<PolicyValueData> rules, final String scope, final String scopeKey, final String key) {
+        return rules.stream().filter(r -> r.getScope().equals(scope) && r.getScopeKey().equals(scopeKey) && r.getKey().equals(key))
+                .map(PolicyValueData::getValue).findFirst().orElse(null);
+    }
+
+    @Test
+    void aNewProfileStartsWithTheProcessFlowPolicyAndACopyKeepsTheLivePolicy() {
+        final ProfileData created = service.createProfile(newProfile("Business loans", productId("Business loan - individual", "KES")));
+        final List<PolicyValueData> rules = rulesOf(created, 1);
+
+        assertEquals(0, new BigDecimal("30").compareTo(ruleValue(rules, "GLOBAL", "*", "maxDaysPastDue")));
+        assertEquals(0, new BigDecimal("0").compareTo(ruleValue(rules, "GLOBAL", "*", "arrearsTolerance")));
+        assertEquals(0, new BigDecimal("18").compareTo(ruleValue(rules, "GLOBAL", "*", "minAge")));
+        assertEquals(0, new BigDecimal("6").compareTo(ruleValue(rules, "GLOBAL", "*", "minMonthsInBusiness")));
+        assertEquals(0, new BigDecimal("750").compareTo(ruleValue(rules, "GLOBAL", "*", "lowRiskMinScore")));
+        assertEquals(0, new BigDecimal("650").compareTo(ruleValue(rules, "GLOBAL", "*", "mediumRiskMinScore")));
+        assertEquals(0, new BigDecimal("40").compareTo(ruleValue(rules, "GLOBAL", "*", "weightInternalHistory")));
+        assertEquals(0, new BigDecimal("10").compareTo(ruleValue(rules, "GLOBAL", "*", "weightDemographics")));
+
+        final ProfileData live = liveProfile("Digital", productId("Digital micro-loan", "RWF"));
+        service.newDraft(live.getId(), null);
+        saveRules(live.getId(), 2, starterWith(rule("GLOBAL", "*", "maxDaysPastDue", "45")));
+        service.submit(live.getId(), 2, "Relax DPD");
+        actAs("credit.head");
+        service.approve(live.getId(), 2);
+        actAs("credit.analyst");
+
+        final CreateProfileRequest copy = newProfile("Copy", productId("Business loan - group", "KES"));
+        copy.setCopyFromProfileId(live.getId());
+        assertEquals(0, new BigDecimal("45").compareTo(ruleValue(rulesOf(service.createProfile(copy), 1), "GLOBAL", "*", "maxDaysPastDue")));
+    }
+
+    @Test
+    void theScorecardWeightsMustAddUpToOneHundredPercentBeforeSubmit() {
+        final ProfileData created = service.createProfile(newProfile("Business loans", productId("Business loan - individual", "KES")));
+
+        // a draft may be saved while the weights are being worked out, but it cannot be submitted
+        saveRules(created.getId(), 1, starterWith(rule("GLOBAL", "*", "weightInternalHistory", "50")));
+        final PlatformApiDataValidationException refused = assertThrows(PlatformApiDataValidationException.class,
+                () -> service.submit(created.getId(), 1, "Weights"));
+        assertTrue(refused.getErrors().stream().anyMatch(e -> e.getParameterName().startsWith("weights.GLOBAL")), refused.getErrors().toString());
+        assertEquals("DRAFT", version(service.profile(created.getId()), 1).getStatus());
+
+        // a country that sets weights sets all four and they add up too
+        saveRules(created.getId(), 1, starterWith(rule("COUNTRY", "KES", "weightInternalHistory", "100")));
+        assertThrows(PlatformApiDataValidationException.class, () -> service.submit(created.getId(), 1, "Partial country weights"));
+        saveRules(created.getId(), 1, starterWith(rule("COUNTRY", "KES", "weightInternalHistory", "25"),
+                rule("COUNTRY", "KES", "weightBureauHistory", "25"), rule("COUNTRY", "KES", "weightBusinessFinancials", "25"),
+                rule("COUNTRY", "KES", "weightDemographics", "25")));
+        assertEquals("PENDING", version(service.submit(created.getId(), 1, "Weights"), 1).getStatus());
+    }
+
+    @Test
+    void amountsCannotBeNegativeAndSettingsMustBeKnown() {
+        final ProfileData created = service.createProfile(newProfile("Business loans", productId("Business loan - individual", "KES")));
+
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> saveRules(created.getId(), 1, starterWith(rule("COUNTRY", "KES", "maxLoanAmount", "-1"))));
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> saveRules(created.getId(), 1, starterWith(rule("GLOBAL", "*", "arrearsTolerance", "-5"))));
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> saveRules(created.getId(), 1, starterWith(rule("GLOBAL", "*", "maxDaysPastDue", "30.5"))));
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> saveRules(created.getId(), 1, starterWith(rule("COUNTRY", "UGX", "maxLoanAmount", "100"))));
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> saveRules(created.getId(), 1, starterWith(rule("GLOBAL", "*", "somethingElse", "1"))));
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> saveRules(created.getId(), 1, starterWith(rule("GLOBAL", "*", "weightDemographics", "101"))));
+        assertEquals(0, new BigDecimal("30").compareTo(ruleValue(rulesOf(service.profile(created.getId()), 1), "GLOBAL", "*", "maxDaysPastDue")),
+                "a refused save changes nothing");
+    }
+
+    @Test
+    void theSmallestLoanCannotBeAboveTheLargestAndTheMediumCutoffStaysBelowTheLowOne() {
+        final ProfileData created = service.createProfile(newProfile("Business loans", productId("Business loan - individual", "KES")));
+
+        saveRules(created.getId(), 1, starterWith(rule("GLOBAL", "*", "minLoanAmount", "500"), rule("COUNTRY", "KES", "maxLoanAmount", "400")));
+        assertThrows(PlatformApiDataValidationException.class, () -> service.submit(created.getId(), 1, "Amounts"),
+                "the KES cap is below the global smallest loan once they are combined");
+
+        saveRules(created.getId(), 1, starterWith(rule("GLOBAL", "*", "mediumRiskMinScore", "800")));
+        assertThrows(PlatformApiDataValidationException.class, () -> service.submit(created.getId(), 1, "Tiers"));
+
+        saveRules(created.getId(), 1, starterWith(rule("PRODUCT", "99999", "maxLoanAmount", "10")));
+        assertThrows(PlatformApiDataValidationException.class, () -> service.submit(created.getId(), 1, "Product"),
+                "a product setting must refer to a product the version covers");
+    }
+
+    @Test
+    void countryCapsAndProductOverridesApplyMostSpecificFirst() {
+        final long kes = productId("Business loan - individual", "KES"), kesGroup = productId("Business loan - group", "KES"),
+                rwf = productId("Digital micro-loan", "RWF");
+        final ProfileData created = service.createProfile(newProfile("Loans", kes, kesGroup, rwf));
+        saveRules(created.getId(), 1,
+                starterWith(rule("GLOBAL", "*", "maxLoanAmount", "1000000"), rule("COUNTRY", "KES", "maxLoanAmount", "500000"),
+                        rule("COUNTRY", "RWF", "maxLoanAmount", "2000000"), rule("PRODUCT", String.valueOf(kesGroup), "maxLoanAmount", "150000"),
+                        rule("COUNTRY", "KES", "minLoanAmount", "10000")));
+        service.submit(created.getId(), 1, "Caps");
+        actAs("credit.head");
+        service.approve(created.getId(), 1);
+        service.setMode(created.getId(), "SHADOW");
+
+        assertEquals(0, new BigDecimal("500000").compareTo(value(service.activeForProduct(kes), "maxLoanAmount")));
+        assertEquals(0, new BigDecimal("150000").compareTo(value(service.activeForProduct(kesGroup), "maxLoanAmount")));
+        assertEquals(0, new BigDecimal("2000000").compareTo(value(service.activeForProduct(rwf), "maxLoanAmount")));
+        assertEquals(0, new BigDecimal("10000").compareTo(value(service.activeForProduct(kesGroup), "minLoanAmount")));
+        assertNull(value(service.activeForProduct(rwf), "minLoanAmount"), "nothing is set for that country");
+        assertEquals(0, new BigDecimal("30").compareTo(value(service.activeForProduct(rwf), "maxDaysPastDue")), "the global value still applies");
+    }
+
+    @Test
+    void changingADpdThresholdOrAnAmountStaysDraftUntilASecondPersonApprovesAndAnActiveVersionNeverChanges() {
+        final long kes = productId("Business loan - individual", "KES");
+        final ProfileData live = liveProfile("Business loans", kes);
+        goLive(live.getId());
+        assertEquals(0, new BigDecimal("30").compareTo(value(service.activeForProduct(kes), "maxDaysPastDue")));
+
+        // the editor changes the threshold and an amount cap: nothing changes for the engine yet
+        service.newDraft(live.getId(), null);
+        saveRules(live.getId(), 2, starterWith(rule("GLOBAL", "*", "maxDaysPastDue", "60"), rule("COUNTRY", "KES", "maxLoanAmount", "900000")));
+        assertEquals("DRAFT", version(service.profile(live.getId()), 2).getStatus());
+        assertEquals(0, new BigDecimal("30").compareTo(value(service.activeForProduct(kes), "maxDaysPastDue")));
+        assertNull(value(service.activeForProduct(kes), "maxLoanAmount"));
+
+        // a second person submits, so the editor is not the only one who has touched it
+        actAs("credit.officer");
+        service.submit(live.getId(), 2, "Relax the DPD limit");
+        assertEquals("PENDING", version(service.profile(live.getId()), 2).getStatus());
+        assertEquals(0, new BigDecimal("30").compareTo(value(service.activeForProduct(kes), "maxDaysPastDue")), "pending is not active");
+
+        // neither the editor nor the submitter may approve it
+        actAs("credit.analyst");
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.approve(live.getId(), 2), "the editor");
+        actAs("credit.officer");
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.approve(live.getId(), 2), "the submitter");
+        assertEquals(0, new BigDecimal("30").compareTo(value(service.activeForProduct(kes), "maxDaysPastDue")));
+        assertEquals("PENDING", version(service.profile(live.getId()), 2).getStatus());
+
+        // a third person can, and only then does the engine see the new values
+        actAs("credit.head");
+        service.approve(live.getId(), 2);
+        final ActiveProfileData active = service.activeForProduct(kes);
+        assertEquals(2, active.getVersionNo());
+        assertEquals(0, new BigDecimal("60").compareTo(value(active, "maxDaysPastDue")));
+        assertEquals(0, new BigDecimal("900000").compareTo(value(active, "maxLoanAmount")));
+
+        // an active version cannot be edited, withdrawn or submitted again
+        final SaveDraftRequest sneaky = new SaveDraftRequest();
+        sneaky.setRules(starterWith(rule("GLOBAL", "*", "maxDaysPastDue", "999")));
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.saveDraft(live.getId(), 2, sneaky));
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.saveDraft(live.getId(), 1, sneaky), "nor a retired one");
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.withdraw(live.getId(), 2));
+        assertEquals(0, new BigDecimal("60").compareTo(value(service.activeForProduct(kes), "maxDaysPastDue")));
+    }
+
+    @Test
+    void anEditorCannotApproveEvenWhenSomeoneElseSubmitted() {
+        final ProfileData created = service.createProfile(newProfile("Business loans", productId("Business loan - individual", "KES")));
+        saveRules(created.getId(), 1, starterWith(rule("GLOBAL", "*", "maxDaysPastDue", "90")));
+        actAs("credit.officer");
+        service.submit(created.getId(), 1, "Because");
+
+        actAs("credit.analyst");
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.approve(created.getId(), 1));
+        jdbc.update("UPDATE c_configuration SET enabled = 1 WHERE name = 'credit-decision-allow-self-approval'");
+        assertEquals("ACTIVE", version(service.approve(created.getId(), 1), 1).getStatus(), "only the test-tenant switch lifts the rule");
+    }
+
+    @Test
+    void aProductCanBelongToOneProfileAndTheKeyHoldsEvenWhenTheCodeIsBypassed() {
+        final long kes = productId("Business loan - individual", "KES");
+        final ProfileData first = service.createProfile(newProfile("Business loans", kes));
+        final ProfileData second = service.createProfile(newProfile("Digital", productId("Digital micro-loan", "RWF")));
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM m_credit_decision_product_claim WHERE loan_product_id = ?", Integer.class, kes));
+        final SaveDraftRequest takeIt = new SaveDraftRequest();
+        takeIt.setProductIds(List.of(kes));
+        assertThrows(PlatformApiDataValidationException.class, () -> service.saveDraft(second.getId(), 1, takeIt));
+        assertThrows(DuplicateKeyException.class, () -> jdbc.update(
+                "INSERT INTO m_credit_decision_product_claim (loan_product_id, profile_id) VALUES (?, ?)", kes, second.getId()),
+                "the database itself refuses a second profile");
+
+        // dropping the product from a draft frees it, unless the live version still has it
+        final SaveDraftRequest drop = new SaveDraftRequest();
+        drop.setProductIds(List.of(productId("Business loan - group", "KES")));
+        service.saveDraft(first.getId(), 1, drop);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM m_credit_decision_product_claim WHERE loan_product_id = ?", Integer.class, kes));
+        service.saveDraft(second.getId(), 1, takeIt);
+        assertEquals(second.getId(), jdbc.queryForObject("SELECT profile_id FROM m_credit_decision_product_claim WHERE loan_product_id = ?",
+                Long.class, kes));
+    }
+
+    @Test
+    void theLiveLookupReadsTheOneProfileThatClaimsTheProduct() {
+        final long kes = productId("Business loan - individual", "KES");
+        final ProfileData live = liveProfile("Business loans", kes);
+        goLive(live.getId());
+
+        assertEquals(live.getId(), service.activeForProduct(kes).getProfileId());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM m_credit_decision_product_claim WHERE loan_product_id = ?", Integer.class, kes));
+        // a product held by a profile with no live version yet is not served
+        final ProfileData draftOnly = service.createProfile(newProfile("Digital", productId("Digital micro-loan", "RWF")));
+        assertNotNull(draftOnly);
+        assertNull(service.activeForProduct(productId("Digital micro-loan", "RWF")));
+    }
+
+    @Test
+    void everyActivationRecordsWhoWhenAndEachFieldBeforeAndAfterIncludingTheMode() {
+        final long kes = productId("Business loan - individual", "KES");
+        final ProfileData live = liveProfile("Business loans", kes);
+        goLive(live.getId());
+        service.newDraft(live.getId(), null);
+        saveRules(live.getId(), 2, starterWith(rule("GLOBAL", "*", "maxDaysPastDue", "45")));
+        service.submit(live.getId(), 2, "Relax the DPD limit");
+        actAs("credit.head");
+        service.approve(live.getId(), 2);
+        service.setMode(live.getId(), "SHADOW");
+
+        final List<AuditData> history = service.history(live.getId());
+        final AuditData change = history.stream().filter(h -> "ACTIVATED".equals(h.getAction()) && h.getVersionNo() == 2
+                && "rule.GLOBAL.*.maxDaysPastDue".equals(h.getField())).findFirst().orElseThrow();
+        assertEquals("30", change.getOldValue());
+        assertEquals("45", change.getNewValue());
+        assertEquals("credit.head", change.getActedBy());
+        assertEquals(2, change.getVersionNo());
+        assertNotNull(change.getActedOn());
+        assertTrue(history.stream().noneMatch(h -> "ACTIVATED".equals(h.getAction()) && h.getVersionNo() == 2 && "rule.GLOBAL.*.minAge".equals(h.getField())),
+                "fields that did not change are not listed");
+
+        final AuditData toLive = history.stream().filter(h -> "MODE_APPROVED".equals(h.getAction())).findFirst().orElseThrow();
+        assertEquals("OFF", toLive.getOldValue());
+        assertEquals("LIVE", toLive.getNewValue());
+        assertEquals("credit.head", toLive.getActedBy());
+        assertTrue(history.stream().anyMatch(h -> "MODE_REQUESTED".equals(h.getAction()) && "credit.analyst".equals(h.getActedBy())));
+        final AuditData toShadow = history.stream().filter(h -> "MODE_CHANGED".equals(h.getAction())).findFirst().orElseThrow();
+        assertEquals("LIVE", toShadow.getOldValue());
+        assertEquals("SHADOW", toShadow.getNewValue());
+        assertTrue(history.stream().anyMatch(h -> "SUBMITTED".equals(h.getAction()) && h.getVersionNo() == 2));
+        assertTrue(history.stream().anyMatch(h -> "DRAFT_SAVED".equals(h.getAction()) && "rule.GLOBAL.*.maxDaysPastDue".equals(h.getField())));
+        assertEquals("credit.head", service.profile(live.getId()).getModeChangedBy());
+    }
+
+    @Test
+    void switchingToLiveNeedsASecondAuthorisedPerson() {
+        final ProfileData live = liveProfile("Business loans", productId("Business loan - individual", "KES"));
+
+        ProfileData asked = service.setMode(live.getId(), "LIVE");
+        assertEquals("OFF", asked.getMode(), "asking does not switch anything");
+        assertEquals("LIVE", asked.getPendingMode());
+        assertEquals("credit.analyst", asked.getPendingBy());
+        assertNull(service.activeForProduct(version(asked, 1).getProductIds().get(0)));
+
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.approveMode(live.getId()), "the person who asked cannot approve");
+        assertEquals("OFF", service.profile(live.getId()).getMode());
+
+        actAs("credit.head");
+        final ProfileData approved = service.approveMode(live.getId());
+        assertEquals("LIVE", approved.getMode());
+        assertNull(approved.getPendingMode());
+        assertEquals("credit.head", approved.getModeChangedBy());
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.approveMode(live.getId()), "nothing is waiting any more");
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.setMode(live.getId(), "LIVE"), "it is live already");
+
+        // taking it down is immediate, and a request can be cancelled
+        assertEquals("OFF", service.setMode(live.getId(), "OFF").getMode());
+        service.setMode(live.getId(), "LIVE");
+        assertEquals("LIVE", service.profile(live.getId()).getPendingMode());
+        assertNull(service.cancelMode(live.getId()).getPendingMode());
+        assertEquals("OFF", service.profile(live.getId()).getMode());
+        assertThrows(GeneralPlatformDomainRuleException.class, () -> service.cancelMode(live.getId()));
+    }
+
+    @Test
+    void theLiveProfileIsKeptPerProductAndDroppedWhenAnApprovalAModeOrTheConnectionChanges() {
+        final long kes = productId("Business loan - individual", "KES");
+        final ProfileData live = liveProfile("Business loans", kes);
+        goLive(live.getId());
+
+        final ActiveProfileData first = service.activeForProduct(kes);
+        assertFalse(first.isSendingEnabled());
+        assertSame(first, service.activeForProduct(kes), "the second read is served from the cache");
+
+        // a change made behind the service's back is not seen until the cache is dropped
+        jdbc.update("UPDATE m_credit_decision_profile SET mode = 'SHADOW' WHERE id = ?", live.getId());
+        assertEquals("LIVE", service.activeForProduct(kes).getMode());
+
+        service.updateConnection(new ConnectionData("Engine", true, "https://engine.example/decisions", 8, 3, "RETRY", null, null));
+        final ActiveProfileData afterConnection = service.activeForProduct(kes);
+        assertEquals("SHADOW", afterConnection.getMode(), "a connection change dropped the cache");
+        assertTrue(afterConnection.isSendingEnabled(), "and the connection snapshot is fresh");
+
+        service.setMode(live.getId(), "OFF");
+        assertNull(service.activeForProduct(kes), "a mode change drops it too");
+
+        service.setMode(live.getId(), "SHADOW");
+        final int before = service.activeForProduct(kes).getVersionNo();
+        service.newDraft(live.getId(), null);
+        saveRules(live.getId(), 2, starterWith(rule("GLOBAL", "*", "maxDaysPastDue", "50")));
+        service.submit(live.getId(), 2, "More");
+        actAs("credit.head");
+        assertEquals(before, service.activeForProduct(kes).getVersionNo());
+        service.approve(live.getId(), 2);
+        assertEquals(2, service.activeForProduct(kes).getVersionNo(), "an approval drops it");
+        assertEquals(0, new BigDecimal("50").compareTo(value(service.activeForProduct(kes), "maxDaysPastDue")));
+    }
+
+    @Test
+    void connectionChangesAreRecordedWithTheirOldAndNewValues() {
+        service.updateConnection(new ConnectionData("Engine", true, "https://engine.example/decisions", 8, 3, "RETRY", null, null));
+
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM m_credit_decision_audit WHERE action = 'CONNECTION_CHANGED' AND field_name = 'endpointUrl' "
+                        + "AND new_value = 'https://engine.example/decisions' AND acted_by = 'credit.analyst' AND profile_id IS NULL",
+                Integer.class));
     }
 }

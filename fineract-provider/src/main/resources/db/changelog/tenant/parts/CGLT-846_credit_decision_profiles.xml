@@ -286,4 +286,163 @@
         </sql>
     </changeSet>
 
+    <!-- The eligibility policy of a version: limits, knockout rules, risk cutoffs and scorecard weights, for everyone,
+         per country (by currency) or per loan product. It is part of the version, so it is drafted, submitted and
+         approved by a second person like the rest of the version, and an active version never changes. -->
+    <changeSet id="CGLT-846-create-credit-decision-version-rule" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_credit_decision_version_rule"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_credit_decision_version_rule">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="version_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="scope" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="scope_key" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="rule_key" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="rule_value" type="DECIMAL(19,6)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="m_credit_decision_version_rule" baseColumnNames="version_id"
+                                 constraintName="fk_cd_rule_version"
+                                 referencedTableName="m_credit_decision_profile_version" referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+        <addUniqueConstraint tableName="m_credit_decision_version_rule" columnNames="version_id, scope, scope_key, rule_key"
+                             constraintName="uk_cd_rule_version_scope_key"/>
+    </changeSet>
+
+    <!-- Versions made before the policy existed get the values of the Credit Scoring Process Flow, for everyone. -->
+    <changeSet id="CGLT-846-credit-decision-seed-starter-policy" author="omoi">
+        <sql>
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'minAge', 18 FROM m_credit_decision_profile_version v;
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'maxDaysPastDue', 30 FROM m_credit_decision_profile_version v;
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'arrearsTolerance', 0 FROM m_credit_decision_profile_version v;
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'minMonthsInBusiness', 6 FROM m_credit_decision_profile_version v;
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'lowRiskMinScore', 750 FROM m_credit_decision_profile_version v;
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'mediumRiskMinScore', 650 FROM m_credit_decision_profile_version v;
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'weightInternalHistory', 40 FROM m_credit_decision_profile_version v;
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'weightBureauHistory', 30 FROM m_credit_decision_profile_version v;
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'weightBusinessFinancials', 20 FROM m_credit_decision_profile_version v;
+            INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
+            SELECT v.id, 'GLOBAL', '*', 'weightDemographics', 10 FROM m_credit_decision_profile_version v;
+        </sql>
+    </changeSet>
+
+    <!-- One row per loan product that is in a profile. The primary key is what stops a product belonging to two
+         profiles, and what the live lookup reads, so it always finds one profile. -->
+    <changeSet id="CGLT-846-create-credit-decision-product-claim" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_credit_decision_product_claim"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_credit_decision_product_claim">
+            <column name="loan_product_id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="profile_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="m_credit_decision_product_claim" baseColumnNames="profile_id"
+                                 constraintName="fk_cd_claim_profile"
+                                 referencedTableName="m_credit_decision_profile" referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+        <addForeignKeyConstraint baseTableName="m_credit_decision_product_claim" baseColumnNames="loan_product_id"
+                                 constraintName="fk_cd_claim_loan_product"
+                                 referencedTableName="m_product_loan" referencedColumnNames="id"/>
+        <sql>
+            INSERT INTO m_credit_decision_product_claim (loan_product_id, profile_id)
+            SELECT vp.loan_product_id, MIN(v.profile_id)
+            FROM m_credit_decision_version_product vp
+            JOIN m_credit_decision_profile_version v ON v.id = vp.version_id
+            WHERE v.status IN ('ACTIVE', 'PENDING', 'DRAFT')
+            GROUP BY vp.loan_product_id;
+        </sql>
+    </changeSet>
+
+    <!-- Who did what to a profile, when, and what each field was before and after. Rows are only ever added. -->
+    <changeSet id="CGLT-846-create-credit-decision-audit" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_credit_decision_audit"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_credit_decision_audit">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="profile_id" type="BIGINT"/>
+            <column name="version_no" type="INT"/>
+            <column name="action" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="field_name" type="VARCHAR(150)"/>
+            <column name="old_value" type="VARCHAR(500)"/>
+            <column name="new_value" type="VARCHAR(500)"/>
+            <column name="acted_by" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="acted_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="m_credit_decision_audit" indexName="idx_cd_audit_profile">
+            <column name="profile_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Switching a profile to Live waits for a second authorised person. -->
+    <changeSet id="CGLT-846-credit-decision-mode-approval-columns" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_credit_decision_profile" columnName="pending_mode"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_credit_decision_profile">
+            <column name="mode_changed_by" type="VARCHAR(100)"/>
+            <column name="mode_changed_on" type="DATETIME"/>
+            <column name="pending_mode" type="VARCHAR(10)"/>
+            <column name="pending_by" type="VARCHAR(100)"/>
+            <column name="pending_on" type="DATETIME"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="CGLT-846-credit-decision-version-submitted-columns" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_credit_decision_profile_version" columnName="submitted_by"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_credit_decision_profile_version">
+            <column name="submitted_by" type="VARCHAR(100)"/>
+            <column name="submitted_on" type="DATETIME"/>
+        </addColumn>
+        <sql>
+            UPDATE m_credit_decision_profile_version SET submitted_by = prepared_by, submitted_on = prepared_on
+            WHERE status IN ('PENDING', 'ACTIVE', 'RETIRED');
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>
