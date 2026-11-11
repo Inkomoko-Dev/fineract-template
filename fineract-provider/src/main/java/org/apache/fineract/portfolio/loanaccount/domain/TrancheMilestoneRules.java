@@ -23,11 +23,12 @@ package org.apache.fineract.portfolio.loanaccount.domain;
  * answer can name a BGS verifier and an Investment verifier.
  *
  * <p>Positive means the business is operational, it needs funds, and both verifiers confirmed each answer.
- * Negative means it is not operational or it does not need funds. A missing answer or verifier is incomplete.
- * No survey at all is none.
+ * Negative means a verified answer says it is not operational or it does not need funds. A missing answer or
+ * verifier is incomplete. No survey at all is none.
  *
  * <p>The waiting tranche's sub-status follows that result together with the repayment threshold and the deadline.
- * The previous sub-status is not an input: a loan has one survey, so the same answers always give the same status.
+ * A positive survey after the deadline stays in review until a deadline exception is approved. Each waiting
+ * tranche has its own survey. The previous sub-status is not an input.
  */
 public final class TrancheMilestoneRules {
 
@@ -53,18 +54,28 @@ public final class TrancheMilestoneRules {
         if (!operationalKnown || !fundingKnown) {
             return SurveyAnswer.INCOMPLETE;
         }
-        if (!OPERATIONAL.equals(operationalStatus) || !NEEDS_FUNDS.equals(additionalFunding)) {
-            return SurveyAnswer.NEGATIVE;
+        final boolean operationalPositive = OPERATIONAL.equals(operationalStatus);
+        final boolean operationalNegative = NOT_OPERATIONAL.equals(operationalStatus);
+        final boolean fundingPositive = NEEDS_FUNDS.equals(additionalFunding);
+        final boolean fundingNegative = DOES_NOT_NEED_FUNDS.equals(additionalFunding);
+        if ((!operationalPositive && !operationalNegative) || (!fundingPositive && !fundingNegative)) {
+            return SurveyAnswer.INCOMPLETE;
         }
-        if (!Boolean.TRUE.equals(operationalVerifiedByBgs) || !Boolean.TRUE.equals(operationalVerifiedByInvestment)
-                || !Boolean.TRUE.equals(fundingVerifiedByBgs) || !Boolean.TRUE.equals(fundingVerifiedByInvestment)) {
+        if (operationalNegative) {
+            return verified(operationalVerifiedByBgs, operationalVerifiedByInvestment) ? SurveyAnswer.NEGATIVE : SurveyAnswer.INCOMPLETE;
+        }
+        if (fundingNegative) {
+            return verified(fundingVerifiedByBgs, fundingVerifiedByInvestment) ? SurveyAnswer.NEGATIVE : SurveyAnswer.INCOMPLETE;
+        }
+        if (!verified(operationalVerifiedByBgs, operationalVerifiedByInvestment)
+                || !verified(fundingVerifiedByBgs, fundingVerifiedByInvestment)) {
             return SurveyAnswer.INCOMPLETE;
         }
         return SurveyAnswer.POSITIVE;
     }
 
     public static LoanSubStatus decide(final boolean openTranche, final boolean repaymentMet, final boolean milestoneRequired,
-            final SurveyAnswer survey, final boolean pastDeadline) {
+            final SurveyAnswer survey, final boolean pastDeadline, final boolean deadlineExceptionApproved) {
         if (!openTranche) {
             return null;
         }
@@ -73,6 +84,9 @@ public final class TrancheMilestoneRules {
             return LoanSubStatus.EXPIRED;
         }
         if (milestoneRequired && answer == SurveyAnswer.POSITIVE && repaymentMet) {
+            if (pastDeadline && !deadlineExceptionApproved) {
+                return LoanSubStatus.REQUIRES_REVIEW;
+            }
             return LoanSubStatus.SURVEY_SUCCESSFUL;
         }
         if (!repaymentMet) {
@@ -82,5 +96,9 @@ public final class TrancheMilestoneRules {
             return LoanSubStatus.REPAYMENT_MET;
         }
         return pastDeadline ? LoanSubStatus.REQUIRES_REVIEW : LoanSubStatus.AWAITING_SURVEY;
+    }
+
+    private static boolean verified(final Boolean verifiedByBgs, final Boolean verifiedByInvestment) {
+        return Boolean.TRUE.equals(verifiedByBgs) && Boolean.TRUE.equals(verifiedByInvestment);
     }
 }

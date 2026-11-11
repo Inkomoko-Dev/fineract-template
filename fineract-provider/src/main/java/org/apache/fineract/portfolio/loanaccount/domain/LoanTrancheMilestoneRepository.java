@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -28,6 +29,10 @@ public interface LoanTrancheMilestoneRepository extends JpaRepository<LoanTranch
     Optional<LoanTrancheMilestone> findFirstByLoanIdOrderBySubmittedOnDescIdDesc(Long loanId);
 
     boolean existsByLoanId(Long loanId);
+
+    boolean existsByLoanIdAndDisbursementDetailId(Long loanId, Long disbursementDetailId);
+
+    List<LoanTrancheMilestone> findByLoanId(Long loanId);
 
     Optional<LoanTrancheMilestone> findBySubmissionId(String submissionId);
 }

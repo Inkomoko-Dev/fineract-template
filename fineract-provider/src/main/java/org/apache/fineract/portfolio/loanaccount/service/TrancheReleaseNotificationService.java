@@ -25,6 +25,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import javax.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -53,7 +55,10 @@ import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Slf4j
 @Service
@@ -66,6 +71,7 @@ public class TrancheReleaseNotificationService {
     private final PlatformEmailService emailService;
     private final AppUserRepository appUserRepository;
     private final TrancheMilestoneEligibilityService eligibility;
+    private final PlatformTransactionManager transactionManager;
     private final Gson gson = new Gson();
 
     @PostConstruct
@@ -85,17 +91,14 @@ public class TrancheReleaseNotificationService {
             if (noticeDetailId == null) {
                 return;
             }
-            if (assessment != null && !assessment.met()) {
+            if (assessment == null || !assessment.met()) {
                 this.noticeRepository.deleteByLoanIdAndDisbursementDetailId(loan.getId(), noticeDetailId);
-                if (assessment.previous != null && assessment.previous.getId() != null) {
+                if (assessment != null && assessment.previous != null && assessment.previous.getId() != null) {
                     this.noticeRepository.deleteByLoanIdAndDisbursementDetailId(loan.getId(), assessment.previous.getId());
                 }
                 return;
             }
             if (!refresh.sendSurveyNotice() || this.noticeRepository.existsByLoanIdAndDisbursementDetailId(loan.getId(), noticeDetailId)) {
-                return;
-            }
-            if (!recordNotice(loan.getId(), noticeDetailId)) {
                 return;
             }
             this.businessEventNotifierService.notifyPostBusinessEvent(new TrancheRepaymentThresholdMetBusinessEvent(loan));
@@ -105,7 +108,7 @@ public class TrancheReleaseNotificationService {
             final String surveyAccount = loan.getAccountNumber();
             final String surveyDeadline = refresh.firstRepaymentDueDate == null ? ""
                     : refresh.firstRepaymentDueDate.format(DateTimeFormatter.ofPattern("dd MMMM yyyy"));
-            AfterCommitExecutor.execute(
+            sendNoticeAfterCommit(loan.getId(), noticeDetailId,
                     () -> sendSurveyEmail(surveyEmail, surveyOfficerName, surveyClientName, surveyAccount, surveyDeadline));
             return;
         }
@@ -119,15 +122,38 @@ public class TrancheReleaseNotificationService {
         if (this.noticeRepository.existsByLoanIdAndDisbursementDetailId(loan.getId(), assessment.previous.getId())) {
             return;
         }
-        if (!recordNotice(loan.getId(), assessment.previous.getId())) {
-            return;
-        }
         this.businessEventNotifierService.notifyPostBusinessEvent(new TrancheRepaymentThresholdMetBusinessEvent(loan));
         final String releaseEmail = loanOfficerEmail(loan);
         final String releaseOfficerName = loan.getLoanOfficer() == null ? "Loan officer" : loan.getLoanOfficer().displayName();
         final String releaseSubject = "Next tranche can be disbursed for loan " + loan.getAccountNumber();
         final String releaseBody = emailBody(loan, assessment);
-        AfterCommitExecutor.execute(() -> sendEmail(releaseEmail, releaseOfficerName, releaseSubject, releaseBody));
+        final String releaseAccount = loan.getAccountNumber();
+        sendNoticeAfterCommit(loan.getId(), assessment.previous.getId(),
+                () -> sendEmail(releaseEmail, releaseOfficerName, releaseSubject, releaseBody, releaseAccount));
+    }
+
+    /**
+     * The repayment transaction has already committed before the email is attempted. The notice row is written
+     * only after a successful send, so a missing address or a mail failure can be retried on the next repayment.
+     */
+    private void sendNoticeAfterCommit(final Long loanId, final Long disbursementDetailId, final BooleanSupplier sender) {
+        AfterCommitExecutor.execute(() -> {
+            final boolean alreadyNotified = Boolean.TRUE.equals(inNewTransaction(
+                    () -> this.noticeRepository.existsByLoanIdAndDisbursementDetailId(loanId, disbursementDetailId)));
+            if (alreadyNotified || !sender.getAsBoolean()) {
+                return;
+            }
+            inNewTransaction(() -> {
+                recordNotice(loanId, disbursementDetailId);
+                return null;
+            });
+        });
+    }
+
+    private <T> T inNewTransaction(final Supplier<T> work) {
+        final TransactionTemplate template = new TransactionTemplate(this.transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template.execute(status -> work.get());
     }
 
     /**
@@ -157,11 +183,11 @@ public class TrancheReleaseNotificationService {
         return next == null ? null : next.getId();
     }
 
-    private void sendSurveyEmail(final String email, final String officerName, final String clientName, final String accountNo,
+    private boolean sendSurveyEmail(final String email, final String officerName, final String clientName, final String accountNo,
             final String deadline) {
         if (email == null || email.isBlank()) {
             log.warn("Tranche repayment conditions are met for loan {} but the loan officer has no email.", accountNo);
-            return;
+            return false;
         }
         final String subject = "Action Required: Second-Tranche Due Diligence – " + accountNo;
         final String body = "<html><body style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.5;\">"
@@ -175,20 +201,25 @@ public class TrancheReleaseNotificationService {
                 + "</body></html>";
         try {
             this.emailService.sendDefinedEmail(new EmailDetail(subject, body, email, officerName));
+            return true;
         } catch (RuntimeException ex) {
             log.error("Tranche milestone email could not be sent for loan {}. The repayment was still posted.", accountNo, ex);
+            return false;
         }
     }
 
-    private void sendEmail(final String email, final String officerName, final String subject, final String body) {
+    private boolean sendEmail(final String email, final String officerName, final String subject, final String body,
+            final String accountNo) {
         if (email == null || email.isBlank()) {
-            log.warn("Tranche repayment threshold met but the loan officer has no email.");
-            return;
+            log.warn("Tranche repayment threshold is met for loan {} but the loan officer has no email.", accountNo);
+            return false;
         }
         try {
             this.emailService.sendDefinedEmail(new EmailDetail(subject, body, email, officerName));
+            return true;
         } catch (RuntimeException ex) {
-            log.error("Tranche release email could not be sent. The repayment was still posted.", ex);
+            log.error("Tranche release email could not be sent for loan {}. The repayment was still posted.", accountNo, ex);
+            return false;
         }
     }
 
@@ -220,6 +251,7 @@ public class TrancheReleaseNotificationService {
         report.put("clientName", loan.getClient() == null ? null : loan.getClient().getDisplayName());
         report.put("thresholdMet", assessment != null && assessment.met());
         report.put("minimumNotMet", assessment != null && !assessment.met());
+        report.put("thresholdNotConfigured", false);
         addSurveyWarning(report, loan);
         if (assessment == null) {
             report.put("repayments", List.of());
@@ -246,10 +278,20 @@ public class TrancheReleaseNotificationService {
     private void addSurveyWarning(final Map<String, Object> report, final Loan loan) {
         final TrancheMilestoneEligibilityService.Refresh milestone = this.eligibility.preview(loan);
         final LoanSubStatus status = milestone.status;
-        report.put("surveyOutstanding", milestone.surveyOutstanding());
-        report.put("surveyNegative", milestone.surveyNegative());
+        final boolean subsequentTranche = milestone.subsequentTranche;
+        report.put("subsequentTranche", subsequentTranche);
+        report.put("trancheNumber", milestone.trancheNumber);
+        report.put("surveyOutstanding", subsequentTranche && milestone.surveyOutstanding());
+        report.put("surveyIncomplete", subsequentTranche && milestone.surveyIncomplete());
+        report.put("surveyNegative", subsequentTranche && milestone.surveyNegative());
+        report.put("pastDeadline", subsequentTranche && milestone.pastDeadline);
+        report.put("deadlineExceptionApproved", milestone.deadlineExceptionApproved);
+        report.put("requiresReview", subsequentTranche && status == LoanSubStatus.REQUIRES_REVIEW);
         report.put("milestoneRequired", milestone.milestoneRequired);
         report.put("trancheMilestoneStatus", status == null ? null : status.getValue());
+        if (milestone.milestoneRequired && subsequentTranche) {
+            report.put("thresholdNotConfigured", !milestone.thresholdConfigured);
+        }
     }
 
     private static String html(final String value) {

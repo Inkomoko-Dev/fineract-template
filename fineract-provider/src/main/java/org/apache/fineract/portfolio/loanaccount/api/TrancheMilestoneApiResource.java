@@ -28,6 +28,7 @@ import javax.ws.rs.core.MediaType;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.service.TrancheMilestoneEligibilityService;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.stereotype.Component;
 
 @Path("/loans/{loanKey}/tranche-milestones")
@@ -44,6 +45,18 @@ public class TrancheMilestoneApiResource {
     public String submit(@PathParam("loanKey") final String loanKey, final String json) {
         this.context.authenticatedUser().validateHasCreatePermission("TRANCHEMILESTONE");
         return this.eligibilityService.ingest(loanKey, json);
+    }
+
+    @POST
+    @Path("deadline-exception")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String approveDeadlineException(@PathParam("loanKey") final String loanKey, final String json) {
+        final AppUser user = this.context.authenticatedUser();
+        user.validateHasPermissionTo("APPROVE_TRANCHEMILESTONE");
+        final String approvedBy = user.getDisplayName() == null || user.getDisplayName().isBlank() ? user.getUsername()
+                : user.getDisplayName();
+        return this.eligibilityService.approveDeadlineException(loanKey, json, approvedBy);
     }
 
     @GET

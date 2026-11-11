@@ -31,7 +31,7 @@ import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 @Setter
 @Entity
 @Table(name = "m_loan_tranche_milestone", uniqueConstraints = {
-        @UniqueConstraint(columnNames = { "loan_id" }, name = "uk_tranche_milestone_loan"),
+        @UniqueConstraint(columnNames = { "loan_id", "disbursement_detail_id" }, name = "uk_tranche_milestone_tranche"),
         @UniqueConstraint(columnNames = { "submission_id" }, name = "uk_tranche_milestone_submission") })
 public class LoanTrancheMilestone extends AbstractPersistableCustom {
 
@@ -79,6 +79,24 @@ public class LoanTrancheMilestone extends AbstractPersistableCustom {
 
     @Column(name = "funding_investment_name", length = 200)
     private String fundingInvestmentName;
+
+    @Column(name = "comments", length = 2000)
+    private String comments;
+
+    @Column(name = "evidence_references", length = 2000)
+    private String evidenceReferences;
+
+    @Column(name = "deadline_exception_approved")
+    private Boolean deadlineExceptionApproved;
+
+    @Column(name = "deadline_exception_by", length = 200)
+    private String deadlineExceptionBy;
+
+    @Column(name = "deadline_exception_on")
+    private OffsetDateTime deadlineExceptionOn;
+
+    @Column(name = "deadline_exception_note", length = 1000)
+    private String deadlineExceptionNote;
 
     @Column(name = "submitted_on", nullable = false)
     private OffsetDateTime submittedOn;

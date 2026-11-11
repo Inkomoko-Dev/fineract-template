@@ -503,6 +503,98 @@ ORDER BY ml.account_no
                              constraintName="uk_tranche_milestone_loan"/>
     </changeSet>
 
+    <changeSet author="inkomoko" id="CGLT-828-milestone-per-tranche">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_loan_tranche_milestone" indexName="uk_tranche_milestone_loan"/>
+        </preConditions>
+        <dropUniqueConstraint tableName="m_loan_tranche_milestone" constraintName="uk_tranche_milestone_loan"/>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-milestone-audit-and-exception">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_tranche_milestone" columnName="comments"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan_tranche_milestone">
+            <column name="comments" type="VARCHAR(2000)"/>
+            <column name="evidence_references" type="VARCHAR(2000)"/>
+            <column name="deadline_exception_approved" type="BOOLEAN"/>
+            <column name="deadline_exception_by" type="VARCHAR(200)"/>
+            <column name="deadline_exception_on" type="DATETIME"/>
+            <column name="deadline_exception_note" type="VARCHAR(1000)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-milestone-history">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_tranche_milestone_history"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_tranche_milestone_history">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="disbursement_detail_id" type="BIGINT"/>
+            <column name="submission_id" type="VARCHAR(100)"/>
+            <column name="conducted_by" type="VARCHAR(200)"/>
+            <column name="conducted_on" type="DATETIME"/>
+            <column name="operational_status" type="VARCHAR(32)"/>
+            <column name="operational_verified_by_bgs" type="BOOLEAN"/>
+            <column name="operational_bgs_name" type="VARCHAR(200)"/>
+            <column name="operational_verified_by_investment" type="BOOLEAN"/>
+            <column name="operational_investment_name" type="VARCHAR(200)"/>
+            <column name="additional_funding" type="VARCHAR(32)"/>
+            <column name="funding_verified_by_bgs" type="BOOLEAN"/>
+            <column name="funding_bgs_name" type="VARCHAR(200)"/>
+            <column name="funding_verified_by_investment" type="BOOLEAN"/>
+            <column name="funding_investment_name" type="VARCHAR(200)"/>
+            <column name="comments" type="VARCHAR(2000)"/>
+            <column name="evidence_references" type="VARCHAR(2000)"/>
+            <column name="deadline_exception_approved" type="BOOLEAN"/>
+            <column name="deadline_exception_by" type="VARCHAR(200)"/>
+            <column name="loan_sub_status_id" type="INT"/>
+            <column name="recorded_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="m_loan_tranche_milestone_history" indexName="idx_tranche_milestone_history_loan">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-milestone-exception-permission">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'APPROVE_TRANCHEMILESTONE'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="APPROVE_TRANCHEMILESTONE"/>
+            <column name="entity_name" value="TRANCHEMILESTONE"/>
+            <column name="action_name" value="APPROVE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-eligibility-report-threshold-not-configured">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report
+                WHERE report_name = 'Multi-tranche eligibility'
+                  AND report_sql LIKE '%IS NULL THEN 1%'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE stretchy_report
+            SET report_sql = REPLACE(report_sql, ') IS NULL THEN 1', ') IS NULL THEN 0')
+            WHERE report_name = 'Multi-tranche eligibility';
+        </sql>
+    </changeSet>
+
     <changeSet author="inkomoko" id="CGLT-828-retire-tranche-release-repayments-report">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
