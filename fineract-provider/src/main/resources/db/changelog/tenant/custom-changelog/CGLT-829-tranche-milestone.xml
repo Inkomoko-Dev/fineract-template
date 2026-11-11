@@ -595,6 +595,39 @@ ORDER BY ml.account_no
         </sql>
     </changeSet>
 
+    <changeSet author="inkomoko" id="CGLT-828-eligibility-report-threshold-by-product">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report
+                WHERE report_name = 'Multi-tranche eligibility'
+                  AND report_sql LIKE '%IS NULL THEN 0%'
+            </sqlCheck>
+        </preConditions>
+        <sql><![CDATA[
+            UPDATE stretchy_report
+            SET report_sql = REPLACE(
+                REPLACE(report_sql,
+                    '        WHEN nxt.id IS NULL THEN NULL
+        WHEN (',
+                    '        WHEN nxt.id IS NULL OR prev.id IS NULL THEN NULL
+        WHEN ('),
+                '        ) IS NULL THEN 0',
+                '        ) IS NULL AND COALESCE(lp.require_milestone_survey, 0) = 1 THEN 0
+        WHEN (
+            CASE
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+                    THEN ROUND(prev.principal * nxt.previous_tranche_repaid_minimum / 100, 2)
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+                    THEN nxt.previous_tranche_repaid_minimum
+                WHEN COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) IS NOT NULL
+                    THEN ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2)
+                ELSE NULL
+            END
+        ) IS NULL THEN 1')
+            WHERE report_name = 'Multi-tranche eligibility';
+        ]]></sql>
+    </changeSet>
+
     <changeSet author="inkomoko" id="CGLT-828-retire-tranche-release-repayments-report">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">
