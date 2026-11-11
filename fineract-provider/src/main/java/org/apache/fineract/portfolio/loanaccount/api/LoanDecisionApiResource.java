@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -104,11 +108,14 @@ public class LoanDecisionApiResource {
         this.icReviewLevelConfigReadPlatformService = icReviewLevelConfigReadPlatformService;
     }
 
+    @Operation(summary = "Accept Loan Application Review", description = "Accept Loan Application Review.")
     @POST
     @Path("reviewApplication/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String acceptLoanApplicationReview(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String acceptLoanApplicationReview(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptLoanApplicationReview(loanId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -118,11 +125,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Reject Loan Application Review", description = "Reject Loan Application Review.")
     @POST
     @Path("reviewApplication/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectLoanApplicationReview(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectLoanApplicationReview(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectLoanApplicationReview(loanId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -132,11 +142,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Apply Due Diligence", description = "Apply Due Diligence.")
     @POST
     @Path("dueDiligence/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String applyDueDiligence(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String applyDueDiligence(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().applyDueDiligence(loanId).withJson(apiRequestBodyAsJson).build();
 
@@ -145,11 +158,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Reject Due Diligence", description = "Reject Due Diligence.")
     @POST
     @Path("dueDiligence/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectDueDiligence(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectDueDiligence(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectDueDiligence(loanId).withJson(apiRequestBodyAsJson).build();
 
@@ -158,11 +174,13 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Template", description = "Template.")
     @GET
     @Path("template/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String template(@PathParam("loanId") final long loanId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String template(@PathParam("loanId") @Parameter(description = "loanId") final long loanId, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -173,11 +191,13 @@ public class LoanDecisionApiResource {
 
     }
 
+    @Operation(summary = "Retrieve Loan Decision Details", description = "Retrieve Loan Decision Details.")
     @GET
     @Path("details/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveLoanDecisionDetails(@PathParam("loanId") final long loanId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveLoanDecisionDetails(@PathParam("loanId") @Parameter(description = "loanId") final long loanId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -186,11 +206,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(loanDecisionData);
     }
 
+    @Operation(summary = "Accept Loan Collateral Review", description = "Accept Loan Collateral Review.")
     @POST
     @Path("collateralReview/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String acceptLoanCollateralReview(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String acceptLoanCollateralReview(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectLoanCollateralReview(loanId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -200,11 +223,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Reject Loan Collateral Review", description = "Reject Loan Collateral Review.")
     @POST
     @Path("collateralReview/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectLoanCollateralReview(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectLoanCollateralReview(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectLoanCollateralReview(loanId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -214,10 +240,12 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Create Loan Approval Matrix", description = "Create Loan Approval Matrix.")
     @POST
     @Path("approvalMatrix/createApprovalMatrix")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String createLoanApprovalMatrix(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createLoanApprovalMatrix().withJson(apiRequestBodyAsJson).build();
@@ -227,11 +255,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete Loan Approval Matrix", description = "Delete Loan Approval Matrix.")
     @DELETE
     @Path("approvalMatrix/{matrixId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteLoanApprovalMatrix(@PathParam("matrixId") final long matrixId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteLoanApprovalMatrix(@PathParam("matrixId") @Parameter(description = "matrixId") final long matrixId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteLoanApprovalMatrix(matrixId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -241,10 +272,12 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Approval Matrix Template", description = "Approval Matrix Template.")
     @GET
     @Path("template/approvalMatrix")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String approvalMatrixTemplate(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -258,8 +291,7 @@ public class LoanDecisionApiResource {
 
         // Retrieve active IC review levels from the configuration table
         final List<IcReviewLevelConfigData> activeLevelConfigs = this.icReviewLevelConfigReadPlatformService.retrieveAllActiveLevels();
-        final List<ActiveIcReviewLevelData> activeIcReviewLevels = activeLevelConfigs.stream()
-                .map(ActiveIcReviewLevelData::fromConfigData)
+        final List<ActiveIcReviewLevelData> activeIcReviewLevels = activeLevelConfigs.stream().map(ActiveIcReviewLevelData::fromConfigData)
                 .collect(Collectors.toList());
 
         LoanApprovalMatrixData loanApprovalMatrixData = new LoanApprovalMatrixData();
@@ -272,10 +304,12 @@ public class LoanDecisionApiResource {
 
     }
 
+    @Operation(summary = "Get All Approval Matrix", description = "Get All Approval Matrix.")
     @GET
     @Path("getAllApprovalMatrix")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getAllApprovalMatrix(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -287,11 +321,15 @@ public class LoanDecisionApiResource {
 
     }
 
+    @Operation(summary = "Get Approval Matrix Details", description = "Get Approval Matrix Details.")
     @GET
     @Path("getApprovalMatrixDetails/{approvalMatrixId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getApprovalMatrixDetails(@PathParam("approvalMatrixId") final long approvalMatrixId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getApprovalMatrixDetails(
+            @PathParam("approvalMatrixId") @Parameter(description = "approvalMatrixId") final long approvalMatrixId,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -303,11 +341,14 @@ public class LoanDecisionApiResource {
 
     }
 
+    @Operation(summary = "Update Approval Matrix", description = "Update Approval Matrix.")
     @PUT
     @Path("updateApprovalMatrix/{matrixId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateApprovalMatrix(@PathParam("matrixId") final long matrixId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateApprovalMatrix(@PathParam("matrixId") @Parameter(description = "matrixId") final long matrixId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateLoanApprovalMatrix(matrixId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -317,11 +358,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Accept Ic Review Decision Level One", description = "Accept Ic Review Decision Level One.")
     @POST
     @Path("icReviewDecisionLevelOne/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String acceptIcReviewDecisionLevelOne(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String acceptIcReviewDecisionLevelOne(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptIcReviewDecisionLevelOne(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -331,11 +375,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Reject Ic Review Decision Level One", description = "Reject Ic Review Decision Level One.")
     @POST
     @Path("icReviewDecisionLevelOne/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectIcReviewDecisionLevelOne(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectIcReviewDecisionLevelOne(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelOne(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -345,11 +392,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Accept Ic Review Decision Level Two", description = "Accept Ic Review Decision Level Two.")
     @POST
     @Path("icReviewDecisionLevelTwo/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String acceptIcReviewDecisionLevelTwo(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String acceptIcReviewDecisionLevelTwo(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptIcReviewDecisionLevelTwo(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -359,11 +409,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Reject Ic Review Decision Level Two", description = "Reject Ic Review Decision Level Two.")
     @POST
     @Path("icReviewDecisionLevelTwo/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectIcReviewDecisionLevelTwo(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectIcReviewDecisionLevelTwo(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelTwo(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -373,11 +426,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Accept Ic Review Decision Level Three", description = "Accept Ic Review Decision Level Three.")
     @POST
     @Path("icReviewDecisionLevelThree/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String acceptIcReviewDecisionLevelThree(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String acceptIcReviewDecisionLevelThree(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptIcReviewDecisionLevelThree(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -387,11 +443,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Reject Ic Review Decision Level Three", description = "Reject Ic Review Decision Level Three.")
     @POST
     @Path("icReviewDecisionLevelThree/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectIcReviewDecisionLevelThree(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectIcReviewDecisionLevelThree(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelThree(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -401,11 +460,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Accept Ic Review Decision Level Four", description = "Accept Ic Review Decision Level Four.")
     @POST
     @Path("icReviewDecisionLevelFour/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String acceptIcReviewDecisionLevelFour(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String acceptIcReviewDecisionLevelFour(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptIcReviewDecisionLevelFour(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -415,11 +477,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Reject Ic Review Decision Level Four", description = "Reject Ic Review Decision Level Four.")
     @POST
     @Path("icReviewDecisionLevelFour/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectIcReviewDecisionLevelFour(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectIcReviewDecisionLevelFour(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelFour(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -429,11 +494,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Accept Ic Review Decision Level Five", description = "Accept Ic Review Decision Level Five.")
     @POST
     @Path("icReviewDecisionLevelFive/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String acceptIcReviewDecisionLevelFive(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String acceptIcReviewDecisionLevelFive(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptIcReviewDecisionLevelFive(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -443,11 +511,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Reject Ic Review Decision Level Five", description = "Reject Ic Review Decision Level Five.")
     @POST
     @Path("icReviewDecisionLevelFive/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectIcReviewDecisionLevelFive(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectIcReviewDecisionLevelFive(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectIcReviewDecisionLevelFive(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -457,11 +528,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Accept Prepare And Sign Contract", description = "Accept Prepare And Sign Contract.")
     @POST
     @Path("prepareAndSignContract/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String acceptPrepareAndSignContract(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String acceptPrepareAndSignContract(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().acceptPrepareAndSignContract(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -471,11 +545,14 @@ public class LoanDecisionApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Reject Prepare And Sign Contract", description = "Reject Prepare And Sign Contract.")
     @POST
     @Path("prepareAndSignContract/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectPrepareAndSignContract(@PathParam("loanId") final long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectPrepareAndSignContract(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().rejectPrepareAndSignContract(loanId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -486,21 +563,25 @@ public class LoanDecisionApiResource {
     }
 
     /**
-     * Dynamic IC Review Decision endpoint - supports any level number
-     * This endpoint can handle IC review decisions for levels 1, 2, 3, 4, 5, 6, 7, ...
+     * Dynamic IC Review Decision endpoint - supports any level number This endpoint can handle IC review decisions for
+     * levels 1, 2, 3, 4, 5, 6, 7, ...
      *
-     * @param loanId the loan ID
-     * @param levelNumber the IC review level number (1, 2, 3, 4, 5, 6, ...)
-     * @param apiRequestBodyAsJson the request body
+     * @param loanId
+     *            the loan ID
+     * @param levelNumber
+     *            the IC review level number (1, 2, 3, 4, 5, 6, ...)
+     * @param apiRequestBodyAsJson
+     *            the request body
      * @return the result
      */
+    @Operation(summary = "Accept Ic Review Decision Dynamic", description = "Accept Ic Review Decision Dynamic.")
     @POST
     @Path("icReviewDecision/level/{levelNumber}/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String acceptIcReviewDecisionDynamic(@PathParam("loanId") final long loanId,
-                                                 @PathParam("levelNumber") final int levelNumber,
-                                                 final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String acceptIcReviewDecisionDynamic(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            @PathParam("levelNumber") @Parameter(description = "levelNumber") final int levelNumber, final String apiRequestBodyAsJson) {
 
         // Build command based on level number
         final CommandWrapper commandRequest = buildIcReviewCommand(loanId, levelNumber, false, apiRequestBodyAsJson);
@@ -511,21 +592,25 @@ public class LoanDecisionApiResource {
     }
 
     /**
-     * Dynamic IC Review Decision reject endpoint - supports any level number
-     * This endpoint can handle IC review decision rejections for levels 1, 2, 3, 4, 5, 6, 7, ...
+     * Dynamic IC Review Decision reject endpoint - supports any level number This endpoint can handle IC review
+     * decision rejections for levels 1, 2, 3, 4, 5, 6, 7, ...
      *
-     * @param loanId the loan ID
-     * @param levelNumber the IC review level number (1, 2, 3, 4, 5, 6, ...)
-     * @param apiRequestBodyAsJson the request body
+     * @param loanId
+     *            the loan ID
+     * @param levelNumber
+     *            the IC review level number (1, 2, 3, 4, 5, 6, ...)
+     * @param apiRequestBodyAsJson
+     *            the request body
      * @return the result
      */
+    @Operation(summary = "Reject Ic Review Decision Dynamic", description = "Reject Ic Review Decision Dynamic.")
     @POST
     @Path("icReviewDecision/level/{levelNumber}/reject/{loanId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String rejectIcReviewDecisionDynamic(@PathParam("loanId") final long loanId,
-                                                 @PathParam("levelNumber") final int levelNumber,
-                                                 final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String rejectIcReviewDecisionDynamic(@PathParam("loanId") @Parameter(description = "loanId") final long loanId,
+            @PathParam("levelNumber") @Parameter(description = "levelNumber") final int levelNumber, final String apiRequestBodyAsJson) {
 
         // Build command based on level number
         final CommandWrapper commandRequest = buildIcReviewCommand(loanId, levelNumber, true, apiRequestBodyAsJson);
@@ -536,9 +621,8 @@ public class LoanDecisionApiResource {
     }
 
     /**
-     * Helper method to build IC review command based on level number
-     * For levels 1-5, uses the existing command builders for backward compatibility
-     * For levels 6+, uses the dynamic command builder
+     * Helper method to build IC review command based on level number For levels 1-5, uses the existing command builders
+     * for backward compatibility For levels 6+, uses the dynamic command builder
      */
     private CommandWrapper buildIcReviewCommand(long loanId, int levelNumber, boolean isReject, String json) {
         CommandWrapperBuilder builder = new CommandWrapperBuilder();
@@ -546,22 +630,32 @@ public class LoanDecisionApiResource {
         // For levels 1-5, use existing command builders for backward compatibility
         if (!isReject) {
             switch (levelNumber) {
-                case 1: return builder.acceptIcReviewDecisionLevelOne(loanId).withJson(json).build();
-                case 2: return builder.acceptIcReviewDecisionLevelTwo(loanId).withJson(json).build();
-                case 3: return builder.acceptIcReviewDecisionLevelThree(loanId).withJson(json).build();
-                case 4: return builder.acceptIcReviewDecisionLevelFour(loanId).withJson(json).build();
-                case 5: return builder.acceptIcReviewDecisionLevelFive(loanId).withJson(json).build();
+                case 1:
+                    return builder.acceptIcReviewDecisionLevelOne(loanId).withJson(json).build();
+                case 2:
+                    return builder.acceptIcReviewDecisionLevelTwo(loanId).withJson(json).build();
+                case 3:
+                    return builder.acceptIcReviewDecisionLevelThree(loanId).withJson(json).build();
+                case 4:
+                    return builder.acceptIcReviewDecisionLevelFour(loanId).withJson(json).build();
+                case 5:
+                    return builder.acceptIcReviewDecisionLevelFive(loanId).withJson(json).build();
                 default:
                     // For levels 6+, use the dynamic command builder
                     return builder.acceptIcReviewDecisionDynamic(loanId, levelNumber).withJson(json).build();
             }
         } else {
             switch (levelNumber) {
-                case 1: return builder.rejectIcReviewDecisionLevelOne(loanId).withJson(json).build();
-                case 2: return builder.rejectIcReviewDecisionLevelTwo(loanId).withJson(json).build();
-                case 3: return builder.rejectIcReviewDecisionLevelThree(loanId).withJson(json).build();
-                case 4: return builder.rejectIcReviewDecisionLevelFour(loanId).withJson(json).build();
-                case 5: return builder.rejectIcReviewDecisionLevelFive(loanId).withJson(json).build();
+                case 1:
+                    return builder.rejectIcReviewDecisionLevelOne(loanId).withJson(json).build();
+                case 2:
+                    return builder.rejectIcReviewDecisionLevelTwo(loanId).withJson(json).build();
+                case 3:
+                    return builder.rejectIcReviewDecisionLevelThree(loanId).withJson(json).build();
+                case 4:
+                    return builder.rejectIcReviewDecisionLevelFour(loanId).withJson(json).build();
+                case 5:
+                    return builder.rejectIcReviewDecisionLevelFive(loanId).withJson(json).build();
                 default:
                     // For levels 6+, use the dynamic command builder
                     return builder.rejectIcReviewDecisionDynamic(loanId, levelNumber).withJson(json).build();
@@ -569,11 +663,14 @@ public class LoanDecisionApiResource {
         }
     }
 
+    @Operation(summary = "Get All Loans Pending Decision Engine", description = "Get All Loans Pending Decision Engine.")
     @GET
     @Path("getAllLoansPendingDecisionEngine/{nextLoanDecisionState}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String getAllLoansPendingDecisionEngine(@PathParam("nextLoanDecisionState") final Integer nextLoanDecisionState,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getAllLoansPendingDecisionEngine(
+            @PathParam("nextLoanDecisionState") @Parameter(description = "nextLoanDecisionState") final Integer nextLoanDecisionState,
             @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);

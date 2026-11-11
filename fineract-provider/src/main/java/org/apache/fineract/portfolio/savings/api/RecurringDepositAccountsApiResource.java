@@ -438,10 +438,12 @@ public class RecurringDepositAccountsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Account Closure Template", description = "Account Closure Template.")
     @GET
     @Path("{accountId}/template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String accountClosureTemplate(@PathParam("accountId") @Parameter(description = "accountId") final Long accountId,
             @QueryParam("command") @Parameter(description = "command") final String commandParam, @Context final UriInfo uriInfo) {
 
@@ -458,20 +460,25 @@ public class RecurringDepositAccountsApiResource {
                 DepositsApiConstants.RECURRING_DEPOSIT_ACCOUNT_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Get Recurring Deposit Template", description = "Get Recurring Deposit Template.")
     @GET
     @Path("downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getRecurringDepositTemplate(@QueryParam("officeId") final Long officeId, @QueryParam("staffId") final Long staffId,
-            @QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getRecurringDepositTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("staffId") @Parameter(description = "staffId") final Long staffId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.RECURRING_DEPOSIT_ACCOUNTS.toString(), officeId, staffId,
                 dateFormat);
     }
 
+    @Operation(summary = "Post Recurring Deposit Template", description = "Post Recurring Deposit Template.")
     @POST
     @Path("uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload recurring deposit template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postRecurringDepositTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
             @FormDataParam("dateFormat") final String dateFormat) {
@@ -480,20 +487,24 @@ public class RecurringDepositAccountsApiResource {
         return this.toApiJsonSerializer.serialize(importDocumentId);
     }
 
+    @Operation(summary = "Get Recurring Deposit Transaction Template", description = "Get Recurring Deposit Transaction Template.")
     @GET
     @Path("transactions/downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getRecurringDepositTransactionTemplate(@QueryParam("officeId") final Long officeId,
-            @QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getRecurringDepositTransactionTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.RECURRING_DEPOSIT_ACCOUNTS_TRANSACTIONS.toString(), officeId,
                 null, dateFormat);
     }
 
+    @Operation(summary = "Post Recurring Deposit Transactions Template", description = "Post Recurring Deposit Transactions Template.")
     @POST
     @Path("transactions/uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload recurring deposit transactions template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postRecurringDepositTransactionsTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
             @FormDataParam("dateFormat") final String dateFormat) {

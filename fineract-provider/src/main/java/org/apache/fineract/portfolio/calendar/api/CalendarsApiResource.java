@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.calendar.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -96,12 +100,15 @@ public class CalendarsApiResource {
         this.dropdownReadPlatformService = dropdownReadPlatformService;
     }
 
+    @Operation(summary = "Retrieve Calendar", description = "Retrieve Calendar.")
     @GET
     @Path("{calendarId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveCalendar(@PathParam("calendarId") final Long calendarId, @PathParam("entityType") final String entityType,
-            @PathParam("entityId") final Long entityId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveCalendar(@PathParam("calendarId") @Parameter(description = "calendarId") final Long calendarId,
+            @PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         final Integer entityTypeId = CalendarEntityType.valueOf(entityType.toUpperCase()).getValue();
@@ -129,11 +136,14 @@ public class CalendarsApiResource {
      * @param calendarType
      * @return
      */
+    @Operation(summary = "Retrieve Calendars By Entity", description = "Retrieve Calendars By Entity.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveCalendarsByEntity(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            @Context final UriInfo uriInfo, @DefaultValue("all") @QueryParam("calendarType") final String calendarType) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveCalendarsByEntity(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId, @Context final UriInfo uriInfo,
+            @DefaultValue("all") @QueryParam("calendarType") @Parameter(description = "calendarType") final String calendarType) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -160,12 +170,15 @@ public class CalendarsApiResource {
         return this.toApiJsonSerializer.serialize(settings, calendarsData, this.responseDataParameters);
     }
 
+    @Operation(summary = "Retrieve New Calendar Details", description = "Retrieve New Calendar Details.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveNewCalendarDetails(@Context final UriInfo uriInfo, @PathParam("entityType") final String entityType,
-            @PathParam("entityId") final Long entityId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveNewCalendarDetails(@Context final UriInfo uriInfo,
+            @PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -176,11 +189,13 @@ public class CalendarsApiResource {
         return this.toApiJsonSerializer.serialize(settings, calendarData, this.responseDataParameters);
     }
 
+    @Operation(summary = "Create Calendar", description = "Create Calendar.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createCalendar(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createCalendar(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId, final String apiRequestBodyAsJson) {
 
         final CalendarEntityType calendarEntityType = CalendarEntityType.getEntityType(entityType);
         if (calendarEntityType == null) {
@@ -197,12 +212,15 @@ public class CalendarsApiResource {
 
     }
 
+    @Operation(summary = "Update Calendar", description = "Update Calendar.")
     @PUT
     @Path("{calendarId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateCalendar(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            @PathParam("calendarId") final Long calendarId, final String jsonRequestBody) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateCalendar(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
+            @PathParam("calendarId") @Parameter(description = "calendarId") final Long calendarId, final String jsonRequestBody) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateCalendar(entityType, entityId, calendarId)
                 .withJson(jsonRequestBody).build();
@@ -212,12 +230,15 @@ public class CalendarsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete Calendar", description = "Delete Calendar.")
     @DELETE
     @Path("{calendarId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteCalendar(@PathParam("entityType") final String entityType, @PathParam("entityId") final Long entityId,
-            @PathParam("calendarId") final Long calendarId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteCalendar(@PathParam("entityType") @Parameter(description = "entityType") final String entityType,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
+            @PathParam("calendarId") @Parameter(description = "calendarId") final Long calendarId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteCalendar(entityType, entityId, calendarId).build();
 

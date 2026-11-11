@@ -18,6 +18,11 @@
  */
 package org.apache.fineract.portfolio.validationlimit.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Collection;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -46,6 +51,7 @@ import org.springframework.stereotype.Component;
 @Path("/validationlimit")
 @Component
 @Scope("singleton")
+@Tag(name = "Validation Limit", description = "Validation Limit operations.")
 public class ValidationLimitApiResource {
 
     private final DefaultToApiJsonSerializer<ValidationLimitData> toApiJsonSerializer;
@@ -70,9 +76,11 @@ public class ValidationLimitApiResource {
         this.apiRequestParameterHelper = apiRequestParameterHelper;
     }
 
+    @Operation(summary = "Retrieve All Validation Limit", description = "Retrieve All Validation Limit.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAllValidationLimit(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -83,11 +91,15 @@ public class ValidationLimitApiResource {
         return this.toApiJsonSerializer.serialize(settings, limitData, ValidationLimitApiConstants.VALIDATION_LIMIT_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve Validation Limit", description = "Retrieve Validation Limit.")
     @GET
     @Path("{validationLimitId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveValidationLimit(@PathParam("validationLimitId") final Long validationLimitId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveValidationLimit(
+            @PathParam("validationLimitId") @Parameter(description = "validationLimitId") final Long validationLimitId,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -102,10 +114,12 @@ public class ValidationLimitApiResource {
         return this.toApiJsonSerializer.serialize(settings, limitData, ValidationLimitApiConstants.VALIDATION_LIMIT_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve Template Details", description = "Retrieve Template Details.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveTemplateDetails(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
@@ -117,9 +131,11 @@ public class ValidationLimitApiResource {
                 ValidationLimitApiConstants.VALIDATION_LIMIT_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Create Validation Limit", description = "Create Validation Limit.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String createValidationLimit(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createValidationLimit().withJson(apiRequestBodyAsJson).build();
@@ -129,11 +145,15 @@ public class ValidationLimitApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Validation Limit", description = "Update Validation Limit.")
     @PUT
     @Path("{validationLimitId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateValidationLimit(@PathParam("validationLimitId") final Long validationLimitId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateValidationLimit(
+            @PathParam("validationLimitId") @Parameter(description = "validationLimitId") final Long validationLimitId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateValidationLimit(validationLimitId)
                 .withJson(apiRequestBodyAsJson).build();

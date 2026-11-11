@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.organisation.teller.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Collection;
 import javax.ws.rs.Consumes;
@@ -56,11 +60,15 @@ public class TellerJournalApiResource {
         this.readPlatformService = readPlatformService;
     }
 
+    @Operation(summary = "Get Journal Data", description = "Get Journal Data.")
     @GET
     @Consumes({ MediaType.TEXT_HTML, MediaType.APPLICATION_JSON })
     @Produces(MediaType.APPLICATION_JSON)
-    public String getJournalData(@QueryParam("officeId") final Long officeId, @QueryParam("tellerId") final Long tellerId,
-            @QueryParam("cashierId") final Long cashierId, @QueryParam("dateRange") final String dateRange) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getJournalData(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("tellerId") @Parameter(description = "tellerId") final Long tellerId,
+            @QueryParam("cashierId") @Parameter(description = "cashierId") final Long cashierId,
+            @QueryParam("dateRange") @Parameter(description = "dateRange") final String dateRange) {
         final DateRange dateRangeHolder = DateRange.fromString(dateRange);
 
         final Collection<TellerJournalData> journals = this.readPlatformService.getJournals(officeId, tellerId, cashierId,

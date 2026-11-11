@@ -19,6 +19,9 @@
 package org.apache.fineract.portfolio.client.api;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
@@ -86,10 +89,13 @@ public class ClientBusinessDetailApiResource {
                 ClientApiConstants.CLIENT_BUSINESS_DETAIL_RESPONSE_REQUEST_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Add Business Detail", description = "Add Business Detail.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String addBusinessDetail(@PathParam("clientId") final long clientId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addBusinessDetail(@PathParam("clientId") @Parameter(description = "clientId") final long clientId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().addBusinessDetail(clientId).withJson(apiRequestBodyAsJson)
                 .build();

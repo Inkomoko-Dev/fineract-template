@@ -210,18 +210,22 @@ public class OfficesApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Get Office Template", description = "Get Office Template.")
     @GET
     @Path("downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getOfficeTemplate(@QueryParam("dateFormat") final String dateFormat) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getOfficeTemplate(@QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.OFFICES.toString(), null, null, dateFormat);
     }
 
+    @Operation(summary = "Post Office Template", description = "Post Office Template.")
     @POST
     @Path("uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload office template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postOfficeTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
             @FormDataParam("dateFormat") final String dateFormat) {

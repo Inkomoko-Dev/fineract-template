@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.organisation.office.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -76,9 +80,11 @@ public class OfficeTransactionsApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Retrieve Office Transactions", description = "Retrieve Office Transactions.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveOfficeTransactions(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForReadPermissions);
@@ -89,10 +95,12 @@ public class OfficeTransactionsApiResource {
         return this.toApiJsonSerializer.serialize(settings, officeTransactions, RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "New Office Transaction Details", description = "New Office Transaction Details.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String newOfficeTransactionDetails(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForReadPermissions);
@@ -103,9 +111,11 @@ public class OfficeTransactionsApiResource {
         return this.toApiJsonSerializer.serialize(settings, officeTransactionData, RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Transfer Money From", description = "Transfer Money From.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String transferMoneyFrom(final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createOfficeTransaction().withJson(apiRequestBodyAsJson).build();
@@ -115,11 +125,13 @@ public class OfficeTransactionsApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete", description = "Delete.")
     @DELETE
     @Path("{transactionId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String delete(@PathParam("transactionId") final Long transactionId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String delete(@PathParam("transactionId") @Parameter(description = "transactionId") final Long transactionId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteOfficeTransaction(transactionId).build();
 

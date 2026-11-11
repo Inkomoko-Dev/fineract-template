@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.infrastructure.bulkimport.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -65,10 +69,13 @@ public class BulkImportApiResource {
         this.apiRequestParameterHelper = apiRequestParameterHelper;
     }
 
+    @Operation(summary = "Retrieve Import Documents", description = "Retrieve Import Documents.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveImportDocuments(@Context final UriInfo uriInfo, @QueryParam("entityType") final String entityType) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveImportDocuments(@Context final UriInfo uriInfo,
+            @QueryParam("entityType") @Parameter(description = "entityType") final String entityType) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         Collection<ImportData> importData = new ArrayList<>();
@@ -92,18 +99,24 @@ public class BulkImportApiResource {
         return this.toApiJsonSerializer.serialize(settings, importData);
     }
 
+    @Operation(summary = "Retrive Output Template Location", description = "Retrive Output Template Location.")
     @GET
     @Path("getOutputTemplateLocation")
-    public String retriveOutputTemplateLocation(@QueryParam("importDocumentId") final String importDocumentId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retriveOutputTemplateLocation(
+            @QueryParam("importDocumentId") @Parameter(description = "importDocumentId") final String importDocumentId) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         final DocumentData documentData = this.bulkImportWorkbookService.getOutputTemplateLocation(importDocumentId);
         return this.toApiJsonSerializer.serialize(documentData.fileLocation());
     }
 
+    @Operation(summary = "Get Output Template", description = "Get Output Template.")
     @GET
     @Path("downloadOutputTemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getOutputTemplate(@QueryParam("importDocumentId") final String importDocumentId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getOutputTemplate(
+            @QueryParam("importDocumentId") @Parameter(description = "importDocumentId") final String importDocumentId) {
         return bulkImportWorkbookService.getOutputTemplate(importDocumentId);
     }
 

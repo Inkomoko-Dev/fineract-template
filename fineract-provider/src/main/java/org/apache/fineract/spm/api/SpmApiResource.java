@@ -119,12 +119,14 @@ public class SpmApiResource {
 
     }
 
+    @Operation(summary = "Edit Survey", description = "Edit Survey.")
     @PUT
     @Path("/{id}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Transactional
-    public String editSurvey(@PathParam("id") final Long id, final SurveyData surveyData) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String editSurvey(@PathParam("id") @Parameter(description = "id") final Long id, final SurveyData surveyData) {
         this.securityContext.authenticatedUser();
         final Survey surveyToUpdate = this.spmService.findById(id);
         final Survey survey = SurveyMapper.map(surveyData, surveyToUpdate);

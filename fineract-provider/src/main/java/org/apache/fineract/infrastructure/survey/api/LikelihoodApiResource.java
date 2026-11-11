@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.infrastructure.survey.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import javax.ws.rs.Consumes;
@@ -65,11 +69,13 @@ public class LikelihoodApiResource {
 
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
     @Path("{ppiName}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAll(@PathParam("ppiName") final String ppiName) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAll(@PathParam("ppiName") @Parameter(description = "ppiName") final String ppiName) {
 
         this.context.authenticatedUser().validateHasReadPermission(PovertyLineApiConstants.POVERTY_LINE_RESOURCE_NAME);
 
@@ -78,11 +84,14 @@ public class LikelihoodApiResource {
 
     }
 
+    @Operation(summary = "Retrieve", description = "Retrieve.")
     @GET
     @Path("{ppiName}/{likelihoodId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieve(@PathParam("likelihoodId") final Long likelihoodId, @PathParam("ppiName") final String ppiName) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieve(@PathParam("likelihoodId") @Parameter(description = "likelihoodId") final Long likelihoodId,
+            @PathParam("ppiName") @Parameter(description = "ppiName") final String ppiName) {
 
         this.context.authenticatedUser().validateHasReadPermission(PovertyLineApiConstants.POVERTY_LINE_RESOURCE_NAME);
 
@@ -91,12 +100,14 @@ public class LikelihoodApiResource {
 
     }
 
+    @Operation(summary = "Update", description = "Update.")
     @PUT
     @Path("{ppiName}/{likelihoodId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String update(@PathParam("likelihoodId") final Long likelihoodId, final String apiRequestBodyAsJson,
-            @PathParam("ppiName") final String ppiName) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String update(@PathParam("likelihoodId") @Parameter(description = "likelihoodId") final Long likelihoodId,
+            final String apiRequestBodyAsJson, @PathParam("ppiName") @Parameter(description = "ppiName") final String ppiName) {
 
         this.context.authenticatedUser().validateHasReadPermission(PovertyLineApiConstants.POVERTY_LINE_RESOURCE_NAME);
 

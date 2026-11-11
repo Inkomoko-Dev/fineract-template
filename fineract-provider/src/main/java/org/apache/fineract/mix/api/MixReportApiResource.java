@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.mix.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.sql.Date;
 import javax.ws.rs.GET;
@@ -48,10 +52,13 @@ public class MixReportApiResource {
         this.xbrlBuilder = xbrlBuilder;
     }
 
+    @Operation(summary = "Retrieve XBRLReport", description = "Retrieve XBRLReport.")
     @GET
     @Produces({ MediaType.APPLICATION_XML })
-    public String retrieveXBRLReport(@QueryParam("startDate") final Date startDate, @QueryParam("endDate") final Date endDate,
-            @QueryParam("currency") final String currency) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveXBRLReport(@QueryParam("startDate") @Parameter(description = "startDate") final Date startDate,
+            @QueryParam("endDate") @Parameter(description = "endDate") final Date endDate,
+            @QueryParam("currency") @Parameter(description = "currency") final String currency) {
 
         final XBRLData data = this.xbrlResultService.getXBRLResult(startDate, endDate, currency);
 

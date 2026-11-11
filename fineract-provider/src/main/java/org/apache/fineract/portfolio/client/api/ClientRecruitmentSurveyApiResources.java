@@ -20,6 +20,9 @@
 package org.apache.fineract.portfolio.client.api;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Collection;
 import javax.ws.rs.Consumes;
@@ -94,10 +97,13 @@ public class ClientRecruitmentSurveyApiResources {
                 ClientApiConstants.CLIENT_RECRUITMENT_SURVEY_RESPONSE_REQUEST_PARAMETER);
     }
 
+    @Operation(summary = "Retrieve All Client Recruitment Survey", description = "Retrieve All Client Recruitment Survey.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAllClientRecruitmentSurvey(@Context final UriInfo uriInfo, @PathParam("clientId") final long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAllClientRecruitmentSurvey(@Context final UriInfo uriInfo,
+            @PathParam("clientId") @Parameter(description = "clientId") final long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -109,12 +115,15 @@ public class ClientRecruitmentSurveyApiResources {
 
     }
 
+    @Operation(summary = "Retrieve Client Recruitment Survey", description = "Retrieve Client Recruitment Survey.")
     @GET
     @Path("/{surveyId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveClientRecruitmentSurvey(@Context final UriInfo uriInfo, @PathParam("surveyId") final Long surveyId,
-            @PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveClientRecruitmentSurvey(@Context final UriInfo uriInfo,
+            @PathParam("surveyId") @Parameter(description = "surveyId") final Long surveyId,
+            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -131,10 +140,13 @@ public class ClientRecruitmentSurveyApiResources {
 
     }
 
+    @Operation(summary = "Create Client Recruitment Survey", description = "Create Client Recruitment Survey.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createClientRecruitmentSurvey(@PathParam("clientId") final long clientId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createClientRecruitmentSurvey(@PathParam("clientId") @Parameter(description = "clientId") final long clientId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createClientRecruitmentSurvey(clientId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -144,12 +156,14 @@ public class ClientRecruitmentSurveyApiResources {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Client Other Info", description = "Update Client Other Info.")
     @PUT
     @Path("/{surveyId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateClientOtherInfo(@PathParam("surveyId") final long surveyId, final String apiRequestBodyAsJson,
-            @PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateClientOtherInfo(@PathParam("surveyId") @Parameter(description = "surveyId") final long surveyId,
+            final String apiRequestBodyAsJson, @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateClientRecruitmentSurvey(surveyId, clientId)
                 .withJson(apiRequestBodyAsJson).build();
