@@ -263,6 +263,7 @@ public class BulkRescheduleExecutionService {
             }
             if (result.getRescheduleRequestId() != null) {
                 result.setStatus(BulkRescheduleResultStatus.SKIPPED);
+                result.setExcludeReason("Already processed in this execution");
                 bulkRescheduleResultRepository.save(result);
                 return;
             }
@@ -486,6 +487,8 @@ public class BulkRescheduleExecutionService {
         response.setTotalSucceeded(execution.getTotalSucceeded());
         response.setTotalFailed(execution.getTotalFailed());
         response.setTotalExcluded(execution.getTotalExcluded());
+        response.setTotalSkipped((int) bulkRescheduleResultRepository.countByExecutionIdAndStatus(execution.getId(),
+                BulkRescheduleResultStatus.SKIPPED));
 
         if (includeResults) {
             List<BulkRescheduleResult> results = bulkRescheduleResultRepository.findByExecution(execution);

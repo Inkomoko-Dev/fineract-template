@@ -512,15 +512,20 @@ public class BulkRescheduleApiResource {
                 BulkRescheduleResultStatus.SUCCEEDED);
         final int failed = (int) resultRepository.countByExecutionIdAndStatus(executionId,
                 BulkRescheduleResultStatus.FAILED);
+        final int skipped = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                BulkRescheduleResultStatus.SKIPPED);
+        final int excluded = (int) resultRepository.countByExecutionIdAndStatus(executionId,
+                BulkRescheduleResultStatus.EXCLUDED);
+        response.setTotalSkipped(skipped);
+        response.setTotalExcluded(excluded);
         if ("PREVIEWING".equals(response.getStatus())) {
             final int remaining = (int) resultRepository.countUnsnapshottedByExecutionId(executionId,
                     BulkRescheduleResultStatus.PREVIEW_MATCHED);
-            final int excluded = (int) resultRepository.countByExecutionIdAndStatus(executionId,
-                    BulkRescheduleResultStatus.EXCLUDED);
-            final int found = response.getTotalLoansFound() == null ? remaining + failed + excluded : response.getTotalLoansFound();
+            final int found = response.getTotalLoansFound() == null ? remaining + failed + excluded + skipped
+                    : response.getTotalLoansFound();
             response.setTotalFailed(failed);
             response.setTotalRemaining(remaining);
-            response.setTotalProcessed(Math.max(0, found - remaining - excluded));
+            response.setTotalProcessed(Math.max(0, found - remaining - excluded - skipped));
             if (Boolean.TRUE.equals(response.getRecoveryAvailable())) {
                 response.setRecoveryAvailable(remaining > 0);
             }
@@ -544,8 +549,11 @@ public class BulkRescheduleApiResource {
                 BulkRescheduleResultStatus.PREVIEW_MATCHED);
         response.setTotalSucceeded(succeeded);
         response.setTotalFailed(failed);
-        response.setTotalProcessed(succeeded + failed);
+        response.setTotalProcessed(succeeded + failed + skipped);
         response.setTotalRemaining(remaining);
+        if ("PARTIAL_SUCCESS".equals(response.getStatus()) || "COMPLETED".equals(response.getStatus())) {
+            response.setRollbackAvailable(remaining == 0);
+        }
         if (Boolean.TRUE.equals(response.getRecoveryAvailable())) {
             response.setRecoveryAvailable(remaining > 0);
         }

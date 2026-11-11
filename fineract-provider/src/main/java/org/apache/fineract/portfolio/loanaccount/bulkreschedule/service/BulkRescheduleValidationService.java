@@ -18,18 +18,20 @@
  */
 package org.apache.fineract.portfolio.loanaccount.bulkreschedule.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.ReschedulingDetailsDto;
-import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleResult.BulkRescheduleResultStatus;
-import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkRescheduleResultRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequestRepository;
+import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.springframework.stereotype.Service;
 
 /** Pre-reschedule checks so ineligible loans fail with a review reason instead of being auto-processed. */
@@ -38,14 +40,11 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class BulkRescheduleValidationService {
 
+    public static final String SKIP_ALREADY_AT_TARGET_RATE = "Loan already at target interest rate";
+
     private final LoanRescheduleRequestRepository loanRescheduleRequestRepository;
-    private final BulkRescheduleResultRepository resultRepository;
 
     public List<String> validateLoanEligibilityForReschedule(final Loan loan) {
-        return validateLoanEligibilityForReschedule(loan, null);
-    }
-
-    public List<String> validateLoanEligibilityForReschedule(final Loan loan, final Long currentExecutionId) {
         final List<String> errors = new ArrayList<>();
         if (loan == null) {
             errors.add("Loan not found");
@@ -68,11 +67,43 @@ public class BulkRescheduleValidationService {
         if (pending != null && !pending.isEmpty()) {
             errors.add("Loan already has a pending reschedule request");
         }
-        if (currentExecutionId != null && resultRepository.countByLoanIdAndStatusAndExecution_IdNot(loan.getId(),
-                BulkRescheduleResultStatus.SUCCEEDED, currentExecutionId) > 0) {
-            errors.add("Loan was already rescheduled in a previous bulk run");
-        }
         return errors;
+    }
+
+    /**
+     * Idempotent skip when the loan's current nominal rate already equals the bulk target rate and the interest method
+     * matches the filter (when a method filter is supplied).
+     */
+    public Optional<String> findAlreadyAtTargetSkipReason(final Loan loan, final BigDecimal newInterestRate,
+            final InterestMethod interestMethod) {
+        if (loan == null || newInterestRate == null) {
+            return Optional.empty();
+        }
+        final LoanProductRelatedDetail detail = loan.getLoanRepaymentScheduleDetail();
+        if (detail == null || detail.getNominalInterestRatePerPeriod() == null) {
+            return Optional.empty();
+        }
+        if (detail.getNominalInterestRatePerPeriod().compareTo(newInterestRate) != 0) {
+            return Optional.empty();
+        }
+        if (interestMethod != null && interestMethod != InterestMethod.INVALID && detail.getInterestMethod() != null
+                && detail.getInterestMethod() != interestMethod) {
+            return Optional.empty();
+        }
+        return Optional.of(SKIP_ALREADY_AT_TARGET_RATE);
+    }
+
+    /**
+     * True when the preview snapshot rate differs from the loan's current rate — typically after approve committed but
+     * the bulk result row was not persisted (crash/resume).
+     */
+    public boolean looksLikeCompletedRateChange(final BigDecimal originalInterestRate, final Loan loan) {
+        if (originalInterestRate == null || loan == null) {
+            return false;
+        }
+        final BigDecimal current = loan.getLoanRepaymentScheduleDetail() == null ? null
+                : loan.getLoanRepaymentScheduleDetail().getNominalInterestRatePerPeriod();
+        return current != null && originalInterestRate.compareTo(current) != 0;
     }
 
     public void validateRescheduleParameters(final ReschedulingDetailsDto details, final Loan loan) {
