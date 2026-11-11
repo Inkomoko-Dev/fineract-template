@@ -78,4 +78,21 @@ class WhatsAppNotificationChannelTest {
         assertNull(saved.getTemplateBodyValues());
         assertEquals("Hi Lucy, please pay by Friday.", saved.getMessageBody());
     }
+
+    @Test
+    void reusesExistingRowWhenIdempotencyKeyAlreadyPresent() {
+        final CommunicationMessage existing = CommunicationMessage.pendingOutbound(
+                org.apache.fineract.infrastructure.africastalking.domain.CommunicationChannel.WHATSAPP, "+254712345678",
+                RecipientType.CLIENT, null, null, "Hi");
+        org.springframework.test.util.ReflectionTestUtils.setField(existing, "id", 99L);
+        when(communicationMessageRepository.findByIdempotencyKey("1|+254712345678|2026-11-11T10:00")).thenReturn(java.util.Optional.of(existing));
+
+        final NotificationCommand command = NotificationCommand.freeformWhatsApp(NotificationPurpose.CAMPAIGN, "+254712345678",
+                RecipientType.CLIENT, null, null, "Hi", 1L, false, "1|+254712345678|2026-11-11T10:00");
+
+        final var result = channel.send(command);
+
+        assertEquals(99L, result.getResourceId());
+        verify(communicationMessageRepository, org.mockito.Mockito.never()).saveAndFlush(any());
+    }
 }

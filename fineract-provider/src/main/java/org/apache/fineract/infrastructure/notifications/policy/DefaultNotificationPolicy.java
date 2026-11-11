@@ -49,10 +49,13 @@ public class DefaultNotificationPolicy implements NotificationPolicy {
         if (whatsAppOptOutService.isOptedOut(phoneNumber)) {
             return false;
         }
-        if (purpose == NotificationPurpose.CAMPAIGN || purpose == NotificationPurpose.HOOK || purpose == NotificationPurpose.AD_HOC) {
-            // Allow campaign messages by default until a user explicitly opts out.
-            // Consent records are checked only if they exist; absence of a record means consent is not yet required.
+        if (purpose == NotificationPurpose.CAMPAIGN) {
+            // Campaign broadcasts: allow when no consent row exists; still honor opt-out above and explicit denial.
             return whatsAppConsentService.hasActiveConsentOrNotRecorded(phoneNumber);
+        }
+        if (purpose == NotificationPurpose.HOOK || purpose == NotificationPurpose.AD_HOC) {
+            // Business-initiated hook / ad-hoc requires an explicit consent row.
+            return whatsAppConsentService.hasActiveConsent(phoneNumber);
         }
         return true;
     }

@@ -39,9 +39,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class CommunicationMessageDispatchService {
 
-    private static final int HTTP_CLIENT_ERROR_MIN = 400;
-    private static final int HTTP_CLIENT_ERROR_MAX = 500;
-
     private final WhatsAppProviderRouter whatsAppProviderRouter;
     private final CommunicationMessageRepository communicationMessageRepository;
     private final WhatsAppPhoneWhitelistService whatsAppPhoneWhitelistService;
@@ -72,21 +69,19 @@ public class CommunicationMessageDispatchService {
         final boolean templateMode = StringUtils.isNotBlank(message.getTemplateName());
         final String mode = templateMode ? "TEMPLATE" : "TEXT";
         try {
-            WhatsAppTransportResult response;
+            final WhatsAppTransportResult response;
             if (templateMode) {
                 final List<String> bodyValues = parseBodyValues(message.getTemplateBodyValues());
-                response = whatsAppProviderRouter.sendTemplate(message.getPhoneNumber(), message.getTemplateName(),
-                        message.getTemplateLanguage(), bodyValues);
-                if (!response.successful() && isClientError(response.statusCode()) && StringUtils.isNotBlank(message.getMessageBody())) {
-                    log.warn(
-                            "WhatsApp template→text fallback messageId={} phone={} templateName={} httpStatus={} detail={}",
-                            message.getId(), CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), message.getTemplateName(),
-                            response.statusCode(),
-                            CommunicationLogSanitizer.truncateDetail(StringUtils.defaultIfBlank(response.errorDetail(), response.body())));
-                    response = whatsAppProviderRouter.sendText(message.getPhoneNumber(), message.getMessageBody());
-                    modeAfterFallback(message, response);
+                if (hasBlankBodyValue(bodyValues)) {
+                    message.setStatus(CommunicationMessageStatus.FAILED);
+                    message.setStatusDetail(StringUtils.left("mode=TEMPLATE TEMPLATE_MISMATCH: blank bodyValues", 255));
+                    log.warn("WhatsApp template dispatch skipped blank bodyValues messageId={} phone={} templateName={}", message.getId(),
+                            CommunicationLogSanitizer.maskPhone(message.getPhoneNumber()), message.getTemplateName());
+                    communicationMessageRepository.save(message);
                     return;
                 }
+                response = whatsAppProviderRouter.sendTemplate(message.getPhoneNumber(), message.getTemplateName(),
+                        message.getTemplateLanguage(), bodyValues);
             } else {
                 response = whatsAppProviderRouter.sendText(message.getPhoneNumber(), message.getMessageBody());
             }
@@ -98,11 +93,6 @@ public class CommunicationMessageDispatchService {
                     .classifyException(e);
             applyClassification(message, classification, CommunicationLogSanitizer.truncateDetail(e.getMessage()));
         }
-        communicationMessageRepository.save(message);
-    }
-
-    private void modeAfterFallback(final CommunicationMessage message, final WhatsAppTransportResult response) {
-        applyDispatchResult(message, "TEXT_FALLBACK", response);
         communicationMessageRepository.save(message);
     }
 
@@ -126,8 +116,13 @@ public class CommunicationMessageDispatchService {
         }
     }
 
-    private static boolean isClientError(final int statusCode) {
-        return statusCode >= HTTP_CLIENT_ERROR_MIN && statusCode < HTTP_CLIENT_ERROR_MAX;
+    private static boolean hasBlankBodyValue(final List<String> bodyValues) {
+        for (final String value : bodyValues) {
+            if (StringUtils.isBlank(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void applyDispatchFailure(final CommunicationMessage message, final int statusCode, final String responseBody) {

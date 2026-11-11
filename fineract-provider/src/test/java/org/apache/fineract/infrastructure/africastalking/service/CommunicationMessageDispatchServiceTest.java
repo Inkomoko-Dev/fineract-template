@@ -136,28 +136,9 @@ class CommunicationMessageDispatchServiceTest {
     }
 
     @Test
-    void fallsBackToFreeformTextWhenTemplateReturnsClientErrorAndMessageBodyPresent() {
+    void marksTemplateFailedWithoutTextFallbackOnClientError() {
         final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate("+254712345678", RecipientType.CLIENT, null, null,
-                "test", "en", "[\"Lucy\"]", "Hi Lucy, please pay by Friday.", 9L);
-        when(whatsAppProviderRouter.sendTemplate(eq("+254712345678"), eq("test"), eq("en"), eq(List.of("Lucy")))).thenReturn(
-                WhatsAppTransportResult.failure(WhatsAppProvider.AFRICASTALKING, 400, "{\"category\":\"UNKNOWN\"}", "HTTP 400"));
-        when(whatsAppProviderRouter.sendText("+254712345678", "Hi Lucy, please pay by Friday."))
-                .thenReturn(WhatsAppTransportResult.success(WhatsAppProvider.AFRICASTALKING, 200, "{\"messageId\":\"ATX_fb\"}", "ATX_fb"));
-
-        dispatchService.dispatchMessage(message);
-
-        assertEquals(CommunicationMessageStatus.SENT, message.getStatus());
-        assertEquals("ATX_fb", message.getExternalId());
-        assertEquals("AFRICASTALKING", message.getProvider());
-        verify(whatsAppProviderRouter).sendTemplate("+254712345678", "test", "en", List.of("Lucy"));
-        verify(whatsAppProviderRouter).sendText("+254712345678", "Hi Lucy, please pay by Friday.");
-        verify(communicationMessageRepository).save(message);
-    }
-
-    @Test
-    void doesNotFallbackWhenTemplateFailsAndMessageBodyBlank() {
-        final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate("+254712345678", RecipientType.CLIENT, null, null,
-                "test", "en", "[\"Lucy\"]", "", 9L);
+                "test", "en", "[\"Lucy\"]", "Lucy|1000", 9L);
         when(whatsAppProviderRouter.sendTemplate(eq("+254712345678"), eq("test"), eq("en"), eq(List.of("Lucy")))).thenReturn(
                 WhatsAppTransportResult.failure(WhatsAppProvider.AFRICASTALKING, 400, "{\"category\":\"UNKNOWN\"}", "HTTP 400"));
 
@@ -165,6 +146,19 @@ class CommunicationMessageDispatchServiceTest {
 
         assertEquals(CommunicationMessageStatus.FAILED, message.getStatus());
         verify(whatsAppProviderRouter).sendTemplate("+254712345678", "test", "en", List.of("Lucy"));
+        verify(whatsAppProviderRouter, never()).sendText(any(), any());
+        verify(communicationMessageRepository).save(message);
+    }
+
+    @Test
+    void failsTemplateDispatchWhenBodyValuesContainBlank() {
+        final CommunicationMessage message = CommunicationMessage.pendingOutboundTemplate("+254712345678", RecipientType.CLIENT, null, null,
+                "test", "en", "[\"Lucy\",\"\"]", "Lucy|", 9L);
+
+        dispatchService.dispatchMessage(message);
+
+        assertEquals(CommunicationMessageStatus.FAILED, message.getStatus());
+        verify(whatsAppProviderRouter, never()).sendTemplate(any(), any(), any(), anyList());
         verify(whatsAppProviderRouter, never()).sendText(any(), any());
         verify(communicationMessageRepository).save(message);
     }

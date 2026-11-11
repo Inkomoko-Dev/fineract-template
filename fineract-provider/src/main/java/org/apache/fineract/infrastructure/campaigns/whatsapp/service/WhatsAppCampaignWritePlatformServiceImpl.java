@@ -304,13 +304,15 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             if (runReportObject != null && !runReportObject.isEmpty()) {
                 final HashMap<String, Object> entry = runReportObject.get(0);
                 final List<String> bodyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, entry);
-                final String previewMessage = isFreeform ? WhatsAppFreeformMessageResolver.resolve(freeformMessage, entry)
+                final String previewMessage = isFreeform
+                        ? WhatsAppFreeformMessageResolver.resolveStrict(freeformMessage, entry).getResolvedMessage()
                         : buildPreviewMessage(atTemplateNameValue, languageCodeValue, bodyValues);
                 return new WhatsAppPreviewData(bodyValues, previewMessage, enqueueable, skipped);
             }
             final List<String> emptyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, Map.of());
             final String fallback = isFreeform
-                    ? WhatsAppFreeformMessageResolver.resolve(StringUtils.defaultString(freeformMessage), Map.of())
+                    ? WhatsAppFreeformMessageResolver.resolveStrict(StringUtils.defaultString(freeformMessage), Map.of())
+                            .getResolvedMessage()
                     : "Report preview requires valid parameters. Template: " + atTemplateNameValue + " (" + languageCodeValue + ")";
             return new WhatsAppPreviewData(emptyValues, fallback, enqueueable, skipped);
         } catch (final IOException e) {
@@ -427,39 +429,66 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             return false;
         }
 
-        final List<String> bodyValues = WhatsAppTemplateVariableMapper
-                .toBodyValues(campaign.getBodyVariableMapping(), entry);
-        final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
-        final String resolvedFreeform = campaign.getMessageType() == WhatsAppMessageType.FREEFORM
-                ? WhatsAppFreeformMessageResolver.resolve(campaign.getMessage(), entry)
-                : null;
-        final String auditMessageBody = campaign.getMessageType() == WhatsAppMessageType.FREEFORM ? resolvedFreeform
-                : (bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues));
-
-        Client client = null;
-        Staff staff = null;
-        final Long recipientId = extractRecipientId(entry.get("id"));
-        if (recipientId != null) {
-            if (campaign.isStaffCampaign()) {
-                staff = this.staffRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
-            } else {
-                client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
-            }
-        }
-
-        this.sendRateLimiter.acquire();
+        final String triggerInstant = campaign.getNextTriggerDate() != null ? campaign.getNextTriggerDate().toString()
+                : DateUtils.getLocalDateTimeOfTenant().toString();
+        final String idempotencyKey = buildCampaignIdempotencyKey(campaign.getId(), phoneNumber, triggerInstant);
 
         final NotificationCommand command;
         if (campaign.getMessageType() == WhatsAppMessageType.FREEFORM) {
-            command = NotificationCommand.freeformWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
-                    campaign.getRecipientType(), client, staff, resolvedFreeform, true);
+            final WhatsAppFreeformMessageResolver.ResolveResult freeform = WhatsAppFreeformMessageResolver
+                    .resolveStrict(campaign.getMessage(), entry);
+            if (!freeform.isComplete()) {
+                LOG.warn("Skipping recipient for WhatsApp campaign {}: unresolved FREEFORM placeholders {}", campaign.getId(),
+                        freeform.getUnresolvedKeys());
+                return false;
+            }
+            Client client = null;
+            Staff staff = null;
+            final Long recipientId = extractRecipientId(entry.get("id"));
+            if (recipientId != null) {
+                if (campaign.isStaffCampaign()) {
+                    staff = this.staffRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+                } else {
+                    client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+                }
+            }
+            this.sendRateLimiter.acquire();
+            // Queue PENDING only — dispatch job sends to AT once; deterministic key prevents double-send on job retry.
+            command = NotificationCommand.freeformWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber, campaign.getRecipientType(), client,
+                    staff, freeform.getResolvedMessage(), campaign.getId(), false, idempotencyKey);
         } else {
-            command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
-                    campaign.getRecipientType(), client, staff, campaign.getAtTemplateName(), campaign.getLanguageCode(),
-                    templateBodyValuesJson, auditMessageBody, campaign.getId(), true);
+            final WhatsAppTemplateVariableMapper.MappingResult mapping = WhatsAppTemplateVariableMapper
+                    .toBodyValuesStrict(campaign.getBodyVariableMapping(), entry);
+            if (!mapping.isComplete()) {
+                LOG.warn("Skipping recipient for WhatsApp campaign {}: incomplete TEMPLATE bodyValues {}", campaign.getId(),
+                        mapping.getUnresolvedKeys());
+                return false;
+            }
+            final List<String> bodyValues = mapping.getBodyValues();
+            final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
+            final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
+            Client client = null;
+            Staff staff = null;
+            final Long recipientId = extractRecipientId(entry.get("id"));
+            if (recipientId != null) {
+                if (campaign.isStaffCampaign()) {
+                    staff = this.staffRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+                } else {
+                    client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+                }
+            }
+            this.sendRateLimiter.acquire();
+            command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber, campaign.getRecipientType(), client,
+                    staff, campaign.getAtTemplateName(), campaign.getLanguageCode(), templateBodyValuesJson, auditMessageBody,
+                    campaign.getId(), false, idempotencyKey);
         }
         final NotificationResult result = notificationCommandService.send(command);
         return result.isAccepted();
+    }
+
+    static String buildCampaignIdempotencyKey(final Long campaignId, final String phoneNumber, final String triggerInstant) {
+        final String raw = campaignId + "|" + phoneNumber + "|" + triggerInstant;
+        return StringUtils.left(raw, 100);
     }
 
     private static Long extractRecipientId(final Object rawId) {

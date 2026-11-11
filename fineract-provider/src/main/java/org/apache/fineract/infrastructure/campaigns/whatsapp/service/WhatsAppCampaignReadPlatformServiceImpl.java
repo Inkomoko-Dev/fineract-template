@@ -35,6 +35,7 @@ import org.apache.fineract.infrastructure.campaigns.sms.data.SmsBusinessRulesDat
 import org.apache.fineract.infrastructure.campaigns.sms.service.SmsCampaignDropdownReadPlatformService;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignEnumerations;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppMessageType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.data.WhatsAppCampaignData;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.data.WhatsAppCampaignTimeLine;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaign;
@@ -128,7 +129,8 @@ public class WhatsAppCampaignReadPlatformServiceImpl implements WhatsAppCampaign
                                 .fromInt(campaign.getStatus())),
                 campaign.getMessage(), campaign.getNextTriggerDate(), campaign.getLastTriggerDate(), timeline,
                 campaign.getRecurrenceStartDate(), campaign.getRecurrence(), campaign.getAtTemplateName(), campaign.getLanguageCode(),
-                campaign.getBodyVariableMapping(), campaign.getMessageType() != null ? campaign.getMessageType().getCode() : "template",
+                campaign.getBodyVariableMapping(),
+                campaign.getMessageType() != null ? campaign.getMessageType().name() : WhatsAppMessageType.TEMPLATE.name(),
                 parseBodyVariableMappingList(campaign.getBodyVariableMapping()),
                 campaign.getRecipientType().name());
     }

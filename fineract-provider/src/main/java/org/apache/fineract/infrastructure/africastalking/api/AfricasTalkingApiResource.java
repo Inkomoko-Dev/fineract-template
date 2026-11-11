@@ -44,13 +44,17 @@ import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingW
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService.WebhookProcessingResult;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppService;
+import org.apache.fineract.infrastructure.africastalking.service.CommunicationLogSanitizer;
 import org.apache.fineract.infrastructure.africastalking.service.CommunicationMessageReadPlatformService;
 import org.apache.fineract.infrastructure.africastalking.service.VoiceCallLogReadPlatformService;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
@@ -148,10 +152,17 @@ public class AfricasTalkingApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String createTemplate(final String apiRequestBodyAsJson) throws IOException {
-        this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
+        // Align with campaign UI Create Template button (CREATE_WHATSAPPCAMPAIGN).
+        this.context.authenticatedUser().validateHasCreatePermission(WhatsAppCampaignConstants.RESOURCE_NAME);
         var response = this.africastalkingClient.createWhatsAppTemplateFromJson(apiRequestBodyAsJson);
         final boolean success = response.statusCode() >= 200 && response.statusCode() < 300;
-        final CommandProcessingResult result = new CommandProcessingResult(success ? 1L : null);
+        if (!success) {
+            final String safeDetail = CommunicationLogSanitizer
+                    .truncateDetail(StringUtils.defaultIfBlank(response.body(), "HTTP " + response.statusCode()));
+            throw new GeneralPlatformDomainRuleException("error.msg.africastalking.whatsapp.template.create.failed",
+                    "Africa's Talking rejected the WhatsApp template (HTTP " + response.statusCode() + "): " + safeDetail);
+        }
+        final CommandProcessingResult result = new CommandProcessingResult(1L);
         return this.commandProcessingResultSerializer.serializeResult(result);
     }
 

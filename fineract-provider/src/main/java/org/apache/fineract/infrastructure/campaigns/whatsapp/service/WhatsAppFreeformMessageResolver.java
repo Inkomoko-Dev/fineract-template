@@ -18,6 +18,8 @@
  */
 package org.apache.fineract.infrastructure.campaigns.whatsapp.service;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,25 +38,56 @@ public final class WhatsAppFreeformMessageResolver {
     private WhatsAppFreeformMessageResolver() {}
 
     /**
-     * Replaces {@code ${key}} with the string value of {@code row.get(key)}. Missing or blank values become empty
-     * string and are logged at warn.
+     * Replaces {@code ${key}} with the string value of {@code row.get(key)}. Collects unresolved (missing/blank) keys.
      */
-    public static String resolve(final String message, final Map<String, Object> row) {
+    public static ResolveResult resolveStrict(final String message, final Map<String, Object> row) {
         if (StringUtils.isBlank(message) || !message.contains("${")) {
-            return message;
+            return new ResolveResult(message, List.of());
         }
         final Matcher matcher = PLACEHOLDER.matcher(message);
         final StringBuffer resolved = new StringBuffer();
+        final List<String> unresolved = new ArrayList<>();
         while (matcher.find()) {
             final String key = matcher.group(1);
             final Object raw = row == null ? null : row.get(key);
             final String value = raw == null ? "" : String.valueOf(raw);
             if (StringUtils.isBlank(value)) {
-                LOG.warn("FREEFORM WhatsApp placeholder '{}' unresolved or blank; substituting empty string", key);
+                unresolved.add(key);
+                LOG.warn("FREEFORM WhatsApp placeholder '{}' unresolved or blank", key);
             }
             matcher.appendReplacement(resolved, Matcher.quoteReplacement(value));
         }
         matcher.appendTail(resolved);
-        return resolved.toString();
+        return new ResolveResult(resolved.toString(), List.copyOf(unresolved));
+    }
+
+    /**
+     * @deprecated Prefer {@link #resolveStrict(String, Map)} so callers can skip incomplete recipients.
+     */
+    public static String resolve(final String message, final Map<String, Object> row) {
+        return resolveStrict(message, row).getResolvedMessage();
+    }
+
+    public static final class ResolveResult {
+
+        private final String resolvedMessage;
+        private final List<String> unresolvedKeys;
+
+        private ResolveResult(final String resolvedMessage, final List<String> unresolvedKeys) {
+            this.resolvedMessage = resolvedMessage;
+            this.unresolvedKeys = unresolvedKeys;
+        }
+
+        public String getResolvedMessage() {
+            return resolvedMessage;
+        }
+
+        public List<String> getUnresolvedKeys() {
+            return unresolvedKeys;
+        }
+
+        public boolean isComplete() {
+            return unresolvedKeys.isEmpty();
+        }
     }
 }

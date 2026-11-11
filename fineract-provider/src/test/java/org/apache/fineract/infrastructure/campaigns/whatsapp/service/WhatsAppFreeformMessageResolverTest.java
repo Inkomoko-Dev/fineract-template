@@ -19,9 +19,12 @@
 package org.apache.fineract.infrastructure.campaigns.whatsapp.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -34,36 +37,42 @@ class WhatsAppFreeformMessageResolverTest {
         row.put("loanBalance", "15000");
         row.put("dueDate", "2026-11-15");
 
-        final String resolved = WhatsAppFreeformMessageResolver.resolve(
+        final var result = WhatsAppFreeformMessageResolver.resolveStrict(
                 "Hi ${clientName}, your Inkomoko loan balance is ${loanBalance}. Please pay by ${dueDate}.", row);
 
-        assertEquals("Hi Lucy, your Inkomoko loan balance is 15000. Please pay by 2026-11-15.", resolved);
+        assertTrue(result.isComplete());
+        assertEquals("Hi Lucy, your Inkomoko loan balance is 15000. Please pay by 2026-11-15.", result.getResolvedMessage());
     }
 
     @Test
-    void missingColumnBecomesEmptyString() {
+    void missingColumnIsIncomplete() {
         final Map<String, Object> row = Map.of("clientName", "Lucy");
 
-        final String resolved = WhatsAppFreeformMessageResolver.resolve("Hi ${clientName}, balance ${loanBalance}.", row);
+        final var result = WhatsAppFreeformMessageResolver.resolveStrict("Hi ${clientName}, balance ${loanBalance}.", row);
 
-        assertEquals("Hi Lucy, balance .", resolved);
+        assertFalse(result.isComplete());
+        assertEquals(List.of("loanBalance"), result.getUnresolvedKeys());
+        assertEquals("Hi Lucy, balance .", result.getResolvedMessage());
     }
 
     @Test
     void leavesMessageWithoutPlaceholdersUnchanged() {
         final String message = "Hello everyone, this is a broadcast.";
-        assertEquals(message, WhatsAppFreeformMessageResolver.resolve(message, Map.of("clientName", "Lucy")));
+        final var result = WhatsAppFreeformMessageResolver.resolveStrict(message, Map.of("clientName", "Lucy"));
+        assertTrue(result.isComplete());
+        assertEquals(message, result.getResolvedMessage());
     }
 
     @Test
     void nullMessageReturnsNull() {
-        assertNull(WhatsAppFreeformMessageResolver.resolve(null, Map.of()));
+        assertNull(WhatsAppFreeformMessageResolver.resolveStrict(null, Map.of()).getResolvedMessage());
     }
 
     @Test
     void escapesRegexSpecialCharactersInValues() {
         final Map<String, Object> row = Map.of("clientName", "Ada $1");
-        final String resolved = WhatsAppFreeformMessageResolver.resolve("Hi ${clientName}", row);
-        assertEquals("Hi Ada $1", resolved);
+        final var result = WhatsAppFreeformMessageResolver.resolveStrict("Hi ${clientName}", row);
+        assertTrue(result.isComplete());
+        assertEquals("Hi Ada $1", result.getResolvedMessage());
     }
 }

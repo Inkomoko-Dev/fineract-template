@@ -20,12 +20,14 @@ package org.apache.fineract.infrastructure.notifications.channel;
 
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.service.CommunicationMessageDispatchService;
 import org.apache.fineract.infrastructure.notifications.constants.NotificationIntent;
 import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
 import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +40,13 @@ public class WhatsAppNotificationChannel {
 
     @Transactional
     public NotificationResult send(final NotificationCommand command) {
+        if (StringUtils.isNotBlank(command.getIdempotencyKey())) {
+            final var existing = communicationMessageRepository.findByIdempotencyKey(command.getIdempotencyKey());
+            if (existing.isPresent()) {
+                return NotificationResult.accepted(requireId(existing.get()));
+            }
+        }
+
         final CommunicationMessage message;
         if (command.getIntent() == NotificationIntent.TEMPLATE) {
             message = CommunicationMessage.pendingOutboundTemplate(command.getPhoneNumber(), command.getRecipientType(),
@@ -45,23 +54,38 @@ public class WhatsAppNotificationChannel {
                     command.getTemplateBodyValuesJson(), command.getMessageBody(), command.getCampaignId());
         } else {
             // FREEFORM: never persist template fields — dispatch must use body.message until AT approves a template.
-            message = CommunicationMessage.pendingOutbound(org.apache.fineract.infrastructure.africastalking.domain.CommunicationChannel.WHATSAPP,
-                    command.getPhoneNumber(), command.getRecipientType(), command.getClient(), command.getStaff(),
-                    command.getMessageBody());
+            message = CommunicationMessage.pendingOutbound(
+                    org.apache.fineract.infrastructure.africastalking.domain.CommunicationChannel.WHATSAPP, command.getPhoneNumber(),
+                    command.getRecipientType(), command.getClient(), command.getStaff(), command.getMessageBody());
             message.setTemplateName(null);
             message.setTemplateLanguage(null);
             message.setTemplateBodyValues(null);
+            if (command.getCampaignId() != null) {
+                message.setCampaignId(command.getCampaignId());
+            }
         }
 
-        if (command.isSendImmediately()) {
+        if (StringUtils.isNotBlank(command.getIdempotencyKey())) {
+            message.setIdempotencyKey(command.getIdempotencyKey());
+        } else if (command.isSendImmediately()) {
             message.setIdempotencyKey(UUID.randomUUID().toString());
-            final CommunicationMessage saved = communicationMessageRepository.saveAndFlush(message);
-            communicationMessageDispatchService.dispatchMessage(saved);
-            return NotificationResult.accepted(requireId(saved));
         }
 
-        final CommunicationMessage saved = communicationMessageRepository.saveAndFlush(message);
-        return NotificationResult.accepted(requireId(saved));
+        try {
+            final CommunicationMessage saved = communicationMessageRepository.saveAndFlush(message);
+            if (command.isSendImmediately()) {
+                communicationMessageDispatchService.dispatchMessage(saved);
+            }
+            return NotificationResult.accepted(requireId(saved));
+        } catch (final DataIntegrityViolationException duplicate) {
+            if (StringUtils.isNotBlank(command.getIdempotencyKey())) {
+                final var existing = communicationMessageRepository.findByIdempotencyKey(command.getIdempotencyKey());
+                if (existing.isPresent()) {
+                    return NotificationResult.accepted(requireId(existing.get()));
+                }
+            }
+            throw duplicate;
+        }
     }
 
     private static Long requireId(final CommunicationMessage message) {
