@@ -502,6 +502,57 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(excess).getAmount());
     }
 
+    /**
+     * Align fee/penalty portions with {@link LoanChargePaidBy} rows before journal posting. Excess portion moves to
+     * overpayment so advanced accounting charge splits stay consistent (e.g. reschedule replay with empty charge lines).
+     *
+     * @return true when either portion was adjusted
+     */
+    public boolean alignChargePortionsToPaidCharges(final MonetaryCurrency currency) {
+        BigDecimal feePaid = BigDecimal.ZERO;
+        BigDecimal penaltyPaid = BigDecimal.ZERO;
+        if (this.loanChargesPaid != null) {
+            for (final LoanChargePaidBy paidBy : this.loanChargesPaid) {
+                if (paidBy == null || paidBy.getAmount() == null || paidBy.getLoanCharge() == null) {
+                    continue;
+                }
+                if (paidBy.getLoanCharge().isPenaltyCharge()) {
+                    penaltyPaid = penaltyPaid.add(paidBy.getAmount());
+                } else {
+                    feePaid = feePaid.add(paidBy.getAmount());
+                }
+            }
+        }
+
+        final Money currentFee = getFeeChargesPortion(currency);
+        final Money currentPenalty = getPenaltyChargesPortion(currency);
+        final Money targetFee = Money.of(currency, feePaid);
+        final Money targetPenalty = Money.of(currency, penaltyPaid);
+        boolean adjusted = false;
+
+        if (!currentFee.isEqualTo(targetFee)) {
+            final Money excess = currentFee.minus(targetFee);
+            this.feeChargesPortion = targetFee.getAmountDefaultedToNullIfZero();
+            if (excess.isGreaterThanZero()) {
+                this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(excess).getAmount());
+            } else if (excess.isLessThanZero()) {
+                this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).minus(excess.abs()).getAmount());
+            }
+            adjusted = true;
+        }
+        if (!currentPenalty.isEqualTo(targetPenalty)) {
+            final Money excess = currentPenalty.minus(targetPenalty);
+            this.penaltyChargesPortion = targetPenalty.getAmountDefaultedToNullIfZero();
+            if (excess.isGreaterThanZero()) {
+                this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(excess).getAmount());
+            } else if (excess.isLessThanZero()) {
+                this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).minus(excess.abs()).getAmount());
+            }
+            adjusted = true;
+        }
+        return adjusted;
+    }
+
     private void updateChargesComponents(final Money feeCharges, final Money penaltyCharges, final Money unrecognizedCharges) {
         final MonetaryCurrency currency = feeCharges.getCurrency();
         this.feeChargesPortion = defaultToNullIfZero(getFeeChargesPortion(currency).plus(feeCharges).getAmount());
