@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Optional;
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
 import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientData;
@@ -263,5 +264,39 @@ class VoiceIvrCallbackServiceTest {
         final String second = callbackService.handleInbound("sessionId=ATV_1&callerNumber=%2B254700000099&dtmfDigits=6");
         assertThat(second).contains("Too many invalid attempts");
         assertThat(second).contains("phoneNumbers=\"+254700000002\"");
+    }
+
+    @Test
+    void multiClientCallerEntersAccountNumberBeforeLanguageMenu() {
+        final WhatsAppSessionContextSerializer realSerializer = new WhatsAppSessionContextSerializer();
+        callbackService = new VoiceIvrCallbackService(properties, sessionService, menuRenderer, menuOptionRepository,
+                menuDefinitionRepository, callerIdentificationService, clientAuthService, loanSelfServiceGate, agentRoutingService,
+                callbackRequestService, voicemailService, businessHoursService, realSerializer, recipientResolutionService,
+                phoneNumberNormalizer, clientRepositoryWrapper, staffRepositoryWrapper, recordingConsentService, dialTargetResolver);
+        properties.getVoiceIvr().setMainMenuKey("MAIN");
+        properties.getVoiceIvr().setLanguageMenuKey("LANGUAGE");
+        properties.getVoiceIvr().setLanguagePickerLanguage("en");
+        properties.getVoiceIvr().setDefaultLanguage("en");
+
+        final VoiceIvrSession session = new VoiceIvrSession();
+        session.setSessionStatus(VoiceIvrSessionStatus.LANGUAGE_SELECTION);
+        session.setSessionContext(realSerializer.toJson(WhatsAppSessionContext.empty()));
+        when(phoneNumberNormalizer.normalize(any())).thenReturn("+254700000099");
+        when(recipientResolutionService.resolve(any())).thenReturn(ResolvedRecipientData.multiClient("+254700000099", List.of(10L, 11L)));
+        when(sessionService.startOrResume("ATV_MC", "+254700000099", null, null)).thenReturn(session);
+        when(sessionService.save(session)).thenReturn(session);
+
+        final String promptXml = callbackService.handleInbound("sessionId=ATV_MC&callerNumber=%2B254700000099");
+
+        assertThat(promptXml).contains("more than one client");
+
+        final Client client = org.mockito.Mockito.mock(Client.class);
+        when(client.getId()).thenReturn(10L);
+        when(clientRepositoryWrapper.getClientByAccountNumber("000000010")).thenReturn(client);
+        when(menuRenderer.buildMenuPrompt("LANGUAGE", "en")).thenReturn("Press 1 for English.");
+
+        final String afterXml = callbackService.handleInbound("sessionId=ATV_MC&callerNumber=%2B254700000099&dtmfDigits=000000010");
+        assertThat(afterXml).contains("Press 1 for English");
+        assertThat(session.getClient()).isSameAs(client);
     }
 }

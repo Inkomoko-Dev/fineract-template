@@ -90,6 +90,10 @@ public class WhatsAppSupportTicketService {
         ticket.setSlaDueAt(businessHoursService.calculateSlaDueAt(now));
         ticket.setCreatedDate(now);
         ticket.setLastModifiedDate(now);
+        if (client != null && client.getStaff() != null) {
+            ticket.setAssignedStaff(client.getStaff());
+            ticket.setStatus(WhatsAppTicketStatus.ASSIGNED);
+        }
         return ticketRepository.save(ticket);
     }
 

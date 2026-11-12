@@ -25,11 +25,16 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppTicketStatus;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConversationSession;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppSupportTicket;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppSupportTicketRepository;
+import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
+import org.apache.fineract.portfolio.client.domain.Client;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,8 +58,14 @@ class WhatsAppSupportTicketServiceTest {
 
     @BeforeEach
     void setUp() {
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         service = new WhatsAppSupportTicketService(ticketRepository, businessHoursService, communicationMessageRepository,
                 staffRepositoryWrapper);
+    }
+
+    @AfterEach
+    void tearDown() {
+        ThreadLocalContextUtil.clearTenant();
     }
 
     @Test
@@ -76,5 +87,22 @@ class WhatsAppSupportTicketServiceTest {
         final ArgumentCaptor<WhatsAppSupportTicket> captor = ArgumentCaptor.forClass(WhatsAppSupportTicket.class);
         verify(ticketRepository).save(captor.capture());
         assertThat(captor.getValue().getPhoneNumber()).isEqualTo("+254712345678");
+    }
+
+    @Test
+    void createsVoiceEscalationTicketAssignedToClientIo() {
+        final Staff io = org.mockito.Mockito.mock(Staff.class);
+        final Client client = org.mockito.Mockito.mock(Client.class);
+        when(client.getStaff()).thenReturn(io);
+        when(businessHoursService.calculateSlaDueAt(any())).thenReturn(LocalDateTime.of(2026, 11, 12, 12, 0));
+        when(ticketRepository.count()).thenReturn(2L);
+        when(ticketRepository.save(any(WhatsAppSupportTicket.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        final WhatsAppSupportTicket ticket = service.createFromVoiceEscalation("+254712345678", 99L, client, "SUPPORT", "en");
+
+        assertThat(ticket.getStatus()).isEqualTo(WhatsAppTicketStatus.ASSIGNED);
+        assertThat(ticket.getAssignedStaff()).isSameAs(io);
+        assertThat(ticket.getVoiceIvrSessionId()).isEqualTo(99L);
+        assertThat(ticket.getCategory()).isEqualTo("SUPPORT");
     }
 }

@@ -37,6 +37,7 @@ public class AfricasTalkingProperties {
     private final Whatsapp whatsapp = new Whatsapp();
     private final Voice voice = new Voice();
     private final VoiceIvr voiceIvr = new VoiceIvr();
+    private final Sms sms = new Sms();
     private final Webhook webhook = new Webhook();
     private final Phone phone = new Phone();
     private final Dispatch dispatch = new Dispatch();
@@ -86,6 +87,14 @@ public class AfricasTalkingProperties {
         private String repaymentInstructionsRw = "Kwishyura inguzanyo, koresha M-Pesa PayBill cyangwa konti y'ubwishingizi ya Inkomoko "
                 + "ibaruye ku nyandiko yawe, ukoreshe nimero ya konti yawe nk'ikimenyetso. "
                 + "Ntuzohereze amafaranga kuri telefone cyangwa konti itemewe.";
+    }
+
+    @Getter
+    @Setter
+    public static class Sms {
+
+        /** Optional AT short code / sender ID for OTP SMS. Leave blank to use AT account default. */
+        private String senderId;
     }
 
     @Getter

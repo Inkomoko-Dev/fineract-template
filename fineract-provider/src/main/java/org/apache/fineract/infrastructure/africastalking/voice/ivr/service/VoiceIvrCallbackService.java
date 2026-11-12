@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.infrastructure.africastalking.voice.ivr.service;
 
+import java.util.ArrayList;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,7 @@ import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
+import org.apache.fineract.portfolio.client.exception.ClientNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -88,6 +90,7 @@ public class VoiceIvrCallbackService {
         final VoiceIvrSession session = sessionService.startOrResume(sessionId, callerNumber, client, staff);
         refreshCallerIdentity(session, client, staff);
         storeRoleCandidatesIfNeeded(session, recipient);
+        storeMultiClientCandidatesIfNeeded(session, recipient);
         final String dtmfDigits = AfricasTalkingPayloadParser.firstNonBlank(values, "dtmfDigits", "digits");
         if (!businessHoursService.isWithinBusinessHours()) {
             return handleAfterHours(session, dtmfDigits);
@@ -97,6 +100,9 @@ public class VoiceIvrCallbackService {
                 return handleInvalidOrEmptyInput(session, true);
             }
             return presentCurrentStep(session);
+        }
+        if (isAwaitingMultiClientDisambiguation(session)) {
+            return processMultiClientAccountSelection(session, dtmfDigits.trim());
         }
         if (requiresLanguageSelection(session)) {
             return processLanguageSelection(session, dtmfDigits.trim());
@@ -132,6 +138,63 @@ public class VoiceIvrCallbackService {
             return staffRepositoryWrapper.findOneWithNotFoundDetection(recipient.getStaffId());
         }
         return null;
+    }
+
+    private void storeMultiClientCandidatesIfNeeded(final VoiceIvrSession session, final ResolvedRecipientData recipient) {
+        if (!recipient.isAmbiguousClients()) {
+            return;
+        }
+        final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
+        if (WhatsAppSessionContext.PENDING_DISAMBIGUATE_MULTI_CLIENT.equals(context.getPendingAction())) {
+            return;
+        }
+        context.setPendingAction(WhatsAppSessionContext.PENDING_DISAMBIGUATE_MULTI_CLIENT);
+        context.setCandidateClientIds(
+                recipient.getClientIds() == null ? new ArrayList<>() : new ArrayList<>(recipient.getClientIds()));
+        session.setSessionContext(contextSerializer.toJson(context));
+        session.setSessionStatus(VoiceIvrSessionStatus.AWAITING_INPUT);
+        sessionService.save(session);
+    }
+
+    private boolean isAwaitingMultiClientDisambiguation(final VoiceIvrSession session) {
+        final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
+        return WhatsAppSessionContext.PENDING_DISAMBIGUATE_MULTI_CLIENT.equals(context.getPendingAction());
+    }
+
+    private String processMultiClientAccountSelection(final VoiceIvrSession session, final String input) {
+        final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
+        final String language = resolveLanguage(session);
+        final String accountInput = StringUtils.stripEnd(StringUtils.trimToEmpty(input), "#");
+        Client chosen = null;
+        if (StringUtils.isNotBlank(accountInput)) {
+            try {
+                final Client client = clientRepositoryWrapper.getClientByAccountNumber(accountInput);
+                final var allowed = context.getCandidateClientIds();
+                if (client != null && allowed != null && allowed.contains(client.getId())) {
+                    chosen = client;
+                }
+            } catch (final ClientNotFoundException ignored) {
+                chosen = null;
+            }
+        }
+        if (chosen == null) {
+            return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.multiClientAccountInvalid(language));
+        }
+        session.setClient(chosen);
+        clearMultiClientDisambiguation(session, context);
+        if (requiresLanguageSelection(session)) {
+            return presentMenu(session, properties.getVoiceIvr().getLanguageMenuKey(),
+                    properties.getVoiceIvr().getLanguagePickerLanguage(), false);
+        }
+        return presentMenu(session, properties.getVoiceIvr().getMainMenuKey(), language, true);
+    }
+
+    private void clearMultiClientDisambiguation(final VoiceIvrSession session, final WhatsAppSessionContext context) {
+        context.setPendingAction(null);
+        context.setCandidateClientIds(new ArrayList<>());
+        session.setSessionContext(contextSerializer.toJson(context));
+        session.setSessionStatus(VoiceIvrSessionStatus.ACTIVE);
+        sessionService.save(session);
     }
 
     private void storeRoleCandidatesIfNeeded(final VoiceIvrSession session, final ResolvedRecipientData recipient) {
@@ -224,6 +287,9 @@ public class VoiceIvrCallbackService {
     }
 
     private String presentCurrentStep(final VoiceIvrSession session) {
+        if (isAwaitingMultiClientDisambiguation(session)) {
+            return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.multiClientAccountPrompt(resolveLanguage(session)));
+        }
         if (requiresLanguageSelection(session)) {
             return presentMenu(session, properties.getVoiceIvr().getLanguageMenuKey(), properties.getVoiceIvr().getLanguagePickerLanguage(),
                     false);
@@ -264,6 +330,9 @@ public class VoiceIvrCallbackService {
 
     private String handleAwaitingInput(final VoiceIvrSession session, final String input) {
         final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
+        if (WhatsAppSessionContext.PENDING_DISAMBIGUATE_MULTI_CLIENT.equals(context.getPendingAction())) {
+            return processMultiClientAccountSelection(session, input);
+        }
         if (WhatsAppAuthStep.SELECT_LOAN.name().equals(context.getAuthStep())) {
             return loanSelfServiceGate.handleLoanSelection(session, input);
         }

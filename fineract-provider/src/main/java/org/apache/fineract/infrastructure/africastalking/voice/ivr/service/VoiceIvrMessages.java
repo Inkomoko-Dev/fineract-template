@@ -61,14 +61,14 @@ public final class VoiceIvrMessages {
 
     public static String otpSentPrompt(final String languageCode) {
         return "rw".equalsIgnoreCase(languageCode)
-                ? "Twoherejwe kode y'igenzura kuri WhatsApp yawe. Andika kode ukurikije hash."
-                : "We sent a verification code to your WhatsApp number. Enter the code followed by hash.";
+                ? "Twohereje kode y'igenzura kuri SMS. Andika kode ukurikije hash."
+                : "We sent a verification code by SMS. Enter the code followed by hash.";
     }
 
     public static String otpDeliveryFailed(final String languageCode) {
         return "rw".equalsIgnoreCase(languageCode)
-                ? "Ntitwashoboye kohereza kode kuri WhatsApp yawe. Hamagara umujyanama wacu cyangwa gerageza nyuma."
-                : "We could not deliver a verification code to your WhatsApp number. Please contact an advisor or try again later.";
+                ? "Ntitwashoboye kohereza kode kuri SMS. Hamagara umujyanama wacu cyangwa gerageza nyuma."
+                : "We could not deliver a verification code by SMS. Please contact an advisor or try again later.";
     }
 
     public static String otpInvalid(final String languageCode) {
@@ -142,6 +142,18 @@ public final class VoiceIvrMessages {
         return "rw".equalsIgnoreCase(languageCode)
                 ? "Kanda 1 ku serivisi z'abakiriya, cyangwa 2 ku serivisi z'abakozi."
                 : "Press 1 for client services, or 2 for staff services.";
+    }
+
+    public static String multiClientAccountPrompt(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Iyi telefone ifitanye n'amakonti menshi. Andika nimero ya konti y'umukiriya ukurikije hash."
+                : "This phone number is linked to more than one client. Enter your client account number followed by hash.";
+    }
+
+    public static String multiClientAccountInvalid(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Konti ntiyabonetse cyangwa ntabwo ari iyo ya nimero yawe. Ongera ugerageze."
+                : "We could not match that account to this phone number. Please try again.";
     }
 
     public static String agentUnavailableFallback(final String languageCode) {

@@ -99,6 +99,8 @@ class RecipientResolutionServiceTest {
     void returnsMultiClientWhenPhoneMatchesMultipleClients() {
         final Client clientA = mock(Client.class);
         final Client clientB = mock(Client.class);
+        when(clientA.getId()).thenReturn(10L);
+        when(clientB.getId()).thenReturn(11L);
         when(clientRepository.findByMobileNumbers(anyList())).thenReturn(List.of(clientA, clientB));
         when(staffRepository.findByMobileNumbers(anyList())).thenReturn(List.of());
 
@@ -106,6 +108,7 @@ class RecipientResolutionServiceTest {
 
         assertEquals(RecipientType.MULTI_CLIENT, resolved.getRecipientType());
         assertNull(resolved.getClientId());
+        assertEquals(List.of(10L, 11L), resolved.getClientIds());
     }
 
     @Test
