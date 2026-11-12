@@ -53,6 +53,8 @@ class WhatsAppSupportTicketServiceTest {
     private CommunicationMessageRepository communicationMessageRepository;
     @Mock
     private StaffRepositoryWrapper staffRepositoryWrapper;
+    @Mock
+    private WhatsAppOperationalNotificationService operationalNotificationService;
 
     private WhatsAppSupportTicketService service;
 
@@ -60,7 +62,7 @@ class WhatsAppSupportTicketServiceTest {
     void setUp() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         service = new WhatsAppSupportTicketService(ticketRepository, businessHoursService, communicationMessageRepository,
-                staffRepositoryWrapper);
+                staffRepositoryWrapper, operationalNotificationService);
     }
 
     @AfterEach

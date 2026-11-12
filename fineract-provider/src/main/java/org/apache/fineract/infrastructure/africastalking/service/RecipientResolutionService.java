@@ -52,6 +52,7 @@ public class RecipientResolutionService {
             return ResolvedRecipientData.multiClient(normalizedPhoneNumber, clientIds);
         }
         if (!clients.isEmpty() && !staffMembers.isEmpty()) {
+            // Odoo staff sync for richer disambiguation is deferred; WhatsApp prompts local pick only.
             return ResolvedRecipientData.clientAndStaff(normalizedPhoneNumber, clients.get(0).getId(), staffMembers.get(0).getId());
         }
         if (!clients.isEmpty()) {
