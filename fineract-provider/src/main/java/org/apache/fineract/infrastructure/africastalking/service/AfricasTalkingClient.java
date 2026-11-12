@@ -184,6 +184,29 @@ public class AfricasTalkingClient {
         return executeRequest("initiate voice call", request);
     }
 
+    /**
+     * Send an SMS via Africa's Talking Messaging API. Does not persist the message body in Fineract.
+     */
+    public AfricasTalkingApiResponse sendSms(final String recipientPhoneNumber, final String messageText) throws IOException {
+        validateConfigured();
+        if (StringUtils.isBlank(recipientPhoneNumber) || StringUtils.isBlank(messageText)) {
+            throw new IllegalArgumentException("SMS recipient and message are required");
+        }
+        final StringBuilder formBody = new StringBuilder();
+        formBody.append("username=").append(urlEncode(properties.getUsername()));
+        formBody.append("&to=").append(urlEncode(recipientPhoneNumber));
+        formBody.append("&message=").append(urlEncode(messageText));
+        if (StringUtils.isNotBlank(properties.getSms().getSenderId())) {
+            formBody.append("&from=").append(urlEncode(properties.getSms().getSenderId()));
+        }
+        final HttpUrl url = HttpUrl.parse(properties.getBaseUrl() + AfricasTalkingConstants.SMS_MESSAGING_PATH);
+        final Request request = new Request.Builder().url(url)
+                .post(RequestBody.create(formBody.toString(), MediaType.parse("application/x-www-form-urlencoded")))
+                .addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
+                .addHeader("Accept", "application/json").build();
+        return executeRequest("send SMS", request);
+    }
+
     private AfricasTalkingApiResponse executeRequest(final String operationName, final Request request) throws IOException {
         try (Response response = integrationHttpRetryService.execute(AfricasTalkingConstants.USER_AGENT_PREFIX, operationName, httpClient,
                 request)) {
