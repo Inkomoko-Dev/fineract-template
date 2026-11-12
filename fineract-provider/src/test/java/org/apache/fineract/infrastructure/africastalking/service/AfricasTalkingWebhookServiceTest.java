@@ -27,6 +27,9 @@ import static org.mockito.Mockito.when;
 
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEvent;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEventRepository;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,7 +50,13 @@ class AfricasTalkingWebhookServiceTest {
 
     @BeforeEach
     void setUp() {
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         webhookService = new AfricasTalkingWebhookService(webhookVerifier, webhookEventRepository);
+    }
+
+    @AfterEach
+    void tearDown() {
+        ThreadLocalContextUtil.clearTenant();
     }
 
     @Test
