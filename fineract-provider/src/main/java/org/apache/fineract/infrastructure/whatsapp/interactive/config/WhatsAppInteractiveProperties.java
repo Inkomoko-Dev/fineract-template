@@ -44,6 +44,8 @@ public class WhatsAppInteractiveProperties {
     private int slaFirstResponseHours = 4;
     private boolean notifyOnTicketCreated = true;
     private boolean notifyOnSlaBreach = true;
+    private boolean notifyOnTicketAssigned = true;
+    private boolean notifyOnTicketResolved = true;
     private String operationalNotifyUserIds = "";
     private boolean staffSelfServiceEnabled = true;
     private String staffMainMenuKey = "STAFF_MAIN";
