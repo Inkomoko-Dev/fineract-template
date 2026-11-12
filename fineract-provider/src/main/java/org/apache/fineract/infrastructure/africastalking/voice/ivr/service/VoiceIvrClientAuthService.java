@@ -165,7 +165,7 @@ public class VoiceIvrClientAuthService {
                 context.setAuthStep(null);
                 session.setSessionContext(contextSerializer.toJson(context));
                 sessionService.save(session);
-                return transferToSupportOrHangup(language);
+                return transferToSupportOrHangup(session, language);
             }
             return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.otpInvalid(language));
         }
@@ -213,10 +213,11 @@ public class VoiceIvrClientAuthService {
         return phoneNumberNormalizer.normalize(client.mobileNo());
     }
 
-    private String transferToSupportOrHangup(final String language) {
-        final String supportNumber = dialTargetResolver.resolve("SUPPORT");
+    private String transferToSupportOrHangup(final VoiceIvrSession session, final String language) {
+        final String supportNumber = dialTargetResolver.resolve("SUPPORT", session);
         if (StringUtils.isNotBlank(supportNumber)) {
-            return VoiceXmlBuilder.buildConnectingDial(VoiceIvrMessages.otpAttemptsExhausted(language), supportNumber, false);
+            return VoiceXmlBuilder.buildConnectingDial(VoiceIvrMessages.otpAttemptsExhausted(language), supportNumber, false,
+                    VoiceIvrMessages.agentUnavailableFallback(language));
         }
         return VoiceXmlBuilder.buildHangup(VoiceIvrMessages.otpAttemptsExhausted(language));
     }

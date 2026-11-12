@@ -41,6 +41,7 @@ import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceCallQueueService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceCallbackRequestService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceIvrCallbackService;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceIvrSessionService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceVoicemailService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -69,9 +70,25 @@ public class AfricasTalkingVoiceService {
     private final VoiceCallbackRequestService voiceCallbackRequestService;
     private final VoiceCallQueueService voiceCallQueueService;
     private final VoiceIvrSessionRepository voiceIvrSessionRepository;
+    private final VoiceIvrSessionService voiceIvrSessionService;
+
+    private static final String EMPTY_VOICE_RESPONSE = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>";
 
     public String buildIvrResponse(final String rawPayload) {
-        return voiceIvrCallbackService.handleInbound(rawPayload);
+        final String xml = voiceIvrCallbackService.handleInbound(rawPayload);
+        final Map<String, String> values = AfricasTalkingPayloadParser.toMap(rawPayload);
+        final String sessionId = AfricasTalkingPayloadParser.firstNonBlank(values, "sessionId", "callSessionId");
+        voiceIvrSessionService.storeLastIvrXml(sessionId, xml);
+        return xml;
+    }
+
+    /**
+     * Replay the last IVR XML for an identical AT retry without re-entering menu/OTP side effects.
+     */
+    public String resolveDuplicateIvrResponse(final String rawPayload) {
+        final Map<String, String> values = AfricasTalkingPayloadParser.toMap(rawPayload);
+        final String sessionId = AfricasTalkingPayloadParser.firstNonBlank(values, "sessionId", "callSessionId");
+        return voiceIvrSessionService.findLastIvrXml(sessionId).orElse(EMPTY_VOICE_RESPONSE);
     }
 
     @Transactional

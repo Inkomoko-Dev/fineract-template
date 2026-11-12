@@ -107,7 +107,25 @@ class AfricasTalkingWebhookServiceTest {
 
         final String eventId = webhookService.extractEventId(payload, AfricasTalkingClient.sha256Hex(payload));
 
-        assertEquals("ATV_AUTH:OTP:Completed", eventId);
+        assertTrue(eventId.startsWith("ATV_AUTH:OTP:"));
+        assertTrue(eventId.endsWith(":Completed"));
         assertTrue(!eventId.contains("654321"));
+    }
+
+    @Test
+    void distinctAuthDtmfAttemptsProduceDistinctEventIds() {
+        final VoiceIvrSession session = new VoiceIvrSession();
+        session.setSessionStatus(VoiceIvrSessionStatus.AUTHENTICATING);
+        when(voiceIvrSessionRepository.findByExternalSessionIdOrderByLastActivityAtDesc("ATV_AUTH")).thenReturn(List.of(session));
+
+        final String first = "sessionId=ATV_AUTH&dtmfDigits=111111&callSessionState=Completed";
+        final String second = "sessionId=ATV_AUTH&dtmfDigits=222222&callSessionState=Completed";
+
+        final String firstId = webhookService.extractEventId(first, AfricasTalkingClient.sha256Hex(first));
+        final String secondId = webhookService.extractEventId(second, AfricasTalkingClient.sha256Hex(second));
+
+        assertTrue(!firstId.equals(secondId));
+        assertTrue(!firstId.contains("111111"));
+        assertTrue(!secondId.contains("222222"));
     }
 }

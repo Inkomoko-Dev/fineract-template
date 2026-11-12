@@ -33,10 +33,21 @@ public class VoiceRecordingAccessAuditService {
     private final JdbcTemplate jdbcTemplate;
 
     @Transactional
-    public void recordAccess(final Long userId, final String username, final Long callLogId, final String recordingUrl) {
-        log.info("Voice recording accessed by userId={} username={} callLogId={}", userId, username, callLogId);
+    public void recordCallLogAccess(final Long userId, final String username, final Long callLogId, final String recordingUrl) {
+        log.info("Voice call recording accessed by userId={} username={} callLogId={}", userId, username, callLogId);
         jdbcTemplate.update(
-                "insert into voice_recording_access_log (user_id, username, call_log_id, recording_url_present, accessed_at) values (?, ?, ?, ?, ?)",
+                "insert into voice_recording_access_log (user_id, username, call_log_id, voicemail_id, recording_url_present, accessed_at) "
+                        + "values (?, ?, ?, null, ?, ?)",
                 userId, username, callLogId, recordingUrl != null && !recordingUrl.isBlank(), DateUtils.getLocalDateTimeOfTenant());
     }
+
+    @Transactional
+    public void recordVoicemailAccess(final Long userId, final String username, final Long voicemailId, final String recordingUrl) {
+        log.info("Voice voicemail recording accessed by userId={} username={} voicemailId={}", userId, username, voicemailId);
+        jdbcTemplate.update(
+                "insert into voice_recording_access_log (user_id, username, call_log_id, voicemail_id, recording_url_present, accessed_at) "
+                        + "values (?, ?, null, ?, ?, ?)",
+                userId, username, voicemailId, recordingUrl != null && !recordingUrl.isBlank(), DateUtils.getLocalDateTimeOfTenant());
+    }
+
 }

@@ -186,7 +186,8 @@ class VoiceIvrClientAuthServiceTest {
         when(phoneNumberNormalizer.normalize("+254700000099")).thenReturn("+254700000099");
         when(otpService.verifyOtp("+254700000099", "000000")).thenReturn(false);
         when(otpService.isAttemptsExhausted("+254700000099")).thenReturn(true);
-        when(dialTargetResolver.resolve("SUPPORT")).thenReturn("+254711000000");
+        when(dialTargetResolver.resolve(org.mockito.ArgumentMatchers.eq("SUPPORT"), org.mockito.ArgumentMatchers.any()))
+                .thenReturn("+254711000000");
         when(sessionService.save(session)).thenReturn(session);
 
         final String xml = authService.handleAuthInput(session, "000000");

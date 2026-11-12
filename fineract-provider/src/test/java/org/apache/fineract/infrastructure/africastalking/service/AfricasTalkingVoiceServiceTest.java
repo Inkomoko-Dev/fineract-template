@@ -78,6 +78,8 @@ class AfricasTalkingVoiceServiceTest {
     private VoiceCallQueueService voiceCallQueueService;
     @Mock
     private VoiceIvrSessionRepository voiceIvrSessionRepository;
+    @Mock
+    private org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceIvrSessionService voiceIvrSessionService;
 
     private AfricasTalkingProperties properties;
     private AfricasTalkingVoiceService voiceService;
@@ -97,7 +99,7 @@ class AfricasTalkingVoiceServiceTest {
         voiceService = new AfricasTalkingVoiceService(africasTalkingClient, properties, voiceCallLogRepository,
                 recipientResolutionService, phoneNumberNormalizer, clientRepositoryWrapper, staffRepositoryWrapper,
                 voiceIvrCallbackService, voiceVoicemailService, callbackRequestRepository, voiceCallbackRequestService,
-                voiceCallQueueService, voiceIvrSessionRepository);
+                voiceCallQueueService, voiceIvrSessionRepository, voiceIvrSessionService);
     }
 
     @org.junit.jupiter.api.AfterEach
