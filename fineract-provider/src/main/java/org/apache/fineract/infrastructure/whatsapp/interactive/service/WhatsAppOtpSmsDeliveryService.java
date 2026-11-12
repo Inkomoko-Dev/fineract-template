@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingClient;
 import org.springframework.stereotype.Service;
@@ -44,8 +45,9 @@ public class WhatsAppOtpSmsDeliveryService {
         try {
             final var response = africasTalkingClient.sendSms(registeredMobile,
                     WhatsAppInteractiveMessages.otpSmsBody(languageCode, otp));
-            if (!response.isSuccessful()) {
-                log.warn("Africa's Talking SMS OTP delivery returned HTTP {}", response.statusCode());
+            if (!response.isSmsDeliverySuccessful()) {
+                log.warn("Africa's Talking SMS OTP delivery failed HTTP {} body={}", response.statusCode(),
+                        StringUtils.abbreviate(response.body(), 200));
                 return false;
             }
             log.debug("Delivered WhatsApp interactive OTP via SMS");

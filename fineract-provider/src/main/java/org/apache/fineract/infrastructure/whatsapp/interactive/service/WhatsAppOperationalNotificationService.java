@@ -45,8 +45,12 @@ public class WhatsAppOperationalNotificationService {
         if (!settingsProvider.isNotifyOnTicketCreated()) {
             return;
         }
-        notifyRecipients(ticket, WhatsAppOperationalNotificationType.TICKET_CREATED, "CREATED",
-                "New WhatsApp support ticket " + ticket.getTicketNumber() + " (" + ticket.getCategory() + ")");
+        final StringBuilder content = new StringBuilder("New WhatsApp support ticket ").append(ticket.getTicketNumber()).append(" (")
+                .append(ticket.getCategory()).append(")");
+        if (ticket.getAssignedStaff() != null) {
+            content.append(" assigned to ").append(ticket.getAssignedStaff().displayName());
+        }
+        notifyRecipients(ticket, WhatsAppOperationalNotificationType.TICKET_CREATED, "CREATED", content.toString());
     }
 
     @Transactional

@@ -75,11 +75,9 @@ public class WhatsAppSupportTicketService {
             ticket.setAssignedStaff(client.getStaff());
             ticket.setStatus(WhatsAppTicketStatus.ASSIGNED);
         }
-        final WhatsAppSupportTicket saved = ticketRepository.save(ticket);
-        if (saved.getAssignedStaff() != null) {
-            operationalNotificationService.notifyTicketAssigned(saved);
-        }
-        return saved;
+        // Auto-assign IO silently on create; CREATED notification (from escalate) includes the ticket.
+        // ASSIGNED is reserved for later manual reassignment via assignTicket.
+        return ticketRepository.save(ticket);
     }
 
     @Transactional

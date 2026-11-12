@@ -41,8 +41,7 @@ import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInboundConversationService;
-import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveMessages;
-import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppReplyService;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppSharedNumberDisambiguationService;
 import org.apache.fineract.infrastructure.whatsapp.provider.CommunicationMessageStatusUpdater;
 import org.apache.fineract.infrastructure.whatsapp.provider.WhatsAppProvider;
 import org.springframework.stereotype.Service;
@@ -61,7 +60,7 @@ public class AfricasTalkingWhatsAppService {
     private final FromJsonHelper fromJsonHelper;
     private final NotificationCommandService notificationCommandService;
     private final WhatsAppInboundConversationService inboundConversationService;
-    private final WhatsAppReplyService replyService;
+    private final WhatsAppSharedNumberDisambiguationService sharedNumberDisambiguationService;
     private final CommunicationMessageStatusUpdater statusUpdater;
 
     @Transactional
@@ -132,10 +131,7 @@ public class AfricasTalkingWhatsAppService {
         message.setProvider(WhatsAppProvider.AFRICASTALKING.name());
         communicationMessageRepository.save(message);
         if (recipient.getRecipientType() == RecipientType.MULTI_CLIENT || recipient.getRecipientType() == RecipientType.CLIENT_AND_STAFF) {
-            final String prompt = recipient.getRecipientType() == RecipientType.MULTI_CLIENT
-                    ? WhatsAppInteractiveMessages.sharedNumberMultiClientPrompt("en")
-                    : WhatsAppInteractiveMessages.sharedNumberClientAndStaffPrompt("en");
-            replyService.sendTransactionalReply(recipient.getNormalizedPhoneNumber(), recipient.getRecipientType(), client, staff, prompt);
+            sharedNumberDisambiguationService.handleAmbiguousInbound(recipient.getNormalizedPhoneNumber(), messageBody, recipient);
             return;
         }
         inboundConversationService.handleInbound(recipient.getNormalizedPhoneNumber(), messageBody, recipient.getRecipientType(), client,

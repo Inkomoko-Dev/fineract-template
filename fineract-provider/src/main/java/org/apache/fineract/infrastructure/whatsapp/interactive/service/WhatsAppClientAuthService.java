@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
 import java.time.LocalDateTime;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
@@ -36,6 +37,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 public class WhatsAppClientAuthService {
 
     private final WhatsAppConversationSessionService sessionService;
@@ -207,8 +209,8 @@ public class WhatsAppClientAuthService {
         if (context.getCandidateClientId() != null) {
             try {
                 client = clientRepositoryWrapper.findOneWithNotFoundDetection(context.getCandidateClientId());
-            } catch (final RuntimeException ignored) {
-                // keep webhook client
+            } catch (final RuntimeException ex) {
+                log.warn("AUTH_LOCKOUT could not load candidate client {}", context.getCandidateClientId(), ex);
             }
         }
         context.setAuthStep(null);
@@ -233,7 +235,8 @@ public class WhatsAppClientAuthService {
                 if (senderOwnsRegisteredMobile(session, client)) {
                     return phoneNumberNormalizer.normalize(client.mobileNo());
                 }
-            } catch (final RuntimeException ignored) {
+            } catch (final RuntimeException ex) {
+                log.warn("Could not resolve registered mobile for candidate client {}", context.getCandidateClientId(), ex);
                 return null;
             }
         }
