@@ -27,10 +27,10 @@ import javax.ws.rs.core.MediaType;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
-import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.notifications.constants.ChannelNotificationConstants;
 import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
 import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
+import org.apache.fineract.infrastructure.notifications.policy.WhatsAppOutboundPolicyExceptionFactory;
 import org.apache.fineract.infrastructure.notifications.serialization.ChannelNotificationValidator;
 import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -61,7 +61,7 @@ public class ChannelNotificationsApiResource {
         final NotificationCommand command = channelNotificationValidator.parseCommand(apiRequestBodyAsJson);
         final NotificationResult result = notificationCommandService.send(command);
         if (!result.isAccepted()) {
-            throw new GeneralPlatformDomainRuleException("error.msg.channel.notification.rejected", result.getRejectionReason());
+            throw WhatsAppOutboundPolicyExceptionFactory.create(command.getPhoneNumber(), result.getRejectionReason());
         }
         return commandProcessingResultSerializer.serializeResult(CommandProcessingResult.resourceResult(result.getResourceId(), null));
     }

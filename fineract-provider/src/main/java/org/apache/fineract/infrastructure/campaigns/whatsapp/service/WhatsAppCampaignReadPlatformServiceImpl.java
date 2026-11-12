@@ -58,17 +58,20 @@ public class WhatsAppCampaignReadPlatformServiceImpl implements WhatsAppCampaign
     private final JdbcTemplate jdbcTemplate;
     private final SmsCampaignDropdownReadPlatformService smsCampaignDropdownReadPlatformService;
     private final CalendarDropdownReadPlatformService calendarDropdownReadPlatformService;
+    private final WhatsAppAtTemplateCatalogService whatsAppAtTemplateCatalogService;
     private final BusinessRuleMapper businessRuleMapper;
 
     @Autowired
     public WhatsAppCampaignReadPlatformServiceImpl(final WhatsAppCampaignRepository whatsAppCampaignRepository,
             final JdbcTemplate jdbcTemplate, final SmsCampaignDropdownReadPlatformService smsCampaignDropdownReadPlatformService,
             final CalendarDropdownReadPlatformService calendarDropdownReadPlatformService,
+            final WhatsAppAtTemplateCatalogService whatsAppAtTemplateCatalogService,
             final org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator sqlGenerator) {
         this.whatsAppCampaignRepository = whatsAppCampaignRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.smsCampaignDropdownReadPlatformService = smsCampaignDropdownReadPlatformService;
         this.calendarDropdownReadPlatformService = calendarDropdownReadPlatformService;
+        this.whatsAppAtTemplateCatalogService = whatsAppAtTemplateCatalogService;
         this.businessRuleMapper = new BusinessRuleMapper(sqlGenerator);
     }
 
@@ -90,7 +93,8 @@ public class WhatsAppCampaignReadPlatformServiceImpl implements WhatsAppCampaign
                 .retrieveCalendarFrequencyTypeOptions();
         final Collection<EnumOptionData> periodFrequencyOptions = this.smsCampaignDropdownReadPlatformService.retrivePeriodFrequencyTypes();
         return WhatsAppCampaignData.template(businessRulesOptions, campaignTypeOptions, campaignTriggerTypeOptions, months, weekDays,
-                frequencyTypeOptions, periodFrequencyOptions, WhatsAppCampaignEnumerations.whatsAppRecipientTypeOptions());
+                frequencyTypeOptions, periodFrequencyOptions, WhatsAppCampaignEnumerations.whatsAppRecipientTypeOptions(),
+                this.whatsAppAtTemplateCatalogService.retrieveApproved());
     }
 
     @Override

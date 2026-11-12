@@ -33,6 +33,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.notifications.constants.NotificationPurpose;
 import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
 import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
+import org.apache.fineract.infrastructure.notifications.policy.WhatsAppOutboundPolicyExceptionFactory;
 import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
@@ -88,7 +89,7 @@ public class AfricasTalkingWhatsAppService {
 
         final NotificationResult result = notificationCommandService.send(command);
         if (!result.isAccepted()) {
-            throw new IllegalStateException(result.getRejectionReason());
+            throw WhatsAppOutboundPolicyExceptionFactory.create(phoneNumber, result.getRejectionReason());
         }
         return CommandProcessingResult.resourceResult(result.getResourceId(), null);
     }

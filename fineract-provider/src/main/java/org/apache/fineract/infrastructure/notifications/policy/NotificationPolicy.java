@@ -29,4 +29,16 @@ public interface NotificationPolicy {
     default boolean isAllowed(final NotificationChannel channel, final String phoneNumber, final NotificationPurpose purpose) {
         return true;
     }
+
+    /**
+     * Machine-stable denial code when {@link #isAllowed} is false; null when allowed.
+     * Values: {@code OPTED_OUT}, {@code CONSENT_REQUIRED}, {@code CONSENT_DENIED}, {@code POLICY_BLOCKED}.
+     */
+    default String denialCode(final NotificationCommand command) {
+        return isAllowed(command) ? null : "POLICY_BLOCKED";
+    }
+
+    default String denialCode(final NotificationChannel channel, final String phoneNumber, final NotificationPurpose purpose) {
+        return isAllowed(channel, phoneNumber, purpose) ? null : "POLICY_BLOCKED";
+    }
 }

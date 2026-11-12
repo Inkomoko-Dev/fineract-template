@@ -18,7 +18,9 @@
  */
 package org.apache.fineract.infrastructure.notifications.policy;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
@@ -58,6 +60,7 @@ class DefaultNotificationPolicyTest {
         when(whatsAppConsentService.hasActiveConsent("+254700000002")).thenReturn(false);
 
         assertFalse(policy.isAllowed(NotificationChannel.WHATSAPP, "+254700000002", NotificationPurpose.HOOK));
+        assertEquals("CONSENT_REQUIRED", policy.denialCode(NotificationChannel.WHATSAPP, "+254700000002", NotificationPurpose.HOOK));
     }
 
     @Test
@@ -66,5 +69,14 @@ class DefaultNotificationPolicyTest {
         when(whatsAppConsentService.hasActiveConsent("+254700000003")).thenReturn(true);
 
         assertTrue(policy.isAllowed(NotificationChannel.WHATSAPP, "+254700000003", NotificationPurpose.AD_HOC));
+        assertNull(policy.denialCode(NotificationChannel.WHATSAPP, "+254700000003", NotificationPurpose.AD_HOC));
+    }
+
+    @Test
+    void optedOutBlocksAdHoc() {
+        when(whatsAppOptOutService.isOptedOut("+254700000004")).thenReturn(true);
+
+        assertFalse(policy.isAllowed(NotificationChannel.WHATSAPP, "+254700000004", NotificationPurpose.AD_HOC));
+        assertEquals("OPTED_OUT", policy.denialCode(NotificationChannel.WHATSAPP, "+254700000004", NotificationPurpose.AD_HOC));
     }
 }

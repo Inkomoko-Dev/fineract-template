@@ -310,7 +310,7 @@ public class ReadReportingServiceImplTest {
                 + "left join m_client mc2 on mc2.id = ml.client_id order by loanId ) mc on mc.office_id = "
                 + "ounder.id right join m_loan as ml on mc.loanId = ml.id right join( select mlt.amount as "
                 + "amountPaid,mlt.id,mlt.loan_id from m_loan_transaction mlt where mlt.is_reversed = 0 group by "
-                + "mlt.loan_id ) as mlt on mlt.loan_id = ml.id right join m_loan_repayment_schedule as mls1 on "
+                + "mlt.loan_id, mlt.id ) as mlt on mlt.loan_id = ml.id right join m_loan_repayment_schedule as mls1 on "
                 + "ml.id = mls1.loan_id and mls1.`completed_derived` = 0 and mls1.installment = (SELECT MIN(installment) "
                 + "from m_loan_repayment_schedule where loan_id = ml.id and duedate <= CURDATE() and "
                 + "completed_derived=0) where mc.status_enum = 300 and mobile_no is not null and ml.`loan_status_id` "
@@ -323,6 +323,7 @@ public class ReadReportingServiceImplTest {
 
         assertThat(sql).contains("group by ml.id, mc.id, mc.firstname, mc.middlename, mc.lastname, "
                 + "mc.display_name, mc.mobile_no, mc.group_name, mlt.amountPaid");
+        assertThat(sql).contains("group by mlt.loan_id, mlt.id");
     }
 
     @Test
