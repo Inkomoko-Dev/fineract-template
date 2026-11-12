@@ -20,24 +20,31 @@ package org.apache.fineract.portfolio.loanaccount.service;
 
 import com.google.gson.Gson;
 import java.math.BigDecimal;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import javax.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.domain.EmailDetail;
+import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.PlatformEmailService;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
+import org.apache.fineract.portfolio.businessevent.domain.loan.LoanDisbursalBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.LoanAdjustTransactionBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.TrancheRepaymentThresholdMetBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanTransactionMakeRepaymentPostBusinessEvent;
 import org.apache.fineract.portfolio.businessevent.service.BusinessEventNotifierService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanSubStatus;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseNotice;
@@ -46,8 +53,12 @@ import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.AppUserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Slf4j
 @Service
@@ -59,6 +70,8 @@ public class TrancheReleaseNotificationService {
     private final LoanRepository loanRepository;
     private final PlatformEmailService emailService;
     private final AppUserRepository appUserRepository;
+    private final TrancheMilestoneEligibilityService eligibility;
+    private final PlatformTransactionManager transactionManager;
     private final Gson gson = new Gson();
 
     @PostConstruct
@@ -66,12 +79,40 @@ public class TrancheReleaseNotificationService {
         this.businessEventNotifierService.addPostBusinessEventListener(LoanTransactionMakeRepaymentPostBusinessEvent.class,
                 new RepaymentListener());
         this.businessEventNotifierService.addPostBusinessEventListener(LoanAdjustTransactionBusinessEvent.class, new AdjustmentListener());
+        this.businessEventNotifierService.addPostBusinessEventListener(LoanDisbursalBusinessEvent.class, new DisbursalListener());
     }
 
     @Transactional
     public void onRepayment(final Loan loan) {
+        final TrancheMilestoneEligibilityService.Refresh refresh = this.eligibility.refresh(loan);
         final TrancheReleaseRules.Assessment assessment = TrancheReleaseRules.assess(loan);
-        if (assessment == null || assessment.previous.getId() == null) {
+        if (refresh.milestoneRequired) {
+            final Long noticeDetailId = upcomingDetailId(loan);
+            if (noticeDetailId == null) {
+                return;
+            }
+            if (assessment == null || !assessment.met()) {
+                this.noticeRepository.deleteByLoanIdAndDisbursementDetailId(loan.getId(), noticeDetailId);
+                if (assessment != null && assessment.previous != null && assessment.previous.getId() != null) {
+                    this.noticeRepository.deleteByLoanIdAndDisbursementDetailId(loan.getId(), assessment.previous.getId());
+                }
+                return;
+            }
+            if (!refresh.sendSurveyNotice() || this.noticeRepository.existsByLoanIdAndDisbursementDetailId(loan.getId(), noticeDetailId)) {
+                return;
+            }
+            this.businessEventNotifierService.notifyPostBusinessEvent(new TrancheRepaymentThresholdMetBusinessEvent(loan));
+            final String surveyEmail = loanOfficerEmail(loan);
+            final String surveyOfficerName = loan.getLoanOfficer() == null ? "Investment Officer" : loan.getLoanOfficer().displayName();
+            final String surveyClientName = loan.getClient() == null ? "" : loan.getClient().getDisplayName();
+            final String surveyAccount = loan.getAccountNumber();
+            final String surveyDeadline = refresh.firstRepaymentDueDate == null ? ""
+                    : refresh.firstRepaymentDueDate.format(DateTimeFormatter.ofPattern("dd MMMM yyyy"));
+            sendNoticeAfterCommit(loan.getId(), noticeDetailId,
+                    () -> sendSurveyEmail(surveyEmail, surveyOfficerName, surveyClientName, surveyAccount, surveyDeadline));
+            return;
+        }
+        if (assessment == null || assessment.previous == null || assessment.previous.getId() == null) {
             return;
         }
         if (!assessment.met()) {
@@ -81,10 +122,54 @@ public class TrancheReleaseNotificationService {
         if (this.noticeRepository.existsByLoanIdAndDisbursementDetailId(loan.getId(), assessment.previous.getId())) {
             return;
         }
-        this.noticeRepository.save(new TrancheReleaseNotice(loan.getId(), assessment.previous.getId(),
-                DateUtils.getOffsetDateTimeOfTenant()));
         this.businessEventNotifierService.notifyPostBusinessEvent(new TrancheRepaymentThresholdMetBusinessEvent(loan));
-        sendEmail(loan, assessment);
+        final String releaseEmail = loanOfficerEmail(loan);
+        final String releaseOfficerName = loan.getLoanOfficer() == null ? "Loan officer" : loan.getLoanOfficer().displayName();
+        final String releaseSubject = "Next tranche can be disbursed for loan " + loan.getAccountNumber();
+        final String releaseBody = emailBody(loan, assessment);
+        final String releaseAccount = loan.getAccountNumber();
+        sendNoticeAfterCommit(loan.getId(), assessment.previous.getId(),
+                () -> sendEmail(releaseEmail, releaseOfficerName, releaseSubject, releaseBody, releaseAccount));
+    }
+
+    /**
+     * The repayment transaction has already committed before the email is attempted. The notice row is written
+     * only after a successful send, so a missing address or a mail failure can be retried on the next repayment.
+     */
+    private void sendNoticeAfterCommit(final Long loanId, final Long disbursementDetailId, final BooleanSupplier sender) {
+        AfterCommitExecutor.execute(() -> {
+            final boolean alreadyNotified = Boolean.TRUE.equals(inNewTransaction(
+                    () -> this.noticeRepository.existsByLoanIdAndDisbursementDetailId(loanId, disbursementDetailId)));
+            if (alreadyNotified || !sender.getAsBoolean()) {
+                return;
+            }
+            inNewTransaction(() -> {
+                recordNotice(loanId, disbursementDetailId);
+                return null;
+            });
+        });
+    }
+
+    private <T> T inNewTransaction(final Supplier<T> work) {
+        final TransactionTemplate template = new TransactionTemplate(this.transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template.execute(status -> work.get());
+    }
+
+    /**
+     * Returns false when another repayment already recorded the notice. A unique-key collision is
+     * treated as already notified so the repayment transaction is not rolled back.
+     */
+    private boolean recordNotice(final Long loanId, final Long disbursementDetailId) {
+        try {
+            this.noticeRepository.save(new TrancheReleaseNotice(loanId, disbursementDetailId, DateUtils.getOffsetDateTimeOfTenant()));
+            this.noticeRepository.flush();
+            return true;
+        } catch (DataIntegrityViolationException ex) {
+            log.info("Tranche release notice already exists for loan {} disbursement {}. Treating as already notified.", loanId,
+                    disbursementDetailId);
+            return false;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -93,28 +178,60 @@ public class TrancheReleaseNotificationService {
         return this.gson.toJson(report(loan, TrancheReleaseRules.assess(loan)));
     }
 
-    private void sendEmail(final Loan loan, final TrancheReleaseRules.Assessment assessment) {
-        final String email = loanOfficerEmail(loan);
-        final Staff officer = loan.getLoanOfficer();
+    private static Long upcomingDetailId(final Loan loan) {
+        final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
+        return next == null ? null : next.getId();
+    }
+
+    private boolean sendSurveyEmail(final String email, final String officerName, final String clientName, final String accountNo,
+            final String deadline) {
         if (email == null || email.isBlank()) {
-            log.warn("Tranche repayment threshold met for loan {} but the loan officer has no email.", loan.getId());
-            return;
+            log.warn("Tranche repayment conditions are met for loan {} but the loan officer has no email.", accountNo);
+            return false;
         }
-        final String officerName = officer == null ? "Loan officer" : officer.displayName();
-        final EmailDetail detail = new EmailDetail("Next tranche can be disbursed for loan " + loan.getAccountNumber(),
-                emailBody(loan, assessment), email, officerName);
+        final String subject = "Action Required: Second-Tranche Due Diligence – " + accountNo;
+        final String body = "<html><body style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.5;\">"
+                + "<p>Dear " + html(officerName) + ",</p>"
+                + "<p>The first required repayment has been received for the loan below.</p>"
+                + "<p style=\"margin:0 0 8px;\"><strong>Loan ID:</strong> " + html(accountNo) + "</p>"
+                + "<p style=\"margin:0 0 8px;\"><strong>Client Name:</strong> " + html(clientName) + "</p>"
+                + "<p style=\"margin:0 0 16px;\"><strong>Second-Tranche Deadline:</strong> " + html(deadline) + "</p>"
+                + "<p>Please complete the business verification and additional funding needs assessment in SurveyCTO "
+                + "before the deadline to facilitate second-tranche approval.</p>"
+                + "</body></html>";
         try {
-            this.emailService.sendDefinedEmail(detail);
+            this.emailService.sendDefinedEmail(new EmailDetail(subject, body, email, officerName));
+            return true;
         } catch (RuntimeException ex) {
-            log.error("Tranche release email could not be sent for loan {}. The repayment was still posted.", loan.getId(), ex);
+            log.error("Tranche milestone email could not be sent for loan {}. The repayment was still posted.", accountNo, ex);
+            return false;
+        }
+    }
+
+    private boolean sendEmail(final String email, final String officerName, final String subject, final String body,
+            final String accountNo) {
+        if (email == null || email.isBlank()) {
+            log.warn("Tranche repayment threshold is met for loan {} but the loan officer has no email.", accountNo);
+            return false;
+        }
+        try {
+            this.emailService.sendDefinedEmail(new EmailDetail(subject, body, email, officerName));
+            return true;
+        } catch (RuntimeException ex) {
+            log.error("Tranche release email could not be sent for loan {}. The repayment was still posted.", accountNo, ex);
+            return false;
         }
     }
 
     private String emailBody(final Loan loan, final TrancheReleaseRules.Assessment assessment) {
         final StringBuilder body = new StringBuilder();
         final String clientName = loan.getClient() == null ? "" : loan.getClient().getDisplayName();
-        body.append("Loan ").append(loan.getAccountNumber()).append(" for ").append(clientName)
-                .append(" has repaid ").append(assessment.percentage).append("% of the previous tranche.\n");
+        body.append("Loan ").append(loan.getAccountNumber()).append(" for ").append(clientName);
+        if (assessment.percentage == null) {
+            body.append(" has repaid the required amount of the previous tranche.\n");
+        } else {
+            body.append(" has repaid ").append(assessment.percentage).append("% of the previous tranche.\n");
+        }
         body.append("Previous tranche principal: ").append(assessment.previous.principal()).append('\n');
         body.append("Principal repaid since that disbursement: ").append(assessment.repaid).append('\n');
         body.append("Required: ").append(assessment.required).append('\n');
@@ -133,6 +250,9 @@ public class TrancheReleaseNotificationService {
         report.put("accountNo", loan.getAccountNumber());
         report.put("clientName", loan.getClient() == null ? null : loan.getClient().getDisplayName());
         report.put("thresholdMet", assessment != null && assessment.met());
+        report.put("minimumNotMet", assessment != null && !assessment.met());
+        report.put("thresholdNotConfigured", false);
+        addSurveyWarning(report, loan);
         if (assessment == null) {
             report.put("repayments", List.of());
             return report;
@@ -155,6 +275,32 @@ public class TrancheReleaseNotificationService {
         return report;
     }
 
+    private void addSurveyWarning(final Map<String, Object> report, final Loan loan) {
+        final TrancheMilestoneEligibilityService.Refresh milestone = this.eligibility.preview(loan);
+        final LoanSubStatus status = milestone.status;
+        final boolean subsequentTranche = milestone.subsequentTranche;
+        report.put("subsequentTranche", subsequentTranche);
+        report.put("trancheNumber", milestone.trancheNumber);
+        report.put("surveyOutstanding", subsequentTranche && milestone.surveyOutstanding());
+        report.put("surveyIncomplete", subsequentTranche && milestone.surveyIncomplete());
+        report.put("surveyNegative", subsequentTranche && milestone.surveyNegative());
+        report.put("pastDeadline", subsequentTranche && milestone.pastDeadline);
+        report.put("deadlineExceptionApproved", milestone.deadlineExceptionApproved);
+        report.put("requiresReview", subsequentTranche && status == LoanSubStatus.REQUIRES_REVIEW);
+        report.put("milestoneRequired", milestone.milestoneRequired);
+        report.put("trancheMilestoneStatus", status == null ? null : status.getValue());
+        if (milestone.milestoneRequired && subsequentTranche) {
+            report.put("thresholdNotConfigured", !milestone.thresholdConfigured);
+        }
+    }
+
+    private static String html(final String value) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
     private static BigDecimal money(final Money value) {
         return value == null ? BigDecimal.ZERO : value.getAmount();
     }
@@ -169,6 +315,16 @@ public class TrancheReleaseNotificationService {
         }
         final AppUser user = this.appUserRepository.findAppUserByStaffId(officer.getId());
         return user == null ? null : user.getEmail();
+    }
+
+    private class DisbursalListener implements BusinessEventListener<LoanDisbursalBusinessEvent> {
+
+        @Override
+        public void onBusinessEvent(final LoanDisbursalBusinessEvent event) {
+            if (event.get() != null) {
+                eligibility.refresh(event.get());
+            }
+        }
     }
 
     private class RepaymentListener implements BusinessEventListener<LoanTransactionMakeRepaymentPostBusinessEvent> {

@@ -239,27 +239,6 @@ public final class TrancheReleaseRules {
             writeResolvedPrincipals(ordered, resolvePrincipals(base, planned, null, null, digits(loan)));
             return;
         }
-        final String raw = loan.getTranchePrincipalPercentages();
-        if (raw != null && !raw.isBlank()) {
-            if (base == null) {
-                return;
-            }
-            final List<BigDecimal> percentages = parsePercentages(raw);
-            if (ordered.size() != percentages.size()) {
-                throw new org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException(
-                        "This product splits the principal into " + percentages.size()
-                                + " tranches. Enter that many tranche rows. Amounts are set from the percentages.",
-                        "tranche.percentage.count.mismatch", percentages.size(), ordered.size());
-            }
-            final List<BigDecimal> amounts = principals(base, percentages, digits(loan));
-            for (int i = 0; i < ordered.size(); i++) {
-                final LoanDisbursementDetails detail = ordered.get(i);
-                if (detail.actualDisbursementDate() == null) {
-                    detail.updatePrincipal(amounts.get(i));
-                }
-            }
-            return;
-        }
         writeResolvedPrincipals(ordered,
                 resolvePrincipals(base, planned, product.getFirstTrancheAsPercentage(), product.getFirstTrancheAmount(), digits(loan)));
     }
@@ -322,11 +301,11 @@ public final class TrancheReleaseRules {
             if (row.disbursed) {
                 amount = row.principal == null ? BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP)
                         : row.principal.setScale(digits, RoundingMode.HALF_UP);
+            } else if (i == lastUndisbursed && (firstUndisbursed != lastUndisbursed || anyDisbursed || percentageRow)) {
+                amount = remaining.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
             } else if (productFirst && i == firstUndisbursed && firstUndisbursed != lastUndisbursed) {
                 amount = cap(nextTrancheAmount(base, Boolean.TRUE.equals(productFirstAsPercentage), productFirstAmount, digits), remaining,
                         digits);
-            } else if (i == lastUndisbursed && !percentageRow && (firstUndisbursed != lastUndisbursed || anyDisbursed)) {
-                amount = remaining.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
             } else {
                 final BigDecimal value = percentageRow ? row.principalPercentage : row.principal;
                 amount = nextTrancheAmount(remaining, percentageRow, value, digits);

@@ -20,10 +20,14 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.junit.jupiter.api.Test;
 
 class TrancheScheduleRulesTest {
@@ -98,9 +102,31 @@ class TrancheScheduleRulesTest {
 
         assertEquals(new BigDecimal("0.00"), principals.get(0));
         assertEquals(new BigDecimal("10.00"), principals.get(1));
-        assertEquals(new BigDecimal("45.01"), principals.get(2));
-        assertEquals(new BigDecimal("45.00"), principals.get(3));
+        assertEquals(new BigDecimal("45.00"), principals.get(2));
+        assertEquals(new BigDecimal("45.01"), principals.get(3));
         assertEquals(new BigDecimal("100.01"), sum(principals));
+    }
+
+    @Test
+    void productTermPutsTheRoundingRemainderOnTheLastInstallment() {
+        final List<BigDecimal> principals = TrancheScheduleRules.installmentPrincipals(new BigDecimal("200.03"), new BigDecimal("10"), 1,
+                7, 2);
+
+        assertEquals(new BigDecimal("38.00"), principals.get(2));
+        assertEquals(new BigDecimal("38.00"), principals.get(5));
+        assertEquals(new BigDecimal("38.03"), principals.get(6));
+        assertEquals(new BigDecimal("200.03"), sum(principals));
+    }
+
+    @Test
+    void zeroDecimalCurrencyKeepsTheRemainderOnTheLastInstallment() {
+        final List<BigDecimal> principals = TrancheScheduleRules.installmentPrincipals(new BigDecimal("252"), new BigDecimal("50"), 1, 7,
+                0);
+
+        assertEquals(new BigDecimal("40"), principals.get(2));
+        assertEquals(new BigDecimal("40"), principals.get(5));
+        assertEquals(new BigDecimal("42"), principals.get(6));
+        assertEquals(new BigDecimal("252"), sum(principals));
     }
 
     @Test
@@ -125,6 +151,56 @@ class TrancheScheduleRulesTest {
     }
 
     @Test
+    void laterTrancheRebuildsEqualInstallmentsAfterGraceAndTheFixedFirstRepayment() {
+        final List<BigDecimal> principals = TrancheScheduleRules.principalsForDisbursedAmount(new BigDecimal("35000"),
+                new BigDecimal("5000"), 1, 7, 2);
+
+        assertEquals(new BigDecimal("0.00"), principals.get(0));
+        assertEquals(new BigDecimal("5000.00"), principals.get(1));
+        assertEquals(new BigDecimal("6000.00"), principals.get(2));
+        assertEquals(new BigDecimal("6000.00"), principals.get(3));
+        assertEquals(new BigDecimal("6000.00"), principals.get(4));
+        assertEquals(new BigDecimal("6000.00"), principals.get(5));
+        assertEquals(new BigDecimal("6000.00"), principals.get(6));
+        assertEquals(new BigDecimal("35000.00"), sum(principals));
+    }
+
+    @Test
+    void eightMonthTermSplitsTheRemainderAcrossMonthsThreeToEight() {
+        final List<BigDecimal> principals = TrancheScheduleRules.principalsForDisbursedAmount(new BigDecimal("250"), new BigDecimal("50"), 1,
+                8, 2);
+
+        assertEquals(new BigDecimal("0.00"), principals.get(0));
+        assertEquals(new BigDecimal("50.00"), principals.get(1));
+        assertEquals(new BigDecimal("33.33"), principals.get(2));
+        assertEquals(new BigDecimal("33.33"), principals.get(3));
+        assertEquals(new BigDecimal("33.33"), principals.get(4));
+        assertEquals(new BigDecimal("33.33"), principals.get(5));
+        assertEquals(new BigDecimal("33.33"), principals.get(6));
+        assertEquals(new BigDecimal("33.35"), principals.get(7));
+        assertEquals(new BigDecimal("250.00"), sum(principals));
+    }
+
+    @Test
+    void twoMonthGraceUsesTheThirdInstallmentAsTheFixedFirstRepayment() {
+        final List<BigDecimal> principals = TrancheScheduleRules.principalsForDisbursedAmount(new BigDecimal("250"), new BigDecimal("50"), 2,
+                7, 2);
+
+        assertEquals(new BigDecimal("0.00"), principals.get(0));
+        assertEquals(new BigDecimal("0.00"), principals.get(1));
+        assertEquals(new BigDecimal("50.00"), principals.get(2));
+        assertEquals(new BigDecimal("50.00"), principals.get(3));
+        assertEquals(new BigDecimal("50.00"), principals.get(6));
+        assertEquals(new BigDecimal("250.00"), sum(principals));
+    }
+
+    @Test
+    void maturityIsKeptWhenTheGeneratorMovesTheLastDueDate() {
+        assertEquals(LocalDate.of(2027, 1, 15),
+                TrancheScheduleRules.maturityToRetain(LocalDate.of(2027, 1, 15), LocalDate.of(2027, 2, 1), LocalDate.of(2026, 12, 1)));
+    }
+
+    @Test
     void rescheduleStaysClosedForOtherMultiDisburseProducts() {
         assertFalse(TrancheScheduleRules.rescheduleAllowed(true, false, null));
         assertTrue(TrancheScheduleRules.rescheduleAllowed(true, true, null));
@@ -134,6 +210,62 @@ class TrancheScheduleRulesTest {
     @Test
     void rescheduleIsAllowedWhenTheProductSetsAFirstInstallment() {
         assertTrue(TrancheScheduleRules.rescheduleAllowed(true, false, new BigDecimal("50")));
+    }
+
+    @Test
+    void emptyInstallmentCountReturnsNoPrincipals() {
+        assertEquals(List.of(), TrancheScheduleRules.installmentPrincipals(new BigDecimal("100"), new BigDecimal("10"), 0, 0, 2));
+        assertEquals(List.of(), TrancheScheduleRules.installmentPrincipals(new BigDecimal("100"), new BigDecimal("10"), 1, -1, 2));
+    }
+
+    @Test
+    void zeroDisbursedPrincipalReturnsZeroInstallments() {
+        final List<BigDecimal> principals = TrancheScheduleRules.installmentPrincipals(BigDecimal.ZERO, new BigDecimal("50"), 1, 7, 2);
+
+        assertEquals(7, principals.size());
+        assertEquals(new BigDecimal("0.00"), sum(principals));
+    }
+
+    @Test
+    void graceCoveringTheWholeTermPutsEverythingOnTheLastInstallment() {
+        final List<BigDecimal> principals = TrancheScheduleRules.installmentPrincipals(new BigDecimal("100"), new BigDecimal("50"), 5, 4,
+                2);
+
+        assertEquals(new BigDecimal("0.00"), principals.get(0));
+        assertEquals(new BigDecimal("0.00"), principals.get(2));
+        assertEquals(new BigDecimal("100.00"), principals.get(3));
+        assertEquals(new BigDecimal("100.00"), sum(principals));
+    }
+
+    @Test
+    void nullFirstInstallmentLeavesGraceThenPutsAllRemainingOnOneInstallmentWhenNoTail() {
+        final List<BigDecimal> noTail = TrancheScheduleRules.installmentPrincipals(new BigDecimal("80"), null, 0, 1, 2);
+        assertEquals(List.of(new BigDecimal("80.00")), noTail);
+
+        final List<BigDecimal> withTail = TrancheScheduleRules.installmentPrincipals(new BigDecimal("90"), null, 0, 3, 2);
+        assertEquals(new BigDecimal("0.00"), withTail.get(0));
+        assertEquals(new BigDecimal("45.00"), withTail.get(1));
+        assertEquals(new BigDecimal("45.00"), withTail.get(2));
+        assertEquals(new BigDecimal("90.00"), sum(withTail));
+    }
+
+    @Test
+    void firstRepaymentPrincipalReturnsNullWhenNotConfigured() {
+        assertNull(TrancheScheduleRules.firstRepaymentPrincipal(null, true, new BigDecimal("250"), 2));
+    }
+
+    @Test
+    void nullOriginalMaturityKeepsTheGeneratedLastDueDate() {
+        assertEquals(LocalDate.of(2027, 2, 1),
+                TrancheScheduleRules.maturityToRetain(null, LocalDate.of(2027, 2, 1), LocalDate.of(2026, 12, 1)));
+    }
+
+    @Test
+    void originalMaturityNotAfterPreviousInstallmentIsRejected() {
+        assertThrows(PlatformApiDataValidationException.class, () -> TrancheScheduleRules.maturityToRetain(LocalDate.of(2026, 11, 1),
+                LocalDate.of(2027, 2, 1), LocalDate.of(2026, 12, 1)));
+        assertThrows(PlatformApiDataValidationException.class, () -> TrancheScheduleRules.maturityToRetain(LocalDate.of(2026, 12, 1),
+                LocalDate.of(2027, 2, 1), LocalDate.of(2026, 12, 1)));
     }
 
     private static BigDecimal sum(final List<BigDecimal> amounts) {

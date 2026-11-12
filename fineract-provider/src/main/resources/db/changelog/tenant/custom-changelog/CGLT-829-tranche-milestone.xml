@@ -1,0 +1,644 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-columns">
+        <!-- Accept checksum from environments that ran the original DATE / history-without-verifiers shape. -->
+        <validCheckSum>8:cb5ece147afbea3689b62ecb4af89a78</validCheckSum>
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_product_loan" columnName="require_milestone_survey"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_product_loan">
+            <column name="require_milestone_survey" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <createTable tableName="m_loan_tranche_milestone">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="disbursement_detail_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="submission_id" type="VARCHAR(100)"/>
+            <column name="conducted_by" type="VARCHAR(200)"/>
+            <column name="conducted_on" type="DATETIME"/>
+            <column name="operational_status" type="VARCHAR(32)"/>
+            <column name="operational_verified_by_bgs" type="BOOLEAN"/>
+            <column name="operational_bgs_name" type="VARCHAR(200)"/>
+            <column name="operational_verified_by_investment" type="BOOLEAN"/>
+            <column name="operational_investment_name" type="VARCHAR(200)"/>
+            <column name="additional_funding" type="VARCHAR(32)"/>
+            <column name="funding_verified_by_bgs" type="BOOLEAN"/>
+            <column name="funding_bgs_name" type="VARCHAR(200)"/>
+            <column name="funding_verified_by_investment" type="BOOLEAN"/>
+            <column name="funding_investment_name" type="VARCHAR(200)"/>
+            <column name="submitted_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="m_loan_tranche_milestone" columnNames="loan_id,disbursement_detail_id"
+                             constraintName="uk_tranche_milestone_tranche"/>
+        <addUniqueConstraint tableName="m_loan_tranche_milestone" columnNames="submission_id"
+                             constraintName="uk_tranche_milestone_submission"/>
+        <createTable tableName="m_loan_tranche_milestone_history">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="disbursement_detail_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="submission_id" type="VARCHAR(100)"/>
+            <column name="conducted_by" type="VARCHAR(200)"/>
+            <column name="conducted_on" type="DATETIME"/>
+            <column name="operational_status" type="VARCHAR(32)"/>
+            <column name="operational_verified_by_bgs" type="BOOLEAN"/>
+            <column name="operational_bgs_name" type="VARCHAR(200)"/>
+            <column name="operational_verified_by_investment" type="BOOLEAN"/>
+            <column name="operational_investment_name" type="VARCHAR(200)"/>
+            <column name="additional_funding" type="VARCHAR(32)"/>
+            <column name="funding_verified_by_bgs" type="BOOLEAN"/>
+            <column name="funding_bgs_name" type="VARCHAR(200)"/>
+            <column name="funding_verified_by_investment" type="BOOLEAN"/>
+            <column name="funding_investment_name" type="VARCHAR(200)"/>
+            <column name="loan_sub_status_id" type="INT"/>
+            <column name="recorded_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-permission">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'CREATE_TRANCHEMILESTONE'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="CREATE_TRANCHEMILESTONE"/>
+            <column name="entity_name" value="TRANCHEMILESTONE"/>
+            <column name="action_name" value="CREATE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-job">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM job WHERE name = 'Refresh Tranche Milestone Status'</sqlCheck>
+        </preConditions>
+        <insert tableName="job">
+            <column name="name" value="Refresh Tranche Milestone Status"/>
+            <column name="display_name" value="Refresh Tranche Milestone Status"/>
+            <column name="cron_expression" value="0 15 0 1/1 * ? *"/>
+            <column name="create_time" valueDate="NOW()"/>
+            <column name="task_priority" valueNumeric="5"/>
+            <column name="group_name"/>
+            <column name="job_key" value="Refresh Tranche Milestone Status _ DEFAULT"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="currently_running" valueBoolean="false"/>
+            <column name="updates_allowed" valueBoolean="true"/>
+            <column name="scheduler_group" valueNumeric="0"/>
+            <column name="is_misfired" valueBoolean="false"/>
+            <column name="node_id" valueNumeric="1"/>
+            <column name="is_mismatched_job" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-status-parameter">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'trancheMilestoneStatusSelectAll'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="trancheMilestoneStatusSelectAll"/>
+            <column name="parameter_variable" value="trancheMilestoneStatusId"/>
+            <column name="parameter_label" value="Tranche status"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="-1"/>
+            <column name="selectAll" value="Y"/>
+            <column name="parameter_sql"><![CDATA[(select 400 as id, 'Repayment conditions not met' as name) union all (select 410, 'Repayment conditions met') union all (select 420, 'Awaiting survey') union all (select 430, 'Survey successful') union all (select 440, 'Expired') union all (select 450, 'Requires review')]]></column>
+        </insert>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-report">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                select count(*) from stretchy_report where report_name = 'Multi-tranche eligibility'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_report">
+            <column name="report_name" value="Multi-tranche eligibility"/>
+            <column name="report_type" value="Table"/>
+            <column name="report_category" value="Loan"/>
+            <column name="description" value="Multi-tranche loans and the sub-status of the tranche waiting to be disbursed."/>
+            <column name="self_service_user_report" valueBoolean="false"/>
+            <column name="report_sql">
+                <![CDATA[
+SELECT
+    o.name AS office,
+    ms.display_name AS loanOfficer,
+    mc.display_name AS clientName,
+    ml.account_no AS loanAccount,
+    lp.name AS product,
+    (SELECT COUNT(*) + 1 FROM m_loan_disbursement_detail d
+        WHERE d.loan_id = ml.id AND d.disbursedon_date IS NOT NULL) AS trancheNumber,
+    CASE ml.loan_sub_status_id
+        WHEN 400 THEN 'Repayment conditions not met'
+        WHEN 410 THEN 'Repayment conditions met'
+        WHEN 420 THEN 'Awaiting survey'
+        WHEN 430 THEN 'Survey successful'
+        WHEN 440 THEN 'Expired'
+        WHEN 450 THEN 'Requires review'
+        ELSE ''
+    END AS trancheStatus,
+    sched.duedate AS firstRepaymentDueDate,
+    mile.operational_status AS operationalStatus,
+    mile.additional_funding AS additionalFunding,
+    mile.conducted_by AS conductedBy,
+    mile.conducted_on AS conductedOn
+FROM m_loan ml
+JOIN m_product_loan lp ON lp.id = ml.product_id
+LEFT JOIN m_client mc ON mc.id = ml.client_id
+LEFT JOIN m_office o ON o.id = mc.office_id
+LEFT JOIN m_staff ms ON ms.id = ml.loan_officer_id
+LEFT JOIN m_loan_repayment_schedule sched ON sched.loan_id = ml.id AND sched.installment = 1
+LEFT JOIN m_loan_disbursement_detail nxt ON nxt.loan_id = ml.id AND nxt.disbursedon_date IS NULL
+    AND nxt.id = (
+        SELECT n2.id FROM m_loan_disbursement_detail n2
+        WHERE n2.loan_id = ml.id AND n2.disbursedon_date IS NULL
+        ORDER BY n2.expected_disburse_date, n2.id
+        LIMIT 1
+    )
+LEFT JOIN m_loan_tranche_milestone mile ON mile.loan_id = ml.id AND mile.disbursement_detail_id = nxt.id
+WHERE lp.allow_multiple_disbursals = 1
+  AND ml.loan_sub_status_id IN (400, 410, 420, 430, 440, 450)
+  AND (ml.loan_sub_status_id = ${trancheMilestoneStatusId} OR ${trancheMilestoneStatusId} = -1)
+ORDER BY ml.account_no
+]]>
+            </column>
+            <column name="core_report" valueBoolean="false"/>
+            <column name="use_report" valueBoolean="true"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-report-parameter">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                WHERE sr.report_name = 'Multi-tranche eligibility'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'trancheMilestoneStatusId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'trancheMilestoneStatusSelectAll'
+            WHERE sr.report_name = 'Multi-tranche eligibility'
+        </sql>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-conducted-on-datetime">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="m_loan_tranche_milestone" columnName="conducted_on"/>
+        </preConditions>
+        <modifyDataType tableName="m_loan_tranche_milestone" columnName="conducted_on" newDataType="DATETIME"/>
+        <modifyDataType tableName="m_loan_tranche_milestone_history" columnName="conducted_on" newDataType="DATETIME"/>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-history-verifiers">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_tranche_milestone_history" columnName="operational_verified_by_bgs"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan_tranche_milestone_history">
+            <column name="operational_verified_by_bgs" type="BOOLEAN"/>
+            <column name="operational_bgs_name" type="VARCHAR(200)"/>
+            <column name="operational_verified_by_investment" type="BOOLEAN"/>
+            <column name="operational_investment_name" type="VARCHAR(200)"/>
+            <column name="funding_verified_by_bgs" type="BOOLEAN"/>
+            <column name="funding_bgs_name" type="VARCHAR(200)"/>
+            <column name="funding_verified_by_investment" type="BOOLEAN"/>
+            <column name="funding_investment_name" type="VARCHAR(200)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-tranche-loan-status-parameter">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_parameter WHERE parameter_name = 'trancheLoanStatusSelectAll'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="stretchy_parameter">
+            <column name="parameter_name" value="trancheLoanStatusSelectAll"/>
+            <column name="parameter_variable" value="loanStatusId"/>
+            <column name="parameter_label" value="Loan status"/>
+            <column name="parameter_displayType" value="select"/>
+            <column name="parameter_FormatType" value="number"/>
+            <column name="parameter_default" value="-1"/>
+            <column name="selectAll" value="Y"/>
+            <column name="parameter_sql"><![CDATA[(select -1 as id, 'All' as name) union all (select 100, 'Submitted and pending approval') union all (select 200, 'Approved') union all (select 300, 'Active') union all (select 303, 'Transfer in progress') union all (select 304, 'Transfer on hold') union all (select 400, 'Withdrawn by client') union all (select 500, 'Rejected') union all (select 600, 'Closed') union all (select 601, 'Written off') union all (select 602, 'Rescheduled') union all (select 700, 'Overpaid')]]></column>
+        </insert>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-combined-tranche-eligibility-report">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                select count(*) from stretchy_report where report_name = 'Multi-tranche eligibility'
+            </sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="description" value="Multi-tranche loan statuses with repayment threshold and survey eligibility. Filter by office, loan officer, product, loan status, and tranche sub-status."/>
+            <column name="report_sql">
+                <![CDATA[
+SELECT
+    ounder.name AS office,
+    ms.display_name AS loanOfficer,
+    mc.display_name AS clientName,
+    ml.account_no AS loanAccount,
+    lp.name AS product,
+    CASE ml.loan_status_id
+        WHEN 100 THEN 'Submitted and pending approval'
+        WHEN 200 THEN 'Approved'
+        WHEN 300 THEN 'Active'
+        WHEN 303 THEN 'Transfer in progress'
+        WHEN 304 THEN 'Transfer on hold'
+        WHEN 400 THEN 'Withdrawn by client'
+        WHEN 500 THEN 'Rejected'
+        WHEN 600 THEN 'Closed'
+        WHEN 601 THEN 'Written off'
+        WHEN 602 THEN 'Rescheduled'
+        WHEN 700 THEN 'Overpaid'
+        ELSE CAST(ml.loan_status_id AS CHAR)
+    END AS loanStatus,
+    (SELECT COUNT(*) + 1 FROM m_loan_disbursement_detail d
+        WHERE d.loan_id = ml.id AND d.disbursedon_date IS NOT NULL) AS trancheNumber,
+    CASE ml.loan_sub_status_id
+        WHEN 400 THEN 'Repayment conditions not met'
+        WHEN 410 THEN 'Repayment conditions met'
+        WHEN 420 THEN 'Awaiting survey'
+        WHEN 430 THEN 'Survey successful'
+        WHEN 440 THEN 'Expired'
+        WHEN 450 THEN 'Requires review'
+        ELSE ''
+    END AS trancheStatus,
+    prev.principal AS previousTranchePrincipal,
+    CASE
+        WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+            THEN nxt.previous_tranche_repaid_minimum
+        WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+            THEN NULL
+        ELSE COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage)
+    END AS requiredPercent,
+    CASE
+        WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+            THEN ROUND(prev.principal * nxt.previous_tranche_repaid_minimum / 100, 2)
+        WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+            THEN nxt.previous_tranche_repaid_minimum
+        WHEN COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) IS NOT NULL
+            THEN ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2)
+        ELSE NULL
+    END AS requiredPrincipal,
+    COALESCE(repaid.principal_repaid, 0) AS principalRepaid,
+    CASE
+        WHEN nxt.id IS NULL THEN NULL
+        WHEN (
+            CASE
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+                    THEN ROUND(prev.principal * nxt.previous_tranche_repaid_minimum / 100, 2)
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+                    THEN nxt.previous_tranche_repaid_minimum
+                WHEN COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) IS NOT NULL
+                    THEN ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2)
+                ELSE NULL
+            END
+        ) IS NULL THEN 1
+        WHEN COALESCE(repaid.principal_repaid, 0) >= (
+            CASE
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+                    THEN ROUND(prev.principal * nxt.previous_tranche_repaid_minimum / 100, 2)
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+                    THEN nxt.previous_tranche_repaid_minimum
+                ELSE ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2)
+            END
+        ) THEN 1
+        ELSE 0
+    END AS thresholdMet,
+    sched.duedate AS eligibilityDeadline,
+    mile.operational_status AS operationalStatus,
+    mile.operational_verified_by_bgs AS operationalVerifiedByBgs,
+    mile.operational_verified_by_investment AS operationalVerifiedByInvestment,
+    mile.additional_funding AS additionalFunding,
+    mile.funding_verified_by_bgs AS fundingVerifiedByBgs,
+    mile.funding_verified_by_investment AS fundingVerifiedByInvestment,
+    mile.conducted_by AS conductedBy,
+    mile.conducted_on AS conductedOn
+FROM m_loan ml
+JOIN m_product_loan lp ON lp.id = ml.product_id
+LEFT JOIN m_client mc ON mc.id = ml.client_id
+LEFT JOIN m_office ounder ON ounder.id = mc.office_id
+JOIN m_office o ON ounder.hierarchy LIKE CONCAT(o.hierarchy, '%')
+LEFT JOIN m_staff ms ON ms.id = ml.loan_officer_id
+LEFT JOIN m_loan_repayment_schedule sched ON sched.loan_id = ml.id
+    AND sched.installment = COALESCE(ml.grace_on_principal_periods, 0) + 1
+LEFT JOIN m_loan_disbursement_detail nxt ON nxt.loan_id = ml.id AND nxt.disbursedon_date IS NULL
+    AND nxt.id = (
+        SELECT n2.id FROM m_loan_disbursement_detail n2
+        WHERE n2.loan_id = ml.id AND n2.disbursedon_date IS NULL
+        ORDER BY n2.expected_disburse_date, n2.id
+        LIMIT 1
+    )
+LEFT JOIN m_loan_disbursement_detail prev ON prev.loan_id = ml.id AND prev.disbursedon_date IS NOT NULL
+    AND prev.id = (
+        SELECT p2.id FROM m_loan_disbursement_detail p2
+        WHERE p2.loan_id = ml.id AND p2.disbursedon_date IS NOT NULL
+        ORDER BY p2.disbursedon_date DESC, p2.id DESC
+        LIMIT 1
+    )
+LEFT JOIN (
+    SELECT t.loan_id, p.id AS previous_id, COALESCE(SUM(t.principal_portion_derived), 0) AS principal_repaid
+    FROM m_loan_transaction t
+    JOIN m_loan_disbursement_detail p ON p.loan_id = t.loan_id AND p.disbursedon_date IS NOT NULL
+    WHERE t.transaction_type_enum = 2
+      AND t.is_reversed = 0
+      AND t.transaction_date >= p.disbursedon_date
+      AND p.id = (
+          SELECT p2.id FROM m_loan_disbursement_detail p2
+          WHERE p2.loan_id = t.loan_id AND p2.disbursedon_date IS NOT NULL
+          ORDER BY p2.disbursedon_date DESC, p2.id DESC
+          LIMIT 1
+      )
+    GROUP BY t.loan_id, p.id
+) repaid ON repaid.loan_id = ml.id AND repaid.previous_id = prev.id
+LEFT JOIN m_loan_tranche_milestone mile ON mile.loan_id = ml.id AND mile.disbursement_detail_id = nxt.id
+WHERE lp.allow_multiple_disbursals = 1
+  AND (o.id = ${officeId} OR (${officeId} IN (-1, 0) AND o.hierarchy = '${currentUserHierarchy}'))
+  AND (ml.loan_officer_id = ${loanOfficerId} OR ${loanOfficerId} IN (-1, -10, 0))
+  AND (ml.product_id = ${loanProductId} OR ${loanProductId} IN (-1, 0))
+  AND (ml.loan_status_id = ${loanStatusId} OR ${loanStatusId} = -1)
+  AND (ml.loan_sub_status_id = ${trancheMilestoneStatusId} OR ${trancheMilestoneStatusId} = -1)
+ORDER BY ml.account_no
+]]>
+            </column>
+            <where>report_name = 'Multi-tranche eligibility'</where>
+        </update>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-combined-tranche-eligibility-report-parameters">
+        <!-- Accept checksum from environments that linked Product via loanProductIdSelectAll. -->
+        <validCheckSum>8:4efca36b59e003f447468db78eca24b4</validCheckSum>
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                WHERE sr.report_name = 'Multi-tranche eligibility'
+                  AND srp.report_parameter_name = 'officeId'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            DELETE srp FROM stretchy_report_parameter srp
+            JOIN stretchy_report sr ON sr.id = srp.report_id
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'officeId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'OfficeIdSelectOne'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'loanOfficerId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'loanOfficerIdSelectAll'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'loanProductId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'loanProductIdSelectAllWithoutCurrency'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'loanStatusId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'trancheLoanStatusSelectAll'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+
+            INSERT INTO stretchy_report_parameter (report_id, parameter_id, report_parameter_name)
+            SELECT sr.id, sp.id, 'trancheMilestoneStatusId'
+            FROM stretchy_report sr
+            JOIN stretchy_parameter sp ON sp.parameter_name = 'trancheMilestoneStatusSelectAll'
+            WHERE sr.report_name = 'Multi-tranche eligibility';
+        </sql>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-fix-multitranche-product-filter-without-currency">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report_parameter srp
+                JOIN stretchy_report sr ON sr.id = srp.report_id
+                JOIN stretchy_parameter sp ON sp.id = srp.parameter_id
+                WHERE sr.report_name = 'Multi-tranche eligibility'
+                  AND srp.report_parameter_name = 'loanProductId'
+                  AND sp.parameter_name = 'loanProductIdSelectAll'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE stretchy_report_parameter srp
+            JOIN stretchy_report sr ON sr.id = srp.report_id
+            JOIN stretchy_parameter oldp ON oldp.id = srp.parameter_id
+            JOIN stretchy_parameter newp ON newp.parameter_name = 'loanProductIdSelectAllWithoutCurrency'
+            SET srp.parameter_id = newp.id
+            WHERE sr.report_name = 'Multi-tranche eligibility'
+              AND srp.report_parameter_name = 'loanProductId'
+              AND oldp.parameter_name = 'loanProductIdSelectAll';
+        </sql>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-drop-milestone-history">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="m_loan_tranche_milestone_history"/>
+        </preConditions>
+        <dropTable tableName="m_loan_tranche_milestone_history"/>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-829-milestone-one-per-loan">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan_tranche_milestone" indexName="uk_tranche_milestone_loan"/>
+            </not>
+        </preConditions>
+        <addUniqueConstraint tableName="m_loan_tranche_milestone" columnNames="loan_id"
+                             constraintName="uk_tranche_milestone_loan"/>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-milestone-per-tranche">
+        <preConditions onFail="MARK_RAN">
+            <indexExists tableName="m_loan_tranche_milestone" indexName="uk_tranche_milestone_loan"/>
+        </preConditions>
+        <dropUniqueConstraint tableName="m_loan_tranche_milestone" constraintName="uk_tranche_milestone_loan"/>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-milestone-audit-and-exception">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_tranche_milestone" columnName="comments"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan_tranche_milestone">
+            <column name="comments" type="VARCHAR(2000)"/>
+            <column name="evidence_references" type="VARCHAR(2000)"/>
+            <column name="deadline_exception_approved" type="BOOLEAN"/>
+            <column name="deadline_exception_by" type="VARCHAR(200)"/>
+            <column name="deadline_exception_on" type="DATETIME"/>
+            <column name="deadline_exception_note" type="VARCHAR(1000)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-milestone-history">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="m_loan_tranche_milestone_history"/>
+            </not>
+        </preConditions>
+        <createTable tableName="m_loan_tranche_milestone_history">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="disbursement_detail_id" type="BIGINT"/>
+            <column name="submission_id" type="VARCHAR(100)"/>
+            <column name="conducted_by" type="VARCHAR(200)"/>
+            <column name="conducted_on" type="DATETIME"/>
+            <column name="operational_status" type="VARCHAR(32)"/>
+            <column name="operational_verified_by_bgs" type="BOOLEAN"/>
+            <column name="operational_bgs_name" type="VARCHAR(200)"/>
+            <column name="operational_verified_by_investment" type="BOOLEAN"/>
+            <column name="operational_investment_name" type="VARCHAR(200)"/>
+            <column name="additional_funding" type="VARCHAR(32)"/>
+            <column name="funding_verified_by_bgs" type="BOOLEAN"/>
+            <column name="funding_bgs_name" type="VARCHAR(200)"/>
+            <column name="funding_verified_by_investment" type="BOOLEAN"/>
+            <column name="funding_investment_name" type="VARCHAR(200)"/>
+            <column name="comments" type="VARCHAR(2000)"/>
+            <column name="evidence_references" type="VARCHAR(2000)"/>
+            <column name="deadline_exception_approved" type="BOOLEAN"/>
+            <column name="deadline_exception_by" type="VARCHAR(200)"/>
+            <column name="loan_sub_status_id" type="INT"/>
+            <column name="recorded_on" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="m_loan_tranche_milestone_history" indexName="idx_tranche_milestone_history_loan">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-milestone-exception-permission">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM m_permission WHERE code = 'APPROVE_TRANCHEMILESTONE'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="APPROVE_TRANCHEMILESTONE"/>
+            <column name="entity_name" value="TRANCHEMILESTONE"/>
+            <column name="action_name" value="APPROVE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-eligibility-report-threshold-not-configured">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report
+                WHERE report_name = 'Multi-tranche eligibility'
+                  AND report_sql LIKE '%IS NULL THEN 1%'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE stretchy_report
+            SET report_sql = REPLACE(report_sql, ') IS NULL THEN 1', ') IS NULL THEN 0')
+            WHERE report_name = 'Multi-tranche eligibility';
+        </sql>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-eligibility-report-threshold-by-product">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report
+                WHERE report_name = 'Multi-tranche eligibility'
+                  AND report_sql LIKE '%IS NULL THEN 0%'
+            </sqlCheck>
+        </preConditions>
+        <sql><![CDATA[
+            UPDATE stretchy_report
+            SET report_sql = REPLACE(
+                REPLACE(report_sql,
+                    '        WHEN nxt.id IS NULL THEN NULL
+        WHEN (',
+                    '        WHEN nxt.id IS NULL OR prev.id IS NULL THEN NULL
+        WHEN ('),
+                '        ) IS NULL THEN 0',
+                '        ) IS NULL AND COALESCE(lp.require_milestone_survey, 0) = 1 THEN 0
+        WHEN (
+            CASE
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL AND COALESCE(nxt.previous_tranche_repaid_as_percentage, ml.previous_tranche_threshold_as_percentage, 1) = 1
+                    THEN ROUND(prev.principal * nxt.previous_tranche_repaid_minimum / 100, 2)
+                WHEN nxt.previous_tranche_repaid_minimum IS NOT NULL
+                    THEN nxt.previous_tranche_repaid_minimum
+                WHEN COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) IS NOT NULL
+                    THEN ROUND(prev.principal * COALESCE(ml.previous_tranche_repaid_percentage, lp.previous_tranche_repaid_percentage) / 100, 2)
+                ELSE NULL
+            END
+        ) IS NULL THEN 1')
+            WHERE report_name = 'Multi-tranche eligibility';
+        ]]></sql>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-828-retire-tranche-release-repayments-report">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                select count(*) from stretchy_report where report_name = 'Tranche release repayments' and use_report = 1
+            </sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="use_report" valueBoolean="false"/>
+            <column name="description" value="Retired: use Multi-tranche eligibility for repayment threshold and survey status."/>
+            <where>report_name = 'Tranche release repayments'</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>

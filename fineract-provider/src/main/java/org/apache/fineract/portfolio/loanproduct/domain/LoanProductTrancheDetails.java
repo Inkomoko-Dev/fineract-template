@@ -60,6 +60,9 @@ public class LoanProductTrancheDetails {
     @Column(name = "first_tranche_amount", scale = 6, precision = 19)
     private BigDecimal firstTrancheAmount;
 
+    @Column(name = "require_milestone_survey")
+    private boolean requireMilestoneSurvey;
+
     protected LoanProductTrancheDetails() {
         // TODO Auto-generated constructor stub
     }
@@ -104,6 +107,7 @@ public class LoanProductTrancheDetails {
             this.firstInstallmentAsPercentage = null;
             this.firstTrancheAsPercentage = null;
             this.firstTrancheAmount = null;
+            this.requireMilestoneSurvey = false;
         }
     }
 
@@ -167,6 +171,15 @@ public class LoanProductTrancheDetails {
                 }
             }
         }
+        if (command.parameterExists(LoanProductConstants.REQUIRE_MILESTONE_SURVEY)) {
+            final boolean newValue = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.REQUIRE_MILESTONE_SURVEY);
+            if (newValue != this.requireMilestoneSurvey) {
+                this.requireMilestoneSurvey = newValue;
+                if (actualChanges != null) {
+                    actualChanges.put(LoanProductConstants.REQUIRE_MILESTONE_SURVEY, newValue);
+                }
+            }
+        }
         if (command.parameterExists(LoanProductConstants.FIRST_TRANCHE_AMOUNT)) {
             final BigDecimal newValue = command.bigDecimalValueOfParameterNamed(LoanProductConstants.FIRST_TRANCHE_AMOUNT);
             if (!sameAmount(newValue, this.firstTrancheAmount)) {
@@ -216,6 +229,10 @@ public class LoanProductTrancheDetails {
 
     public BigDecimal getFirstTrancheAmount() {
         return this.firstTrancheAmount;
+    }
+
+    public boolean isRequireMilestoneSurvey() {
+        return this.requireMilestoneSurvey;
     }
 
     private static boolean sameAmount(final BigDecimal left, final BigDecimal right) {
