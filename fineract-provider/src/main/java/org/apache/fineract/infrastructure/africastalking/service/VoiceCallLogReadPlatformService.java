@@ -84,7 +84,7 @@ public class VoiceCallLogReadPlatformService {
         }
         final VoiceCallLogData data = results.get(0);
         final AppUser user = context.authenticatedUser();
-        recordingAccessAuditService.recordAccess(user.getId(), user.getUsername(), callId, data.getRecordingUrl());
+        recordingAccessAuditService.recordCallLogAccess(user.getId(), user.getUsername(), callId, data.getRecordingUrl());
         return data;
     }
 

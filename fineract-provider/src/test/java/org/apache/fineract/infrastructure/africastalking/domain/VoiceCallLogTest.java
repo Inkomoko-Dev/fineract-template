@@ -59,4 +59,13 @@ class VoiceCallLogTest {
         assertThat(VoiceCallLog.isForwardStatusTransition(AfricasTalkingConstants.CALL_STATUS_COMPLETED,
                 AfricasTalkingConstants.CALL_STATUS_RINGING)).isFalse();
     }
+
+    @Test
+    void doesNotOverwriteCompletedWithFailed() {
+        final VoiceCallLog callLog = VoiceCallLog.inbound("ATV_2", "+254700000099", "+254711082867", null, null);
+        callLog.applyEventUpdate(AfricasTalkingConstants.CALL_STATUS_COMPLETED, 12, null, null);
+        callLog.applyEventUpdate(AfricasTalkingConstants.CALL_STATUS_FAILED, null, null, null);
+
+        assertThat(callLog.getStatus()).isEqualTo(AfricasTalkingConstants.CALL_STATUS_COMPLETED);
+    }
 }

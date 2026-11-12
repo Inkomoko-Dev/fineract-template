@@ -242,7 +242,8 @@ public class AfricasTalkingApiResource {
                     userAgent);
             if (result.duplicate()) {
                 // Do not re-enter IVR (would re-issue OTP / create duplicate callbacks).
-                return Response.ok("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>", MediaType.APPLICATION_XML).build();
+                // Replay last XML so AT retries keep the caller on the same prompt.
+                return Response.ok(voiceService.resolveDuplicateIvrResponse(payload), MediaType.APPLICATION_XML).build();
             }
             voiceService.processInboundCallback(payload);
             return Response.ok(voiceService.buildIvrResponse(payload), MediaType.APPLICATION_XML).build();

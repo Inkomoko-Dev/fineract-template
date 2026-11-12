@@ -143,7 +143,11 @@ public class VoiceCallLog extends AbstractPersistableCustom {
         if (currentStatus == null || currentStatus.isBlank()) {
             return true;
         }
-        return statusRank(newStatus) >= statusRank(currentStatus);
+        if (currentStatus.equalsIgnoreCase(newStatus)) {
+            return true;
+        }
+        // Terminal statuses must not overwrite each other (FAILED vs COMPLETED).
+        return statusRank(newStatus) > statusRank(currentStatus);
     }
 
     private static int statusRank(final String status) {
@@ -151,8 +155,8 @@ public class VoiceCallLog extends AbstractPersistableCustom {
             case "INITIATED" -> 10;
             case "RINGING" -> 20;
             case "ANSWERED" -> 30;
-            case "COMPLETED" -> 40;
             case "FAILED" -> 40;
+            case "COMPLETED" -> 50;
             default -> 0;
         };
     }

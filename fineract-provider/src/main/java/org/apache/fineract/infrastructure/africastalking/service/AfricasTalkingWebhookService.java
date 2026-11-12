@@ -87,9 +87,10 @@ public class AfricasTalkingWebhookService {
             final String sessionId = formValues.get("sessionId");
             if (StringUtils.isNotBlank(sessionId)) {
                 final String callSessionState = StringUtils.defaultString(formValues.get("callSessionState"));
-                // Mask OTP / auth DTMF in idempotency keys and logs.
-                final String dtmfToken = isAuthenticatingSession(sessionId) ? "OTP"
-                        : StringUtils.defaultString(formValues.get("dtmfDigits"));
+                final String rawDtmf = StringUtils.defaultString(formValues.get("dtmfDigits"));
+                // Never embed raw auth DTMF in event ids; hash digits so distinct OTP attempts stay unique.
+                final String dtmfToken = isAuthenticatingSession(sessionId) ? maskAuthDtmfToken(rawDtmf, payloadHash)
+                        : rawDtmf;
                 return sessionId + ":" + dtmfToken + ":" + callSessionState;
             }
             for (final String key : new String[] { "id", "sessionId", "callSessionState", "callerNumber" }) {
@@ -99,6 +100,18 @@ public class AfricasTalkingWebhookService {
             }
         }
         return payloadHash;
+    }
+
+    /**
+     * Distinct DTMF values get distinct tokens (so OTP retries are not treated as duplicates),
+     * without putting the raw digits into the event id or logs.
+     */
+    static String maskAuthDtmfToken(final String rawDtmf, final String payloadHash) {
+        if (StringUtils.isBlank(rawDtmf)) {
+            return "OTP:empty:" + StringUtils.left(payloadHash, 12);
+        }
+        final String digest = AfricasTalkingClient.sha256Hex(rawDtmf);
+        return "OTP:" + StringUtils.left(digest, 16);
     }
 
     private Map<String, String> parseFormPayload(final String rawPayload) {
