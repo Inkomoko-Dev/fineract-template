@@ -18,6 +18,8 @@
  */
 package org.apache.fineract.infrastructure.whatsapp.interactive.data;
 
+import java.util.ArrayList;
+import java.util.List;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -27,11 +29,16 @@ import lombok.Setter;
 @NoArgsConstructor
 public class WhatsAppSessionContext {
 
+    public static final String PENDING_DISAMBIGUATE_MULTI_CLIENT = "DISAMBIGUATE_MULTI_CLIENT";
+    public static final String PENDING_DISAMBIGUATE_CLIENT_AND_STAFF = "DISAMBIGUATE_CLIENT_AND_STAFF";
+
     private String parentMenuKey;
     private String pendingAction;
     private String capturedInput;
     private String authStep;
     private Long candidateClientId;
+    private List<Long> candidateClientIds = new ArrayList<>();
+    private Long candidateStaffId;
     private Long selectedLoanId;
     private String pendingLoanAction;
     private Long ticketId;

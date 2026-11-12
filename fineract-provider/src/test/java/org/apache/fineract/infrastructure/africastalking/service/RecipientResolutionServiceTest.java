@@ -96,28 +96,31 @@ class RecipientResolutionServiceTest {
     }
 
     @Test
-    void returnsMultiClientWhenPhoneMatchesMultipleClients() {
+    void resolvesMultiClientWhenMultipleClientsShareNumber() {
         final Client clientA = mock(Client.class);
         final Client clientB = mock(Client.class);
+        when(clientA.getId()).thenReturn(10L);
+        when(clientB.getId()).thenReturn(11L);
         when(clientRepository.findByMobileNumbers(anyList())).thenReturn(List.of(clientA, clientB));
         when(staffRepository.findByMobileNumbers(anyList())).thenReturn(List.of());
 
-        final var resolved = recipientResolutionService.resolve("0712345678");
+        final var resolved = recipientResolutionService.resolve("+254712345678");
 
         assertEquals(RecipientType.MULTI_CLIENT, resolved.getRecipientType());
         assertNull(resolved.getClientId());
+        assertEquals(List.of(10L, 11L), resolved.getClientIds());
     }
 
     @Test
-    void returnsClientAndStaffWhenPhoneMatchesBoth() {
+    void resolvesClientAndStaffWhenBothMatch() {
         final Client client = mock(Client.class);
-        when(client.getId()).thenReturn(10L);
         final Staff staff = mock(Staff.class);
+        when(client.getId()).thenReturn(10L);
         when(staff.getId()).thenReturn(20L);
         when(clientRepository.findByMobileNumbers(anyList())).thenReturn(List.of(client));
         when(staffRepository.findByMobileNumbers(anyList())).thenReturn(List.of(staff));
 
-        final var resolved = recipientResolutionService.resolve("0712345678");
+        final var resolved = recipientResolutionService.resolve("+254712345678");
 
         assertEquals(RecipientType.CLIENT_AND_STAFF, resolved.getRecipientType());
         assertEquals(10L, resolved.getClientId());

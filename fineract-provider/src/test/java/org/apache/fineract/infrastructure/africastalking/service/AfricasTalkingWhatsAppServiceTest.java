@@ -34,6 +34,7 @@ import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientD
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInboundConversationService;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppSharedNumberDisambiguationService;
 import org.apache.fineract.infrastructure.whatsapp.provider.CommunicationMessageStatusUpdater;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -64,6 +65,8 @@ class AfricasTalkingWhatsAppServiceTest {
     private NotificationCommandService notificationCommandService;
     @Mock
     private WhatsAppInboundConversationService inboundConversationService;
+    @Mock
+    private WhatsAppSharedNumberDisambiguationService sharedNumberDisambiguationService;
 
     private AfricasTalkingWhatsAppService whatsAppService;
 
@@ -73,7 +76,7 @@ class AfricasTalkingWhatsAppServiceTest {
         final CommunicationMessageStatusUpdater statusUpdater = new CommunicationMessageStatusUpdater(communicationMessageRepository);
         whatsAppService = new AfricasTalkingWhatsAppService(communicationMessageRepository, recipientResolutionService,
                 phoneNumberNormalizer, clientRepositoryWrapper, staffRepositoryWrapper, fromJsonHelper, notificationCommandService,
-                inboundConversationService, statusUpdater);
+                inboundConversationService, sharedNumberDisambiguationService, statusUpdater);
     }
 
     @AfterEach
