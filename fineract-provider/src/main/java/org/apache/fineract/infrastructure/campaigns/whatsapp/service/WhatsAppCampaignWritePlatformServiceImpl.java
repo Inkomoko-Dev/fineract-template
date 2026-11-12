@@ -130,19 +130,26 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     @Transactional
     @Override
     public CommandProcessingResult create(final String json) {
-        final AppUser currentUser = this.context.authenticatedUser();
         final String normalizedJson = ensureMessageDefault(json);
+        this.context.authenticatedUser();
         this.whatsAppCampaignValidator.validateCreate(normalizedJson);
         final JsonCommand command = parseCommand(normalizedJson, null);
-        final Long runReportId = command.longValueOfParameterNamed(WhatsAppCampaignValidator.runReportId);
-        final Report report = this.reportRepository.findById(runReportId).orElseThrow(() -> new ReportNotFoundException(runReportId));
-        final WhatsAppCampaign campaign = WhatsAppCampaign.createNew(currentUser, report, command);
-        if (campaign.getRecurrenceStartDate() != null && campaign.getRecurrenceStartDate().isBefore(DateUtils.getLocalDateTimeOfTenant())) {
-            throw new GeneralPlatformDomainRuleException("error.msg.campaign.recurrenceStartDate.in.the.past",
-                    "Recurrence start date cannot be the past date.", campaign.getRecurrenceStartDate());
+        try {
+            final AppUser currentUser = this.context.authenticatedUser();
+            final Long runReportId = command.longValueOfParameterNamed(WhatsAppCampaignValidator.runReportId);
+            final Report report = this.reportRepository.findById(runReportId).orElseThrow(() -> new ReportNotFoundException(runReportId));
+            final WhatsAppCampaign campaign = WhatsAppCampaign.createNew(currentUser, report, command);
+            if (campaign.getRecurrenceStartDate() != null
+                    && campaign.getRecurrenceStartDate().isBefore(DateUtils.getLocalDateTimeOfTenant())) {
+                throw new GeneralPlatformDomainRuleException("error.msg.campaign.recurrenceStartDate.in.the.past",
+                        "Recurrence start date cannot be the past date.", campaign.getRecurrenceStartDate());
+            }
+            this.whatsAppCampaignRepository.saveAndFlush(campaign);
+            return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(campaign.getId()).build();
+        } catch (final JpaSystemException | DataIntegrityViolationException dve) {
+            handleDataIntegrityIssues(command, dve.getMostSpecificCause(), dve);
+            return CommandProcessingResult.empty();
         }
-        this.whatsAppCampaignRepository.saveAndFlush(campaign);
-        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(campaign.getId()).build();
     }
 
     @Transactional
@@ -170,7 +177,8 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             }
             return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(resourceId).with(changes).build();
         } catch (final JpaSystemException | DataIntegrityViolationException dve) {
-            handleDataIntegrityIssues(dve.getMostSpecificCause());
+            final JsonCommand command = parseCommand(ensureMessageDefault(json), resourceId);
+            handleDataIntegrityIssues(command, dve.getMostSpecificCause(), dve);
             return CommandProcessingResult.empty();
         }
     }
@@ -548,8 +556,15 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         return jsonObject.toString();
     }
 
-    private void handleDataIntegrityIssues(final Throwable realCause) {
+    private void handleDataIntegrityIssues(final JsonCommand command, final Throwable realCause, final Exception dve) {
+        final String message = realCause == null ? "" : StringUtils.defaultString(realCause.getMessage());
+        if (StringUtils.containsIgnoreCase(message, "campaign_name")) {
+            final String campaignName = command.stringValueOfParameterNamed(WhatsAppCampaignValidator.campaignName);
+            throw new PlatformDataIntegrityException("error.msg.whatsapp.campaign.duplicate.name",
+                    "A WhatsApp campaign with name `" + campaignName + "` already exists", "campaignName", campaignName);
+        }
+        LOG.error("Unknown WhatsApp campaign data integrity issue.", dve);
         throw new PlatformDataIntegrityException("error.msg.whatsapp.campaign.unknown.data.integrity.issue",
-                "Unknown data integrity issue with resource: " + realCause.getMessage());
+                "Unknown data integrity issue with resource: " + message);
     }
 }

@@ -27,11 +27,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "fineract.integrations.whatsapp")
 public class WhatsAppProviderProperties {
 
-    /** META or AFRICASTALKING */
-    private String primaryProvider = "META";
+    /** META or AFRICASTALKING — AFRICASTALKING is primary until Meta cutover */
+    private String primaryProvider = "AFRICASTALKING";
 
     /** META or AFRICASTALKING; used when primary fails and fallbackEnabled is true */
-    private String fallbackProvider = "AFRICASTALKING";
+    private String fallbackProvider = "META";
 
     private boolean fallbackEnabled = true;
 
