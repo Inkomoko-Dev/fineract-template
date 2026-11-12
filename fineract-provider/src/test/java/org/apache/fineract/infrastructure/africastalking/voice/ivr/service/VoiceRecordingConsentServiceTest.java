@@ -103,8 +103,7 @@ class VoiceRecordingConsentServiceTest {
         final VoiceCallLog callLog = new VoiceCallLog();
         when(contextSerializer.fromJson(any())).thenReturn(context);
         when(contextSerializer.toJson(any())).thenReturn("{}");
-        when(dialTargetResolver.resolve(org.mockito.ArgumentMatchers.eq("LOANS"), org.mockito.ArgumentMatchers.any()))
-                .thenReturn("+254700000001");
+        when(dialTargetResolver.resolve("LOANS")).thenReturn("+254700000001");
         when(voiceCallLogRepository.findByExternalSessionId("ATV_CONSENT_2")).thenReturn(Optional.of(callLog));
         when(voiceCallLogRepository.save(callLog)).thenReturn(callLog);
 
@@ -128,8 +127,7 @@ class VoiceRecordingConsentServiceTest {
         final VoiceCallLog callLog = new VoiceCallLog();
         when(contextSerializer.fromJson(any())).thenReturn(context);
         when(contextSerializer.toJson(any())).thenReturn("{}");
-        when(dialTargetResolver.resolve(org.mockito.ArgumentMatchers.eq("LOANS"), org.mockito.ArgumentMatchers.any()))
-                .thenReturn("+254700000001");
+        when(dialTargetResolver.resolve("LOANS")).thenReturn("+254700000001");
         when(voiceCallLogRepository.findByExternalSessionId("ATV_CONSENT_3")).thenReturn(Optional.of(callLog));
         when(voiceCallLogRepository.save(callLog)).thenReturn(callLog);
 

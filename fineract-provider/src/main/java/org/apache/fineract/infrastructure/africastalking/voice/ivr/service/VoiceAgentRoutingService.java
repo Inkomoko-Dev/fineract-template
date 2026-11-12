@@ -80,7 +80,7 @@ public class VoiceAgentRoutingService {
 
     private String connectToDepartment(final VoiceIvrSession session, final VoiceIvrMenuOption option, final String languageCode,
             final VoiceCallQueueEntry entry) {
-        final String phoneNumber = dialTargetResolver.resolve(option.getActionTarget(), session);
+        final String phoneNumber = dialTargetResolver.resolve(option.getActionTarget());
         if (StringUtils.isBlank(phoneNumber)) {
             queueService.abandonWaitingEntries(session);
             return VoiceXmlBuilder.buildUnavailableDepartment(option.getOptionLabel());
@@ -90,7 +90,6 @@ public class VoiceAgentRoutingService {
         }
         queueService.markConnecting(entry);
         sessionService.markClosed(session);
-        return VoiceXmlBuilder.buildConnectingDial(VoiceIvrMessages.connectingToAgent(languageCode, option.getOptionLabel()), phoneNumber,
-                true, VoiceIvrMessages.agentUnavailableFallback(languageCode));
+        return VoiceXmlBuilder.buildConnectingDial(VoiceIvrMessages.connectingToAgent(languageCode, option.getOptionLabel()), phoneNumber);
     }
 }

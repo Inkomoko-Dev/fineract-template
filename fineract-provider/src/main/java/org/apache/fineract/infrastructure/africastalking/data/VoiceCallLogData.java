@@ -77,11 +77,10 @@ public class VoiceCallLogData {
     }
 
     public static VoiceCallLogData fromEntity(final VoiceCallLog callLog) {
-        // Never expose DTMF (may contain OTP) or recording URLs via generic entity mapping.
         return instance(callLog.getId(), callLog.getExternalSessionId(), callLog.getDirection(), callLog.getCallerNumber(),
                 callLog.getDestinationNumber(), callLog.getClient() != null ? callLog.getClient().getId() : null,
-                callLog.getStaff() != null ? callLog.getStaff().getId() : null, callLog.getStatus(), callLog.getDurationSeconds(), null,
-                null, callLog.getCallPurpose(), callLog.isRecordingConsentRequired(), callLog.getRecordingConsentGiven(),
-                callLog.getCallbackRequestId(), callLog.getCreatedDate());
+                callLog.getStaff() != null ? callLog.getStaff().getId() : null, callLog.getStatus(), callLog.getDurationSeconds(),
+                callLog.getRecordingUrl(), callLog.getDtmfDigits(), callLog.getCallPurpose(), callLog.isRecordingConsentRequired(),
+                callLog.getRecordingConsentGiven(), callLog.getCallbackRequestId(), callLog.getCreatedDate());
     }
 }

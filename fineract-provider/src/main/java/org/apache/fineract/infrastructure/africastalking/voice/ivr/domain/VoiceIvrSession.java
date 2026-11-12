@@ -72,10 +72,6 @@ public class VoiceIvrSession extends AbstractPersistableCustom {
     @Column(name = "session_context")
     private String sessionContext;
 
-    /** Last Africa's Talking XML returned for this session (replayed on duplicate webhooks). */
-    @Column(name = "last_ivr_xml", columnDefinition = "TEXT")
-    private String lastIvrXml;
-
     @Column(name = "authenticated", nullable = false)
     private boolean authenticated = false;
 

@@ -41,17 +41,12 @@ class VoiceVoicemailServiceTest {
     private VoiceVoicemailRepository voicemailRepository;
     @Mock
     private VoiceIvrSessionService sessionService;
-    @Mock
-    private VoiceCallbackRequestService callbackRequestService;
-    @Mock
-    private org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSessionRepository voiceIvrSessionRepository;
 
     private VoiceVoicemailService voicemailService;
 
     @BeforeEach
     void setUp() {
-        voicemailService = new VoiceVoicemailService(voicemailRepository, sessionService, callbackRequestService,
-                voiceIvrSessionRepository);
+        voicemailService = new VoiceVoicemailService(voicemailRepository, sessionService);
     }
 
     @Test
@@ -60,8 +55,6 @@ class VoiceVoicemailServiceTest {
         when(voicemailRepository.findFirstByExternalSessionIdAndStatusOrderByCreatedDateDesc("ATV_1", VoiceVoicemailStatus.PENDING))
                 .thenReturn(Optional.of(voicemail));
         when(voicemailRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(voiceIvrSessionRepository.findByExternalSessionIdOrderByLastActivityAtDesc("ATV_1")).thenReturn(java.util.List.of());
-        when(callbackRequestService.createSilentCallbackForCaller(any(), any(), any(), any(), any())).thenReturn(null);
 
         voicemailService.completeFromRecordingEvent("ATV_1", "https://recordings.example/v1.mp3", 45);
 
@@ -69,6 +62,5 @@ class VoiceVoicemailServiceTest {
         verify(voicemailRepository).save(captor.capture());
         assertThat(captor.getValue().getRecordingUrl()).isEqualTo("https://recordings.example/v1.mp3");
         assertThat(captor.getValue().getStatus()).isEqualTo(VoiceVoicemailStatus.STORED);
-        verify(callbackRequestService).createSilentCallbackForCaller(any(), any(), any(), any(), any());
     }
 }

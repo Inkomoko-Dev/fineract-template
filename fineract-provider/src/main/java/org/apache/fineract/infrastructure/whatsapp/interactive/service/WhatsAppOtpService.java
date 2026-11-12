@@ -80,18 +80,6 @@ public class WhatsAppOtpService {
         return matches;
     }
 
-    /**
-     * True when the latest unverified challenge for this phone has reached {@code maxOtpAttempts}.
-     */
-    @Transactional(readOnly = true)
-    public boolean isAttemptsExhausted(final String phoneNumber) {
-        if (StringUtils.isBlank(phoneNumber)) {
-            return false;
-        }
-        return authChallengeRepository.findFirstByPhoneNumberAndVerifiedFalseOrderByCreatedDateDesc(phoneNumber)
-                .map(challenge -> challenge.getAttemptCount() >= settings.getMaxOtpAttempts()).orElse(false);
-    }
-
     private String hashOtp(final String phoneNumber, final String otp) {
         try {
             final MessageDigest digest = MessageDigest.getInstance("SHA-256");

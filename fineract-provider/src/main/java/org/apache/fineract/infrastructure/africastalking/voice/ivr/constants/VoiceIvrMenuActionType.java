@@ -20,5 +20,5 @@ package org.apache.fineract.infrastructure.africastalking.voice.ivr.constants;
 
 public enum VoiceIvrMenuActionType {
 
-    SUBMENU, DIAL, SAY, HANGUP, LANGUAGE_SELECT, LOAN_SERVICE, QUEUE, CALLBACK_REQUEST, RECORD_VOICEMAIL, REPEAT, PREVIOUS
+    SUBMENU, DIAL, SAY, HANGUP, LANGUAGE_SELECT, LOAN_SERVICE, QUEUE, CALLBACK_REQUEST, RECORD_VOICEMAIL
 }

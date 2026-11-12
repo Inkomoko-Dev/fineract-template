@@ -20,5 +20,5 @@ package org.apache.fineract.infrastructure.africastalking.domain;
 
 public enum RecipientType {
 
-    CLIENT, STAFF, UNKNOWN, MULTI_CLIENT, CLIENT_AND_STAFF
+    CLIENT, STAFF, UNKNOWN
 }

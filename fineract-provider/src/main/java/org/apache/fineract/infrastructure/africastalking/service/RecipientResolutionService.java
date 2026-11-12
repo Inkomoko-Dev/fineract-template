@@ -45,17 +45,10 @@ public class RecipientResolutionService {
         }
         final List<String> lookupVariants = phoneNumberNormalizer.lookupVariants(rawPhoneNumber);
         final List<Client> clients = clientRepository.findByMobileNumbers(lookupVariants);
-        final List<Staff> staffMembers = staffRepository.findByMobileNumbers(lookupVariants);
-        if (clients.size() > 1) {
-            // Shared number across clients — force account-number identification.
-            return ResolvedRecipientData.multiClient(normalizedPhoneNumber);
-        }
-        if (clients.size() == 1 && !staffMembers.isEmpty()) {
-            return ResolvedRecipientData.clientAndStaff(normalizedPhoneNumber, clients.get(0).getId(), staffMembers.get(0).getId());
-        }
-        if (clients.size() == 1) {
+        if (!clients.isEmpty()) {
             return ResolvedRecipientData.client(normalizedPhoneNumber, clients.get(0).getId());
         }
+        final List<Staff> staffMembers = staffRepository.findByMobileNumbers(lookupVariants);
         if (!staffMembers.isEmpty()) {
             return ResolvedRecipientData.staff(normalizedPhoneNumber, staffMembers.get(0).getId());
         }

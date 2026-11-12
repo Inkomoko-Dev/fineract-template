@@ -20,14 +20,5 @@ package org.apache.fineract.infrastructure.africastalking.voice.ivr.constants;
 
 public enum VoiceCallbackRequestStatus {
 
-    /** New / unassigned callback work item. */
-    PENDING,
-    SCHEDULED,
-    ASSIGNED,
-    IN_PROGRESS,
-    COMPLETED,
-    UNREACHABLE,
-    RESCHEDULED,
-    ESCALATED,
-    CANCELLED
+    PENDING, SCHEDULED, COMPLETED, CANCELLED
 }

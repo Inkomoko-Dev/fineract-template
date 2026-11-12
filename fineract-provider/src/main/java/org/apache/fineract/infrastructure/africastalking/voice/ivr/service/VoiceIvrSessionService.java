@@ -86,32 +86,6 @@ public class VoiceIvrSessionService {
         sessionRepository.save(session);
     }
 
-    @Transactional
-    public void storeLastIvrXml(final String externalSessionId, final String ivrXml) {
-        if (StringUtils.isBlank(externalSessionId) || StringUtils.isBlank(ivrXml)) {
-            return;
-        }
-        final List<VoiceIvrSession> sessions = sessionRepository.findByExternalSessionIdOrderByLastActivityAtDesc(externalSessionId);
-        if (sessions.isEmpty()) {
-            return;
-        }
-        final VoiceIvrSession session = sessions.get(0);
-        session.setLastIvrXml(ivrXml);
-        sessionRepository.save(session);
-    }
-
-    @Transactional(readOnly = true)
-    public Optional<String> findLastIvrXml(final String externalSessionId) {
-        if (StringUtils.isBlank(externalSessionId)) {
-            return Optional.empty();
-        }
-        final List<VoiceIvrSession> sessions = sessionRepository.findByExternalSessionIdOrderByLastActivityAtDesc(externalSessionId);
-        if (sessions.isEmpty() || StringUtils.isBlank(sessions.get(0).getLastIvrXml())) {
-            return Optional.empty();
-        }
-        return Optional.of(sessions.get(0).getLastIvrXml());
-    }
-
     private LocalDateTime calculateExpiresAt() {
         return DateUtils.getLocalDateTimeOfTenant().plusMinutes(properties.getVoiceIvr().getSessionTimeoutMinutes());
     }

@@ -19,14 +19,8 @@
 package org.apache.fineract.infrastructure.africastalking.voice.ivr.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
-import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
-import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSession;
-import org.apache.fineract.organisation.staff.domain.Staff;
-import org.apache.fineract.portfolio.client.domain.Client;
 import org.junit.jupiter.api.Test;
 
 class VoiceIvrDialTargetResolverTest {
@@ -37,29 +31,11 @@ class VoiceIvrDialTargetResolverTest {
         properties.getVoice().setLoansDepartmentNumber("+254700000001");
         properties.getVoice().setSupportDepartmentNumber("+254700000002");
         properties.getVoice().setInternalDepartmentNumber("+254700000003");
-        final PhoneNumberNormalizer normalizer = mock(PhoneNumberNormalizer.class);
-        final VoiceIvrDialTargetResolver resolver = new VoiceIvrDialTargetResolver(properties, normalizer);
+        final VoiceIvrDialTargetResolver resolver = new VoiceIvrDialTargetResolver(properties);
 
         assertThat(resolver.resolve("LOANS")).isEqualTo("+254700000001");
         assertThat(resolver.resolve("SUPPORT")).isEqualTo("+254700000002");
         assertThat(resolver.resolve("STAFF")).isEqualTo("+254700000003");
         assertThat(resolver.resolve("+254711111111")).isEqualTo("+254711111111");
-    }
-
-    @Test
-    void prefersAssignedOfficerThenDepartmentQueue() {
-        final AfricasTalkingProperties properties = new AfricasTalkingProperties();
-        properties.getVoice().setLoansDepartmentNumber("+254700000001");
-        final PhoneNumberNormalizer normalizer = mock(PhoneNumberNormalizer.class);
-        when(normalizer.normalize("+254711100000")).thenReturn("+254711100000");
-        final VoiceIvrDialTargetResolver resolver = new VoiceIvrDialTargetResolver(properties, normalizer);
-        final Staff officer = mock(Staff.class);
-        when(officer.mobileNo()).thenReturn("+254711100000");
-        final Client client = mock(Client.class);
-        when(client.getStaff()).thenReturn(officer);
-        final VoiceIvrSession session = new VoiceIvrSession();
-        session.setClient(client);
-
-        assertThat(resolver.resolve("LOANS", session)).isEqualTo("+254711100000,+254700000001");
     }
 }

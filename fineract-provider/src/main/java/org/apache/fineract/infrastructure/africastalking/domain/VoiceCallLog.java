@@ -119,7 +119,7 @@ public class VoiceCallLog extends AbstractPersistableCustom {
     }
 
     public void applyEventUpdate(final String status, final Integer durationSeconds, final String recordingUrl, final String dtmfDigits) {
-        if (status != null && isForwardStatusTransition(this.status, status)) {
+        if (status != null) {
             this.status = status;
         }
         if (durationSeconds != null) {
@@ -131,33 +131,5 @@ public class VoiceCallLog extends AbstractPersistableCustom {
         if (dtmfDigits != null) {
             this.dtmfDigits = dtmfDigits;
         }
-    }
-
-    /**
-     * Ignore out-of-order webhooks that would rewind a call to an earlier lifecycle state.
-     */
-    static boolean isForwardStatusTransition(final String currentStatus, final String newStatus) {
-        if (newStatus == null) {
-            return false;
-        }
-        if (currentStatus == null || currentStatus.isBlank()) {
-            return true;
-        }
-        if (currentStatus.equalsIgnoreCase(newStatus)) {
-            return true;
-        }
-        // Terminal statuses must not overwrite each other (FAILED vs COMPLETED).
-        return statusRank(newStatus) > statusRank(currentStatus);
-    }
-
-    private static int statusRank(final String status) {
-        return switch (status.toUpperCase()) {
-            case "INITIATED" -> 10;
-            case "RINGING" -> 20;
-            case "ANSWERED" -> 30;
-            case "FAILED" -> 40;
-            case "COMPLETED" -> 50;
-            default -> 0;
-        };
     }
 }

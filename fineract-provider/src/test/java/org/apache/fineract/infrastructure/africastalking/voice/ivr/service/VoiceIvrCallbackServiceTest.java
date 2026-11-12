@@ -20,7 +20,6 @@ package org.apache.fineract.infrastructure.africastalking.voice.ivr.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import java.util.Optional;
@@ -30,11 +29,9 @@ import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNorm
 import org.apache.fineract.infrastructure.africastalking.service.RecipientResolutionService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrMenuActionType;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrSessionStatus;
-import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrMenuDefinitionRepository;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrMenuOption;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrMenuOptionRepository;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSession;
-import org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext;
 import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppSessionContextSerializer;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -54,8 +51,6 @@ class VoiceIvrCallbackServiceTest {
     private VoiceIvrMenuRenderer menuRenderer;
     @Mock
     private VoiceIvrMenuOptionRepository menuOptionRepository;
-    @Mock
-    private VoiceIvrMenuDefinitionRepository menuDefinitionRepository;
     @Mock
     private VoiceIvrCallerIdentificationService callerIdentificationService;
     @Mock
@@ -82,8 +77,6 @@ class VoiceIvrCallbackServiceTest {
     private StaffRepositoryWrapper staffRepositoryWrapper;
     @Mock
     private VoiceRecordingConsentService recordingConsentService;
-    @Mock
-    private VoiceIvrDialTargetResolver dialTargetResolver;
 
     private AfricasTalkingProperties properties;
     private VoiceIvrCallbackService callbackService;
@@ -92,12 +85,10 @@ class VoiceIvrCallbackServiceTest {
     void setUp() {
         properties = new AfricasTalkingProperties();
         callbackService = new VoiceIvrCallbackService(properties, sessionService, menuRenderer, menuOptionRepository,
-                menuDefinitionRepository, callerIdentificationService, clientAuthService, loanSelfServiceGate, agentRoutingService,
-                callbackRequestService, voicemailService, businessHoursService, contextSerializer, recipientResolutionService,
-                phoneNumberNormalizer, clientRepositoryWrapper, staffRepositoryWrapper, recordingConsentService, dialTargetResolver);
+                callerIdentificationService, clientAuthService, loanSelfServiceGate, agentRoutingService, callbackRequestService,
+                voicemailService, businessHoursService, contextSerializer, recipientResolutionService, phoneNumberNormalizer,
+                clientRepositoryWrapper, staffRepositoryWrapper, recordingConsentService);
         when(businessHoursService.isWithinBusinessHours()).thenReturn(true);
-        lenient().when(contextSerializer.fromJson(any())).thenReturn(WhatsAppSessionContext.empty());
-        lenient().when(contextSerializer.toJson(any())).thenReturn("{}");
     }
 
     @Test
@@ -238,30 +229,5 @@ class VoiceIvrCallbackServiceTest {
         final String xml = callbackService.handleInbound("sessionId=ATV_1&callerNumber=%2B254700000099&dtmfDigits=2");
 
         assertThat(xml).contains("queue");
-    }
-
-    @Test
-    void rePromptsOnInvalidDtmfThenTransfersAfterMaxAttempts() {
-        final VoiceIvrSession session = new VoiceIvrSession();
-        session.setSessionStatus(VoiceIvrSessionStatus.ACTIVE);
-        session.setLanguageCode("en");
-        session.setCurrentMenuKey("MAIN");
-        properties.getVoiceIvr().setMaxInvalidDtmfAttempts(2);
-        when(phoneNumberNormalizer.normalize(any())).thenReturn("+254700000099");
-        when(recipientResolutionService.resolve(any())).thenReturn(ResolvedRecipientData.unknown("+254700000099"));
-        when(sessionService.startOrResume("ATV_1", "+254700000099", null, null)).thenReturn(session);
-        when(sessionService.save(session)).thenReturn(session);
-        when(menuOptionRepository.findByMenuKeyAndLanguageCodeAndOptionDigitAndEnabledTrue("MAIN", "en", 6))
-                .thenReturn(Optional.empty());
-        when(menuRenderer.buildMenuPrompt("MAIN", "en")).thenReturn("Press 1 for Loans.");
-        when(dialTargetResolver.resolve("SUPPORT", session)).thenReturn("+254700000002");
-
-        final String first = callbackService.handleInbound("sessionId=ATV_1&callerNumber=%2B254700000099&dtmfDigits=6");
-        assertThat(first).contains("Invalid selection");
-        assertThat(first).contains("Press 1 for Loans");
-
-        final String second = callbackService.handleInbound("sessionId=ATV_1&callerNumber=%2B254700000099&dtmfDigits=6");
-        assertThat(second).contains("Too many invalid attempts");
-        assertThat(second).contains("phoneNumbers=\"+254700000002\"");
     }
 }
