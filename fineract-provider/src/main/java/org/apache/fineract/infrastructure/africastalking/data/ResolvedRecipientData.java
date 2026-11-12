@@ -48,4 +48,22 @@ public class ResolvedRecipientData {
     public static ResolvedRecipientData unknown(final String normalizedPhoneNumber) {
         return new ResolvedRecipientData(normalizedPhoneNumber, RecipientType.UNKNOWN, null, null);
     }
+
+    /** Multiple clients share this number — do not auto-bind; require account entry. */
+    public static ResolvedRecipientData multiClient(final String normalizedPhoneNumber) {
+        return new ResolvedRecipientData(normalizedPhoneNumber, RecipientType.MULTI_CLIENT, null, null);
+    }
+
+    /** Number matches both a client and a staff member — ask which service before binding. */
+    public static ResolvedRecipientData clientAndStaff(final String normalizedPhoneNumber, final Long clientId, final Long staffId) {
+        return new ResolvedRecipientData(normalizedPhoneNumber, RecipientType.CLIENT_AND_STAFF, clientId, staffId);
+    }
+
+    public boolean requiresRoleSelection() {
+        return recipientType == RecipientType.CLIENT_AND_STAFF;
+    }
+
+    public boolean isAmbiguousClients() {
+        return recipientType == RecipientType.MULTI_CLIENT;
+    }
 }

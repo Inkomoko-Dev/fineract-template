@@ -54,7 +54,8 @@ public class VoiceVoicemailReadPlatformService {
             data.setCallerNumber(rs.getString("callerNumber"));
             data.setClientId(JdbcSupport.getLong(rs, "clientId"));
             data.setDepartmentCode(rs.getString("departmentCode"));
-            data.setRecordingUrl(rs.getString("recordingUrl"));
+            // Omit recording URLs from list payloads; use a permissioned fetch when needed.
+            data.setRecordingUrl(null);
             data.setDurationSeconds(JdbcSupport.getInteger(rs, "durationSeconds"));
             data.setStatus(rs.getString("status"));
             data.setCreatedDate(JdbcSupport.getLocalDateTime(rs, "createdDate"));

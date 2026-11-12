@@ -25,8 +25,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEvent;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEventRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrSessionStatus;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSession;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSessionRepository;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.junit.jupiter.api.AfterEach;
@@ -46,12 +50,15 @@ class AfricasTalkingWebhookServiceTest {
     @Mock
     private CommunicationWebhookEventRepository webhookEventRepository;
 
+    @Mock
+    private VoiceIvrSessionRepository voiceIvrSessionRepository;
+
     private AfricasTalkingWebhookService webhookService;
 
     @BeforeEach
     void setUp() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
-        webhookService = new AfricasTalkingWebhookService(webhookVerifier, webhookEventRepository);
+        webhookService = new AfricasTalkingWebhookService(webhookVerifier, webhookEventRepository, voiceIvrSessionRepository);
     }
 
     @AfterEach
@@ -89,5 +96,18 @@ class AfricasTalkingWebhookServiceTest {
 
         assertTrue(result.duplicate());
         verify(webhookEventRepository, never()).save(any());
+    }
+
+    @Test
+    void masksOtpDigitsInVoiceCallbackEventIdWhileAuthenticating() {
+        final String payload = "sessionId=ATV_AUTH&dtmfDigits=654321&callSessionState=Completed";
+        final VoiceIvrSession session = new VoiceIvrSession();
+        session.setSessionStatus(VoiceIvrSessionStatus.AUTHENTICATING);
+        when(voiceIvrSessionRepository.findByExternalSessionIdOrderByLastActivityAtDesc("ATV_AUTH")).thenReturn(List.of(session));
+
+        final String eventId = webhookService.extractEventId(payload, AfricasTalkingClient.sha256Hex(payload));
+
+        assertEquals("ATV_AUTH:OTP:Completed", eventId);
+        assertTrue(!eventId.contains("654321"));
     }
 }
