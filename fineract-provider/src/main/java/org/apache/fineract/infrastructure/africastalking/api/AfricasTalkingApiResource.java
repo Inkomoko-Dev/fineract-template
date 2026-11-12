@@ -196,6 +196,16 @@ public class AfricasTalkingApiResource {
         return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveOne(callId));
     }
 
+    @GET
+    @Path("voice/calls/{callId}/recording")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveVoiceCallRecording(@PathParam("callId") final Long callId, @Context final UriInfo uriInfo) {
+        this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveRecording(callId));
+    }
+
     @POST
     @Path("webhooks/ping")
     @Consumes({ MediaType.WILDCARD })
@@ -230,9 +240,11 @@ public class AfricasTalkingApiResource {
             final String userAgent = headers.getHeaderString(HttpHeaders.USER_AGENT);
             final WebhookProcessingResult result = webhookService.processWebhook("VOICE_CALLBACK", payload == null ? "" : payload, signature,
                     userAgent);
-            if (!result.duplicate()) {
-                voiceService.processInboundCallback(payload);
+            if (result.duplicate()) {
+                // Do not re-enter IVR (would re-issue OTP / create duplicate callbacks).
+                return Response.ok("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>", MediaType.APPLICATION_XML).build();
             }
+            voiceService.processInboundCallback(payload);
             return Response.ok(voiceService.buildIvrResponse(payload), MediaType.APPLICATION_XML).build();
         } catch (AfricasTalkingWebhookAuthenticationException e) {
             return Response.status(Response.Status.UNAUTHORIZED).entity("UNAUTHORIZED").type(MediaType.TEXT_PLAIN).build();

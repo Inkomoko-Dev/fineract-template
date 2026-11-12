@@ -28,6 +28,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEvent;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEventRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrSessionStatus;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSession;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSessionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +41,7 @@ public class AfricasTalkingWebhookService {
 
     private final AfricasTalkingWebhookVerifier webhookVerifier;
     private final CommunicationWebhookEventRepository webhookEventRepository;
+    private final VoiceIvrSessionRepository voiceIvrSessionRepository;
 
     @Transactional
     public WebhookProcessingResult processWebhook(final String eventType, final String rawPayload, final String signatureHeader,
@@ -82,9 +86,11 @@ public class AfricasTalkingWebhookService {
             final Map<String, String> formValues = parseFormPayload(trimmed);
             final String sessionId = formValues.get("sessionId");
             if (StringUtils.isNotBlank(sessionId)) {
-                final String dtmfDigits = StringUtils.defaultString(formValues.get("dtmfDigits"));
                 final String callSessionState = StringUtils.defaultString(formValues.get("callSessionState"));
-                return sessionId + ":" + dtmfDigits + ":" + callSessionState;
+                // Mask OTP / auth DTMF in idempotency keys and logs.
+                final String dtmfToken = isAuthenticatingSession(sessionId) ? "OTP"
+                        : StringUtils.defaultString(formValues.get("dtmfDigits"));
+                return sessionId + ":" + dtmfToken + ":" + callSessionState;
             }
             for (final String key : new String[] { "id", "sessionId", "callSessionState", "callerNumber" }) {
                 if (formValues.containsKey(key) && StringUtils.isNotBlank(formValues.get(key))) {
@@ -98,6 +104,15 @@ public class AfricasTalkingWebhookService {
     private Map<String, String> parseFormPayload(final String rawPayload) {
         return java.util.Arrays.stream(rawPayload.split("&")).map(part -> part.split("=", 2)).filter(parts -> parts.length == 2)
                 .collect(Collectors.toMap(parts -> parts[0], parts -> parts[1], (left, right) -> right));
+    }
+
+    private boolean isAuthenticatingSession(final String externalSessionId) {
+        final java.util.List<VoiceIvrSession> sessions = voiceIvrSessionRepository
+                .findByExternalSessionIdOrderByLastActivityAtDesc(externalSessionId);
+        if (sessions.isEmpty()) {
+            return false;
+        }
+        return sessions.get(0).getSessionStatus() == VoiceIvrSessionStatus.AUTHENTICATING;
     }
 
     public record WebhookProcessingResult(boolean duplicate, String eventId) {

@@ -38,6 +38,8 @@ public class WhatsAppSessionContext {
     private String pendingDepartmentCode;
     private String pendingDepartmentLabel;
     private Long pendingQueueEntryId;
+    /** Invalid / empty DTMF attempts on the current menu (voice IVR). */
+    private Integer invalidDtmfAttempts;
 
     public static WhatsAppSessionContext empty() {
         return new WhatsAppSessionContext();

@@ -30,6 +30,7 @@ import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingV
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceCallbackRequestStatus;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequest;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequestRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceBusinessHoursService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
@@ -47,13 +48,16 @@ class VoiceCallbackDispatchServiceTest {
     private VoiceCallbackRequestRepository callbackRequestRepository;
     @Mock
     private AfricasTalkingVoiceService voiceService;
+    @Mock
+    private VoiceBusinessHoursService businessHoursService;
 
     private VoiceCallbackDispatchService dispatchService;
 
     @BeforeEach
     void setUp() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
-        dispatchService = new VoiceCallbackDispatchService(callbackRequestRepository, voiceService);
+        dispatchService = new VoiceCallbackDispatchService(callbackRequestRepository, voiceService, businessHoursService);
+        when(businessHoursService.isWithinBusinessHours()).thenReturn(true);
     }
 
     @Test
@@ -67,7 +71,7 @@ class VoiceCallbackDispatchServiceTest {
         final CommandProcessingResult result = dispatchService.dispatchCallback(5L);
 
         assertThat(result.resourceId()).isEqualTo(99L);
-        assertThat(request.getStatus()).isEqualTo(VoiceCallbackRequestStatus.SCHEDULED);
+        assertThat(request.getStatus()).isEqualTo(VoiceCallbackRequestStatus.IN_PROGRESS);
         assertThat(request.getOutboundCallLogId()).isEqualTo(99L);
         verify(voiceService).initiateOutboundCall(any());
     }
@@ -108,6 +112,17 @@ class VoiceCallbackDispatchServiceTest {
 
     @Test
     void skipsScheduledJobWhenNoCallbacksAreDue() {
+        when(callbackRequestRepository.findDueForDispatch(any(), any())).thenReturn(List.of());
+
+        final int dispatched = dispatchService.dispatchDueCallbacks();
+
+        assertThat(dispatched).isZero();
+        verify(voiceService, never()).initiateOutboundCall(any());
+    }
+
+    @Test
+    void skipsDispatchOutsideBusinessHours() {
+        when(businessHoursService.isWithinBusinessHours()).thenReturn(false);
         when(callbackRequestRepository.findDueForDispatch(any(), any())).thenReturn(List.of());
 
         final int dispatched = dispatchService.dispatchDueCallbacks();

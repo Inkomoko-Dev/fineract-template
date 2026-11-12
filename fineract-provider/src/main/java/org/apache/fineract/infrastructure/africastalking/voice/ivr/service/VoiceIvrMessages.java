@@ -47,6 +47,18 @@ public final class VoiceIvrMessages {
                 : "We could not verify your identity. Please try again.";
     }
 
+    public static String identityPhoneMismatch(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Iyi konti ntabwo ihuye na telefone uri gukoresha. Hamagara umujyanama wacu."
+                : "That account is not registered to the phone number you are calling from. Please contact support.";
+    }
+
+    public static String otpAttemptsExhausted(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Wagerageje inshuro nyinshi. Turimo kuguhuza na serivisi y'abakiriya."
+                : "Too many incorrect verification attempts. Connecting you to support.";
+    }
+
     public static String otpSentPrompt(final String languageCode) {
         return "rw".equalsIgnoreCase(languageCode)
                 ? "Twoherejwe kode y'igenzura kuri WhatsApp yawe. Andika kode ukurikije hash."
@@ -113,6 +125,29 @@ public final class VoiceIvrMessages {
     public static String goodbye(final String languageCode) {
         return "rw".equalsIgnoreCase(languageCode) ? "Murakoze guhamagara Inkomoko. Muraho."
                 : "Thank you for calling Inkomoko. Goodbye.";
+    }
+
+    public static String invalidSelectionRetry(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Ihitamo ntabwo ari ryo. Ongera ugerageze."
+                : "Invalid selection. Please try again.";
+    }
+
+    public static String transferAttemptsExhausted(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Wagerageje inshuro nyinshi. Turimo kuguhuza na serivisi y'abakiriya."
+                : "Too many invalid attempts. Connecting you to support.";
+    }
+
+    public static String roleSelectPrompt(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Kanda 1 ku serivisi z'abakiriya, cyangwa 2 ku serivisi z'abakozi."
+                : "Press 1 for client services, or 2 for staff services.";
+    }
+
+    public static String agentUnavailableFallback(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Nta mujyanama ubonetse. Nyamuneka usige ubutumwa nyuma y'impuruza."
+                : "No agent is available. Please leave a message after the tone.";
     }
 
     public static String sanitizeForSpeech(final String text) {
