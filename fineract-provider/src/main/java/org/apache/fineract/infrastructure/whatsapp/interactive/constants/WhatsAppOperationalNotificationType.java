@@ -20,5 +20,5 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.constants;
 
 public enum WhatsAppOperationalNotificationType {
 
-    TICKET_CREATED, SLA_BREACH
+    TICKET_CREATED, SLA_BREACH, TICKET_ASSIGNED, TICKET_RESOLVED
 }

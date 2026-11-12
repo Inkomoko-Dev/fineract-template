@@ -51,6 +51,7 @@ public class WhatsAppSupportTicketService {
     private final WhatsAppBusinessHoursService businessHoursService;
     private final CommunicationMessageRepository communicationMessageRepository;
     private final StaffRepositoryWrapper staffRepositoryWrapper;
+    private final WhatsAppOperationalNotificationService operationalNotificationService;
 
     @Transactional
     public WhatsAppSupportTicket createFromEscalation(final WhatsAppConversationSession session, final Client client,
@@ -70,7 +71,15 @@ public class WhatsAppSupportTicketService {
         ticket.setSlaDueAt(businessHoursService.calculateSlaDueAt(now));
         ticket.setCreatedDate(now);
         ticket.setLastModifiedDate(now);
-        return ticketRepository.save(ticket);
+        if (client != null && client.getStaff() != null) {
+            ticket.setAssignedStaff(client.getStaff());
+            ticket.setStatus(WhatsAppTicketStatus.ASSIGNED);
+        }
+        final WhatsAppSupportTicket saved = ticketRepository.save(ticket);
+        if (saved.getAssignedStaff() != null) {
+            operationalNotificationService.notifyTicketAssigned(saved);
+        }
+        return saved;
     }
 
     @Transactional
@@ -128,11 +137,19 @@ public class WhatsAppSupportTicketService {
             ticket.setStatus(WhatsAppTicketStatus.ASSIGNED);
         }
         touch(ticket);
-        return mapTicket(ticketRepository.save(ticket));
+        final WhatsAppSupportTicket saved = ticketRepository.save(ticket);
+        operationalNotificationService.notifyTicketAssigned(saved);
+        return mapTicket(saved);
     }
 
     @Transactional
     public WhatsAppSupportTicketData updateStatus(final Long ticketId, final WhatsAppTicketStatus status, final boolean recordFirstResponse) {
+        return updateStatus(ticketId, status, recordFirstResponse, null);
+    }
+
+    @Transactional
+    public WhatsAppSupportTicketData updateStatus(final Long ticketId, final WhatsAppTicketStatus status, final boolean recordFirstResponse,
+            final String resolutionNotes) {
         final WhatsAppSupportTicket ticket = loadTicket(ticketId);
         final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
         ticket.setStatus(status);
@@ -141,15 +158,30 @@ public class WhatsAppSupportTicketService {
         }
         if (status == WhatsAppTicketStatus.RESOLVED || status == WhatsAppTicketStatus.CLOSED) {
             ticket.setResolvedAt(now);
+            if (StringUtils.isNotBlank(resolutionNotes)) {
+                ticket.setResolutionNotes(resolutionNotes.trim());
+            }
         }
         touch(ticket);
-        return mapTicket(ticketRepository.save(ticket));
+        final WhatsAppSupportTicket saved = ticketRepository.save(ticket);
+        if (status == WhatsAppTicketStatus.RESOLVED || status == WhatsAppTicketStatus.CLOSED) {
+            operationalNotificationService.notifyTicketResolved(saved);
+        }
+        return mapTicket(saved);
     }
 
     @Transactional
     public WhatsAppSupportTicketData updateSummary(final Long ticketId, final String summary) {
         final WhatsAppSupportTicket ticket = loadTicket(ticketId);
         ticket.setSummary(summary);
+        touch(ticket);
+        return mapTicket(ticketRepository.save(ticket));
+    }
+
+    @Transactional
+    public WhatsAppSupportTicketData updateResolutionNotes(final Long ticketId, final String resolutionNotes) {
+        final WhatsAppSupportTicket ticket = loadTicket(ticketId);
+        ticket.setResolutionNotes(resolutionNotes);
         touch(ticket);
         return mapTicket(ticketRepository.save(ticket));
     }
@@ -190,6 +222,7 @@ public class WhatsAppSupportTicketService {
         data.setStatus(ticket.getStatus());
         data.setPriority(ticket.getPriority());
         data.setSummary(ticket.getSummary());
+        data.setResolutionNotes(ticket.getResolutionNotes());
         data.setCustomerMessage(ticket.getCustomerMessage());
         data.setLanguageCode(ticket.getLanguageCode());
         if (ticket.getAssignedStaff() != null) {
