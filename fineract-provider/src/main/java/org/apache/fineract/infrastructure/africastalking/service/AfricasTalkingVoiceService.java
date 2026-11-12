@@ -32,11 +32,17 @@ import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientD
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationDirection;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLog;
 import org.apache.fineract.infrastructure.africastalking.domain.VoiceCallLogRepository;
-import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequestRepository;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceCallbackRequestStatus;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrSessionStatus;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequestRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSession;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSessionRepository;
+import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceCallQueueService;
-import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceVoicemailService;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceCallbackRequestService;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceIvrCallbackService;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceIvrSessionService;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceVoicemailService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.staff.domain.Staff;
@@ -61,10 +67,28 @@ public class AfricasTalkingVoiceService {
     private final VoiceIvrCallbackService voiceIvrCallbackService;
     private final VoiceVoicemailService voiceVoicemailService;
     private final VoiceCallbackRequestRepository callbackRequestRepository;
+    private final VoiceCallbackRequestService voiceCallbackRequestService;
     private final VoiceCallQueueService voiceCallQueueService;
+    private final VoiceIvrSessionRepository voiceIvrSessionRepository;
+    private final VoiceIvrSessionService voiceIvrSessionService;
+
+    private static final String EMPTY_VOICE_RESPONSE = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>";
 
     public String buildIvrResponse(final String rawPayload) {
-        return voiceIvrCallbackService.handleInbound(rawPayload);
+        final String xml = voiceIvrCallbackService.handleInbound(rawPayload);
+        final Map<String, String> values = AfricasTalkingPayloadParser.toMap(rawPayload);
+        final String sessionId = AfricasTalkingPayloadParser.firstNonBlank(values, "sessionId", "callSessionId");
+        voiceIvrSessionService.storeLastIvrXml(sessionId, xml);
+        return xml;
+    }
+
+    /**
+     * Replay the last IVR XML for an identical AT retry without re-entering menu/OTP side effects.
+     */
+    public String resolveDuplicateIvrResponse(final String rawPayload) {
+        final Map<String, String> values = AfricasTalkingPayloadParser.toMap(rawPayload);
+        final String sessionId = AfricasTalkingPayloadParser.firstNonBlank(values, "sessionId", "callSessionId");
+        return voiceIvrSessionService.findLastIvrXml(sessionId).orElse(EMPTY_VOICE_RESPONSE);
     }
 
     @Transactional
@@ -80,15 +104,14 @@ public class AfricasTalkingVoiceService {
         final String dtmfDigits = AfricasTalkingPayloadParser.firstNonBlank(values, "dtmfDigits", "digits");
         final VoiceCallLog callLog = voiceCallLogRepository.findByExternalSessionId(sessionId).orElseGet(() -> {
             final ResolvedRecipientData recipient = recipientResolutionService.resolve(callerNumber);
-            final Client client = recipient.getClientId() != null
-                    ? clientRepositoryWrapper.findOneWithNotFoundDetection(recipient.getClientId()) : null;
-            final Staff staff = recipient.getStaffId() != null
-                    ? staffRepositoryWrapper.findOneWithNotFoundDetection(recipient.getStaffId()) : null;
+            final Client client = resolveBoundClient(recipient);
+            final Staff staff = resolveBoundStaff(recipient);
             final VoiceCallLog inbound = VoiceCallLog.inbound(sessionId, callerNumber, destinationNumber, client, staff);
             inbound.setRecordingConsentRequired(properties.getVoice().isRecordingConsentRequired());
             return inbound;
         });
-        if (StringUtils.isNotBlank(dtmfDigits)) {
+        // Never persist OTP / auth DTMF while the IVR session is authenticating.
+        if (StringUtils.isNotBlank(dtmfDigits) && !isAuthenticatingSession(sessionId)) {
             callLog.setDtmfDigits(dtmfDigits);
         }
         voiceCallLogRepository.save(callLog);
@@ -109,16 +132,16 @@ public class AfricasTalkingVoiceService {
                 : CommunicationDirection.INBOUND;
         final VoiceCallLog callLog = voiceCallLogRepository.findByExternalSessionId(sessionId).orElseGet(() -> {
             final ResolvedRecipientData recipient = recipientResolutionService.resolve(callerNumber);
-            final Client client = recipient.getClientId() != null
-                    ? clientRepositoryWrapper.findOneWithNotFoundDetection(recipient.getClientId()) : null;
-            final Staff staff = recipient.getStaffId() != null
-                    ? staffRepositoryWrapper.findOneWithNotFoundDetection(recipient.getStaffId()) : null;
+            final Client client = resolveBoundClient(recipient);
+            final Staff staff = resolveBoundStaff(recipient);
             return direction == CommunicationDirection.OUTBOUND
                     ? VoiceCallLog.outbound(sessionId, callerNumber, destinationNumber, client, staff)
                     : VoiceCallLog.inbound(sessionId, callerNumber, destinationNumber, client, staff);
         });
+        final String eventDtmf = AfricasTalkingPayloadParser.firstNonBlank(values, "dtmfDigits", "digits");
+        final String previousStatus = callLog.getStatus();
         callLog.applyEventUpdate(mapCallStatus(values), parseDuration(values), values.get("recordingUrl"),
-                AfricasTalkingPayloadParser.firstNonBlank(values, "dtmfDigits", "digits"));
+                isAuthenticatingSession(sessionId) ? null : eventDtmf);
         if (AfricasTalkingConstants.CALL_STATUS_ANSWERED.equals(callLog.getStatus())) {
             voiceCallQueueService.markConnected(sessionId);
         }
@@ -128,8 +151,43 @@ public class AfricasTalkingVoiceService {
                 completeCallbackRequest(callLog.getCallbackRequestId());
             }
         }
+        if (AfricasTalkingConstants.CALL_STATUS_FAILED.equals(callLog.getStatus())
+                && !AfricasTalkingConstants.CALL_STATUS_FAILED.equals(previousStatus)
+                && callLog.getDirection() == CommunicationDirection.INBOUND
+                && callLog.getCallbackRequestId() == null) {
+            createMissedCallCallback(callLog);
+        }
         voiceCallLogRepository.save(callLog);
         voiceVoicemailService.completeFromRecordingEvent(sessionId, values.get("recordingUrl"), parseDuration(values));
+    }
+
+    private Client resolveBoundClient(final ResolvedRecipientData recipient) {
+        if (recipient.getRecipientType() != RecipientType.CLIENT || recipient.getClientId() == null) {
+            return null;
+        }
+        return clientRepositoryWrapper.findOneWithNotFoundDetection(recipient.getClientId());
+    }
+
+    private Staff resolveBoundStaff(final ResolvedRecipientData recipient) {
+        if (recipient.getRecipientType() != RecipientType.STAFF || recipient.getStaffId() == null) {
+            return null;
+        }
+        return staffRepositoryWrapper.findOneWithNotFoundDetection(recipient.getStaffId());
+    }
+
+    private void createMissedCallCallback(final VoiceCallLog callLog) {
+        final java.util.List<VoiceIvrSession> sessions = voiceIvrSessionRepository
+                .findByExternalSessionIdOrderByLastActivityAtDesc(callLog.getExternalSessionId());
+        if (!sessions.isEmpty()) {
+            final VoiceIvrSession session = sessions.get(0);
+            final var request = voiceCallbackRequestService.createSilentCallback(session, "MISSED_CALL",
+                    StringUtils.defaultIfBlank(session.getLanguageCode(), "en"));
+            callLog.setCallbackRequestId(request.getId());
+            return;
+        }
+        final var request = voiceCallbackRequestService.createSilentCallbackForCaller(callLog.getExternalSessionId(),
+                callLog.getCallerNumber(), callLog.getClient(), "MISSED_CALL", "en");
+        callLog.setCallbackRequestId(request.getId());
     }
 
     private void completeCallbackRequest(final Long callbackRequestId) {
@@ -289,5 +347,17 @@ public class AfricasTalkingVoiceService {
 
     private String normalizePhone(final String phoneNumber) {
         return phoneNumberNormalizer.normalize(phoneNumber);
+    }
+
+    private boolean isAuthenticatingSession(final String externalSessionId) {
+        if (StringUtils.isBlank(externalSessionId)) {
+            return false;
+        }
+        final java.util.List<VoiceIvrSession> sessions = voiceIvrSessionRepository
+                .findByExternalSessionIdOrderByLastActivityAtDesc(externalSessionId);
+        if (sessions.isEmpty()) {
+            return false;
+        }
+        return sessions.get(0).getSessionStatus() == VoiceIvrSessionStatus.AUTHENTICATING;
     }
 }

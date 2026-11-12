@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.africastalking.voice.ivr.service;
 import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
 import org.apache.fineract.infrastructure.africastalking.service.VoiceXmlBuilder;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrSessionStatus;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSession;
@@ -48,11 +49,14 @@ public class VoiceIvrClientAuthService {
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final WhatsAppInteractiveSettingsProvider settings;
     private final VoiceIvrLoanSelfServiceGate loanSelfServiceGate;
+    private final PhoneNumberNormalizer phoneNumberNormalizer;
+    private final VoiceIvrDialTargetResolver dialTargetResolver;
 
     public VoiceIvrClientAuthService(final VoiceIvrSessionService sessionService,
             final WhatsAppSessionContextSerializer contextSerializer, final WhatsAppOtpService otpService,
             final VoiceIvrOtpNotificationService otpNotificationService, final ClientRepositoryWrapper clientRepositoryWrapper,
-            final WhatsAppInteractiveSettingsProvider settings, @Lazy final VoiceIvrLoanSelfServiceGate loanSelfServiceGate) {
+            final WhatsAppInteractiveSettingsProvider settings, @Lazy final VoiceIvrLoanSelfServiceGate loanSelfServiceGate,
+            final PhoneNumberNormalizer phoneNumberNormalizer, final VoiceIvrDialTargetResolver dialTargetResolver) {
         this.sessionService = sessionService;
         this.contextSerializer = contextSerializer;
         this.otpService = otpService;
@@ -60,6 +64,8 @@ public class VoiceIvrClientAuthService {
         this.clientRepositoryWrapper = clientRepositoryWrapper;
         this.settings = settings;
         this.loanSelfServiceGate = loanSelfServiceGate;
+        this.phoneNumberNormalizer = phoneNumberNormalizer;
+        this.dialTargetResolver = dialTargetResolver;
     }
 
     @Transactional
@@ -134,14 +140,33 @@ public class VoiceIvrClientAuthService {
         if (resolvedClient == null) {
             return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.identityNotFound(language));
         }
+        if (!callerOwnsRegisteredMobile(session, resolvedClient)) {
+            context.setCandidateClientId(null);
+            session.setClient(null);
+            session.setSessionContext(contextSerializer.toJson(context));
+            sessionService.save(session);
+            log.warn("IVR identity rejected: account {} not registered to caller", resolvedClient.getId());
+            return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.identityPhoneMismatch(language));
+        }
         context.setCandidateClientId(resolvedClient.getId());
         session.setClient(resolvedClient);
-        return issueOtpAndPrompt(session, context, language);
+        return issueOtpAndPrompt(session, context, language, resolvedClient);
     }
 
     private String handleOtpVerification(final VoiceIvrSession session, final String input, final WhatsAppSessionContext context) {
         final String language = resolveLanguage(session);
-        if (!otpService.verifyOtp(session.getCallerNumber(), input)) {
+        final String registeredMobile = resolveRegisteredMobileForSession(session, context);
+        if (StringUtils.isBlank(registeredMobile)) {
+            return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.identityPhoneMismatch(language));
+        }
+        if (!otpService.verifyOtp(registeredMobile, input)) {
+            if (otpService.isAttemptsExhausted(registeredMobile)) {
+                session.setSessionStatus(VoiceIvrSessionStatus.CLOSED);
+                context.setAuthStep(null);
+                session.setSessionContext(contextSerializer.toJson(context));
+                sessionService.save(session);
+                return transferToSupportOrHangup(session, language);
+            }
             return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.otpInvalid(language));
         }
         markAuthenticated(session);
@@ -156,9 +181,11 @@ public class VoiceIvrClientAuthService {
         return VoiceXmlBuilder.buildSay(VoiceIvrMessages.authSuccess(language));
     }
 
-    private String issueOtpAndPrompt(final VoiceIvrSession session, final WhatsAppSessionContext context, final String language) {
-        final String otp = otpService.issueOtp(session.getCallerNumber(), context.getCandidateClientId());
-        if (!otpNotificationService.sendOtp(session.getCallerNumber(), otp, language)) {
+    private String issueOtpAndPrompt(final VoiceIvrSession session, final WhatsAppSessionContext context, final String language,
+            final Client client) {
+        final String registeredMobile = phoneNumberNormalizer.normalize(client.mobileNo());
+        final String otp = otpService.issueOtp(registeredMobile, context.getCandidateClientId());
+        if (!otpNotificationService.sendOtp(registeredMobile, otp, language)) {
             return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.otpDeliveryFailed(language));
         }
         context.setAuthStep(WhatsAppAuthStep.VERIFY_OTP.name());
@@ -166,6 +193,33 @@ public class VoiceIvrClientAuthService {
         session.setSessionStatus(VoiceIvrSessionStatus.AUTHENTICATING);
         sessionService.save(session);
         return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.otpSentPrompt(language));
+    }
+
+    private boolean callerOwnsRegisteredMobile(final VoiceIvrSession session, final Client client) {
+        final String registeredMobile = phoneNumberNormalizer.normalize(client.mobileNo());
+        final String callerMobile = phoneNumberNormalizer.normalize(session.getCallerNumber());
+        return StringUtils.isNotBlank(registeredMobile) && StringUtils.isNotBlank(callerMobile) && registeredMobile.equals(callerMobile);
+    }
+
+    private String resolveRegisteredMobileForSession(final VoiceIvrSession session, final WhatsAppSessionContext context) {
+        Client client = session.getClient();
+        if (client == null && context.getCandidateClientId() != null) {
+            client = clientRepositoryWrapper.findOneWithNotFoundDetection(context.getCandidateClientId());
+            session.setClient(client);
+        }
+        if (client == null) {
+            return null;
+        }
+        return phoneNumberNormalizer.normalize(client.mobileNo());
+    }
+
+    private String transferToSupportOrHangup(final VoiceIvrSession session, final String language) {
+        final String supportNumber = dialTargetResolver.resolve("SUPPORT", session);
+        if (StringUtils.isNotBlank(supportNumber)) {
+            return VoiceXmlBuilder.buildConnectingDial(VoiceIvrMessages.otpAttemptsExhausted(language), supportNumber, false,
+                    VoiceIvrMessages.agentUnavailableFallback(language));
+        }
+        return VoiceXmlBuilder.buildHangup(VoiceIvrMessages.otpAttemptsExhausted(language));
     }
 
     private void markAuthenticated(final VoiceIvrSession session) {

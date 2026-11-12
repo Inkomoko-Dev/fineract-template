@@ -75,6 +75,17 @@ public class AfricasTalkingProperties {
         private String defaultLanguage = "en";
         private String languagePickerLanguage = "en";
         private int sessionTimeoutMinutes = 30;
+        private int maxInvalidDtmfAttempts = 3;
+        /**
+         * Spoken repayment instructions (country/entity specific). Override via config; warn callers not to
+         * pay unofficial numbers.
+         */
+        private String repaymentInstructionsEn = "To repay your loan, use the official Inkomoko M-Pesa PayBill or bank account "
+                + "shown on your statement, and include your client account number as the reference. "
+                + "Never send money to an unofficial phone number or personal account.";
+        private String repaymentInstructionsRw = "Kwishyura inguzanyo, koresha M-Pesa PayBill cyangwa konti y'ubwishingizi ya Inkomoko "
+                + "ibaruye ku nyandiko yawe, ukoreshe nimero ya konti yawe nk'ikimenyetso. "
+                + "Ntuzohereze amafaranga kuri telefone cyangwa konti itemewe.";
     }
 
     @Getter

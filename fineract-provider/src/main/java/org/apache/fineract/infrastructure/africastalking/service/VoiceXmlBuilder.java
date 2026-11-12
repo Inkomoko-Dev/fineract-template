@@ -56,8 +56,24 @@ public final class VoiceXmlBuilder {
     }
 
     public static String buildConnectingDial(final String sayText, final String phoneNumber, final boolean record) {
-        return wrap("<Say voice=\"woman\">" + escapeXmlText(sayText) + "</Say>" + "<Dial phoneNumbers=\"" + escapeXmlAttribute(phoneNumber)
-                + "\" record=\"" + (record ? "true" : "false") + "\" sequential=\"true\"/>");
+        return buildConnectingDial(sayText, phoneNumber, record, null);
+    }
+
+    /**
+     * Dial one or more comma-separated numbers sequentially. When {@code fallbackPrompt} is set, after an
+     * unanswered/busy dial the caller hears the prompt and can record a voicemail.
+     */
+    public static String buildConnectingDial(final String sayText, final String phoneNumber, final boolean record,
+            final String fallbackPrompt) {
+        final StringBuilder inner = new StringBuilder();
+        inner.append("<Say voice=\"woman\">").append(escapeXmlText(sayText)).append("</Say>");
+        inner.append("<Dial phoneNumbers=\"").append(escapeXmlAttribute(phoneNumber)).append("\" record=\"")
+                .append(record ? "true" : "false").append("\" sequential=\"true\"/>");
+        if (StringUtils.isNotBlank(fallbackPrompt)) {
+            inner.append("<Say voice=\"woman\">").append(escapeXmlText(fallbackPrompt)).append("</Say>");
+            inner.append("<Record finishOnKey=\"#\" maxLength=\"120\" playBeep=\"true\"/>");
+        }
+        return wrap(inner.toString());
     }
 
     public static String buildAfterHoursVoicemail() {

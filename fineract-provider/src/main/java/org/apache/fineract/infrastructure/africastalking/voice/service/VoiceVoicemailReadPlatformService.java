@@ -22,8 +22,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.africastalking.service.VoiceRecordingAccessAuditService;
 import org.apache.fineract.infrastructure.africastalking.voice.data.VoiceVoicemailData;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -33,13 +36,34 @@ import org.springframework.stereotype.Service;
 public class VoiceVoicemailReadPlatformService {
 
     private final JdbcTemplate jdbcTemplate;
-    private final VoiceVoicemailMapper mapper = new VoiceVoicemailMapper();
+    private final PlatformSecurityContext context;
+    private final VoiceRecordingAccessAuditService recordingAccessAuditService;
+    private final VoiceVoicemailMapper listMapper = new VoiceVoicemailMapper(false);
+    private final VoiceVoicemailMapper detailMapper = new VoiceVoicemailMapper(true);
 
     public List<VoiceVoicemailData> retrieveVoicemails() {
-        return jdbcTemplate.query("select " + mapper.schema() + " order by vv.created_date desc", mapper);
+        return jdbcTemplate.query("select " + listMapper.schema() + " order by vv.created_date desc", listMapper);
+    }
+
+    public VoiceVoicemailData retrieveRecording(final Long voicemailId) {
+        final String sql = "select " + detailMapper.schema() + " where vv.id = ?";
+        final List<VoiceVoicemailData> results = jdbcTemplate.query(sql, detailMapper, voicemailId);
+        if (results.isEmpty()) {
+            return null;
+        }
+        final VoiceVoicemailData data = results.get(0);
+        final AppUser user = context.authenticatedUser();
+        recordingAccessAuditService.recordVoicemailAccess(user.getId(), user.getUsername(), voicemailId, data.getRecordingUrl());
+        return data;
     }
 
     private static final class VoiceVoicemailMapper implements RowMapper<VoiceVoicemailData> {
+
+        private final boolean includeRecordingUrl;
+
+        private VoiceVoicemailMapper(final boolean includeRecordingUrl) {
+            this.includeRecordingUrl = includeRecordingUrl;
+        }
 
         private String schema() {
             return "vv.id as id, vv.caller_number as callerNumber, vv.client_id as clientId, vv.department_code as departmentCode, "
@@ -54,7 +78,7 @@ public class VoiceVoicemailReadPlatformService {
             data.setCallerNumber(rs.getString("callerNumber"));
             data.setClientId(JdbcSupport.getLong(rs, "clientId"));
             data.setDepartmentCode(rs.getString("departmentCode"));
-            data.setRecordingUrl(rs.getString("recordingUrl"));
+            data.setRecordingUrl(includeRecordingUrl ? rs.getString("recordingUrl") : null);
             data.setDurationSeconds(JdbcSupport.getInteger(rs, "durationSeconds"));
             data.setStatus(rs.getString("status"));
             data.setCreatedDate(JdbcSupport.getLocalDateTime(rs, "createdDate"));

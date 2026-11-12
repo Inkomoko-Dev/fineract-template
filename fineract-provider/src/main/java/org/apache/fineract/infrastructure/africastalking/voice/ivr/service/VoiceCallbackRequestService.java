@@ -42,12 +42,38 @@ public class VoiceCallbackRequestService {
     public String requestCallback(final VoiceIvrSession session, final String departmentCode, final String languageCode) {
         final WhatsAppSupportTicket ticket = advisorEscalationService.escalate(session, StringUtils.defaultIfBlank(departmentCode, "CALLBACK"),
                 languageCode);
-        final VoiceCallbackRequest request = VoiceCallbackRequest.pending(session.getExternalSessionId(), session.getId(),
-                session.getCallerNumber(), session.getClient(), departmentCode, languageCode, ticket.getId(),
-                DateUtils.getLocalDateTimeOfTenant());
+        final VoiceCallbackRequest request = createPendingCallback(session, departmentCode, languageCode, ticket.getId());
         request.setStatus(VoiceCallbackRequestStatus.SCHEDULED);
         callbackRequestRepository.save(request);
         sessionService.markClosed(session);
         return VoiceXmlBuilder.buildSay(VoiceIvrMessages.callbackConfirmed(languageCode, ticket.getTicketNumber()));
+    }
+
+    /**
+     * Persist a callback work item without speaking to the caller (missed call, failed transfer, voicemail).
+     */
+    @Transactional
+    public VoiceCallbackRequest createSilentCallback(final VoiceIvrSession session, final String departmentCode,
+            final String languageCode) {
+        final WhatsAppSupportTicket ticket = advisorEscalationService.escalate(session,
+                StringUtils.defaultIfBlank(departmentCode, "MISSED_CALL"), languageCode);
+        final VoiceCallbackRequest request = createPendingCallback(session, departmentCode, languageCode, ticket.getId());
+        callbackRequestRepository.save(request);
+        return request;
+    }
+
+    @Transactional
+    public VoiceCallbackRequest createSilentCallbackForCaller(final String externalSessionId, final String callerNumber,
+            final org.apache.fineract.portfolio.client.domain.Client client, final String departmentCode, final String languageCode) {
+        final VoiceCallbackRequest request = VoiceCallbackRequest.pending(externalSessionId, null, callerNumber, client, departmentCode,
+                languageCode, null, DateUtils.getLocalDateTimeOfTenant());
+        callbackRequestRepository.save(request);
+        return request;
+    }
+
+    private VoiceCallbackRequest createPendingCallback(final VoiceIvrSession session, final String departmentCode,
+            final String languageCode, final Long ticketId) {
+        return VoiceCallbackRequest.pending(session.getExternalSessionId(), session.getId(), session.getCallerNumber(),
+                session.getClient(), departmentCode, languageCode, ticketId, DateUtils.getLocalDateTimeOfTenant());
     }
 }

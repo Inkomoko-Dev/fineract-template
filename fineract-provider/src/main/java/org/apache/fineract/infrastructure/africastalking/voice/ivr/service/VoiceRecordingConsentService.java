@@ -79,7 +79,7 @@ public class VoiceRecordingConsentService {
         final WhatsAppSessionContext context = contextSerializer.fromJson(session.getSessionContext());
         final String departmentCode = context.getPendingDepartmentCode();
         final String departmentLabel = StringUtils.defaultIfBlank(context.getPendingDepartmentLabel(), departmentCode);
-        final String phoneNumber = dialTargetResolver.resolve(departmentCode);
+        final String phoneNumber = dialTargetResolver.resolve(departmentCode, session);
         if (StringUtils.isBlank(phoneNumber)) {
             queueService.abandonWaitingEntries(session);
             clearPendingRoute(session, context);
@@ -89,7 +89,7 @@ public class VoiceRecordingConsentService {
         clearPendingRoute(session, context);
         sessionService.markClosed(session);
         return VoiceXmlBuilder.buildConnectingDial(VoiceIvrMessages.connectingToAgent(languageCode, departmentLabel), phoneNumber,
-                recordCall);
+                recordCall, VoiceIvrMessages.agentUnavailableFallback(languageCode));
     }
 
     private void clearPendingRoute(final VoiceIvrSession session, final WhatsAppSessionContext context) {

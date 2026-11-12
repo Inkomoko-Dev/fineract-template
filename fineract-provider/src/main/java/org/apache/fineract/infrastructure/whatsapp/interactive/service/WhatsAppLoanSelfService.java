@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -40,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsAppLoanSelfService {
 
     private final LoanRepositoryWrapper loanRepositoryWrapper;
+    private final AfricasTalkingProperties africasTalkingProperties;
 
     @Transactional(readOnly = true)
     public List<Loan> findSelfServiceLoans(final Long clientId) {
@@ -73,6 +75,9 @@ public class WhatsAppLoanSelfService {
 
     @Transactional(readOnly = true)
     public String buildLoanServiceResponse(final Long loanId, final String actionTarget, final String language) {
+        if ("REPAYMENT_INSTRUCTIONS".equals(actionTarget)) {
+            return formatRepaymentInstructions(language);
+        }
         final Loan loan = loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         return switch (actionTarget) {
             case "LOAN_BALANCE" -> formatBalance(loan, language);
@@ -81,6 +86,13 @@ public class WhatsAppLoanSelfService {
             case "LOAN_STATUS" -> formatLoanStatus(loan, language);
             default -> WhatsAppInteractiveMessages.loanServicePending(language);
         };
+    }
+
+    private String formatRepaymentInstructions(final String language) {
+        final var voiceIvr = africasTalkingProperties.getVoiceIvr();
+        final String text = "rw".equalsIgnoreCase(language) ? voiceIvr.getRepaymentInstructionsRw()
+                : voiceIvr.getRepaymentInstructionsEn();
+        return StringUtils.defaultIfBlank(text, WhatsAppInteractiveMessages.loanServicePending(language));
     }
 
     private boolean isSelfServiceEligible(final Loan loan) {
