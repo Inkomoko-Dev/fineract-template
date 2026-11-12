@@ -140,18 +140,41 @@ public final class WhatsAppInteractiveMessages {
     }
 
     public static String identityNotFound(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Konti ntiyabonetse. Ongera ugerageze cyangwa uvugane n'umujyanama."
-                : "We could not verify your identity. Try again or speak to an advisor.";
+        return authVerificationFailed(languageCode);
+    }
+
+    /** Non-revealing failure for unknown account, phone mismatch, or wrong/expired OTP. */
+    public static String authVerificationFailed(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Ntitwashoboye kwemeza. Ongera ugerageze cyangwa uvugane n'umujyanama."
+                : "We could not verify your identity. Please try again or speak to an advisor.";
+    }
+
+    /** WhatsApp reply after SMS OTP send — must never include the OTP digits. */
+    public static String otpSentBySms(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Twohereje kode y'igenzura kuri SMS. Andika kode ugerageje."
+                : "We sent a verification code by SMS. Reply with the code to continue.";
+    }
+
+    /** SMS body only — never send via WhatsApp reply / communication_message. */
+    public static String otpSmsBody(final String languageCode, final String otp) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Inkomoko: kode y'igenzura ni " + otp + ". Irangira mu minota 5."
+                : "Inkomoko verification code: " + otp + ". Expires in 5 minutes.";
     }
 
     public static String otpIssued(final String languageCode, final String otp) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Kode y'igenzura: " + otp + ". Irangira mu " + "5" + " iminota."
-                : "Your verification code is " + otp + ". It expires in 5 minutes.";
+        // Deprecated for WhatsApp interactive auth replies — use otpSentBySms + otpSmsBody.
+        return otpSmsBody(languageCode, otp);
     }
 
     public static String otpInvalid(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Kode siyo. Ongera ugerageze."
-                : "Invalid or expired verification code. Please try again.";
+        return authVerificationFailed(languageCode);
+    }
+
+    public static String otpDeliveryFailed(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Ntitwashoboye kohereza kode. Ongera ugerageze nyuma cyangwa uvugane n'umujyanama."
+                : "We could not send a verification code. Please try again later or speak to an advisor.";
     }
 
     public static String authSuccess(final String languageCode) {
@@ -280,6 +303,18 @@ public final class WhatsAppInteractiveMessages {
     public static String advisorOptionHint(final String languageCode) {
         return "rw".equalsIgnoreCase(languageCode) ? "Hitamo umujyanama muri menu niba ukeneye ubufasha."
                 : "Choose Speak to an advisor from the menu if you need help.";
+    }
+
+    public static String sharedNumberMultiClientPrompt(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Iyi numero ifitanye n'amakonti menshi. Andika numero ya konti y'umukiriya."
+                : "This number is linked to more than one client. Reply with your client account number.";
+    }
+
+    public static String sharedNumberClientAndStaffPrompt(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Iyi numero ifitanye n'umukiriya n'umukozi. Andika 1 kuri serivisi z'umukiriya cyangwa 2 kuri serivisi z'umukozi."
+                : "This number is linked to both a client and a staff member. Reply 1 for client services or 2 for staff services.";
     }
 
     private static String plain(final BigDecimal value) {

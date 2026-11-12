@@ -99,6 +99,14 @@ public class AfricasTalkingProperties {
 
     @Getter
     @Setter
+    public static class Sms {
+
+        /** Optional AT short code / sender ID for OTP SMS. Leave blank to use AT account default. */
+        private String senderId;
+    }
+
+    @Getter
+    @Setter
     public static class Webhook {
 
         private String secret;
