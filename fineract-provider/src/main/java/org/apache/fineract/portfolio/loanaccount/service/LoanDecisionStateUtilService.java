@@ -1171,7 +1171,7 @@ public class LoanDecisionStateUtilService {
                     "Approve Prepare And Sign Contract on  date" + icReviewOn + " should be after IC ReviewDecision Level two date "
                             + loanDecision.getIcReviewDecisionLevelTwoOn());
         }
-        if (icReviewOn.isBefore(loanDecision.getIcReviewDecisionLevelOneOn())) {
+        if (loanDecision.getIcReviewDecisionLevelOneOn() != null && icReviewOn.isBefore(loanDecision.getIcReviewDecisionLevelOneOn())) {
             throw new GeneralPlatformDomainRuleException(
                     "error.msg.loan.prepare.and.sign.contract.date.should.be.after.Ic.Review.decision.level.one.date",
                     "Approve Prepare And Sign Contract on  date" + icReviewOn + " should be after IC ReviewDecision Level One date "

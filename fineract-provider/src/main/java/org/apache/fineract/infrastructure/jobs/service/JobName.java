@@ -75,7 +75,8 @@ public enum JobName {
     MONITOR_WHATSAPP_SUPPORT_TICKET_SLA("Monitor WhatsApp Support Ticket SLA"), //
     ESCALATE_PENDING_HISTORICAL_CORRECTIONS("Escalate Pending Historical Corrections"), //
     PROCESS_RESIDUAL_LOAN_CLOSURES("Process Residual Loan Closures"), //
-    CLASSIFY_LOANS("Classify Loans"); //
+    CLASSIFY_LOANS("Classify Loans"), //
+    RETRY_FAILED_CREDIT_DECISIONS("Retry Failed Credit Decisions"); //
 
     private final String name;
 
