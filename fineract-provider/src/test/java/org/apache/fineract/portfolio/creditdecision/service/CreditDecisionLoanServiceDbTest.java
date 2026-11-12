@@ -133,7 +133,7 @@ class CreditDecisionLoanServiceDbTest {
                 + "obligations_met_on_date DATE, completed_derived TINYINT(1))");
         jdbc.execute("CREATE TABLE m_loan_arrears_aging (loan_id BIGINT PRIMARY KEY, total_overdue_derived DECIMAL(19,6))");
         jdbc.execute("CREATE TABLE m_transunion_crb_header (id BIGINT AUTO_INCREMENT PRIMARY KEY, client_id BIGINT, loan_id BIGINT, "
-                + "report_date VARCHAR(255), request_no VARCHAR(255))");
+                + "report_date VARCHAR(255), request_no VARCHAR(255), created_on_utc DATETIME NULL)");
         jdbc.execute("CREATE TABLE m_transunion_crb_score_output (id BIGINT AUTO_INCREMENT PRIMARY KEY, header_id BIGINT, "
                 + "positive_score VARCHAR(255))");
         jdbc.execute("CREATE TABLE m_transunion_crb_summary (id BIGINT AUTO_INCREMENT PRIMARY KEY, header_id BIGINT, "
@@ -170,7 +170,8 @@ class CreditDecisionLoanServiceDbTest {
         facts = new CreditDecisionLoanFacts(jdbc);
         engine = new ScriptedEngine();
         published = new ArrayList<>();
-        service = new CreditDecisionLoanService(jdbc, context, profiles, facts, engine, published::add);
+        service = new CreditDecisionLoanService(jdbc, context, profiles, facts, engine, published::add,
+                CreditDecisionCircuitBreaker.disabled(), CreditDecisionBackoff.none());
     }
 
     @AfterEach
@@ -242,9 +243,17 @@ class CreditDecisionLoanServiceDbTest {
         return loan(accountNo, client("C-" + accountNo), product, 100, "40000");
     }
 
+    /** A recent report date, so a request sent today never meets a report that has aged past the limit. */
+    private static final String RECENT_REPORT = LocalDate.now(java.time.ZoneOffset.UTC).minusDays(3).toString();
+
     private void bureau(final long loanId, final String score, final int npa) {
+        bureau(loanId, score, npa, RECENT_REPORT);
+    }
+
+    private void bureau(final long loanId, final String score, final int npa, final String reportDate) {
         final Long clientId = jdbc.queryForObject("SELECT client_id FROM m_loan WHERE id = ?", Long.class, loanId);
-        jdbc.update("INSERT INTO m_transunion_crb_header (client_id, loan_id, report_date) VALUES (?, ?, '2026-10-21')", clientId, loanId);
+        jdbc.update("INSERT INTO m_transunion_crb_header (client_id, loan_id, report_date) VALUES (?, ?, ?)", clientId, loanId,
+                reportDate);
         final long header = jdbc.queryForObject("SELECT MAX(id) FROM m_transunion_crb_header", Long.class);
         jdbc.update("INSERT INTO m_transunion_crb_score_output (header_id, positive_score) VALUES (?, ?)", header, score);
         jdbc.update("INSERT INTO m_transunion_crb_summary (header_id, npa_accounts_all_sectors, open_accounts_all_sectors) VALUES (?, ?, 2)",
@@ -260,6 +269,15 @@ class CreditDecisionLoanServiceDbTest {
         profile("LIVE", "amount", "term", "currency", "bscore", "blist");
         connectEngine();
         final long loanId = applicant("A-1");
+        bureau(loanId, "688", 0);
+        service.setRequired(loanId, true);
+        service.verify(loanId, "Checked amount and term with the customer");
+        return loanId;
+    }
+
+    /** Another application like {@link #readyApplication()}, using the profile and engine that one already set up. */
+    private long readyApplication(final String accountNo) {
+        final long loanId = applicant(accountNo);
         bureau(loanId, "688", 0);
         service.setRequired(loanId, true);
         service.verify(loanId, "Checked amount and term with the customer");
@@ -437,6 +455,70 @@ class CreditDecisionLoanServiceDbTest {
     }
 
     @Test
+    void aBureauReportOlderThanThirtyDaysIsNotUsedAndTheOfficerIsTold() {
+        profile("LIVE", "amount", "bscore");
+        connectEngine();
+        final long loanId = applicant("A-2");
+        bureau(loanId, "688", 0, LocalDate.now(java.time.ZoneOffset.UTC).minusDays(41).toString());
+        service.setRequired(loanId, true);
+        service.verify(loanId, null);
+
+        final GeneralPlatformDomainRuleException e = assertThrows(GeneralPlatformDomainRuleException.class, () -> service.send(loanId));
+        assertTrue(e.getDefaultUserMessage().contains("Bureau score"), e.getDefaultUserMessage());
+        assertTrue(e.getDefaultUserMessage().contains("41 days old"), e.getDefaultUserMessage());
+        assertTrue(e.getDefaultUserMessage().contains("Pull a fresh report"), e.getDefaultUserMessage());
+        assertFalse(e.getDefaultUserMessage().contains(".."), e.getDefaultUserMessage());
+        assertTrue(engine.bodies.isEmpty());
+        assertEquals(CreditDecisionLoanData.NOT_SENT, service.status(loanId).getRequestStatus());
+    }
+
+    @Test
+    void aBureauReportOnTheThirtiethDayIsStillUsed() {
+        final long loanId = readyApplication();
+        jdbc.update("UPDATE m_transunion_crb_header SET report_date = ? WHERE loan_id = ?", LocalDate.now(java.time.ZoneOffset.UTC).minusDays(30).toString(), loanId);
+        assertEquals(new BigDecimal("688"), facts.resolve(loanId, List.of("bscore")).get("bscore"));
+        assertNull(facts.staleBureauNote(loanId));
+
+        jdbc.update("UPDATE m_transunion_crb_header SET report_date = ? WHERE loan_id = ?", LocalDate.now(java.time.ZoneOffset.UTC).minusDays(31).toString(), loanId);
+        assertFalse(facts.resolve(loanId, List.of("bscore")).containsKey("bscore"));
+        assertTrue(facts.staleBureauNote(loanId).contains("31 days old"));
+    }
+
+    @Test
+    void aFresherReportPulledOnAnotherOfApplicationOfTheClientIsUsedWhenTheLoansOwnIsStale() {
+        final long old = applicant("A-2");
+        bureau(old, "500", 0, LocalDate.now(java.time.ZoneOffset.UTC).minusDays(60).toString());
+        final Long clientId = jdbc.queryForObject("SELECT client_id FROM m_loan WHERE id = ?", Long.class, old);
+        jdbc.update("INSERT INTO m_transunion_crb_header (client_id, loan_id, report_date) VALUES (?, ?, ?)", clientId, old + 1000,
+                LocalDate.now(java.time.ZoneOffset.UTC).minusDays(2).toString());
+        final long fresh = jdbc.queryForObject("SELECT MAX(id) FROM m_transunion_crb_header", Long.class);
+        jdbc.update("INSERT INTO m_transunion_crb_score_output (header_id, positive_score) VALUES (?, '710')", fresh);
+
+        assertEquals(new BigDecimal("710"), facts.resolve(old, List.of("bscore")).get("bscore"));
+        assertNull(facts.staleBureauNote(old));
+    }
+
+    @Test
+    void aBureauReportWithNoUsableDateIsTreatedAsStaleUnlessItWasStoredRecently() {
+        final long loanId = applicant("A-2");
+        bureau(loanId, "688", 0, "not a date");
+        assertFalse(facts.resolve(loanId, List.of("bscore")).containsKey("bscore"));
+        assertTrue(facts.staleBureauNote(loanId).contains("no date"));
+
+        jdbc.update("UPDATE m_transunion_crb_header SET created_on_utc = ? WHERE loan_id = ?",
+                java.sql.Timestamp.valueOf(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusDays(1)), loanId);
+        assertEquals(new BigDecimal("688"), facts.resolve(loanId, List.of("bscore")).get("bscore"));
+    }
+
+    @Test
+    void aReportDateWithATimeAndOffsetIsRead() {
+        final long loanId = applicant("A-2");
+        final String stamp = java.time.OffsetDateTime.now(java.time.ZoneOffset.ofHours(2)).minusDays(45).toString();
+        bureau(loanId, "688", 0, stamp);
+        assertTrue(facts.staleBureauNote(loanId).contains("45 days old"), facts.staleBureauNote(loanId));
+    }
+
+    @Test
     void aSendThatGetsNoUsableReplyIsKeptAsFailedAndStillBlocksApproval() {
         final long loanId = readyApplication();
         engine.script.add(reply("{\"decision\":\"MAYBE\"}"));
@@ -490,6 +572,53 @@ class CreditDecisionLoanServiceDbTest {
         assertEquals(1, engine.bodies.size());
         assertEquals(CreditDecisionLoanData.FAILED, refused.getRequestStatus());
         assertTrue(refused.getErrorMessage().contains("401"), refused.getErrorMessage());
+    }
+
+    @Test
+    void afterRepeatedFailuresTheEngineIsNotCalledUntilThePauseIsOverAndThenOneTrialDecidesWhetherToResume() {
+        final long[] clock = { 1_000_000L };
+        final CreditDecisionCircuitBreaker breaker = new CreditDecisionCircuitBreaker(2, 60_000, () -> clock[0]);
+        final CreditDecisionLoanService guarded = new CreditDecisionLoanService(jdbc, context, profiles, facts, engine, published::add,
+                breaker, CreditDecisionBackoff.none());
+        final long first = readyApplication();
+        final long second = readyApplication("A-2");
+        final long third = readyApplication("A-3");
+
+        engine.script.add(new IOException("down"));
+        guarded.send(first);
+        engine.script.add(new CreditDecisionEngineTransport.Response(503, "busy"));
+        guarded.send(second);
+        assertEquals(CreditDecisionCircuitBreaker.State.OPEN, breaker.state());
+        assertEquals(2, engine.bodies.size());
+
+        // while it is open the engine is not called, and the application is kept as failed with a clear reason
+        final LoanDecisionData skipped = guarded.send(third);
+        assertEquals(2, engine.bodies.size(), "the engine was not called");
+        assertEquals(CreditDecisionLoanData.FAILED, skipped.getRequestStatus());
+        assertTrue(skipped.getErrorMessage().contains("temporarily unavailable"), skipped.getErrorMessage());
+        assertTrue(skipped.getErrorMessage().contains("sent again automatically"), skipped.getErrorMessage());
+        assertNotNull(skipped.getNextRetryOn(), "it is picked up again by the scheduled job");
+
+        // after the pause one trial call goes through, and an answer closes the breaker
+        clock[0] += 61_000;
+        engine.script.add(reply("{\"recommendation\":\"AUTO_APPROVE\"}"));
+        assertEquals(CreditDecisionLoanData.DECIDED, guarded.send(third).getRequestStatus());
+        assertEquals(CreditDecisionCircuitBreaker.State.CLOSED, breaker.state());
+        assertEquals(3, engine.bodies.size());
+    }
+
+    @Test
+    void aRefusalFromTheEngineDoesNotCountAsAFailureOfTheEngine() {
+        final CreditDecisionCircuitBreaker breaker = new CreditDecisionCircuitBreaker(2, 60_000, () -> 0L);
+        final CreditDecisionLoanService guarded = new CreditDecisionLoanService(jdbc, context, profiles, facts, engine, published::add,
+                breaker, CreditDecisionBackoff.none());
+        final long loanId = readyApplication();
+        for (int i = 0; i < 4; i++) {
+            engine.script.add(new CreditDecisionEngineTransport.Response(400, "bad request"));
+            guarded.send(loanId);
+        }
+        assertEquals(CreditDecisionCircuitBreaker.State.CLOSED, breaker.state());
+        assertEquals(4, engine.bodies.size());
     }
 
     // ---------------------------------------------------------------- approval
@@ -964,7 +1093,7 @@ class CreditDecisionLoanServiceDbTest {
         assertEquals(0, new BigDecimal("688").compareTo((BigDecimal) values.get("bscore")));
         assertEquals("No", values.get("blist"));
         assertEquals(2L, values.get("bactive"));
-        assertEquals("2026-10-21", values.get("bdate"));
+        assertEquals(RECENT_REPORT, values.get("bdate"));
         assertEquals("TU-2026-778", values.get("benq"));
         assertEquals("Yes", values.get("bfraud"));
         assertEquals("Rwanda", values.get("resid"), "the newest active address that names a country");
@@ -1105,7 +1234,7 @@ class CreditDecisionLoanServiceDbTest {
                         Thread.currentThread().interrupt();
                     }
                     return reply("{\"recommendation\":\"AUTO_APPROVE\"}");
-                }, published::add);
+                }, published::add, CreditDecisionCircuitBreaker.disabled(), CreditDecisionBackoff.none());
 
         final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {

@@ -72,7 +72,7 @@ public class CreditDecisionLoanService {
     private static final int DUE_DILIGENCE = 1200;
     /** With this switched on, an application goes through Review Application, Due Diligence, IC review and so on. */
     private static final String EXTENDED_LIFECYCLE = "Add-More-Stages-To-A-Loan-Life-Cycle";
-    private static final long RETRY_PAUSE_MILLIS = 300;
+    private static final java.util.Set<String> BUREAU_KEYS = java.util.Set.of("bscore", "blist", "bactive", "bdate", "benq", "bfraud");
     /**
      * How long after the n-th failed send in a row the next automatic retry is due. When the list runs out the credit team is
      * alerted and the application waits in the exception queue for somebody to send it again.
@@ -92,6 +92,8 @@ public class CreditDecisionLoanService {
     private final CreditDecisionLoanFacts facts;
     private final CreditDecisionEngineTransport transport;
     private final ApplicationEventPublisher events;
+    private final CreditDecisionCircuitBreaker breaker;
+    private final CreditDecisionBackoff backoff;
 
     // ------------------------------------------------------------------ read
 
@@ -268,7 +270,13 @@ public class CreditDecisionLoanService {
         final String requestJson = payload(requestId, loan, profileLabel, built);
 
         if (!built.getHeld().isEmpty()) {
-            final String missing = built.getHeld().stream().map(CreditDecisionLoanService::label).collect(Collectors.joining(", "));
+            String missing = built.getHeld().stream().map(CreditDecisionLoanService::label).collect(Collectors.joining(", "));
+            if (built.getHeld().stream().anyMatch(BUREAU_KEYS::contains)) {
+                final String stale = facts.staleBureauNote(loanId);
+                if (stale != null) {
+                    missing = missing + ". " + stale.replaceAll("\\.$", "");
+                }
+            }
             final LogEntryData heldEntry = entry(loan, profile, "HELD", null, null, null, null,
                     "Complete the missing details: " + missing, requestJson, null);
             heldEntry.setRequestId(requestId);
@@ -287,24 +295,36 @@ public class CreditDecisionLoanService {
         CreditDecisionEngineReply reply = null;
         final int attempts = 1 + Math.max(0, connection.getRetries());
         for (int attempt = 1; attempt <= attempts; attempt++) {
+            if (!breaker.tryAcquire()) {
+                failure = "The decision engine is temporarily unavailable after repeated failures and is not being called for another "
+                        + breaker.secondsUntilRetry() + " seconds. The request will be sent again automatically.";
+                break;
+            }
             try {
                 final CreditDecisionEngineTransport.Response response = transport.post(connection.getEndpointUrl(), requestJson,
                         connection.getTimeoutSeconds(), System.getenv(API_KEY_ENV));
                 replyJson = response.getBody();
                 if (response.getStatus() >= 500) {
+                    breaker.failure();
                     failure = "The decision engine answered HTTP " + response.getStatus();
                 } else if (response.getStatus() >= 400) {
+                    breaker.success(); // it is up, it just refused this request
                     failure = "The decision engine refused the request with HTTP " + response.getStatus();
                     break; // asking again will not change a refusal
                 } else {
+                    breaker.success();
                     reply = CreditDecisionEngineReply.parse(response.getBody());
                     failure = reply.usable() ? null : reply.getProblem();
                     break; // the engine answered, so there is nothing to retry
                 }
             } catch (final IOException e) {
+                breaker.failure();
                 failure = "The decision engine could not be reached: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            } catch (final RuntimeException e) {
+                breaker.success(); // not a failure of the engine; release a trial call if this was one
+                throw e;
             }
-            if (attempt < attempts && !pause(attempt)) {
+            if (attempt < attempts && !backoff.pause(attempt)) {
                 break;
             }
         }
@@ -717,17 +737,6 @@ public class CreditDecisionLoanService {
         entry.setRequestJson(requestJson);
         entry.setReplyJson(replyJson);
         return entry;
-    }
-
-    /** Waits a little before asking again. Returns false when the thread was interrupted. */
-    private static boolean pause(final int attempt) {
-        try {
-            Thread.sleep(RETRY_PAUSE_MILLIS * attempt);
-            return true;
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
     }
 
     private void requirePendingApproval(final LoanRow loan) {
