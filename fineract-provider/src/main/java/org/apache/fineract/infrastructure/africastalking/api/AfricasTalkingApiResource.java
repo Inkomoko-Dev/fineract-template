@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.africastalking.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.io.IOException;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -37,18 +38,23 @@ import org.apache.fineract.infrastructure.africastalking.data.CommunicationMessa
 import org.apache.fineract.infrastructure.africastalking.data.ConnectivityTestResultData;
 import org.apache.fineract.infrastructure.africastalking.data.VoiceCallLogData;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingConnectivityService;
+import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingClient;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingVoiceService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookAuthenticationException;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService.WebhookProcessingResult;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppService;
+import org.apache.fineract.infrastructure.africastalking.service.CommunicationLogSanitizer;
 import org.apache.fineract.infrastructure.africastalking.service.CommunicationMessageReadPlatformService;
 import org.apache.fineract.infrastructure.africastalking.service.VoiceCallLogReadPlatformService;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
@@ -60,6 +66,7 @@ public class AfricasTalkingApiResource {
 
     private final PlatformSecurityContext context;
     private final AfricasTalkingConnectivityService connectivityService;
+    private final AfricasTalkingClient africastalkingClient;
     private final AfricasTalkingWebhookService webhookService;
     private final AfricasTalkingWhatsAppService whatsAppService;
     private final AfricasTalkingVoiceService voiceService;
@@ -73,7 +80,8 @@ public class AfricasTalkingApiResource {
     private final ApiRequestParameterHelper apiRequestParameterHelper;
 
     public AfricasTalkingApiResource(final PlatformSecurityContext context,
-            final AfricasTalkingConnectivityService connectivityService, final AfricasTalkingWebhookService webhookService,
+            final AfricasTalkingConnectivityService connectivityService, final AfricasTalkingClient africastalkingClient,
+            final AfricasTalkingWebhookService webhookService,
             final AfricasTalkingWhatsAppService whatsAppService, final AfricasTalkingVoiceService voiceService,
             final CommunicationMessageReadPlatformService communicationMessageReadPlatformService,
             final VoiceCallLogReadPlatformService voiceCallLogReadPlatformService, final AfricasTalkingProperties properties,
@@ -84,6 +92,7 @@ public class AfricasTalkingApiResource {
             final ApiRequestParameterHelper apiRequestParameterHelper) {
         this.context = context;
         this.connectivityService = connectivityService;
+        this.africastalkingClient = africastalkingClient;
         this.webhookService = webhookService;
         this.whatsAppService = whatsAppService;
         this.voiceService = voiceService;
@@ -135,6 +144,25 @@ public class AfricasTalkingApiResource {
     public String sendMessage(final String apiRequestBodyAsJson) {
         this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
         final CommandProcessingResult result = this.whatsAppService.queueOutboundMessage(apiRequestBodyAsJson);
+        return this.commandProcessingResultSerializer.serializeResult(result);
+    }
+
+    @POST
+    @Path("template/send")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String createTemplate(final String apiRequestBodyAsJson) throws IOException {
+        // Align with campaign UI Create Template button (CREATE_WHATSAPPCAMPAIGN).
+        this.context.authenticatedUser().validateHasCreatePermission(WhatsAppCampaignConstants.RESOURCE_NAME);
+        var response = this.africastalkingClient.createWhatsAppTemplateFromJson(apiRequestBodyAsJson);
+        final boolean success = response.statusCode() >= 200 && response.statusCode() < 300;
+        if (!success) {
+            final String safeDetail = CommunicationLogSanitizer
+                    .truncateDetail(StringUtils.defaultIfBlank(response.body(), "HTTP " + response.statusCode()));
+            throw new GeneralPlatformDomainRuleException("error.msg.africastalking.whatsapp.template.create.failed",
+                    "Africa's Talking rejected the WhatsApp template (HTTP " + response.statusCode() + "): " + safeDetail);
+        }
+        final CommandProcessingResult result = new CommandProcessingResult(1L);
         return this.commandProcessingResultSerializer.serializeResult(result);
     }
 

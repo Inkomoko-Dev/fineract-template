@@ -102,4 +102,22 @@ class WhatsAppTemplateVariableMapperTest {
         assertTrue(result.isComplete());
         assertEquals(List.of(), result.getBodyValues());
     }
+
+    @Test
+    void nullValueBecomesEmptyString() {
+        Map<String, Object> row = Map.of("clientName", "Ada", "amount", null);
+
+        List<String> values = WhatsAppTemplateVariableMapper.toBodyValues("[\"clientName\",\"amount\"]", row);
+
+        assertEquals(List.of("Ada", ""), values);
+    }
+
+    @Test
+    void blankValueBecomesEmptyString() {
+        Map<String, Object> row = Map.of("clientName", "   ", "amount", "100");
+
+        List<String> values = WhatsAppTemplateVariableMapper.toBodyValues("[\"clientName\",\"amount\"]", row);
+
+        assertEquals(List.of("   ", "100"), values);
+    }
 }

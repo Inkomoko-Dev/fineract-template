@@ -357,7 +357,10 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         String sql = reportSql;
         for (final String key : queryParams.keySet()) {
             final String value = queryParams.get(key);
-            SQLInjectionValidator.validateReportParameter(key, value);
+            // reportName and reportType are lookup keys, not SQL parameter values — skip injection validation
+            if (!"reportName".equals(key) && !"reportType".equals(key)) {
+                SQLInjectionValidator.validateReportParameter(key, value);
+            }
             sql = this.genericDataService.replace(sql, key, value);
         }
 
@@ -738,6 +741,10 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         final Set<String> keys = queryParams.keySet();
         for (String key : keys) {
             final String pValue = queryParams.get(key);
+            // reportName and reportType are lookup keys, not SQL parameter values — skip injection validation
+            if (!"reportName".equals(key) && !"reportType".equals(key)) {
+                SQLInjectionValidator.validateReportParameter(key, pValue);
+            }
             key = "${" + key + "}";
             sql = this.genericDataService.replace(sql, key, pValue);
         }

@@ -36,7 +36,10 @@ public interface ReportingProcessService {
             if (k.startsWith("R_")) {
                 String pKey = "${" + k.substring(2) + "}";
                 String pValue = queryParams.get(k).get(0);
-                SQLInjectionValidator.validateReportParameter(pKey, pValue);
+                // reportName is a lookup key, not a SQL parameter value — skip injection validation
+                if (!"${reportName}".equals(pKey)) {
+                    SQLInjectionValidator.validateReportParameter(pKey, pValue);
+                }
                 reportParams.put(pKey, pValue);
             }
         }

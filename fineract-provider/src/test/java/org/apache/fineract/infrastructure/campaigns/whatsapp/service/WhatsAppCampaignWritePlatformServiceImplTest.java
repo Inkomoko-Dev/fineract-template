@@ -34,6 +34,7 @@ import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNorm
 import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
 import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
 import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppMessageType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaign;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaignRepository;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.serialization.WhatsAppCampaignValidator;
@@ -77,6 +78,8 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
     private ClientRepositoryWrapper clientRepositoryWrapper;
     @Mock
     private StaffRepositoryWrapper staffRepositoryWrapper;
+    @Mock
+    private WhatsAppCampaignSendRateLimiter sendRateLimiter;
 
     private WhatsAppCampaignWritePlatformServiceImpl service;
 
@@ -86,7 +89,7 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
         properties.getPhone().setDefaultCountryCode("254");
         service = new WhatsAppCampaignWritePlatformServiceImpl(context, whatsAppCampaignRepository, whatsAppCampaignValidator,
                 reportRepository, fromJsonHelper, readReportingService, notificationCommandService, clientRepositoryWrapper,
-                staffRepositoryWrapper, new PhoneNumberNormalizer(properties));
+                staffRepositoryWrapper, new PhoneNumberNormalizer(properties), sendRateLimiter);
         lenient().when(notificationCommandService.send(any(NotificationCommand.class))).thenReturn(NotificationResult.accepted(1L));
     }
 
@@ -98,6 +101,7 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
         lenient().when(campaign.getLanguageCode()).thenReturn("en");
         lenient().when(campaign.getBodyVariableMapping()).thenReturn(bodyVariableMapping);
         lenient().when(campaign.getMessage()).thenReturn("Payment reminder");
+        lenient().when(campaign.getMessageType()).thenReturn(WhatsAppMessageType.TEMPLATE);
         lenient().when(campaign.getRecipientType()).thenReturn(RecipientType.CLIENT);
         return campaign;
     }
@@ -226,17 +230,40 @@ class WhatsAppCampaignWritePlatformServiceImplTest {
     }
 
     @Test
-    void insertDirectCampaignIntoOutboundTable_skipsRowWithUnresolvedTemplateVariable() throws Exception {
+    void insertDirectCampaignIntoOutboundTable_freeformUsesCampaignMessageNotJoinedBodyValues() throws Exception {
+        final WhatsAppCampaign campaign = clientCampaign("[\"clientName\",\"amount\"]");
+        when(campaign.getMessageType()).thenReturn(WhatsAppMessageType.FREEFORM);
+        when(campaign.getMessage()).thenReturn("Hi there, please pay soon.");
+
+        final List<ResultsetColumnHeaderData> headers = List.of(ResultsetColumnHeaderData.basic("id", "BIGINT"),
+                ResultsetColumnHeaderData.basic("mobileNo", "VARCHAR"), ResultsetColumnHeaderData.basic("clientName", "VARCHAR"),
+                ResultsetColumnHeaderData.basic("amount", "VARCHAR"));
+        stubReport("Client Listing", headers, List.of(ResultsetRowData.create(List.of("7", "+254712345678", "John", "1000"))));
+        when(clientRepositoryWrapper.findOneWithNotFoundDetection(7L)).thenReturn(org.mockito.Mockito.mock(Client.class));
+
+        service.insertDirectCampaignIntoOutboundTable(campaign);
+
+        final ArgumentCaptor<NotificationCommand> captor = ArgumentCaptor.forClass(NotificationCommand.class);
+        verify(notificationCommandService).send(captor.capture());
+        final NotificationCommand sent = captor.getValue();
+        assertNull(sent.getTemplateName());
+        assertEquals("Hi there, please pay soon.", sent.getMessageBody());
+        assertEquals("+254712345678", sent.getPhoneNumber());
+        verify(sendRateLimiter).acquire();
+    }
+
+    @Test
+    void insertDirectCampaignIntoOutboundTable_sendsWithPlaceholderForMissingTemplateVariable() throws Exception {
         final WhatsAppCampaign campaign = clientCampaign("[\"clientName\",\"amountDue\"]");
 
         final List<ResultsetColumnHeaderData> headers = List.of(ResultsetColumnHeaderData.basic("id", "BIGINT"),
                 ResultsetColumnHeaderData.basic("mobileNo", "VARCHAR"), ResultsetColumnHeaderData.basic("clientName", "VARCHAR"));
-        // The report never returns an "amountDue" column, so the Meta template variable cannot be filled.
         stubReport("Client Listing", headers, List.of(ResultsetRowData.create(List.of("7", "+254712345678", "John"))));
+        when(clientRepositoryWrapper.findOneWithNotFoundDetection(7L)).thenReturn(org.mockito.Mockito.mock(Client.class));
 
         service.insertDirectCampaignIntoOutboundTable(campaign);
 
-        verify(notificationCommandService, never()).send(any(NotificationCommand.class));
+        verify(notificationCommandService).send(any(NotificationCommand.class));
     }
 
     @Test

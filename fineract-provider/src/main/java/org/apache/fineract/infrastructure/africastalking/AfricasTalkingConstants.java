@@ -24,8 +24,9 @@ public final class AfricasTalkingConstants {
     public static final String USER_AGENT_PREFIX = "AfricasTalking";
     public static final String API_KEY_HEADER = "apiKey";
     public static final String USER_PATH = "/version1/user";
-    public static final String WHATSAPP_SEND_PATH = "/whatsapp/message/send";
-    public static final String WHATSAPP_GATEWAY_TEMPLATE_NAME = "WhatsApp Gateway";
+public static final String WHATSAPP_SEND_PATH = "/whatsapp/message/send";
+public static final String WHATSAPP_TEMPLATE_SEND_PATH = "/whatsapp/template/send";
+public static final String WHATSAPP_GATEWAY_TEMPLATE_NAME = "WhatsApp Gateway";
     public static final String VOICE_CALL_PATH = "/call";
     public static final String API_KEY_HEADER_ALT = "Apikey";
 
