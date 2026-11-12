@@ -78,7 +78,7 @@ tx_asat AS (
     SELECT t.loan_id,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,28) THEN IFNULL(t.principal_portion_derived,0) ELSE 0 END)
           - SUM(CASE WHEN t.transaction_type_enum = 1 THEN IFNULL(t.amount,0) ELSE 0 END) AS p_adj,
-        SUM(CASE WHEN t.transaction_type_enum IN (2,4,5,6,9,28,30) THEN IFNULL(t.interest_portion_derived,0) ELSE 0 END) AS i_adj,
+        SUM(CASE WHEN t.transaction_type_enum IN (2,4,5,6,9,28,34) THEN IFNULL(t.interest_portion_derived,0) ELSE 0 END) AS i_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.fee_charges_portion_derived,0) ELSE 0 END) AS f_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.penalty_charges_portion_derived,0) ELSE 0 END) AS pen_adj,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
@@ -126,7 +126,7 @@ txa AS (
     SELECT t.loan_id,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,28) THEN IFNULL(t.principal_portion_derived,0) ELSE 0 END)
           - SUM(CASE WHEN t.transaction_type_enum = 1 THEN IFNULL(t.amount,0) ELSE 0 END) AS p_adj,
-        SUM(CASE WHEN t.transaction_type_enum IN (2,4,5,6,9,28,30) THEN IFNULL(t.interest_portion_derived,0) ELSE 0 END) AS i_adj,
+        SUM(CASE WHEN t.transaction_type_enum IN (2,4,5,6,9,28,34) THEN IFNULL(t.interest_portion_derived,0) ELSE 0 END) AS i_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.fee_charges_portion_derived,0) ELSE 0 END) AS f_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.penalty_charges_portion_derived,0) ELSE 0 END) AS pen_adj,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
@@ -150,7 +150,7 @@ txa AS (
 ),
 txb AS (
     SELECT t.loan_id,
-        MAX(CASE WHEN t.transaction_type_enum = 30 THEN t.transaction_date END) AS cancelled_on,
+        MAX(CASE WHEN t.transaction_type_enum = 34 THEN t.transaction_date END) AS cancelled_on,
         MAX(CASE WHEN t.transaction_type_enum IN (2,5,8,28) THEN t.transaction_date END) AS settled_on,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END) AS excess_paid,
         SUM(CASE WHEN t.transaction_type_enum <> 8 AND t.transaction_date >= l.writtenoffon_date
@@ -170,13 +170,13 @@ txb AS (
 ),
 txc AS (
     SELECT t.loan_id,
-        MAX(CASE WHEN t.transaction_type_enum = 30 THEN t.transaction_date END) AS cancelled_on,
+        MAX(CASE WHEN t.transaction_type_enum = 34 THEN t.transaction_date END) AS cancelled_on,
         MAX(CASE WHEN t.transaction_type_enum IN (2,5,8,28) THEN t.transaction_date END) AS settled_on
     FROM m_loan_transaction t
     JOIN bid b ON b.id = t.loan_id
     WHERE t.is_reversed = 0
         AND t.transaction_date >= DATE('${asOn}') + INTERVAL 1 DAY
-        AND t.transaction_type_enum IN (2,5,8,28,30)
+        AND t.transaction_type_enum IN (2,5,8,28,34)
     GROUP BY t.loan_id
 ),
 tx AS (
@@ -757,7 +757,7 @@ tx_asat AS (
     SELECT t.loan_id,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,28) THEN IFNULL(t.principal_portion_derived,0) ELSE 0 END)
           - SUM(CASE WHEN t.transaction_type_enum = 1 THEN IFNULL(t.amount,0) ELSE 0 END) AS p_adj,
-        SUM(CASE WHEN t.transaction_type_enum IN (2,4,5,6,9,28,30) THEN IFNULL(t.interest_portion_derived,0) ELSE 0 END) AS i_adj,
+        SUM(CASE WHEN t.transaction_type_enum IN (2,4,5,6,9,28,34) THEN IFNULL(t.interest_portion_derived,0) ELSE 0 END) AS i_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.fee_charges_portion_derived,0) ELSE 0 END) AS f_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.penalty_charges_portion_derived,0) ELSE 0 END) AS pen_adj,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
