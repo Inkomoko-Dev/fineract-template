@@ -263,5 +263,41 @@ public class AfricasTalkingClient {
         public boolean isSuccessful() {
             return statusCode >= 200 && statusCode < 300;
         }
+
+        /**
+         * Africa's Talking Messaging API often returns HTTP 201 with per-recipient failures in JSON.
+         * Treat delivery as successful only when at least one recipient status is Success / statusCode 100.
+         */
+        public boolean isSmsDeliverySuccessful() {
+            if (!isSuccessful() || StringUtils.isBlank(body)) {
+                return false;
+            }
+            try {
+                final JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+                if (!root.has("SMSMessageData") || !root.get("SMSMessageData").isJsonObject()) {
+                    // Some AT sandboxes omit the envelope; fall back to HTTP success.
+                    return true;
+                }
+                final JsonObject data = root.getAsJsonObject("SMSMessageData");
+                if (!data.has("Recipients") || !data.get("Recipients").isJsonArray() || data.getAsJsonArray("Recipients").size() == 0) {
+                    return false;
+                }
+                for (final JsonElement element : data.getAsJsonArray("Recipients")) {
+                    if (!element.isJsonObject()) {
+                        continue;
+                    }
+                    final JsonObject recipient = element.getAsJsonObject();
+                    if (recipient.has("status") && "Success".equalsIgnoreCase(recipient.get("status").getAsString())) {
+                        return true;
+                    }
+                    if (recipient.has("statusCode") && recipient.get("statusCode").getAsInt() == 100) {
+                        return true;
+                    }
+                }
+                return false;
+            } catch (final RuntimeException ex) {
+                return false;
+            }
+        }
     }
 }
