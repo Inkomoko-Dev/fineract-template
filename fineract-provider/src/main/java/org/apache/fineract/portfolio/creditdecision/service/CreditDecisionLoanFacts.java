@@ -21,6 +21,9 @@ package org.apache.fineract.portfolio.creditdecision.service;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.time.Period;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -29,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -50,6 +54,30 @@ public class CreditDecisionLoanFacts {
     private static final String CLOSED_STATUSES = "600, 601, 602, 700";
 
     private final JdbcTemplate jdbc;
+
+    /** A bureau report older than this many days is treated as missing, so the profile's missing-data policy applies. */
+    @Value("${fineract.creditdecision.bureau-max-age-days:30}")
+    private int bureauMaxAgeDays = 30;
+
+    /**
+     * Why the bureau data is missing when a report exists but is too old to use, or null when there is no report or it is
+     * fresh enough. Lets the caller tell the loan officer to pull a new report rather than just "bureau score missing".
+     */
+    public String staleBureauNote(final long loanId) {
+        return staleBureauNote(loanId, LocalDate.now(ZoneOffset.UTC));
+    }
+
+    public String staleBureauNote(final long loanId, final LocalDate today) {
+        final Session s = new Session(loanId, today);
+        s.header();
+        if (!s.bureauStale) {
+            return null;
+        }
+        return s.bureauAgeDays == null
+                ? "The credit bureau report has no date, so it cannot be used. Pull a fresh report."
+                : "The credit bureau report is " + s.bureauAgeDays + " days old and reports older than " + bureauMaxAgeDays
+                        + " days are not used. Pull a fresh report.";
+    }
 
     public Map<String, Object> resolve(final long loanId, final Collection<String> keys) {
         return resolve(loanId, keys, LocalDate.now(ZoneOffset.UTC));
@@ -77,6 +105,10 @@ public class CreditDecisionLoanFacts {
         private Map<String, Object> bureauSummary;
         private Long headerId;
         private boolean headerLoaded;
+        /** A report exists but none of the candidates is fresh enough. */
+        private boolean bureauStale;
+        /** Age in days of the newest report found, or null when none of them has a usable date. */
+        private Integer bureauAgeDays;
         private Map<String, Object> diligence;
         private boolean diligenceLoaded;
 
@@ -295,19 +327,74 @@ public class CreditDecisionLoanFacts {
 
         // ---------------------------------------------------------------- credit bureau
 
-        /** The report pulled for this loan, or else the client's latest one. */
+        /**
+         * The report pulled for this loan, or else the client's latest one, whichever is fresh enough. A report older
+         * than the limit is not used: the bureau values come back missing and the profile decides what that means.
+         */
         private Long header() {
             if (!headerLoaded) {
                 headerLoaded = true;
-                List<Long> rows = jdbc.queryForList("SELECT id FROM m_transunion_crb_header WHERE loan_id = ? ORDER BY id DESC LIMIT 1",
-                        Long.class, loanId);
-                if (rows.isEmpty() && clientId() != null) {
-                    rows = jdbc.queryForList("SELECT id FROM m_transunion_crb_header WHERE client_id = ? ORDER BY id DESC LIMIT 1",
-                            Long.class, clientId());
+                final List<Map<String, Object>> candidates = new java.util.ArrayList<>();
+                candidates.addAll(jdbc.queryForList(
+                        "SELECT id, report_date, created_on_utc FROM m_transunion_crb_header WHERE loan_id = ? ORDER BY id DESC LIMIT 1",
+                        loanId));
+                if (clientId() != null) {
+                    candidates.addAll(jdbc.queryForList(
+                            "SELECT id, report_date, created_on_utc FROM m_transunion_crb_header WHERE client_id = ? ORDER BY id DESC LIMIT 1",
+                            clientId()));
                 }
-                headerId = rows.isEmpty() ? null : rows.get(0);
+                Integer newestAge = null;
+                boolean anyDated = false;
+                for (final Map<String, Object> row : candidates) {
+                    final LocalDate reported = reportedOn(row);
+                    if (reported == null) {
+                        continue;
+                    }
+                    anyDated = true;
+                    final int age = (int) ChronoUnit.DAYS.between(reported, today);
+                    if (age <= bureauMaxAgeDays) {
+                        headerId = ((Number) row.get("id")).longValue();
+                        return headerId;
+                    }
+                    newestAge = newestAge == null ? age : Math.min(newestAge, age);
+                }
+                if (!candidates.isEmpty()) {
+                    bureauStale = true;
+                    bureauAgeDays = anyDated ? newestAge : null;
+                }
             }
             return headerId;
+        }
+
+        /** The bureau's own report date when it can be read, else the day the report was stored. */
+        private LocalDate reportedOn(final Map<String, Object> row) {
+            final Object raw = row.get("report_date");
+            if (raw != null && !raw.toString().isBlank()) {
+                final String text = raw.toString().trim();
+                try {
+                    return OffsetDateTime.parse(text).toLocalDate();
+                } catch (final DateTimeParseException ignored) {
+                    // try the next shape
+                }
+                try {
+                    return LocalDateTime.parse(text).toLocalDate();
+                } catch (final DateTimeParseException ignored) {
+                    // try the next shape
+                }
+                try {
+                    return LocalDate.parse(text.length() > 10 ? text.substring(0, 10) : text);
+                } catch (final DateTimeParseException ignored) {
+                    // fall back to when it was stored
+                }
+            }
+            final Object stored = row.get("created_on_utc");
+            if (stored instanceof java.sql.Timestamp) {
+                return ((java.sql.Timestamp) stored).toLocalDateTime().toLocalDate();
+            }
+            if (stored instanceof LocalDateTime) {
+                return ((LocalDateTime) stored).toLocalDate();
+            }
+            return null;
         }
 
         private Object bureauScore() {
