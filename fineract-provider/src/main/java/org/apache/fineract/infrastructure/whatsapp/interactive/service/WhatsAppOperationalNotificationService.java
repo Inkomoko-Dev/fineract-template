@@ -45,12 +45,8 @@ public class WhatsAppOperationalNotificationService {
         if (!settingsProvider.isNotifyOnTicketCreated()) {
             return;
         }
-        final StringBuilder content = new StringBuilder("New WhatsApp support ticket ").append(ticket.getTicketNumber()).append(" (")
-                .append(ticket.getCategory()).append(")");
-        if (ticket.getAssignedStaff() != null) {
-            content.append(" assigned to ").append(ticket.getAssignedStaff().displayName());
-        }
-        notifyRecipients(ticket, WhatsAppOperationalNotificationType.TICKET_CREATED, "CREATED", content.toString());
+        notifyRecipients(ticket, WhatsAppOperationalNotificationType.TICKET_CREATED,
+                "New WhatsApp support ticket " + ticket.getTicketNumber() + " (" + ticket.getCategory() + ")");
     }
 
     @Transactional
@@ -62,38 +58,23 @@ public class WhatsAppOperationalNotificationService {
                 .isPresent()) {
             return;
         }
-        notifyRecipients(ticket, WhatsAppOperationalNotificationType.SLA_BREACH, "SLA_BREACH",
+        notifyRecipients(ticket, WhatsAppOperationalNotificationType.SLA_BREACH,
                 "WhatsApp ticket " + ticket.getTicketNumber() + " has breached first-response SLA");
         operationalNotificationRepository.save(
                 WhatsAppOperationalNotification.record(ticket.getId(), WhatsAppOperationalNotificationType.SLA_BREACH));
     }
 
-    @Transactional
-    public void notifyTicketAssigned(final WhatsAppSupportTicket ticket) {
-        if (!settingsProvider.isNotifyOnTicketAssigned()) {
-            return;
-        }
-        final String assignee = ticket.getAssignedStaff() != null ? ticket.getAssignedStaff().displayName() : "unassigned";
-        notifyRecipients(ticket, WhatsAppOperationalNotificationType.TICKET_ASSIGNED, "ASSIGNED",
-                "WhatsApp ticket " + ticket.getTicketNumber() + " assigned to " + assignee);
-    }
-
-    @Transactional
-    public void notifyTicketResolved(final WhatsAppSupportTicket ticket) {
-        if (!settingsProvider.isNotifyOnTicketResolved()) {
-            return;
-        }
-        notifyRecipients(ticket, WhatsAppOperationalNotificationType.TICKET_RESOLVED, "RESOLVED",
-                "WhatsApp ticket " + ticket.getTicketNumber() + " marked " + ticket.getStatus());
-    }
-
     private void notifyRecipients(final WhatsAppSupportTicket ticket, final WhatsAppOperationalNotificationType notificationType,
-            final String action, final String content) {
+            final String content) {
         final List<Long> userIds = resolveRecipientUserIds();
         if (userIds.isEmpty()) {
             return;
         }
-        notificationWritePlatformService.notify(userIds, "WHATSAPP_SUPPORT_TICKET", ticket.getId(), action, null, content, true);
+        if (notificationType == WhatsAppOperationalNotificationType.TICKET_CREATED) {
+            notificationWritePlatformService.notify(userIds, "WHATSAPP_SUPPORT_TICKET", ticket.getId(), "CREATED", null, content, true);
+            return;
+        }
+        notificationWritePlatformService.notify(userIds, "WHATSAPP_SUPPORT_TICKET", ticket.getId(), "SLA_BREACH", null, content, true);
     }
 
     private List<Long> resolveRecipientUserIds() {

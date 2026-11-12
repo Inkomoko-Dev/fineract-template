@@ -44,9 +44,6 @@ public class WhatsAppConversationSearchService {
     @Transactional(readOnly = true)
     public List<WhatsAppConversationSearchResultData> search(final String phoneNumber, final Long clientId, final String text,
             final LocalDate fromDate, final LocalDate toDate, final String recipientType, final Integer limit) {
-        if (StringUtils.isNotBlank(text) && StringUtils.isBlank(phoneNumber) && clientId == null && (fromDate == null || toDate == null)) {
-            throw new IllegalArgumentException("Text search requires phoneNumber, clientId, or both fromDate and toDate");
-        }
         final StringBuilder sql = new StringBuilder(
                 "select cm.id, cm.phone_number, cm.client_id, c.display_name, cm.direction, cm.recipient_type, cm.message_body, cm.created_date "
                         + "from communication_message cm left join m_client c on c.id = cm.client_id where cm.channel = ?");
@@ -61,8 +58,8 @@ public class WhatsAppConversationSearchService {
             params.add(clientId);
         }
         if (StringUtils.isNotBlank(text)) {
-            sql.append(" and cm.message_body like ? escape '\\\\'");
-            params.add("%" + escapeLike(text.trim()) + "%");
+            sql.append(" and cm.message_body like ?");
+            params.add("%" + text.trim() + "%");
         }
         if (fromDate != null) {
             sql.append(" and cm.created_date >= ?");
@@ -78,11 +75,7 @@ public class WhatsAppConversationSearchService {
         }
         sql.append(" order by cm.created_date desc limit ?");
         params.add(limit == null ? 100 : Math.min(limit, 500));
-        return jdbcTemplate.query(sql.toString(), params.toArray(), new ConversationSearchMapper());
-    }
-
-    static String escapeLike(final String raw) {
-        return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return jdbcTemplate.query(sql.toString(), new ConversationSearchMapper(), params.toArray());
     }
 
     private static final class ConversationSearchMapper implements RowMapper<WhatsAppConversationSearchResultData> {

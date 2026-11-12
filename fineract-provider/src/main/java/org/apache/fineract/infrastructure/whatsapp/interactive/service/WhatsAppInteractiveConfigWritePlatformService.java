@@ -27,11 +27,8 @@ import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
-import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.whatsapp.interactive.constants.WhatsAppConfigArea;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppInteractiveSetting;
-import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppInteractiveSettingAudit;
-import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppInteractiveSettingAuditRepository;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppInteractiveSettingRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,14 +49,11 @@ public class WhatsAppInteractiveConfigWritePlatformService {
             WhatsAppConfigArea.OTP, Set.of("otpLength", "otpValidityMinutes", "maxOtpAttempts"),
             WhatsAppConfigArea.SLA, Set.of("slaFirstResponseHours"),
             WhatsAppConfigArea.OPERATIONAL_NOTIFICATIONS,
-            Set.of("notifyOnTicketCreated", "notifyOnSlaBreach", "notifyOnTicketAssigned", "notifyOnTicketResolved",
-                    "operationalNotifyUserIds"));
+            Set.of("notifyOnTicketCreated", "notifyOnSlaBreach", "operationalNotifyUserIds"));
 
     private final FromJsonHelper fromJsonHelper;
     private final WhatsAppInteractiveSettingRepository settingRepository;
-    private final WhatsAppInteractiveSettingAuditRepository settingAuditRepository;
     private final WhatsAppInteractiveSettingsProvider settingsProvider;
-    private final PlatformSecurityContext securityContext;
 
     @Transactional
     public CommandProcessingResult updateConfigArea(final String areaCode, final String json) {
@@ -86,13 +80,10 @@ public class WhatsAppInteractiveConfigWritePlatformService {
 
     private void upsertSetting(final String key, final String value, final WhatsAppConfigArea area) {
         final WhatsAppInteractiveSetting setting = settingRepository.findBySettingKey(key).orElseGet(WhatsAppInteractiveSetting::new);
-        final String previousValue = setting.getId() == null ? null : setting.getSettingValue();
         setting.setSettingKey(key);
         setting.setSettingValue(value);
         setting.setConfigArea(area);
         settingRepository.save(setting);
-        final Long userId = securityContext.authenticatedUser().getId();
-        settingAuditRepository.save(WhatsAppInteractiveSettingAudit.record(key, area, previousValue, value, userId));
     }
 
     private String toSettingValue(final JsonElement element) {

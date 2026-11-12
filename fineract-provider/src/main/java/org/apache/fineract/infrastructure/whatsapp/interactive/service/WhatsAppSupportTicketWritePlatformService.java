@@ -46,16 +46,10 @@ public class WhatsAppSupportTicketWritePlatformService {
             final WhatsAppTicketStatus status = WhatsAppTicketStatus.valueOf(fromJsonHelper.extractStringNamed("status", element));
             final boolean recordFirstResponse = fromJsonHelper.parameterExists("recordFirstResponse", element)
                     && fromJsonHelper.extractBooleanNamed("recordFirstResponse", element);
-            final String resolutionNotes = fromJsonHelper.parameterExists("resolutionNotes", element)
-                    ? fromJsonHelper.extractStringNamed("resolutionNotes", element)
-                    : null;
-            ticket = supportTicketService.updateStatus(ticketId, status, recordFirstResponse, resolutionNotes);
+            ticket = supportTicketService.updateStatus(ticketId, status, recordFirstResponse);
         }
         if (fromJsonHelper.parameterExists("summary", element)) {
             ticket = supportTicketService.updateSummary(ticketId, fromJsonHelper.extractStringNamed("summary", element));
-        }
-        if (fromJsonHelper.parameterExists("resolutionNotes", element) && !fromJsonHelper.parameterExists("status", element)) {
-            ticket = supportTicketService.updateResolutionNotes(ticketId, fromJsonHelper.extractStringNamed("resolutionNotes", element));
         }
         if (ticket == null) {
             ticket = supportTicketService.retrieveTicket(ticketId);

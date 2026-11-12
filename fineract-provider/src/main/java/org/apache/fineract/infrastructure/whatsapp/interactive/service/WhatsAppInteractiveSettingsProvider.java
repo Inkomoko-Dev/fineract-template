@@ -133,14 +133,6 @@ public class WhatsAppInteractiveSettingsProvider {
         return getBoolean("notifyOnSlaBreach", properties.isNotifyOnSlaBreach());
     }
 
-    public boolean isNotifyOnTicketAssigned() {
-        return getBoolean("notifyOnTicketAssigned", properties.isNotifyOnTicketAssigned());
-    }
-
-    public boolean isNotifyOnTicketResolved() {
-        return getBoolean("notifyOnTicketResolved", properties.isNotifyOnTicketResolved());
-    }
-
     public String getOperationalNotifyUserIds() {
         return getString("operationalNotifyUserIds", properties.getOperationalNotifyUserIds());
     }

@@ -140,41 +140,18 @@ public final class WhatsAppInteractiveMessages {
     }
 
     public static String identityNotFound(final String languageCode) {
-        return authVerificationFailed(languageCode);
-    }
-
-    /** Non-revealing failure for unknown account, phone mismatch, or wrong/expired OTP. */
-    public static String authVerificationFailed(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Ntitwashoboye kwemeza. Ongera ugerageze cyangwa uvugane n'umujyanama."
-                : "We could not verify your identity. Please try again or speak to an advisor.";
-    }
-
-    /** WhatsApp reply after SMS OTP send — must never include the OTP digits. */
-    public static String otpSentBySms(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode)
-                ? "Twohereje kode y'igenzura kuri SMS. Andika kode ugerageje."
-                : "We sent a verification code by SMS. Reply with the code to continue.";
-    }
-
-    /** SMS body only — never send via WhatsApp reply / communication_message. */
-    public static String otpSmsBody(final String languageCode, final String otp) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Inkomoko: kode y'igenzura ni " + otp + ". Irangira mu minota 5."
-                : "Inkomoko verification code: " + otp + ". Expires in 5 minutes.";
+        return "rw".equalsIgnoreCase(languageCode) ? "Konti ntiyabonetse. Ongera ugerageze cyangwa uvugane n'umujyanama."
+                : "We could not verify your identity. Try again or speak to an advisor.";
     }
 
     public static String otpIssued(final String languageCode, final String otp) {
-        // Deprecated for WhatsApp interactive auth replies — use otpSentBySms + otpSmsBody.
-        return otpSmsBody(languageCode, otp);
+        return "rw".equalsIgnoreCase(languageCode) ? "Kode y'igenzura: " + otp + ". Irangira mu " + "5" + " iminota."
+                : "Your verification code is " + otp + ". It expires in 5 minutes.";
     }
 
     public static String otpInvalid(final String languageCode) {
-        return authVerificationFailed(languageCode);
-    }
-
-    public static String otpDeliveryFailed(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode)
-                ? "Ntitwashoboye kohereza kode. Ongera ugerageze nyuma cyangwa uvugane n'umujyanama."
-                : "We could not send a verification code. Please try again later or speak to an advisor.";
+        return "rw".equalsIgnoreCase(languageCode) ? "Kode siyo. Ongera ugerageze."
+                : "Invalid or expired verification code. Please try again.";
     }
 
     public static String authSuccess(final String languageCode) {
@@ -201,38 +178,9 @@ public final class WhatsAppInteractiveMessages {
                 : "Loan " + loanAccountNo + " outstanding balance: " + amount + " " + currency;
     }
 
-    public static String loanBalanceComponentsResponse(final String languageCode, final String loanAccountNo, final String currency,
-            final BigDecimal total, final BigDecimal principal, final BigDecimal interest, final BigDecimal fees,
-            final BigDecimal penalties) {
-        final String totalAmt = plain(total);
-        final String principalAmt = plain(principal);
-        final String interestAmt = plain(interest);
-        final String feesAmt = plain(fees);
-        final String penaltiesAmt = plain(penalties);
-        if ("rw".equalsIgnoreCase(languageCode)) {
-            return "Inguzanyo " + loanAccountNo + ": " + totalAmt + " " + currency + " asigaye"
-                    + " (umwimerere " + principalAmt + ", inyungu " + interestAmt + ", amafaranga " + feesAmt + ", ibihano "
-                    + penaltiesAmt + ").";
-        }
-        return "Loan " + loanAccountNo + " outstanding: " + totalAmt + " " + currency + " (principal " + principalAmt + ", interest "
-                + interestAmt + ", fees " + feesAmt + ", penalties " + penaltiesAmt + ").";
-    }
-
     public static String nextRepaymentResponse(final String languageCode, final String loanAccountNo, final LocalDate dueDate) {
         return "rw".equalsIgnoreCase(languageCode) ? "Inguzanyo " + loanAccountNo + ": itariki yo kwishyura ikurikira ni " + dueDate + "."
                 : "Loan " + loanAccountNo + ": next repayment date is " + dueDate + ".";
-    }
-
-    public static String nextRepaymentWithDaysResponse(final String languageCode, final String loanAccountNo, final LocalDate dueDate,
-            final long days, final boolean overdue) {
-        if (overdue) {
-            return "rw".equalsIgnoreCase(languageCode)
-                    ? "Inguzanyo " + loanAccountNo + ": kwishyura byarenze ku " + dueDate + " (" + days + " iminsi)."
-                    : "Loan " + loanAccountNo + ": overdue installment since " + dueDate + " (" + days + " days overdue).";
-        }
-        return "rw".equalsIgnoreCase(languageCode)
-                ? "Inguzanyo " + loanAccountNo + ": itariki yo kwishyura ikurikira ni " + dueDate + " (hashize iminsi " + days + ")."
-                : "Loan " + loanAccountNo + ": next repayment date is " + dueDate + " (" + days + " days remaining).";
     }
 
     public static String noUpcomingRepayment(final String languageCode, final String loanAccountNo) {
@@ -242,25 +190,10 @@ public final class WhatsAppInteractiveMessages {
 
     public static String amountDueResponse(final String languageCode, final String loanAccountNo, final String currency,
             final BigDecimal amountDue, final LocalDate dueDate) {
-        final String amount = plain(amountDue);
+        final String amount = amountDue != null ? amountDue.toPlainString() : "0";
         return "rw".equalsIgnoreCase(languageCode)
                 ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " kwishyura ku " + dueDate + "."
                 : "Loan " + loanAccountNo + ": amount due " + amount + " " + currency + " on " + dueDate + ".";
-    }
-
-    public static String amountDueWithDaysResponse(final String languageCode, final String loanAccountNo, final String currency,
-            final BigDecimal amountDue, final LocalDate dueDate, final long days, final boolean overdue) {
-        final String amount = plain(amountDue);
-        if (overdue) {
-            return "rw".equalsIgnoreCase(languageCode)
-                    ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " byarenze ku " + dueDate + " (" + days + " iminsi)."
-                    : "Loan " + loanAccountNo + ": overdue amount " + amount + " " + currency + " since " + dueDate + " (" + days
-                            + " days overdue).";
-        }
-        return "rw".equalsIgnoreCase(languageCode)
-                ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " kwishyura ku " + dueDate + " (iminsi " + days + ")."
-                : "Loan " + loanAccountNo + ": installment due " + amount + " " + currency + " on " + dueDate + " (" + days
-                        + " days remaining).";
     }
 
     public static String noAmountDue(final String languageCode, final String loanAccountNo) {
@@ -271,31 +204,5 @@ public final class WhatsAppInteractiveMessages {
     public static String loanStatusResponse(final String languageCode, final String loanAccountNo, final String statusCode) {
         return "rw".equalsIgnoreCase(languageCode) ? "Inguzanyo " + loanAccountNo + ": imiterere ni " + statusCode + "."
                 : "Loan " + loanAccountNo + " status: " + statusCode + ".";
-    }
-
-    public static String exceptionalLoansHeader(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Nta nguzanyo ikora. Inguzanyo ziboneka:"
-                : "No active loans. Other loan statuses on your account:";
-    }
-
-    public static String advisorOptionHint(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode) ? "Hitamo umujyanama muri menu niba ukeneye ubufasha."
-                : "Choose Speak to an advisor from the menu if you need help.";
-    }
-
-    public static String sharedNumberMultiClientPrompt(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode)
-                ? "Iyi numero ifitanye n'amakonti menshi. Andika numero ya konti y'umukiriya."
-                : "This number is linked to more than one client. Reply with your client account number.";
-    }
-
-    public static String sharedNumberClientAndStaffPrompt(final String languageCode) {
-        return "rw".equalsIgnoreCase(languageCode)
-                ? "Iyi numero ifitanye n'umukiriya n'umukozi. Andika 1 kuri serivisi z'umukiriya cyangwa 2 kuri serivisi z'umukozi."
-                : "This number is linked to both a client and a staff member. Reply 1 for client services or 2 for staff services.";
-    }
-
-    private static String plain(final BigDecimal value) {
-        return value != null ? value.toPlainString() : "0";
     }
 }

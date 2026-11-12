@@ -72,9 +72,6 @@ public class WhatsAppSupportTicket extends AbstractPersistableCustom {
     @Column(name = "summary", length = 500)
     private String summary;
 
-    @Column(name = "resolution_notes")
-    private String resolutionNotes;
-
     @Column(name = "customer_message")
     private String customerMessage;
 

@@ -19,7 +19,6 @@
 package org.apache.fineract.infrastructure.africastalking.service;
 
 import java.util.List;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientData;
@@ -48,14 +47,13 @@ public class RecipientResolutionService {
         final List<Client> clients = clientRepository.findByMobileNumbers(lookupVariants);
         final List<Staff> staffMembers = staffRepository.findByMobileNumbers(lookupVariants);
         if (clients.size() > 1) {
-            final List<Long> clientIds = clients.stream().map(Client::getId).collect(Collectors.toList());
-            return ResolvedRecipientData.multiClient(normalizedPhoneNumber, clientIds);
+            // Shared number across clients — force account-number identification.
+            return ResolvedRecipientData.multiClient(normalizedPhoneNumber);
         }
-        if (!clients.isEmpty() && !staffMembers.isEmpty()) {
-            // Odoo staff sync for richer disambiguation is deferred; WhatsApp prompts local pick only.
+        if (clients.size() == 1 && !staffMembers.isEmpty()) {
             return ResolvedRecipientData.clientAndStaff(normalizedPhoneNumber, clients.get(0).getId(), staffMembers.get(0).getId());
         }
-        if (!clients.isEmpty()) {
+        if (clients.size() == 1) {
             return ResolvedRecipientData.client(normalizedPhoneNumber, clients.get(0).getId());
         }
         if (!staffMembers.isEmpty()) {

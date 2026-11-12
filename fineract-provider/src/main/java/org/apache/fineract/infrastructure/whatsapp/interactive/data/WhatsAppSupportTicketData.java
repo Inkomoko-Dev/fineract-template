@@ -40,7 +40,6 @@ public class WhatsAppSupportTicketData {
     private WhatsAppTicketStatus status;
     private WhatsAppTicketPriority priority;
     private String summary;
-    private String resolutionNotes;
     private String customerMessage;
     private String languageCode;
     private Long assignedStaffId;

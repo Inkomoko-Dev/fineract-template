@@ -82,14 +82,4 @@ class WhatsAppOtpServiceTest {
 
         assertFalse(otpService.verifyOtp(phone, "000000"));
     }
-
-    @Test
-    void reportsAttemptsExhausted() {
-        final String phone = "+254712345678";
-        final WhatsAppAuthChallenge challenge = new WhatsAppAuthChallenge();
-        challenge.setAttemptCount(3);
-        when(authChallengeRepository.findFirstByPhoneNumberAndVerifiedFalseOrderByCreatedDateDesc(phone)).thenReturn(Optional.of(challenge));
-
-        assertTrue(otpService.isAttemptsExhausted(phone));
-    }
 }

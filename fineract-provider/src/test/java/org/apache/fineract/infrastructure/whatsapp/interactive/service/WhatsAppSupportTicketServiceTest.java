@@ -48,15 +48,13 @@ class WhatsAppSupportTicketServiceTest {
     private CommunicationMessageRepository communicationMessageRepository;
     @Mock
     private StaffRepositoryWrapper staffRepositoryWrapper;
-    @Mock
-    private WhatsAppOperationalNotificationService operationalNotificationService;
 
     private WhatsAppSupportTicketService service;
 
     @BeforeEach
     void setUp() {
         service = new WhatsAppSupportTicketService(ticketRepository, businessHoursService, communicationMessageRepository,
-                staffRepositoryWrapper, operationalNotificationService);
+                staffRepositoryWrapper);
     }
 
     @Test

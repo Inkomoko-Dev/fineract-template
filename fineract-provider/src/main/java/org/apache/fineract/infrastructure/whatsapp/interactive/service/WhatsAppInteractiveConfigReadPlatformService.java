@@ -37,33 +37,29 @@ public class WhatsAppInteractiveConfigReadPlatformService {
     @Transactional(readOnly = true)
     public List<WhatsAppInteractiveConfigAreaData> retrieveConfigAreas() {
         final List<WhatsAppInteractiveConfigAreaData> areas = new ArrayList<>();
-        areas.add(area(WhatsAppConfigArea.SESSION, "Session management", false, null, null, sessionSettings()));
-        areas.add(area(WhatsAppConfigArea.LANGUAGE, "Language defaults", false, null, null, languageSettings()));
-        areas.add(area(WhatsAppConfigArea.CONSENT, "Consent capture", false, null, null, consentSettings()));
-        areas.add(area(WhatsAppConfigArea.OPT_OUT, "Opt-out keywords", false, null, null, optOutSettings()));
-        areas.add(area(WhatsAppConfigArea.OPT_IN, "Opt-in keywords", false, null, null, optInSettings()));
-        areas.add(area(WhatsAppConfigArea.NAVIGATION, "Menu navigation", false, null, null, navigationSettings()));
-        areas.add(area(WhatsAppConfigArea.AUTHENTICATION, "Client authentication", false, null, null, authSettings()));
-        areas.add(area(WhatsAppConfigArea.OTP, "OTP verification", false, null, null, otpSettings()));
-        areas.add(area(WhatsAppConfigArea.SLA, "Advisor SLA", false, null, null, slaSettings()));
-        areas.add(area(WhatsAppConfigArea.BUSINESS_HOURS, "Business hours", true, "/whatsapp/interactive/business-hours",
-                "Deferred from key/value settings — manage via business-hours API.", Map.of()));
-        areas.add(area(WhatsAppConfigArea.MENUS, "Interactive menus", true, "/whatsapp/interactive/menus/definitions",
-                "Deferred from key/value settings — manage via menu definition API.", Map.of()));
-        areas.add(area(WhatsAppConfigArea.ADVISOR_INBOX, "Advisor inbox", true, "/whatsapp/interactive/tickets",
-                "Deferred from key/value settings — manage tickets via advisor inbox API.", Map.of()));
-        areas.add(area(WhatsAppConfigArea.OPERATIONAL_NOTIFICATIONS, "Operational notifications", false, null, null, operationalSettings()));
+        areas.add(area(WhatsAppConfigArea.SESSION, "Session management", false, null, sessionSettings()));
+        areas.add(area(WhatsAppConfigArea.LANGUAGE, "Language defaults", false, null, languageSettings()));
+        areas.add(area(WhatsAppConfigArea.CONSENT, "Consent capture", false, null, consentSettings()));
+        areas.add(area(WhatsAppConfigArea.OPT_OUT, "Opt-out keywords", false, null, optOutSettings()));
+        areas.add(area(WhatsAppConfigArea.OPT_IN, "Opt-in keywords", false, null, optInSettings()));
+        areas.add(area(WhatsAppConfigArea.NAVIGATION, "Menu navigation", false, null, navigationSettings()));
+        areas.add(area(WhatsAppConfigArea.AUTHENTICATION, "Client authentication", false, null, authSettings()));
+        areas.add(area(WhatsAppConfigArea.OTP, "OTP verification", false, null, otpSettings()));
+        areas.add(area(WhatsAppConfigArea.SLA, "Advisor SLA", false, null, slaSettings()));
+        areas.add(area(WhatsAppConfigArea.BUSINESS_HOURS, "Business hours", true, "/whatsapp/interactive/business-hours", Map.of()));
+        areas.add(area(WhatsAppConfigArea.MENUS, "Interactive menus", true, "/whatsapp/interactive/menus/definitions", Map.of()));
+        areas.add(area(WhatsAppConfigArea.ADVISOR_INBOX, "Advisor inbox", true, "/whatsapp/interactive/tickets", Map.of()));
+        areas.add(area(WhatsAppConfigArea.OPERATIONAL_NOTIFICATIONS, "Operational notifications", false, null, operationalSettings()));
         return areas;
     }
 
     private WhatsAppInteractiveConfigAreaData area(final WhatsAppConfigArea area, final String label, final boolean managedExternally,
-            final String externalEndpoint, final String deferredNote, final Map<String, Object> areaSettings) {
+            final String externalEndpoint, final Map<String, Object> areaSettings) {
         final WhatsAppInteractiveConfigAreaData data = new WhatsAppInteractiveConfigAreaData();
         data.setArea(area);
         data.setLabel(label);
         data.setManagedExternally(managedExternally);
         data.setExternalEndpoint(externalEndpoint);
-        data.setDeferredNote(deferredNote);
         data.setSettings(areaSettings);
         return data;
     }
@@ -134,8 +130,6 @@ public class WhatsAppInteractiveConfigReadPlatformService {
         final Map<String, Object> areaSettings = new LinkedHashMap<>();
         areaSettings.put("notifyOnTicketCreated", settingsProvider.isNotifyOnTicketCreated());
         areaSettings.put("notifyOnSlaBreach", settingsProvider.isNotifyOnSlaBreach());
-        areaSettings.put("notifyOnTicketAssigned", settingsProvider.isNotifyOnTicketAssigned());
-        areaSettings.put("notifyOnTicketResolved", settingsProvider.isNotifyOnTicketResolved());
         areaSettings.put("operationalNotifyUserIds", settingsProvider.getOperationalNotifyUserIds());
         return areaSettings;
     }

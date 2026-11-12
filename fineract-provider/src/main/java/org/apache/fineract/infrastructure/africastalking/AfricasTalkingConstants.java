@@ -28,7 +28,6 @@ public static final String WHATSAPP_SEND_PATH = "/whatsapp/message/send";
 public static final String WHATSAPP_TEMPLATE_SEND_PATH = "/whatsapp/template/send";
 public static final String WHATSAPP_GATEWAY_TEMPLATE_NAME = "WhatsApp Gateway";
     public static final String VOICE_CALL_PATH = "/call";
-    public static final String SMS_MESSAGING_PATH = "/version1/messaging";
     public static final String API_KEY_HEADER_ALT = "Apikey";
 
     public static final String CALL_STATUS_INITIATED = "INITIATED";
