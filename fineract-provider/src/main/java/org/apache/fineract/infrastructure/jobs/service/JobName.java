@@ -76,7 +76,7 @@ public enum JobName {
     ESCALATE_PENDING_HISTORICAL_CORRECTIONS("Escalate Pending Historical Corrections"), //
     PROCESS_RESIDUAL_LOAN_CLOSURES("Process Residual Loan Closures"), //
     CLASSIFY_LOANS("Classify Loans"), //
-    REFRESH_TRANCHE_MILESTONE_STATUS("Refresh Tranche Milestone Status"); //
+    REFRESH_TRANCHE_MILESTONE_STATUS("Refresh Tranche Milestone Status"), //
     RETRY_FAILED_CREDIT_DECISIONS("Retry Failed Credit Decisions"); //
 
     private final String name;
