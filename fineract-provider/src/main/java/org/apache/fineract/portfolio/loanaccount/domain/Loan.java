@@ -2108,12 +2108,58 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     private void updateOverdueScheduleInstallment(final LoanCharge loanCharge) {
         if (loanCharge.isOverdueInstallmentCharge() && loanCharge.isActive()) {
             LoanOverdueInstallmentCharge overdueInstallmentCharge = loanCharge.getOverdueInstallmentCharge();
-            if (overdueInstallmentCharge != null) {
+            if (overdueInstallmentCharge != null && overdueInstallmentCharge.getInstallment() != null) {
                 Integer installmentNumber = overdueInstallmentCharge.getInstallment().getInstallmentNumber();
                 LoanRepaymentScheduleInstallment installment = fetchRepaymentScheduleInstallment(installmentNumber);
                 overdueInstallmentCharge.updateLoanRepaymentScheduleInstallment(installment);
             }
         }
+    }
+
+    /**
+     * Before charge recalculation on reschedule approve: re-link overdue installment charges that lost their
+     * installment pointer, or inactivate them when no installment can be matched.
+     */
+    public void repairOrInactivateBrokenOverdueInstallmentCharges() {
+        final Collection<LoanCharge> charges = getLoanCharges();
+        if (charges == null || charges.isEmpty()) {
+            return;
+        }
+        for (final LoanCharge loanCharge : charges) {
+            if (loanCharge == null || !loanCharge.isOverdueInstallmentCharge() || !loanCharge.isActive()) {
+                continue;
+            }
+            if (loanCharge.getOverdueInstallmentCharge() != null
+                    && loanCharge.getOverdueInstallmentCharge().getInstallment() != null) {
+                updateOverdueScheduleInstallment(loanCharge);
+                continue;
+            }
+            final LoanRepaymentScheduleInstallment matched = findInstallmentForBrokenOverdueCharge(loanCharge);
+            if (matched != null) {
+                final Integer frequency = matched.getInstallmentNumber() == null ? Integer.valueOf(1) : matched.getInstallmentNumber();
+                loanCharge.updateOverdueInstallmentCharge(new LoanOverdueInstallmentCharge(loanCharge, matched, frequency));
+                updateOverdueScheduleInstallment(loanCharge);
+            } else {
+                loanCharge.markAsInactive();
+            }
+        }
+    }
+
+    private LoanRepaymentScheduleInstallment findInstallmentForBrokenOverdueCharge(final LoanCharge loanCharge) {
+        final LocalDate dueDate = loanCharge.getDueLocalDate();
+        if (dueDate == null) {
+            return null;
+        }
+        final List<LoanRepaymentScheduleInstallment> installments = getRepaymentScheduleInstallments();
+        if (installments == null || installments.isEmpty()) {
+            return null;
+        }
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            if (installment != null && dueDate.equals(installment.getDueDate())) {
+                return installment;
+            }
+        }
+        return null;
     }
 
     private void recalculateLoanCharge(final LoanCharge loanCharge, final int penaltyWaitPeriod) {
@@ -2122,7 +2168,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
         if (loanCharge.getChargeCalculation().isPercentageBased()) {
             if (loanCharge.isOverdueInstallmentCharge()) {
-                amount = calculateOverdueAmountPercentageAppliedTo(loanCharge, penaltyWaitPeriod);
+                if (loanCharge.isActive() && loanCharge.getOverdueInstallmentCharge() != null
+                        && loanCharge.getOverdueInstallmentCharge().getInstallment() != null) {
+                    amount = calculateOverdueAmountPercentageAppliedTo(loanCharge, penaltyWaitPeriod);
+                } else {
+                    return;
+                }
             } else {
                 amount = calculateAmountPercentageAppliedTo(loanCharge);
             }
@@ -2174,6 +2225,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     private BigDecimal calculateOverdueAmountPercentageAppliedTo(final LoanCharge loanCharge, final int penaltyWaitPeriod) {
+        if (loanCharge.getOverdueInstallmentCharge() == null || loanCharge.getOverdueInstallmentCharge().getInstallment() == null) {
+            return BigDecimal.ZERO;
+        }
         LoanRepaymentScheduleInstallment installment = loanCharge.getOverdueInstallmentCharge().getInstallment();
         LocalDate graceDate = DateUtils.getBusinessLocalDate().minusDays(penaltyWaitPeriod);
         Money amount = Money.zero(getCurrency());

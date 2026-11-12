@@ -119,20 +119,10 @@ public class BulkRescheduleTemplateService {
         }
         filterOptions.setOffices(officeDtos);
 
-        // Loan statuses — only statuses that make sense as a reschedule filter
+        // Active-only: execute path requires ACTIVE; non-Active options previously failed after preview.
         List<EnumOptionData> loanStatuses = new ArrayList<>();
         loanStatuses.add(new EnumOptionData(LoanStatus.ACTIVE.getValue().longValue(),
                 String.valueOf(LoanStatus.ACTIVE.getValue()), "Active"));
-        loanStatuses.add(new EnumOptionData(LoanStatus.CLOSED_OBLIGATIONS_MET.getValue().longValue(),
-                String.valueOf(LoanStatus.CLOSED_OBLIGATIONS_MET.getValue()), "Closed - Obligations Met"));
-        loanStatuses.add(new EnumOptionData(LoanStatus.CLOSED_WRITTEN_OFF.getValue().longValue(),
-                String.valueOf(LoanStatus.CLOSED_WRITTEN_OFF.getValue()), "Closed - Written Off"));
-        loanStatuses.add(new EnumOptionData(LoanStatus.CLOSED_RESCHEDULE_OUTSTANDING_AMOUNT.getValue().longValue(),
-                String.valueOf(LoanStatus.CLOSED_RESCHEDULE_OUTSTANDING_AMOUNT.getValue()), "Closed - Rescheduled Outstanding"));
-        loanStatuses.add(new EnumOptionData(LoanStatus.WITHDRAWN_BY_CLIENT.getValue().longValue(),
-                String.valueOf(LoanStatus.WITHDRAWN_BY_CLIENT.getValue()), "Withdrawn"));
-        loanStatuses.add(new EnumOptionData(LoanStatus.REJECTED.getValue().longValue(),
-                String.valueOf(LoanStatus.REJECTED.getValue()), "Rejected"));
         filterOptions.setLoanStatuses(loanStatuses);
 
         List<EnumOptionData> interestMethods = new ArrayList<>();

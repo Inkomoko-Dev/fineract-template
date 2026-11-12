@@ -47,6 +47,7 @@ public class BulkRescheduleExecutionDto {
     private Integer totalFailed;
     private Integer totalExecutionFailed;
     private Integer totalExcluded;
+    private Integer totalSkipped;
     private String approvedAt;
     private String submittedAt;
     private String executionError;
@@ -87,6 +88,7 @@ public class BulkRescheduleExecutionDto {
                 .totalFailed(execution.getTotalFailed())
                 .totalExecutionFailed(execution.getTotalExecutionFailed())
                 .totalExcluded(execution.getTotalExcluded())
+                .totalSkipped(null)
                 .approvedAt(isoDateTime(execution.getApprovedAt()))
                 .submittedAt(isoDateTime(execution.getSubmittedAt()))
                 .executionError(execution.getExecutionError())
@@ -97,6 +99,7 @@ public class BulkRescheduleExecutionDto {
                         - value(execution.getTotalFailed()) - value(execution.getTotalSucceeded())))
                 .recoveryAvailableAt(isoDateTime(execution.getLeaseExpiresAt()))
                 .recoveryAvailable(isRecoveryAvailable(execution))
+                // PARTIAL_SUCCESS rollback is refined with live PREVIEW_MATCHED/SKIPPED counts on GET.
                 .rollbackAvailable(isRollbackAvailable(execution))
                 .createdAt(isoDateTime(execution.getCreatedAt()))
                 .updatedAt(isoDateTime(execution.getUpdatedAt()))
@@ -121,9 +124,9 @@ public class BulkRescheduleExecutionDto {
         if (status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.COMPLETED) {
             return true;
         }
-        return status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.PARTIAL_SUCCESS
-                && Math.max(0, value(execution.getTotalLoansFound()) - value(execution.getTotalExcluded())
-                        - value(execution.getTotalFailed()) - value(execution.getTotalSucceeded())) == 0;
+        // Stored header counts omit SKIPPED, so PARTIAL_SUCCESS is optimistically true here and
+        // BulkRescheduleApiResource.applyLiveResultCounts clears it when PREVIEW_MATCHED remains.
+        return status == BulkRescheduleExecution.BulkRescheduleExecutionStatus.PARTIAL_SUCCESS;
     }
 
     private static int value(final Integer number) {
