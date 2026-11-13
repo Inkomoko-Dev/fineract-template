@@ -798,6 +798,33 @@ class CreditDecisionServiceDbTest {
     }
 
     @Test
+    void aRetiredVersionDoesNotKeepAProductClaimedAndAStaleClaimRowIsIgnored() {
+        final long kes = productId("Business loan - individual", "KES");
+        final long group = productId("Business loan - group", "KES");
+        final ProfileData first = liveProfile("Business loans", kes);
+        goLive(first.getId());
+        service.newDraft(first.getId(), null);
+        final SaveDraftRequest dropKes = new SaveDraftRequest();
+        dropKes.setProductIds(List.of(group));
+        service.saveDraft(first.getId(), 2, dropKes);
+        service.submit(first.getId(), 2, "Move KES individual off this profile");
+        actAs("credit.head");
+        service.approve(first.getId(), 2);
+        actAs("credit.analyst");
+
+        assertNull(service.products().stream().filter(p -> p.getId() == kes).findFirst().orElseThrow().getClaimedByProfileId(),
+                "after the live version no longer lists it, the product is free even if a retired version still mentions it");
+
+        // a leftover claim row must not block reassignment once versions say the product is free
+        jdbc.update("INSERT INTO m_credit_decision_product_claim (loan_product_id, profile_id) VALUES (?, ?)", kes, first.getId());
+        final ProfileData second = service.createProfile(newProfile("Digital", productId("Digital micro-loan", "RWF")));
+        final SaveDraftRequest takeKes = new SaveDraftRequest();
+        takeKes.setProductIds(List.of(kes));
+        service.saveDraft(second.getId(), 1, takeKes);
+        assertEquals(second.getId(), service.products().stream().filter(p -> p.getId() == kes).findFirst().orElseThrow().getClaimedByProfileId());
+    }
+
+    @Test
     void theLiveLookupReadsTheOneProfileThatClaimsTheProduct() {
         final long kes = productId("Business loan - individual", "KES");
         final ProfileData live = liveProfile("Business loans", kes);

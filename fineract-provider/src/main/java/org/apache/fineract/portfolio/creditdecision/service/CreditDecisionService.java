@@ -572,18 +572,21 @@ public class CreditDecisionService {
     }
 
     /**
-     * Products that belong to a profile, read from the claim table: one profile per product, enforced by its key.
+     * Products that currently belong to a profile. Source of truth is live/pending/draft version rows — retired versions
+     * do not hold a product. The claim table is only the concurrency lock maintained by {@link #syncClaims}.
      */
     private Map<Long, Claim> claims(final Long exceptProfileId) {
         final Map<Long, Claim> out = new LinkedHashMap<>();
-        final StringBuilder sql = new StringBuilder("SELECT c.loan_product_id, p.id AS profile_id, p.name FROM m_credit_decision_product_claim c "
-                + "JOIN m_credit_decision_profile p ON p.id = c.profile_id");
+        final StringBuilder sql = new StringBuilder(
+                "SELECT DISTINCT vp.loan_product_id, p.id AS profile_id, p.name FROM m_credit_decision_version_product vp "
+                        + "JOIN m_credit_decision_profile_version v ON v.id = vp.version_id AND v.status IN ('ACTIVE', 'PENDING', 'DRAFT') "
+                        + "JOIN m_credit_decision_profile p ON p.id = v.profile_id");
         final List<Object> args = new ArrayList<>();
         if (exceptProfileId != null) {
             sql.append(" WHERE p.id <> ?");
             args.add(exceptProfileId);
         }
-        sql.append(" ORDER BY c.loan_product_id");
+        sql.append(" ORDER BY vp.loan_product_id");
         jdbcTemplate.query(sql.toString(), rs -> {
             out.put(rs.getLong("loan_product_id"), new Claim(rs.getLong("profile_id"), rs.getString("name")));
         }, args.toArray());
@@ -592,7 +595,8 @@ public class CreditDecisionService {
 
     /**
      * Makes the claim table say which products the profile holds now: those of its live, pending and draft versions.
-     * The key on the product stops a second profile taking one, even when two people save at the same moment.
+     * The key on the product stops a second profile taking one, even when two people save at the same moment. Orphan
+     * claim rows (for example left after a retired-only history) are cleared so the product can be reassigned.
      */
     private void syncClaims(final long profileId) {
         final List<Long> wanted = jdbcTemplate.queryForList(
@@ -601,6 +605,12 @@ public class CreditDecisionService {
                         + "WHERE v.profile_id = ? AND v.status IN ('ACTIVE', 'PENDING', 'DRAFT') ORDER BY vp.loan_product_id",
                 Long.class, profileId);
         jdbcTemplate.update("DELETE FROM m_credit_decision_product_claim WHERE profile_id = ?", profileId);
+        // Drop claim rows that no longer match any live/pending/draft version (stale after retire / data fixes).
+        jdbcTemplate.update("DELETE c FROM m_credit_decision_product_claim c WHERE NOT EXISTS ("
+                + "SELECT 1 FROM m_credit_decision_version_product vp "
+                + "JOIN m_credit_decision_profile_version v ON v.id = vp.version_id "
+                + "WHERE vp.loan_product_id = c.loan_product_id AND v.profile_id = c.profile_id "
+                + "AND v.status IN ('ACTIVE', 'PENDING', 'DRAFT'))");
         for (final Long productId : wanted) {
             try {
                 jdbcTemplate.update("INSERT INTO m_credit_decision_product_claim (loan_product_id, profile_id) VALUES (?, ?)", productId,
