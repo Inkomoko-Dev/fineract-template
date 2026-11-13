@@ -20,6 +20,7 @@ package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -33,6 +34,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanSummary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,12 +52,18 @@ public class WhatsAppLoanSelfService {
     }
 
     @Transactional(readOnly = true)
+    public List<Loan> findExceptionalLoans(final Long clientId) {
+        final List<Loan> loans = loanRepositoryWrapper.findLoanByClientId(clientId);
+        return loans.stream().filter(this::isExceptionalStatus).collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
     public String buildLoanSelectionMenu(final List<Loan> loans, final String language) {
         final StringBuilder builder = new StringBuilder(WhatsAppInteractiveMessages.loanSelectionHeader(language)).append("\n");
         int index = 1;
         for (final Loan loan : loans) {
-            builder.append(index).append(". ").append(loan.getAccountNumber()).append(" - ").append(loan.getLoanProduct().productName())
-                    .append("\n");
+            builder.append(index).append(". ").append(maskAccountNumber(loan.getAccountNumber())).append(" - ")
+                    .append(loan.getLoanProduct().productName()).append("\n");
             index++;
         }
         return builder.toString().trim();
@@ -95,44 +103,96 @@ public class WhatsAppLoanSelfService {
         return StringUtils.defaultIfBlank(text, WhatsAppInteractiveMessages.loanServicePending(language));
     }
 
+    @Transactional(readOnly = true)
+    public String buildExceptionalLoansResponse(final List<Loan> exceptionalLoans, final String language) {
+        if (exceptionalLoans.isEmpty()) {
+            return WhatsAppInteractiveMessages.noActiveLoans(language);
+        }
+        final StringBuilder builder = new StringBuilder(WhatsAppInteractiveMessages.exceptionalLoansHeader(language)).append("\n");
+        for (final Loan loan : exceptionalLoans) {
+            builder.append(WhatsAppInteractiveMessages.loanStatusResponse(language, maskAccountNumber(loan.getAccountNumber()),
+                    loan.status().getCode())).append("\n");
+        }
+        builder.append(WhatsAppInteractiveMessages.advisorOptionHint(language));
+        return builder.toString().trim();
+    }
+
+    static String maskAccountNumber(final String accountNumber) {
+        if (StringUtils.isBlank(accountNumber)) {
+            return "****";
+        }
+        final String trimmed = accountNumber.trim();
+        if (trimmed.length() <= 4) {
+            return "****" + trimmed;
+        }
+        return "****" + trimmed.substring(trimmed.length() - 4);
+    }
+
     private boolean isSelfServiceEligible(final Loan loan) {
         final LoanStatus status = loan.status();
         return status.isActive() || status.isOverpaid();
     }
 
+    private boolean isExceptionalStatus(final Loan loan) {
+        final LoanStatus status = loan.status();
+        return status.isClosedObligationsMet() || status.isClosedWrittenOff() || status.isClosedWithOutsandingAmountMarkedForReschedule()
+                || status.isWithdrawnByClient() || status.isRejected() || status.isApproved() || status.isSubmittedAndPendingApproval();
+    }
+
     private String formatBalance(final Loan loan, final String language) {
-        final BigDecimal outstanding = loan.getSummary().getTotalOutstanding();
+        final LoanSummary summary = loan.getSummary();
         final String currency = loan.getCurrencyCode();
-        return WhatsAppInteractiveMessages.loanBalanceResponse(language, loan.getAccountNumber(), currency, outstanding);
+        final String account = maskAccountNumber(loan.getAccountNumber());
+        return WhatsAppInteractiveMessages.loanBalanceComponentsResponse(language, account, currency, summary.getTotalOutstanding(),
+                summary.getTotalPrincipalOutstanding(), summary.getTotalInterestOutstanding(), summary.getTotalFeeChargesOutstanding(),
+                summary.getTotalPenaltyChargesOutstanding());
     }
 
     private String formatNextRepayment(final Loan loan, final String language) {
         final LoanRepaymentScheduleInstallment installment = findNextUnpaidInstallment(loan);
         if (installment == null) {
-            return WhatsAppInteractiveMessages.noUpcomingRepayment(language, loan.getAccountNumber());
+            return WhatsAppInteractiveMessages.noUpcomingRepayment(language, maskAccountNumber(loan.getAccountNumber()));
         }
-        return WhatsAppInteractiveMessages.nextRepaymentResponse(language, loan.getAccountNumber(), installment.getDueDate());
+        final LocalDate today = DateUtils.getLocalDateOfTenant();
+        final LocalDate dueDate = installment.getDueDate();
+        final boolean overdue = dueDate.isBefore(today);
+        final long days = Math.abs(ChronoUnit.DAYS.between(today, dueDate));
+        final MonetaryCurrency currency = loan.getCurrency();
+        final BigDecimal amountDue = installment.getTotalOutstanding(currency).getAmount();
+        return WhatsAppInteractiveMessages.nextRepaymentWithDaysResponse(language, maskAccountNumber(loan.getAccountNumber()), dueDate,
+                days, overdue, currency.getCode(), amountDue);
     }
 
     private String formatAmountDue(final Loan loan, final String language) {
         final LoanRepaymentScheduleInstallment installment = findNextUnpaidInstallment(loan);
         if (installment == null) {
-            return WhatsAppInteractiveMessages.noAmountDue(language, loan.getAccountNumber());
+            return WhatsAppInteractiveMessages.noAmountDue(language, maskAccountNumber(loan.getAccountNumber()));
         }
         final MonetaryCurrency currency = loan.getCurrency();
         final BigDecimal amountDue = installment.getTotalOutstanding(currency).getAmount();
-        return WhatsAppInteractiveMessages.amountDueResponse(language, loan.getAccountNumber(), currency.getCode(), amountDue,
-                installment.getDueDate());
+        final LocalDate today = DateUtils.getLocalDateOfTenant();
+        final LocalDate dueDate = installment.getDueDate();
+        final boolean overdue = dueDate.isBefore(today);
+        final long days = Math.abs(ChronoUnit.DAYS.between(today, dueDate));
+        return WhatsAppInteractiveMessages.amountDueWithDaysResponse(language, maskAccountNumber(loan.getAccountNumber()),
+                currency.getCode(), amountDue, dueDate, days, overdue);
     }
 
     private String formatLoanStatus(final Loan loan, final String language) {
-        return WhatsAppInteractiveMessages.loanStatusResponse(language, loan.getAccountNumber(), loan.status().getCode());
+        return WhatsAppInteractiveMessages.loanStatusDetailedResponse(language, maskAccountNumber(loan.getAccountNumber()),
+                loan.status().getCode(), loan.getCurrencyCode(), loan.getDisbursementDate(), loan.getExpectedMaturityDate(),
+                loan.getClosedOnDate());
     }
 
     private LoanRepaymentScheduleInstallment findNextUnpaidInstallment(final Loan loan) {
         final List<LoanRepaymentScheduleInstallment> installments = new ArrayList<>(loan.getRepaymentScheduleInstallments());
         installments.sort(Comparator.comparing(LoanRepaymentScheduleInstallment::getDueDate));
         final LocalDate today = DateUtils.getLocalDateOfTenant();
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            if (installment.isNotFullyPaidOff() && installment.getDueDate().isBefore(today)) {
+                return installment;
+            }
+        }
         for (final LoanRepaymentScheduleInstallment installment : installments) {
             if (installment.isNotFullyPaidOff() && !installment.getDueDate().isBefore(today)) {
                 return installment;

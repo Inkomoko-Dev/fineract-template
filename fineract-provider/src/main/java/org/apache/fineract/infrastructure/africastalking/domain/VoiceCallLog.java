@@ -146,7 +146,7 @@ public class VoiceCallLog extends AbstractPersistableCustom {
         if (currentStatus.equalsIgnoreCase(newStatus)) {
             return true;
         }
-        // Terminal statuses must not overwrite each other (FAILED vs COMPLETED).
+        // Terminal statuses share the same rank and must not overwrite each other.
         return statusRank(newStatus) > statusRank(currentStatus);
     }
 
@@ -155,9 +155,22 @@ public class VoiceCallLog extends AbstractPersistableCustom {
             case "INITIATED" -> 10;
             case "RINGING" -> 20;
             case "ANSWERED" -> 30;
-            case "FAILED" -> 40;
-            case "COMPLETED" -> 50;
+            // All terminal outcomes share rank 40 so they replace non-terminals but not each other.
+            case "BUSY", "REJECTED", "NO_ANSWER", "FAILED", "COMPLETED" -> 40;
             default -> 0;
+        };
+    }
+
+    /**
+     * Unanswered terminal outcomes that should create a missed-call callback for inbound calls.
+     */
+    public static boolean isUnansweredTerminal(final String status) {
+        if (status == null) {
+            return false;
+        }
+        return switch (status.toUpperCase()) {
+            case "BUSY", "REJECTED", "NO_ANSWER", "FAILED" -> true;
+            default -> false;
         };
     }
 }

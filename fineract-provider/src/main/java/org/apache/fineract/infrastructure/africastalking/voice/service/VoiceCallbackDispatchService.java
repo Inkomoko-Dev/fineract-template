@@ -30,6 +30,7 @@ import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceC
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceBusinessHoursService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppOperationalNotificationService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,6 +46,7 @@ public class VoiceCallbackDispatchService {
     private final VoiceCallbackRequestRepository callbackRequestRepository;
     private final AfricasTalkingVoiceService voiceService;
     private final VoiceBusinessHoursService businessHoursService;
+    private final WhatsAppOperationalNotificationService operationalNotificationService;
 
     @Transactional
     public CommandProcessingResult dispatchCallback(final Long callbackRequestId) {
@@ -100,6 +102,12 @@ public class VoiceCallbackDispatchService {
                 request.setLastModifiedDate(DateUtils.getLocalDateTimeOfTenant());
                 callbackRequestRepository.save(request);
                 log.warn("Voice callback request {} is overdue (scheduledAt={})", request.getId(), request.getScheduledAt());
+                try {
+                    operationalNotificationService.notifyVoiceCallbackOverdue(request.getId(), request.getCallerNumber(),
+                            request.getDepartmentCode());
+                } catch (final RuntimeException ex) {
+                    log.warn("Failed to notify queue about overdue voice callback {}", request.getId(), ex);
+                }
             }
         }
     }

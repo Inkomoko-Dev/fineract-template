@@ -178,8 +178,9 @@ public class VoiceIvrCallbackService {
             }
         }
         if (chosen == null) {
-            return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.multiClientAccountInvalid(language));
+            return handleInvalidInput(session, VoiceIvrMessages.multiClientAccountInvalid(language));
         }
+        clearInvalidAttempts(session);
         session.setClient(chosen);
         clearMultiClientDisambiguation(session, context);
         if (requiresLanguageSelection(session)) {
@@ -224,6 +225,7 @@ public class VoiceIvrCallbackService {
             final Client client = clientRepositoryWrapper.findOneWithNotFoundDetection(context.getCandidateClientId());
             session.setClient(client);
             session.setStaff(null);
+            clearInvalidAttempts(session);
             clearRoleSelection(session, context);
             return presentMenu(session, properties.getVoiceIvr().getMainMenuKey(), language, true);
         }
@@ -231,10 +233,11 @@ public class VoiceIvrCallbackService {
             final Staff staff = staffRepositoryWrapper.findOneWithNotFoundDetection(Long.parseLong(context.getPendingAction()));
             session.setStaff(staff);
             session.setClient(null);
+            clearInvalidAttempts(session);
             clearRoleSelection(session, context);
             return presentMenu(session, properties.getVoiceIvr().getMainMenuKey(), language, true);
         }
-        return VoiceXmlBuilder.buildCollectInput(VoiceIvrMessages.roleSelectPrompt(language));
+        return handleInvalidInput(session, VoiceIvrMessages.roleSelectPrompt(language));
     }
 
     private void clearRoleSelection(final VoiceIvrSession session, final WhatsAppSessionContext context) {
@@ -252,13 +255,16 @@ public class VoiceIvrCallbackService {
                 return presentMenu(session, properties.getVoiceIvr().getLanguageMenuKey(), properties.getVoiceIvr().getLanguagePickerLanguage(),
                         false);
             }
+            final String languagePickerPrompt = menuRenderer.buildMenuPrompt(properties.getVoiceIvr().getLanguageMenuKey(),
+                    properties.getVoiceIvr().getLanguagePickerLanguage());
             if (!NumberUtils.isDigits(dtmfDigits.trim())) {
-                return VoiceXmlBuilder.buildInvalidSelection();
+                return handleInvalidInput(session, languagePickerPrompt);
             }
             final String languageCode = resolveLanguageOption(dtmfDigits.trim());
             if (StringUtils.isBlank(languageCode)) {
-                return VoiceXmlBuilder.buildInvalidSelection();
+                return handleInvalidInput(session, languagePickerPrompt);
             }
+            clearInvalidAttempts(session);
             session.setLanguageCode(languageCode);
             session.setSessionStatus(VoiceIvrSessionStatus.AFTER_HOURS);
             sessionService.save(session);
@@ -272,12 +278,14 @@ public class VoiceIvrCallbackService {
         }
         final String language = resolveLanguage(session);
         if ("1".equals(dtmfDigits.trim())) {
+            clearInvalidAttempts(session);
             return callbackRequestService.requestCallback(session, "AFTER_HOURS", language);
         }
         if ("2".equals(dtmfDigits.trim())) {
+            clearInvalidAttempts(session);
             return voicemailService.beginRecording(session, "AFTER_HOURS", language);
         }
-        return VoiceXmlBuilder.buildInvalidSelection();
+        return handleInvalidInput(session, VoiceIvrMessages.afterHoursMenu(language));
     }
 
     private String presentAfterHoursMenu(final VoiceIvrSession session) {
@@ -360,12 +368,15 @@ public class VoiceIvrCallbackService {
 
     private String processLanguageSelection(final VoiceIvrSession session, final String dtmfDigits) {
         if (!NumberUtils.isDigits(dtmfDigits)) {
-            return VoiceXmlBuilder.buildInvalidSelection();
+            return handleInvalidInput(session, menuRenderer.buildMenuPrompt(properties.getVoiceIvr().getLanguageMenuKey(),
+                    properties.getVoiceIvr().getLanguagePickerLanguage()));
         }
         final String languageCode = resolveLanguageOption(dtmfDigits);
         if (StringUtils.isBlank(languageCode)) {
-            return VoiceXmlBuilder.buildInvalidSelection();
+            return handleInvalidInput(session, menuRenderer.buildMenuPrompt(properties.getVoiceIvr().getLanguageMenuKey(),
+                    properties.getVoiceIvr().getLanguagePickerLanguage()));
         }
+        clearInvalidAttempts(session);
         return applyLanguageSelection(session, languageCode);
     }
 
@@ -414,18 +425,23 @@ public class VoiceIvrCallbackService {
     }
 
     private String handleInvalidOrEmptyInput(final VoiceIvrSession session, final boolean emptyInput) {
+        final String language = resolveLanguage(session);
+        final String menuPrompt = menuRenderer.buildMenuPrompt(resolveActiveMenuKey(session), language);
+        return handleInvalidInput(session, menuPrompt);
+    }
+
+    private String handleInvalidInput(final VoiceIvrSession session, final String retryPrompt) {
         final int attempts = incrementInvalidAttempts(session);
         final String language = resolveLanguage(session);
         final int maxAttempts = Math.max(1, properties.getVoiceIvr().getMaxInvalidDtmfAttempts());
         if (attempts >= maxAttempts) {
             return transferOrHangupAfterInvalidAttempts(session, language);
         }
-        final String menuPrompt = menuRenderer.buildMenuPrompt(resolveActiveMenuKey(session), language);
         final String retry = VoiceIvrMessages.invalidSelectionRetry(language);
-        if (StringUtils.isBlank(menuPrompt)) {
+        if (StringUtils.isBlank(retryPrompt)) {
             return VoiceXmlBuilder.buildCollectInput(retry);
         }
-        return VoiceXmlBuilder.buildSayWithMenu(retry, menuPrompt);
+        return VoiceXmlBuilder.buildSayWithMenu(retry, retryPrompt);
     }
 
     private String transferOrHangupAfterInvalidAttempts(final VoiceIvrSession session, final String language) {

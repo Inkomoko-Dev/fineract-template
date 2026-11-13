@@ -151,10 +151,8 @@ public class AfricasTalkingVoiceService {
                 completeCallbackRequest(callLog.getCallbackRequestId());
             }
         }
-        if (AfricasTalkingConstants.CALL_STATUS_FAILED.equals(callLog.getStatus())
-                && !AfricasTalkingConstants.CALL_STATUS_FAILED.equals(previousStatus)
-                && callLog.getDirection() == CommunicationDirection.INBOUND
-                && callLog.getCallbackRequestId() == null) {
+        if (VoiceCallLog.isUnansweredTerminal(callLog.getStatus()) && !VoiceCallLog.isUnansweredTerminal(previousStatus)
+                && callLog.getDirection() == CommunicationDirection.INBOUND && callLog.getCallbackRequestId() == null) {
             createMissedCallCallback(callLog);
         }
         voiceCallLogRepository.save(callLog);
@@ -265,6 +263,9 @@ public class AfricasTalkingVoiceService {
             case "answered", "active" -> AfricasTalkingConstants.CALL_STATUS_ANSWERED;
             case "completed" -> AfricasTalkingConstants.CALL_STATUS_COMPLETED;
             case "failed" -> AfricasTalkingConstants.CALL_STATUS_FAILED;
+            case "busy" -> AfricasTalkingConstants.CALL_STATUS_BUSY;
+            case "rejected", "reject" -> AfricasTalkingConstants.CALL_STATUS_REJECTED;
+            case "no-answer", "no_answer", "noanswer" -> AfricasTalkingConstants.CALL_STATUS_NO_ANSWER;
             default -> sessionState.toUpperCase();
         };
     }

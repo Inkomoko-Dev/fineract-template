@@ -172,15 +172,46 @@ public final class WhatsAppInteractiveMessages {
 
     public static String loanBalanceResponse(final String languageCode, final String loanAccountNo, final String currency,
             final BigDecimal balance) {
-        final String amount = balance != null ? balance.toPlainString() : "0";
+        final String amount = plain(balance);
         return "rw".equalsIgnoreCase(languageCode)
                 ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " asigaye."
                 : "Loan " + loanAccountNo + " outstanding balance: " + amount + " " + currency;
     }
 
+    public static String loanBalanceComponentsResponse(final String languageCode, final String loanAccountNo, final String currency,
+            final BigDecimal total, final BigDecimal principal, final BigDecimal interest, final BigDecimal fees,
+            final BigDecimal penalties) {
+        final String totalAmt = plain(total);
+        final String principalAmt = plain(principal);
+        final String interestAmt = plain(interest);
+        final String feesAmt = plain(fees);
+        final String penaltiesAmt = plain(penalties);
+        if ("rw".equalsIgnoreCase(languageCode)) {
+            return "Inguzanyo " + loanAccountNo + ": " + totalAmt + " " + currency + " asigaye" + " (umwimerere " + principalAmt
+                    + ", inyungu " + interestAmt + ", amafaranga " + feesAmt + ", ibihano " + penaltiesAmt + ").";
+        }
+        return "Loan " + loanAccountNo + " outstanding: " + totalAmt + " " + currency + " (principal " + principalAmt + ", interest "
+                + interestAmt + ", fees " + feesAmt + ", penalties " + penaltiesAmt + ").";
+    }
+
     public static String nextRepaymentResponse(final String languageCode, final String loanAccountNo, final LocalDate dueDate) {
         return "rw".equalsIgnoreCase(languageCode) ? "Inguzanyo " + loanAccountNo + ": itariki yo kwishyura ikurikira ni " + dueDate + "."
                 : "Loan " + loanAccountNo + ": next repayment date is " + dueDate + ".";
+    }
+
+    public static String nextRepaymentWithDaysResponse(final String languageCode, final String loanAccountNo, final LocalDate dueDate,
+            final long days, final boolean overdue, final String currency, final BigDecimal amountDue) {
+        final String amount = plain(amountDue);
+        if (overdue) {
+            return "rw".equalsIgnoreCase(languageCode)
+                    ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " byarenze ku " + dueDate + " (" + days + " iminsi)."
+                    : "Loan " + loanAccountNo + ": overdue installment " + amount + " " + currency + " since " + dueDate + " (" + days
+                            + " days overdue).";
+        }
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " kwishyura ku " + dueDate + " (iminsi " + days + ")."
+                : "Loan " + loanAccountNo + ": next repayment " + amount + " " + currency + " on " + dueDate + " (" + days
+                        + " days remaining).";
     }
 
     public static String noUpcomingRepayment(final String languageCode, final String loanAccountNo) {
@@ -190,10 +221,25 @@ public final class WhatsAppInteractiveMessages {
 
     public static String amountDueResponse(final String languageCode, final String loanAccountNo, final String currency,
             final BigDecimal amountDue, final LocalDate dueDate) {
-        final String amount = amountDue != null ? amountDue.toPlainString() : "0";
+        final String amount = plain(amountDue);
         return "rw".equalsIgnoreCase(languageCode)
                 ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " kwishyura ku " + dueDate + "."
                 : "Loan " + loanAccountNo + ": amount due " + amount + " " + currency + " on " + dueDate + ".";
+    }
+
+    public static String amountDueWithDaysResponse(final String languageCode, final String loanAccountNo, final String currency,
+            final BigDecimal amountDue, final LocalDate dueDate, final long days, final boolean overdue) {
+        final String amount = plain(amountDue);
+        if (overdue) {
+            return "rw".equalsIgnoreCase(languageCode)
+                    ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " byarenze ku " + dueDate + " (" + days + " iminsi)."
+                    : "Loan " + loanAccountNo + ": overdue amount " + amount + " " + currency + " since " + dueDate + " (" + days
+                            + " days overdue).";
+        }
+        return "rw".equalsIgnoreCase(languageCode)
+                ? "Inguzanyo " + loanAccountNo + ": " + amount + " " + currency + " kwishyura ku " + dueDate + " (iminsi " + days + ")."
+                : "Loan " + loanAccountNo + ": installment due " + amount + " " + currency + " on " + dueDate + " (" + days
+                        + " days remaining).";
     }
 
     public static String noAmountDue(final String languageCode, final String loanAccountNo) {
@@ -204,5 +250,39 @@ public final class WhatsAppInteractiveMessages {
     public static String loanStatusResponse(final String languageCode, final String loanAccountNo, final String statusCode) {
         return "rw".equalsIgnoreCase(languageCode) ? "Inguzanyo " + loanAccountNo + ": imiterere ni " + statusCode + "."
                 : "Loan " + loanAccountNo + " status: " + statusCode + ".";
+    }
+
+    public static String loanStatusDetailedResponse(final String languageCode, final String loanAccountNo, final String statusCode,
+            final String currency, final LocalDate disbursementDate, final LocalDate maturityDate, final LocalDate closedDate) {
+        final StringBuilder builder = new StringBuilder(loanStatusResponse(languageCode, loanAccountNo, statusCode));
+        if (disbursementDate != null) {
+            builder.append("rw".equalsIgnoreCase(languageCode) ? " Yashyiriweho ku " + disbursementDate + "."
+                    : " Disbursed on " + disbursementDate + ".");
+        }
+        if (maturityDate != null) {
+            builder.append("rw".equalsIgnoreCase(languageCode) ? " Itariki yo kurangiza ni " + maturityDate + "."
+                    : " Expected maturity " + maturityDate + ".");
+        }
+        if (closedDate != null) {
+            builder.append("rw".equalsIgnoreCase(languageCode) ? " Yafunzwe ku " + closedDate + "." : " Closed on " + closedDate + ".");
+        }
+        if (StringUtils.isNotBlank(currency)) {
+            builder.append("rw".equalsIgnoreCase(languageCode) ? " Ifaranga: " + currency + "." : " Currency: " + currency + ".");
+        }
+        return builder.toString().trim();
+    }
+
+    public static String exceptionalLoansHeader(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Nta nguzanyo ikora. Inguzanyo ziboneka:"
+                : "No active loans. Other loan statuses on your account:";
+    }
+
+    public static String advisorOptionHint(final String languageCode) {
+        return "rw".equalsIgnoreCase(languageCode) ? "Hitamo umujyanama muri menu niba ukeneye ubufasha."
+                : "Choose Speak to an advisor from the menu if you need help.";
+    }
+
+    private static String plain(final BigDecimal value) {
+        return value != null ? value.toPlainString() : "0";
     }
 }

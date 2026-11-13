@@ -150,6 +150,54 @@ class AfricasTalkingVoiceServiceTest {
     }
 
     @Test
+    void mapsBusyAndCreatesMissedCallCallback() {
+        final VoiceCallLog existing = VoiceCallLog.inbound("ATV_BUSY", "+254700000099", "+254711082867", null, null);
+        final var callback = org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequest.pending("ATV_BUSY",
+                1L, "+254700000099", null, "MISSED_CALL", "en", null, null);
+        org.springframework.test.util.ReflectionTestUtils.setField(callback, "id", 77L);
+        when(voiceCallLogRepository.findByExternalSessionId("ATV_BUSY")).thenReturn(Optional.of(existing));
+        when(voiceCallLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(voiceIvrSessionRepository.findByExternalSessionIdOrderByLastActivityAtDesc("ATV_BUSY")).thenReturn(List.of());
+        when(voiceCallbackRequestService.createSilentCallbackForCaller(any(), any(), any(), any(), any())).thenReturn(callback);
+
+        voiceService.processCallEvent("sessionId=ATV_BUSY&callSessionState=Busy&direction=Inbound");
+
+        assertEquals(AfricasTalkingConstants.CALL_STATUS_BUSY, existing.getStatus());
+        assertEquals(77L, existing.getCallbackRequestId());
+        verify(voiceCallbackRequestService).createSilentCallbackForCaller(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void mapsNoAnswerAliasAndCreatesMissedCallCallback() {
+        final VoiceCallLog existing = VoiceCallLog.inbound("ATV_NA", "+254700000099", "+254711082867", null, null);
+        final var callback = org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequest.pending("ATV_NA", 1L,
+                "+254700000099", null, "MISSED_CALL", "en", null, null);
+        org.springframework.test.util.ReflectionTestUtils.setField(callback, "id", 78L);
+        when(voiceCallLogRepository.findByExternalSessionId("ATV_NA")).thenReturn(Optional.of(existing));
+        when(voiceCallLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(voiceIvrSessionRepository.findByExternalSessionIdOrderByLastActivityAtDesc("ATV_NA")).thenReturn(List.of());
+        when(voiceCallbackRequestService.createSilentCallbackForCaller(any(), any(), any(), any(), any())).thenReturn(callback);
+
+        voiceService.processCallEvent("sessionId=ATV_NA&callSessionState=no-answer&direction=Inbound");
+
+        assertEquals(AfricasTalkingConstants.CALL_STATUS_NO_ANSWER, existing.getStatus());
+        assertEquals(78L, existing.getCallbackRequestId());
+    }
+
+    @Test
+    void doesNotCreateMissedCallCallbackForCompleted() {
+        final VoiceCallLog existing = VoiceCallLog.inbound("ATV_OK", "+254700000099", "+254711082867", null, null);
+        when(voiceCallLogRepository.findByExternalSessionId("ATV_OK")).thenReturn(Optional.of(existing));
+        when(voiceCallLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        voiceService.processCallEvent("sessionId=ATV_OK&callSessionState=Completed&durationInSeconds=10");
+
+        assertEquals(AfricasTalkingConstants.CALL_STATUS_COMPLETED, existing.getStatus());
+        assertNull(existing.getCallbackRequestId());
+        verify(voiceCallbackRequestService, org.mockito.Mockito.never()).createSilentCallbackForCaller(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void doesNotPersistDtmfWhileIvrSessionIsAuthenticating() {
         final VoiceCallLog existing = VoiceCallLog.inbound("ATV_OTP", "+254700000099", "+254711082867", null, null);
         final VoiceIvrSession session = new VoiceIvrSession();

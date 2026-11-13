@@ -267,6 +267,34 @@ class VoiceIvrCallbackServiceTest {
     }
 
     @Test
+    void afterHoursInvalidDigitsRespectMaxAttempts() {
+        when(businessHoursService.isWithinBusinessHours()).thenReturn(false);
+        final WhatsAppSessionContextSerializer realSerializer = new WhatsAppSessionContextSerializer();
+        callbackService = new VoiceIvrCallbackService(properties, sessionService, menuRenderer, menuOptionRepository,
+                menuDefinitionRepository, callerIdentificationService, clientAuthService, loanSelfServiceGate, agentRoutingService,
+                callbackRequestService, voicemailService, businessHoursService, realSerializer, recipientResolutionService,
+                phoneNumberNormalizer, clientRepositoryWrapper, staffRepositoryWrapper, recordingConsentService, dialTargetResolver);
+        properties.getVoiceIvr().setMaxInvalidDtmfAttempts(2);
+        final VoiceIvrSession session = new VoiceIvrSession();
+        session.setSessionStatus(VoiceIvrSessionStatus.AFTER_HOURS);
+        session.setLanguageCode("en");
+        session.setSessionContext(realSerializer.toJson(WhatsAppSessionContext.empty()));
+        when(phoneNumberNormalizer.normalize(any())).thenReturn("+254700000099");
+        when(recipientResolutionService.resolve(any())).thenReturn(ResolvedRecipientData.unknown("+254700000099"));
+        when(sessionService.startOrResume("ATV_AH", "+254700000099", null, null)).thenReturn(session);
+        when(sessionService.save(session)).thenReturn(session);
+        when(dialTargetResolver.resolve("SUPPORT", session)).thenReturn("+254700000002");
+
+        final String first = callbackService.handleInbound("sessionId=ATV_AH&callerNumber=%2B254700000099&dtmfDigits=9");
+        assertThat(first).contains("Invalid selection");
+        assertThat(first).contains("Press 1 for a callback");
+
+        final String second = callbackService.handleInbound("sessionId=ATV_AH&callerNumber=%2B254700000099&dtmfDigits=9");
+        assertThat(second).contains("Too many invalid attempts");
+        assertThat(second).contains("phoneNumbers=\"+254700000002\"");
+    }
+
+    @Test
     void multiClientCallerEntersAccountNumberBeforeLanguageMenu() {
         final WhatsAppSessionContextSerializer realSerializer = new WhatsAppSessionContextSerializer();
         callbackService = new VoiceIvrCallbackService(properties, sessionService, menuRenderer, menuOptionRepository,

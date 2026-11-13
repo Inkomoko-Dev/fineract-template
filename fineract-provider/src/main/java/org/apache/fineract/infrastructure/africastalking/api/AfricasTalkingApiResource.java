@@ -224,7 +224,7 @@ public class AfricasTalkingApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveVoiceCallRecording(@PathParam("callId") final Long callId, @Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
+        this.context.authenticatedUser().validateHasPermissionTo(AfricasTalkingConstants.PERMISSION_READ_VOICE_RECORDING);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveRecording(callId));
     }

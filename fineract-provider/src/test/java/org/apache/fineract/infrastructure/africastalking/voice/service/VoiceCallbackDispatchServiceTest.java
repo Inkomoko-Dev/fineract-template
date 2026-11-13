@@ -33,7 +33,9 @@ import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceC
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceBusinessHoursService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppOperationalNotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,13 +52,16 @@ class VoiceCallbackDispatchServiceTest {
     private AfricasTalkingVoiceService voiceService;
     @Mock
     private VoiceBusinessHoursService businessHoursService;
+    @Mock
+    private WhatsAppOperationalNotificationService operationalNotificationService;
 
     private VoiceCallbackDispatchService dispatchService;
 
     @BeforeEach
     void setUp() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
-        dispatchService = new VoiceCallbackDispatchService(callbackRequestRepository, voiceService, businessHoursService);
+        dispatchService = new VoiceCallbackDispatchService(callbackRequestRepository, voiceService, businessHoursService,
+                operationalNotificationService);
         when(businessHoursService.isWithinBusinessHours()).thenReturn(true);
     }
 
@@ -128,6 +133,22 @@ class VoiceCallbackDispatchServiceTest {
         final int dispatched = dispatchService.dispatchDueCallbacks();
 
         assertThat(dispatched).isZero();
+        verify(voiceService, never()).initiateOutboundCall(any());
+    }
+
+    @Test
+    void notifiesQueueWhenCallbackEscalatesOverdue() {
+        final VoiceCallbackRequest overdue = VoiceCallbackRequest.pending("ATV_OVERDUE", 9L, "+254700000055", null, "AFTER_HOURS", "en",
+                20L, DateUtils.getLocalDateTimeOfTenant().minusHours(30));
+        ReflectionTestUtils.setField(overdue, "id", 42L);
+        when(callbackRequestRepository.findDueForDispatch(any(), any())).thenReturn(List.of(overdue), List.of());
+        when(callbackRequestRepository.save(overdue)).thenReturn(overdue);
+
+        final int dispatched = dispatchService.dispatchDueCallbacks();
+
+        assertThat(dispatched).isZero();
+        assertThat(overdue.getStatus()).isEqualTo(VoiceCallbackRequestStatus.ESCALATED);
+        verify(operationalNotificationService).notifyVoiceCallbackOverdue(42L, "+254700000055", "AFTER_HOURS");
         verify(voiceService, never()).initiateOutboundCall(any());
     }
 }

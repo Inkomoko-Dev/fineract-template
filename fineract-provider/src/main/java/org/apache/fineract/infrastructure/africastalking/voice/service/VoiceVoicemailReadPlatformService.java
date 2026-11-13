@@ -20,6 +20,7 @@ package org.apache.fineract.infrastructure.africastalking.voice.service;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.africastalking.service.VoiceRecordingAccessAuditService;
@@ -35,6 +36,9 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class VoiceVoicemailReadPlatformService {
 
+    private static final int DEFAULT_PAGE_SIZE = 100;
+    private static final int MAX_PAGE_SIZE = 500;
+
     private final JdbcTemplate jdbcTemplate;
     private final PlatformSecurityContext context;
     private final VoiceRecordingAccessAuditService recordingAccessAuditService;
@@ -42,12 +46,27 @@ public class VoiceVoicemailReadPlatformService {
     private final VoiceVoicemailMapper detailMapper = new VoiceVoicemailMapper(true);
 
     public List<VoiceVoicemailData> retrieveVoicemails() {
-        return jdbcTemplate.query("select " + listMapper.schema() + " order by vv.created_date desc", listMapper);
+        return retrieveVoicemails(0, DEFAULT_PAGE_SIZE);
+    }
+
+    public List<VoiceVoicemailData> retrieveVoicemails(final int offset, final int limit) {
+        final int safeLimit = limit <= 0 ? DEFAULT_PAGE_SIZE : Math.min(limit, MAX_PAGE_SIZE);
+        final int safeOffset = Math.max(offset, 0);
+        final ScopeFilter scope = buildScopeFilter();
+        final String sql = "select " + listMapper.schema() + scope.whereClause + " order by vv.created_date desc limit ? offset ?";
+        final List<Object> args = new ArrayList<>(scope.args);
+        args.add(safeLimit);
+        args.add(safeOffset);
+        return jdbcTemplate.query(sql, listMapper, args.toArray());
     }
 
     public VoiceVoicemailData retrieveRecording(final Long voicemailId) {
-        final String sql = "select " + detailMapper.schema() + " where vv.id = ?";
-        final List<VoiceVoicemailData> results = jdbcTemplate.query(sql, detailMapper, voicemailId);
+        final ScopeFilter scope = buildScopeFilter();
+        final String sql = "select " + detailMapper.schema() + " where vv.id = ?" + scope.andClause;
+        final List<Object> args = new ArrayList<>();
+        args.add(voicemailId);
+        args.addAll(scope.args);
+        final List<VoiceVoicemailData> results = jdbcTemplate.query(sql, detailMapper, args.toArray());
         if (results.isEmpty()) {
             return null;
         }
@@ -55,6 +74,23 @@ public class VoiceVoicemailReadPlatformService {
         final AppUser user = context.authenticatedUser();
         recordingAccessAuditService.recordVoicemailAccess(user.getId(), user.getUsername(), voicemailId, data.getRecordingUrl());
         return data;
+    }
+
+    private ScopeFilter buildScopeFilter() {
+        final AppUser user = context.authenticatedUser();
+        final Long staffId = user.getStaffId();
+        if (staffId == null) {
+            return ScopeFilter.unrestricted();
+        }
+        // Officers see voicemails for their assigned clients only.
+        return new ScopeFilter(" where vv.client_id in (select c.id from m_client c where c.staff_id = ?)",
+                " and vv.client_id in (select c.id from m_client c where c.staff_id = ?)", List.of(staffId));
+    }
+
+    private record ScopeFilter(String whereClause, String andClause, List<Object> args) {
+        static ScopeFilter unrestricted() {
+            return new ScopeFilter("", "", List.of());
+        }
     }
 
     private static final class VoiceVoicemailMapper implements RowMapper<VoiceVoicemailData> {

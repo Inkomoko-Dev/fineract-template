@@ -68,4 +68,32 @@ class VoiceCallLogTest {
 
         assertThat(callLog.getStatus()).isEqualTo(AfricasTalkingConstants.CALL_STATUS_COMPLETED);
     }
+
+    @Test
+    void doesNotOverwriteFailedWithCompleted() {
+        final VoiceCallLog callLog = VoiceCallLog.inbound("ATV_3", "+254700000099", "+254711082867", null, null);
+        callLog.applyEventUpdate(AfricasTalkingConstants.CALL_STATUS_FAILED, null, null, null);
+        callLog.applyEventUpdate(AfricasTalkingConstants.CALL_STATUS_COMPLETED, 12, null, null);
+
+        assertThat(callLog.getStatus()).isEqualTo(AfricasTalkingConstants.CALL_STATUS_FAILED);
+    }
+
+    @Test
+    void keepsBusyAfterRinging() {
+        final VoiceCallLog callLog = VoiceCallLog.inbound("ATV_4", "+254700000099", "+254711082867", null, null);
+        callLog.applyEventUpdate(AfricasTalkingConstants.CALL_STATUS_RINGING, null, null, null);
+        callLog.applyEventUpdate(AfricasTalkingConstants.CALL_STATUS_BUSY, null, null, null);
+
+        assertThat(callLog.getStatus()).isEqualTo(AfricasTalkingConstants.CALL_STATUS_BUSY);
+        assertThat(VoiceCallLog.isUnansweredTerminal(callLog.getStatus())).isTrue();
+    }
+
+    @Test
+    void doesNotOverwriteBusyWithNoAnswer() {
+        final VoiceCallLog callLog = VoiceCallLog.inbound("ATV_5", "+254700000099", "+254711082867", null, null);
+        callLog.applyEventUpdate(AfricasTalkingConstants.CALL_STATUS_BUSY, null, null, null);
+        callLog.applyEventUpdate(AfricasTalkingConstants.CALL_STATUS_NO_ANSWER, null, null, null);
+
+        assertThat(callLog.getStatus()).isEqualTo(AfricasTalkingConstants.CALL_STATUS_BUSY);
+    }
 }
