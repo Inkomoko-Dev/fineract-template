@@ -94,6 +94,18 @@ public class LoanEventApiJsonValidatorMfiCodeTest {
     }
 
     @Test
+    public void aRepaymentWithPaddedMfiCodeIsAccepted() {
+        assertDoesNotThrow(() -> this.validator.validateNewRepaymentTransaction(repaymentPayload("  MFI-001  ")));
+    }
+
+    @Test
+    public void aRepaymentWithFiftyOneCharacterMfiCodeIsRejected() {
+        final String fiftyOneChars = "MFI-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk";
+        assertThrows(PlatformApiDataValidationException.class,
+                () -> this.validator.validateNewRepaymentTransaction(repaymentPayload(fiftyOneChars)));
+    }
+
+    @Test
     public void anUnrelatedUnknownParameterIsStillRejected() {
         final String json = "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"transactionDate\":\"01 February 2026\","
                 + "\"transactionAmount\":5000,\"notAField\":\"x\"}";

@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.paymentdetail.domain;
 
 import com.google.gson.JsonObject;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.paymentdetail.PaymentDetailConstants;
 import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
@@ -51,7 +52,8 @@ public class PaymentDetailAssembler {
         final String routingCode = this.fromApiJsonHelper.extractStringNamed(PaymentDetailConstants.routingCodeParamName, json);
         final String receiptNumber = this.fromApiJsonHelper.extractStringNamed(PaymentDetailConstants.receiptNumberParamName, json);
         final String bankNumber = this.fromApiJsonHelper.extractStringNamed(PaymentDetailConstants.bankNumberParamName, json);
-        final String mfiCode = this.fromApiJsonHelper.extractStringNamed(PaymentDetailConstants.mfiCodeParamName, json);
+        final String mfiCode = StringUtils
+                .trimToNull(this.fromApiJsonHelper.extractStringNamed(PaymentDetailConstants.mfiCodeParamName, json));
         return PaymentDetail.instance(paymentType, accountNumber, checkNumber, routingCode, receiptNumber, bankNumber, mfiCode);
     }
 }
