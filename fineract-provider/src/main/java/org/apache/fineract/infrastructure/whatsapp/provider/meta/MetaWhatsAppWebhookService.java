@@ -32,9 +32,11 @@ import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMes
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEvent;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEventRepository;
+import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.africastalking.service.PhoneNumberNormalizer;
 import org.apache.fineract.infrastructure.africastalking.service.RecipientResolutionService;
 import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInboundConversationService;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppSharedNumberDisambiguationService;
 import org.apache.fineract.infrastructure.whatsapp.provider.CommunicationMessageStatusUpdater;
 import org.apache.fineract.infrastructure.whatsapp.provider.WhatsAppProvider;
 import org.apache.fineract.organisation.staff.domain.Staff;
@@ -56,6 +58,7 @@ public class MetaWhatsAppWebhookService {
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final StaffRepositoryWrapper staffRepositoryWrapper;
     private final WhatsAppInboundConversationService inboundConversationService;
+    private final WhatsAppSharedNumberDisambiguationService sharedNumberDisambiguationService;
     private final CommunicationMessageStatusUpdater statusUpdater;
 
     @Transactional
@@ -127,6 +130,10 @@ public class MetaWhatsAppWebhookService {
                 recipient.getRecipientType(), client, staff, body, externalId);
         inbound.setProvider(WhatsAppProvider.META.name());
         communicationMessageRepository.save(inbound);
+        if (recipient.getRecipientType() == RecipientType.MULTI_CLIENT || recipient.getRecipientType() == RecipientType.CLIENT_AND_STAFF) {
+            sharedNumberDisambiguationService.handleAmbiguousInbound(recipient.getNormalizedPhoneNumber(), body, recipient);
+            return;
+        }
         inboundConversationService.handleInbound(recipient.getNormalizedPhoneNumber(), body, recipient.getRecipientType(), client, staff);
     }
 

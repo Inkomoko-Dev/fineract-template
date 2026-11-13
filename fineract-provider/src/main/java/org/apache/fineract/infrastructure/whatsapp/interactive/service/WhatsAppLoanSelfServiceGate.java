@@ -67,8 +67,9 @@ public class WhatsAppLoanSelfServiceGate {
         }
         final List<Loan> loans = loanSelfService.findSelfServiceLoans(clientId);
         if (loans.isEmpty()) {
+            final List<Loan> exceptional = loanSelfService.findExceptionalLoans(clientId);
             replyService.sendTransactionalReply(session.getPhoneNumber(), recipientType, webhookClient, staff,
-                    WhatsAppInteractiveMessages.noActiveLoans(language));
+                    loanSelfService.buildExceptionalLoansResponse(exceptional, language));
             return;
         }
         context.setPendingLoanAction(loanActionTarget);
