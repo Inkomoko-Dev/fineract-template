@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-825-loan-payment-details-report-mfi-code" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Loan Payment Details Report'</sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[SELECT
+    ml.account_no AS 'Account Number/Loan ID',
+    mc.display_name AS 'Client Name',
+    mc.id AS 'Client ID',
+    mo.name AS 'Office',
+    lp.name AS 'Loan Product',
+    pt.value AS 'Payment Type',
+    ml.currency_code AS 'Currency',
+    mlt.id AS 'Transaction ID',
+    mlt.transaction_date AS 'Transaction Date',
+    mlt.amount AS 'Total Amount Paid',
+    COALESCE(mlt.principal_portion_derived,0) AS 'Principal Paid',
+    COALESCE(mlt.interest_portion_derived,0) AS 'Interest Paid',
+    (
+        COALESCE(mlt.fee_charges_portion_derived,0) +
+        COALESCE(mlt.penalty_charges_portion_derived,0) +
+        COALESCE(mlt.overpayment_portion_derived,0) +
+        COALESCE(mlt.unrecognized_income_portion,0)
+    ) AS 'Charges & Others Paid',
+    cvp.code_value AS 'Province',
+    adr.physical_address_sector AS 'Sector',
+    adr.physical_address_cell AS 'Cell',
+    adr.physical_address_district AS 'District',
+    mpd.receipt_number AS 'Reference Number',
+    mpd.routing_code AS 'Payment Hub Transaction ID',
+    mpd.mfi_code AS 'MFI Code',
+    MIN(creator.username) AS 'Created By',
+    MIN(gl.created_date) AS 'Created On',
+    CASE WHEN mlt.is_reversed = 1 THEN 'Yes' ELSE 'No' END AS 'Is Reversed',
+    CASE WHEN mlt.is_reversed = 1 THEN MAX(rev_by.username) ELSE NULL END AS 'Reversed By',
+    CASE WHEN mlt.is_reversed = 1 THEN MAX(gl.created_date) ELSE NULL END AS 'Reversed On'
+FROM m_loan ml
+JOIN m_client mc ON ml.client_id = mc.id
+JOIN m_product_loan lp ON ml.product_id = lp.id
+JOIN m_loan_transaction mlt ON ml.id = mlt.loan_id
+JOIN m_office mo ON mo.id = (
+    SELECT eo.office_id FROM v_loan_entity_office eo
+    WHERE eo.loan_id = ml.id AND mlt.transaction_date >= eo.valid_from AND mlt.transaction_date < eo.valid_to)
+JOIN m_payment_detail mpd ON mlt.payment_detail_id = mpd.id
+LEFT JOIN m_payment_type pt ON mpd.payment_type_id = pt.id
+LEFT JOIN acc_gl_journal_entry gl ON gl.loan_transaction_id = mlt.id
+LEFT JOIN m_appuser creator
+    ON gl.created_date = (
+        SELECT MIN(gl2.created_date)
+        FROM acc_gl_journal_entry gl2
+        WHERE gl2.loan_transaction_id = mlt.id
+    )
+    AND gl.createdby_id = creator.id
+LEFT JOIN m_appuser rev_by
+    ON gl.created_date = (
+        SELECT MAX(gl3.created_date)
+        FROM acc_gl_journal_entry gl3
+        WHERE gl3.loan_transaction_id = mlt.id
+    )
+    AND gl.createdby_id = rev_by.id
+LEFT JOIN (
+    SELECT
+        cdr.client_id,
+        MIN(addr.physical_address_sector) AS physical_address_sector,
+        MIN(addr.physical_address_district) AS physical_address_district,
+        MIN(addr.physical_address_cell) AS physical_address_cell,
+        MIN(addr.state_province_id) AS state_province_id
+    FROM m_client_address cdr
+    JOIN m_address addr ON addr.id = cdr.address_id
+    GROUP BY cdr.client_id
+) adr ON mc.id = adr.client_id
+LEFT JOIN m_code_value cvp ON cvp.id = adr.state_province_id
+WHERE
+    (mlt.transaction_type_enum = 2 OR mlt.transaction_type_enum = 8)
+    AND ('${startDate}' IS NULL OR mlt.transaction_date >= '${startDate}')
+    AND ('${endDate}' IS NULL OR mlt.transaction_date <= '${endDate}')
+    AND (
+        ${officeId} = -1
+        OR mo.hierarchy LIKE CONCAT(
+            IFNULL((SELECT hierarchy FROM m_office WHERE id = ${officeId}), ''),
+            '%'
+        )
+    )
+    AND (${paymentTypeId} = -1 OR pt.id = ${paymentTypeId})
+    AND ('${currencyId}' IN ('-1', '0') OR ml.currency_code = '${currencyId}')
+GROUP BY
+    ml.account_no,
+    mc.id,
+    mo.id,
+    mo.name,
+    lp.name,
+    pt.value,
+    ml.currency_code,
+    mlt.id,
+    mlt.transaction_date,
+    mlt.amount,
+    mpd.receipt_number,
+    mpd.routing_code,
+    mpd.mfi_code,
+    mlt.is_reversed
+ORDER BY
+    mlt.transaction_date DESC]]></column>
+            <where>report_name = 'Loan Payment Details Report'</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>

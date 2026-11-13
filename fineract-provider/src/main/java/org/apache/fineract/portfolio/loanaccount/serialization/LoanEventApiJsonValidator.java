@@ -337,12 +337,17 @@ public final class LoanEventApiJsonValidator {
         final Integer paymentTypeId = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("paymentTypeId", element);
         baseDataValidator.reset().parameter("paymentTypeId").value(paymentTypeId).ignoreIfNull().integerGreaterThanZero();
         final Set<String> paymentDetailParameters = new HashSet<>(
-                Arrays.asList("accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber"));
+                Arrays.asList("accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber", "mfiCode"));
         for (final String paymentDetailParameterName : paymentDetailParameters) {
             final String paymentDetailParameterValue = this.fromApiJsonHelper.extractStringNamed(paymentDetailParameterName, element);
             baseDataValidator.reset().parameter(paymentDetailParameterName).value(paymentDetailParameterValue).ignoreIfNull()
                     .notExceedingLengthOf(50);
         }
+
+        // MFI code must be alphanumeric (letters, numbers, hyphens, underscores, spaces, slashes only)
+        final String mfiCode = this.fromApiJsonHelper.extractStringNamed("mfiCode", element);
+        baseDataValidator.reset().parameter("mfiCode").value(mfiCode).ignoreIfNull()
+                .matchesRegularExpression("^[A-Za-z0-9 _/-]*$");
     }
 
     public void validateTransactionWithNoAmount(final String json) {
