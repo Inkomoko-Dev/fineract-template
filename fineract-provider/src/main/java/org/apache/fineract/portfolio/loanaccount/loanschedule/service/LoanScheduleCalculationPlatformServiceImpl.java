@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -241,13 +242,14 @@ public class LoanScheduleCalculationPlatformServiceImpl implements LoanScheduleC
         final List<TrancheReleaseRules.PlannedTranche> planned = new ArrayList<>();
         if (this.fromJsonHelper.parameterExists("disbursementData", element)) {
             final JsonArray rows = this.fromJsonHelper.extractJsonArrayNamed("disbursementData", element);
+            final Locale locale = this.fromJsonHelper.extractLocaleParameter(element.getAsJsonObject());
             if (rows != null) {
                 for (final JsonElement rowElement : rows) {
                     if (!rowElement.isJsonObject()) {
                         continue;
                     }
                     final JsonObject row = rowElement.getAsJsonObject();
-                    final BigDecimal principal = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("principal", row);
+                    final BigDecimal principal = this.fromJsonHelper.extractBigDecimalNamed("principal", row, locale);
                     Boolean principalAsPercentage = null;
                     if (row.has(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE)
                             && row.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE).isJsonPrimitive()) {
