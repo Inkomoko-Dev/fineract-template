@@ -4390,6 +4390,20 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder createTrancheMilestone(final String loanKey) {
+        this.actionName = "CREATE";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones";
+        return this;
+    }
+
+    public CommandWrapperBuilder approveTrancheMilestone(final String loanKey) {
+        this.actionName = "APPROVE";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones/deadline-exception";
+        return this;
+    }
+
     public CommandWrapperBuilder overrideLoanClassification(final Long loanId) {
         this.actionName = "OVERRIDE";
         this.entityName = "LOANCLASSIFICATION";

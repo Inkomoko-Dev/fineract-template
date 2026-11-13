@@ -26,9 +26,13 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.commands.domain.CommandWrapper;
+import org.apache.fineract.commands.service.CommandWrapperBuilder;
+import org.apache.fineract.commands.service.PortfolioCommandSourceWritePlatformService;
+import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.service.TrancheMilestoneEligibilityService;
-import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.stereotype.Component;
 
 @Path("/loans/{loanKey}/tranche-milestones")
@@ -38,13 +42,15 @@ public class TrancheMilestoneApiResource {
 
     private final PlatformSecurityContext context;
     private final TrancheMilestoneEligibilityService eligibilityService;
+    private final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService;
+    private final DefaultToApiJsonSerializer<CommandProcessingResult> toApiJsonSerializer;
 
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String submit(@PathParam("loanKey") final String loanKey, final String json) {
-        this.context.authenticatedUser().validateHasCreatePermission("TRANCHEMILESTONE");
-        return this.eligibilityService.ingest(loanKey, json);
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().createTrancheMilestone(loanKey).withJson(body(json)).build();
+        return response(this.commandsSourceWritePlatformService.logCommandSource(commandRequest));
     }
 
     @POST
@@ -52,11 +58,8 @@ public class TrancheMilestoneApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String approveDeadlineException(@PathParam("loanKey") final String loanKey, final String json) {
-        final AppUser user = this.context.authenticatedUser();
-        user.validateHasPermissionTo("APPROVE_TRANCHEMILESTONE");
-        final String approvedBy = user.getDisplayName() == null || user.getDisplayName().isBlank() ? user.getUsername()
-                : user.getDisplayName();
-        return this.eligibilityService.approveDeadlineException(loanKey, json, approvedBy);
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().approveTrancheMilestone(loanKey).withJson(body(json)).build();
+        return response(this.commandsSourceWritePlatformService.logCommandSource(commandRequest));
     }
 
     @GET
@@ -65,5 +68,16 @@ public class TrancheMilestoneApiResource {
     public String read(@PathParam("loanKey") final String loanKey) {
         this.context.authenticatedUser().validateHasReadPermission("LOAN");
         return this.eligibilityService.read(loanKey);
+    }
+
+    private String response(final CommandProcessingResult result) {
+        if (result.getResourceIdentifier() != null) {
+            return result.getResourceIdentifier();
+        }
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    private static String body(final String json) {
+        return json == null || json.isBlank() ? "{}" : json;
     }
 }
