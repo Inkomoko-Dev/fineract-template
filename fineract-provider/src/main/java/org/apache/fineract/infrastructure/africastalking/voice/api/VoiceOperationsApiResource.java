@@ -117,6 +117,16 @@ public class VoiceOperationsApiResource {
     }
 
     @GET
+    @Path("voicemails/{voicemailId}/recording")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveVoicemailRecording(@PathParam("voicemailId") final Long voicemailId, @Context final UriInfo uriInfo) {
+        context.authenticatedUser().validateHasPermissionTo(AfricasTalkingConstants.PERMISSION_READ_VOICE_RECORDING);
+        final ApiRequestJsonSerializationSettings settings = apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return voicemailSerializer.serialize(settings, voicemailReadPlatformService.retrieveRecording(voicemailId));
+    }
+
+    @GET
     @Path("queue")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
