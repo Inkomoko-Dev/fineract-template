@@ -37,12 +37,22 @@ import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRu
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
+import org.apache.fineract.organisation.monetary.domain.ApplicationCurrency;
+import org.apache.fineract.organisation.monetary.domain.ApplicationCurrencyRepositoryWrapper;
+import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
+import org.apache.fineract.portfolio.account.domain.AccountTransferRepository;
+import org.apache.fineract.portfolio.account.domain.AccountTransferTransaction;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
+import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -52,14 +62,13 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Standalone late-fee data repair. Speaks JDBC (+ journal posting) only — does not load {@code Loan}/{@code LoanCharge}
- * graphs or call {@link LoanDailyLateFeeService}. The daily late-fee engine remains responsible for ongoing posting;
- * this service only cleans legacy rows and seeds the corrected monthly charges.
+ * Late-fee data repair. Charge waive / monthly re-post is JDBC (+ journals) so it stays independent of
+ * {@link LoanDailyLateFeeService}. After that work commits, repayments are reprocessed through the Loan graph — the
+ * same path a repayment edit uses — so outstanding balances and schedule allocations recompute without a manual edit.
  */
 @Service
 @RequiredArgsConstructor
 public class LoanLateFeeRectifyService {
-
     private static final int CHARGE_TIME_SPECIFIED_DUE_DATE = ChargeTimeType.SPECIFIED_DUE_DATE.getValue();
     private static final int CHARGE_CALC_FLAT = ChargeCalculationType.FLAT.getValue();
     private static final int OVERDUE_INSTALLMENT = ChargeTimeType.OVERDUE_INSTALLMENT.getValue();
@@ -69,6 +78,11 @@ public class LoanLateFeeRectifyService {
     private final DatabaseSpecificSQLGenerator sqlGenerator;
     private final ConfigurationDomainService configurationDomainService;
     private final JournalEntryWritePlatformService journalEntryWritePlatformService;
+    private final LoanAssembler loanAssembler;
+    private final LoanRepositoryWrapper loanRepositoryWrapper;
+    private final LoanTransactionRepository loanTransactionRepository;
+    private final ApplicationCurrencyRepositoryWrapper applicationCurrencyRepository;
+    private final AccountTransferRepository accountTransferRepository;
 
     public CommandProcessingResult rectifyLateFeesForLoan(final Long loanId) {
         final LocalDate effectiveDate = DateUtils.getBusinessLocalDate();
@@ -79,8 +93,10 @@ public class LoanLateFeeRectifyService {
 
         if (!ctx.legacyLateFees) {
             final int posted = postMissingMonthlyPenalties(ctx);
+            reprocessRepaymentsAndSummary(loanId);
             changes.put("removedCharges", 0);
             changes.put("postedMonthlyCharges", posted);
+            changes.put("repaymentsReprocessed", true);
             changes.put("recomputed", true);
             return new CommandProcessingResultBuilder().withLoanId(loanId).with(changes).build();
         }
@@ -100,10 +116,12 @@ public class LoanLateFeeRectifyService {
         });
 
         final int posted = postMissingMonthlyPenalties(ctx);
+        reprocessRepaymentsAndSummary(loanId);
 
         changes.put("removedCharges", removedCharges);
         changes.put("waivedAmount", waivedAmount);
         changes.put("postedMonthlyCharges", posted);
+        changes.put("repaymentsReprocessed", true);
         changes.put("recomputed", true);
         return new CommandProcessingResultBuilder().withLoanId(loanId).with(changes).build();
     }
@@ -325,20 +343,85 @@ public class LoanLateFeeRectifyService {
     }
 
     private void refreshLoanPenaltySummary(final Long loanId) {
+        // Interim schedule-aligned totals until reprocessRepaymentsAndSummary runs (same fields a repayment edit
+        // refreshes via Loan.updateLoanSummaryDerivedFields).
         this.jdbcTemplate.update("update m_loan l set "
-                + "l.penalty_charges_charged_derived = (select coalesce(sum(lc.amount), 0) from m_loan_charge lc "
-                + " where lc.loan_id = l.id and lc.is_active = 1 and lc.is_penalty = 1), "
-                + "l.penalty_charges_waived_derived = (select coalesce(sum(lc.amount_waived_derived), 0) from m_loan_charge lc "
-                + " where lc.loan_id = l.id and lc.is_penalty = 1), "
-                + "l.penalty_charges_repaid_derived = (select coalesce(sum(lc.amount_paid_derived), 0) from m_loan_charge lc "
-                + " where lc.loan_id = l.id and lc.is_penalty = 1), "
-                + "l.penalty_charges_outstanding_derived = (select coalesce(sum(lc.amount_outstanding_derived), 0) from m_loan_charge lc "
-                + " where lc.loan_id = l.id and lc.is_active = 1 and lc.is_penalty = 1), "
+                + "l.penalty_charges_charged_derived = (select coalesce(sum(rs.penalty_charges_amount), 0)"
+                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
+                + "l.penalty_charges_waived_derived = (select coalesce(sum(rs.penalty_charges_waived_derived), 0)"
+                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
+                + "l.penalty_charges_repaid_derived = (select coalesce(sum(rs.penalty_charges_completed_derived), 0)"
+                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
+                + "l.penalty_charges_outstanding_derived = (select coalesce(sum(greatest(0,"
+                + " coalesce(rs.penalty_charges_amount, 0) - coalesce(rs.penalty_charges_completed_derived, 0)"
+                + " - coalesce(rs.penalty_charges_waived_derived, 0) - coalesce(rs.penalty_charges_writtenoff_derived, 0))), 0)"
+                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
+                + "l.total_waived_derived = coalesce(l.interest_waived_derived, 0)"
+                + " + coalesce(l.fee_charges_waived_derived, 0)"
+                + " + (select coalesce(sum(rs.penalty_charges_waived_derived), 0) from m_loan_repayment_schedule rs"
+                + " where rs.loan_id = l.id), "
+                + "l.total_expected_repayment_derived = coalesce(l.principal_disbursed_derived, 0)"
+                + " + coalesce(l.interest_charged_derived, 0) + coalesce(l.fee_charges_charged_derived, 0)"
+                + " + (select coalesce(sum(rs.penalty_charges_amount), 0) from m_loan_repayment_schedule rs"
+                + " where rs.loan_id = l.id), "
+                + "l.total_expected_costofloan_derived = coalesce(l.interest_charged_derived, 0)"
+                + " + coalesce(l.fee_charges_charged_derived, 0)"
+                + " + (select coalesce(sum(rs.penalty_charges_amount), 0) from m_loan_repayment_schedule rs"
+                + " where rs.loan_id = l.id), "
                 + "l.total_outstanding_derived = coalesce(l.principal_outstanding_derived, 0)"
                 + " + coalesce(l.interest_outstanding_derived, 0) + coalesce(l.fee_charges_outstanding_derived, 0)"
-                + " + (select coalesce(sum(lc.amount_outstanding_derived), 0) from m_loan_charge lc"
-                + " where lc.loan_id = l.id and lc.is_active = 1 and lc.is_penalty = 1)"
+                + " + (select coalesce(sum(greatest(0, coalesce(rs.penalty_charges_amount, 0)"
+                + " - coalesce(rs.penalty_charges_completed_derived, 0) - coalesce(rs.penalty_charges_waived_derived, 0)"
+                + " - coalesce(rs.penalty_charges_writtenoff_derived, 0))), 0)"
+                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id)"
                 + " where l.id = ?", loanId);
+    }
+
+    /**
+     * Replays repayments against the corrected schedule/charges — equivalent to editing a repayment so balances
+     * recompute. Runs in its own transaction after JDBC waive/repost has committed. Journal posting is best-effort:
+     * legacy charge/payment mismatches must not undo the balance fix.
+     */
+    private void reprocessRepaymentsAndSummary(final Long loanId) {
+        final List<Long> existingTransactionIds = new ArrayList<>();
+        final List<Long> existingReversedTransactionIds = new ArrayList<>();
+
+        newRequiresNew().execute(status -> {
+            final Loan loan = this.loanAssembler.assembleFrom(loanId);
+            existingTransactionIds.addAll(loan.findExistingTransactionIds());
+            existingReversedTransactionIds.addAll(loan.findExistingReversedTransactionIds());
+
+            final ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
+            if (changedTransactionDetail != null) {
+                for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
+                    this.loanTransactionRepository.save(mapEntry.getValue());
+                    loan.addLoanTransaction(mapEntry.getValue());
+                    final AccountTransferTransaction transferTransaction = this.accountTransferRepository
+                            .findByToLoanTransactionId(mapEntry.getKey());
+                    if (transferTransaction != null) {
+                        transferTransaction.updateToLoanTransaction(mapEntry.getValue());
+                        this.accountTransferRepository.save(transferTransaction);
+                    }
+                }
+            }
+            this.loanRepositoryWrapper.save(loan);
+            return null;
+        });
+
+        try {
+            newRequiresNew().execute(status -> {
+                final Loan loan = this.loanAssembler.assembleFrom(loanId);
+                final MonetaryCurrency currency = loan.getCurrency();
+                final ApplicationCurrency applicationCurrency = this.applicationCurrencyRepository
+                        .findOneWithNotFoundDetection(currency);
+                final Map<String, Object> accountingBridgeData = loan.deriveAccountingBridgeData(applicationCurrency.toData(),
+                        existingTransactionIds, existingReversedTransactionIds, false);
+                this.journalEntryWritePlatformService.createJournalEntriesForLoan(accountingBridgeData);
+                return null;
+            });
+        } catch (final RuntimeException ex) {
+            // Keep corrected balances even when accrual/cash bridge rejects a legacy charge split.
+        }
     }
 
     private int postMissingMonthlyPenalties(final RectifyContext ctx) {
