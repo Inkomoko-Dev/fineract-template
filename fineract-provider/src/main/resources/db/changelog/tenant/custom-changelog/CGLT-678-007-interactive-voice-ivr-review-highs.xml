@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20261112-678-07-loan-repayment-instructions" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM voice_ivr_menu_option WHERE menu_key = 'LOAN' AND language_code = 'en' AND option_digit = 5</sqlCheck>
+        </preConditions>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="5"/>
+            <column name="option_label" value="Repayment Instructions"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="REPAYMENT_INSTRUCTIONS"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="5"/>
+            <column name="option_label" value="Amabwiriza yo kwishyura"/>
+            <column name="action_type" value="LOAN_SERVICE"/>
+            <column name="action_target" value="REPAYMENT_INSTRUCTIONS"/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20261112-678-07-nav-options-main-loan" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM voice_ivr_menu_option WHERE menu_key = 'MAIN' AND language_code = 'en' AND option_digit = 7</sqlCheck>
+        </preConditions>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="7"/>
+            <column name="option_label" value="Repeat menu"/>
+            <column name="action_type" value="REPEAT"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="8"/>
+            <column name="option_label" value="Previous menu"/>
+            <column name="action_type" value="PREVIOUS"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="9"/>
+            <column name="option_label" value="Exit"/>
+            <column name="action_type" value="HANGUP"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="7"/>
+            <column name="option_label" value="Ongera wumve"/>
+            <column name="action_type" value="REPEAT"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="8"/>
+            <column name="option_label" value="Subira inyuma"/>
+            <column name="action_type" value="PREVIOUS"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="MAIN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="9"/>
+            <column name="option_label" value="Sohoka"/>
+            <column name="action_type" value="HANGUP"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="7"/>
+            <column name="option_label" value="Repeat menu"/>
+            <column name="action_type" value="REPEAT"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="8"/>
+            <column name="option_label" value="Previous menu"/>
+            <column name="action_type" value="PREVIOUS"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="en"/>
+            <column name="option_digit" valueNumeric="9"/>
+            <column name="option_label" value="Exit"/>
+            <column name="action_type" value="HANGUP"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="7"/>
+            <column name="option_label" value="Ongera wumve"/>
+            <column name="action_type" value="REPEAT"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="8"/>
+            <column name="option_label" value="Subira inyuma"/>
+            <column name="action_type" value="PREVIOUS"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+        <insert tableName="voice_ivr_menu_option">
+            <column name="menu_key" value="LOAN"/>
+            <column name="language_code" value="rw"/>
+            <column name="option_digit" valueNumeric="9"/>
+            <column name="option_label" value="Sohoka"/>
+            <column name="action_type" value="HANGUP"/>
+            <column name="action_target" value=""/>
+            <column name="enabled" valueBoolean="true"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="20261112-678-07-voice-recording-access-log" author="Felix Mutua">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="voice_recording_access_log"/>
+            </not>
+        </preConditions>
+        <createTable tableName="voice_recording_access_log">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="BIGINT"/>
+            <column name="username" type="VARCHAR(100)"/>
+            <column name="call_log_id" type="BIGINT"/>
+            <column name="recording_url_present" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="accessed_at" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

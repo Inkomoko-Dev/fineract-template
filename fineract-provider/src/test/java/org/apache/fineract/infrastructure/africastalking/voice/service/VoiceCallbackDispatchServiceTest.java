@@ -30,9 +30,12 @@ import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingV
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceCallbackRequestStatus;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequest;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceCallbackRequestRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.service.VoiceBusinessHoursService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppOperationalNotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,13 +50,19 @@ class VoiceCallbackDispatchServiceTest {
     private VoiceCallbackRequestRepository callbackRequestRepository;
     @Mock
     private AfricasTalkingVoiceService voiceService;
+    @Mock
+    private VoiceBusinessHoursService businessHoursService;
+    @Mock
+    private WhatsAppOperationalNotificationService operationalNotificationService;
 
     private VoiceCallbackDispatchService dispatchService;
 
     @BeforeEach
     void setUp() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
-        dispatchService = new VoiceCallbackDispatchService(callbackRequestRepository, voiceService);
+        dispatchService = new VoiceCallbackDispatchService(callbackRequestRepository, voiceService, businessHoursService,
+                operationalNotificationService);
+        when(businessHoursService.isWithinBusinessHours()).thenReturn(true);
     }
 
     @Test
@@ -67,7 +76,7 @@ class VoiceCallbackDispatchServiceTest {
         final CommandProcessingResult result = dispatchService.dispatchCallback(5L);
 
         assertThat(result.resourceId()).isEqualTo(99L);
-        assertThat(request.getStatus()).isEqualTo(VoiceCallbackRequestStatus.SCHEDULED);
+        assertThat(request.getStatus()).isEqualTo(VoiceCallbackRequestStatus.IN_PROGRESS);
         assertThat(request.getOutboundCallLogId()).isEqualTo(99L);
         verify(voiceService).initiateOutboundCall(any());
     }
@@ -113,6 +122,33 @@ class VoiceCallbackDispatchServiceTest {
         final int dispatched = dispatchService.dispatchDueCallbacks();
 
         assertThat(dispatched).isZero();
+        verify(voiceService, never()).initiateOutboundCall(any());
+    }
+
+    @Test
+    void skipsDispatchOutsideBusinessHours() {
+        when(businessHoursService.isWithinBusinessHours()).thenReturn(false);
+        when(callbackRequestRepository.findDueForDispatch(any(), any())).thenReturn(List.of());
+
+        final int dispatched = dispatchService.dispatchDueCallbacks();
+
+        assertThat(dispatched).isZero();
+        verify(voiceService, never()).initiateOutboundCall(any());
+    }
+
+    @Test
+    void notifiesQueueWhenCallbackEscalatesOverdue() {
+        final VoiceCallbackRequest overdue = VoiceCallbackRequest.pending("ATV_OVERDUE", 9L, "+254700000055", null, "AFTER_HOURS", "en",
+                20L, DateUtils.getLocalDateTimeOfTenant().minusHours(30));
+        ReflectionTestUtils.setField(overdue, "id", 42L);
+        when(callbackRequestRepository.findDueForDispatch(any(), any())).thenReturn(List.of(overdue), List.of());
+        when(callbackRequestRepository.save(overdue)).thenReturn(overdue);
+
+        final int dispatched = dispatchService.dispatchDueCallbacks();
+
+        assertThat(dispatched).isZero();
+        assertThat(overdue.getStatus()).isEqualTo(VoiceCallbackRequestStatus.ESCALATED);
+        verify(operationalNotificationService).notifyVoiceCallbackOverdue(42L, "+254700000055", "AFTER_HOURS");
         verify(voiceService, never()).initiateOutboundCall(any());
     }
 }

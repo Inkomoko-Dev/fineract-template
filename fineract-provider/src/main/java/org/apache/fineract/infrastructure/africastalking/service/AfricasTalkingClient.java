@@ -163,6 +163,29 @@ public class AfricasTalkingClient {
         return executeRequest("create WhatsApp template from json", request);
     }
 
+    /**
+     * Send an SMS via Africa's Talking Messaging API. Does not persist the message body in Fineract.
+     */
+    public AfricasTalkingApiResponse sendSms(final String recipientPhoneNumber, final String messageText) throws IOException {
+        validateConfigured();
+        if (StringUtils.isBlank(recipientPhoneNumber) || StringUtils.isBlank(messageText)) {
+            throw new IllegalArgumentException("SMS recipient and message are required");
+        }
+        final StringBuilder formBody = new StringBuilder();
+        formBody.append("username=").append(urlEncode(properties.getUsername()));
+        formBody.append("&to=").append(urlEncode(recipientPhoneNumber));
+        formBody.append("&message=").append(urlEncode(messageText));
+        if (StringUtils.isNotBlank(properties.getSms().getSenderId())) {
+            formBody.append("&from=").append(urlEncode(properties.getSms().getSenderId()));
+        }
+        final HttpUrl url = HttpUrl.parse(properties.getBaseUrl() + AfricasTalkingConstants.SMS_MESSAGING_PATH);
+        final Request request = new Request.Builder().url(url)
+                .post(RequestBody.create(formBody.toString(), MediaType.parse("application/x-www-form-urlencoded")))
+                .addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
+                .addHeader("Accept", "application/json").build();
+        return executeRequest("send SMS", request);
+    }
+
     public void validateWhatsAppConfigured() {
         validateConfigured();
         if (StringUtils.isBlank(properties.getWhatsapp().getSenderNumber())) {
@@ -239,6 +262,42 @@ public class AfricasTalkingClient {
 
         public boolean isSuccessful() {
             return statusCode >= 200 && statusCode < 300;
+        }
+
+        /**
+         * Africa's Talking Messaging API often returns HTTP 201 with per-recipient failures in JSON.
+         * Treat delivery as successful only when at least one recipient status is Success / statusCode 100.
+         */
+        public boolean isSmsDeliverySuccessful() {
+            if (!isSuccessful() || StringUtils.isBlank(body)) {
+                return false;
+            }
+            try {
+                final JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+                if (!root.has("SMSMessageData") || !root.get("SMSMessageData").isJsonObject()) {
+                    // Some AT sandboxes omit the envelope; fall back to HTTP success.
+                    return true;
+                }
+                final JsonObject data = root.getAsJsonObject("SMSMessageData");
+                if (!data.has("Recipients") || !data.get("Recipients").isJsonArray() || data.getAsJsonArray("Recipients").size() == 0) {
+                    return false;
+                }
+                for (final JsonElement element : data.getAsJsonArray("Recipients")) {
+                    if (!element.isJsonObject()) {
+                        continue;
+                    }
+                    final JsonObject recipient = element.getAsJsonObject();
+                    if (recipient.has("status") && "Success".equalsIgnoreCase(recipient.get("status").getAsString())) {
+                        return true;
+                    }
+                    if (recipient.has("statusCode") && recipient.get("statusCode").getAsInt() == 100) {
+                        return true;
+                    }
+                }
+                return false;
+            } catch (final RuntimeException ex) {
+                return false;
+            }
         }
     }
 }

@@ -71,7 +71,9 @@ public class VoiceIvrLoanSelfServiceGate {
         }
         final List<Loan> loans = loanSelfService.findSelfServiceLoans(clientId);
         if (loans.isEmpty()) {
-            return VoiceXmlBuilder.buildSay(WhatsAppInteractiveMessages.noActiveLoans(language));
+            final List<Loan> exceptional = loanSelfService.findExceptionalLoans(clientId);
+            return VoiceXmlBuilder.buildSay(
+                    VoiceIvrMessages.sanitizeForSpeech(loanSelfService.buildExceptionalLoansResponse(exceptional, language)));
         }
         context.setPendingLoanAction(loanActionTarget);
         context.setCandidateClientId(clientId);

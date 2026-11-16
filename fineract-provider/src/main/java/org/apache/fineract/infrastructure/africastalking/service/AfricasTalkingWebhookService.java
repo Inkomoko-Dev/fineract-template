@@ -28,6 +28,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEvent;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEventRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrSessionStatus;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSession;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSessionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +41,7 @@ public class AfricasTalkingWebhookService {
 
     private final AfricasTalkingWebhookVerifier webhookVerifier;
     private final CommunicationWebhookEventRepository webhookEventRepository;
+    private final VoiceIvrSessionRepository voiceIvrSessionRepository;
 
     @Transactional
     public WebhookProcessingResult processWebhook(final String eventType, final String rawPayload, final String signatureHeader,
@@ -82,9 +86,12 @@ public class AfricasTalkingWebhookService {
             final Map<String, String> formValues = parseFormPayload(trimmed);
             final String sessionId = formValues.get("sessionId");
             if (StringUtils.isNotBlank(sessionId)) {
-                final String dtmfDigits = StringUtils.defaultString(formValues.get("dtmfDigits"));
                 final String callSessionState = StringUtils.defaultString(formValues.get("callSessionState"));
-                return sessionId + ":" + dtmfDigits + ":" + callSessionState;
+                final String rawDtmf = StringUtils.defaultString(formValues.get("dtmfDigits"));
+                // Never embed raw auth DTMF in event ids; hash digits so distinct OTP attempts stay unique.
+                final String dtmfToken = isAuthenticatingSession(sessionId) ? maskAuthDtmfToken(rawDtmf, payloadHash)
+                        : rawDtmf;
+                return sessionId + ":" + dtmfToken + ":" + callSessionState;
             }
             for (final String key : new String[] { "id", "sessionId", "callSessionState", "callerNumber" }) {
                 if (formValues.containsKey(key) && StringUtils.isNotBlank(formValues.get(key))) {
@@ -95,9 +102,30 @@ public class AfricasTalkingWebhookService {
         return payloadHash;
     }
 
+    /**
+     * Distinct DTMF values get distinct tokens (so OTP retries are not treated as duplicates),
+     * without putting the raw digits into the event id or logs.
+     */
+    static String maskAuthDtmfToken(final String rawDtmf, final String payloadHash) {
+        if (StringUtils.isBlank(rawDtmf)) {
+            return "OTP:empty:" + StringUtils.left(payloadHash, 12);
+        }
+        final String digest = AfricasTalkingClient.sha256Hex(rawDtmf);
+        return "OTP:" + StringUtils.left(digest, 16);
+    }
+
     private Map<String, String> parseFormPayload(final String rawPayload) {
         return java.util.Arrays.stream(rawPayload.split("&")).map(part -> part.split("=", 2)).filter(parts -> parts.length == 2)
                 .collect(Collectors.toMap(parts -> parts[0], parts -> parts[1], (left, right) -> right));
+    }
+
+    private boolean isAuthenticatingSession(final String externalSessionId) {
+        final java.util.List<VoiceIvrSession> sessions = voiceIvrSessionRepository
+                .findByExternalSessionIdOrderByLastActivityAtDesc(externalSessionId);
+        if (sessions.isEmpty()) {
+            return false;
+        }
+        return sessions.get(0).getSessionStatus() == VoiceIvrSessionStatus.AUTHENTICATING;
     }
 
     public record WebhookProcessingResult(boolean duplicate, String eventId) {

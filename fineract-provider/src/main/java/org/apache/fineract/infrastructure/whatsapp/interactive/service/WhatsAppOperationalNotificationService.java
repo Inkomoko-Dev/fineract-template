@@ -64,6 +64,21 @@ public class WhatsAppOperationalNotificationService {
                 WhatsAppOperationalNotification.record(ticket.getId(), WhatsAppOperationalNotificationType.SLA_BREACH));
     }
 
+    /**
+     * Notifies the configured operational queue when a voice callback request is escalated as overdue.
+     */
+    @Transactional
+    public void notifyVoiceCallbackOverdue(final Long callbackRequestId, final String callerNumber, final String departmentCode) {
+        final List<Long> userIds = resolveRecipientUserIds();
+        if (userIds.isEmpty() || callbackRequestId == null) {
+            return;
+        }
+        final String dept = StringUtils.defaultIfBlank(departmentCode, "CALLBACK");
+        final String content = "Voice callback request " + callbackRequestId + " from " + StringUtils.defaultIfBlank(callerNumber, "unknown")
+                + " (" + dept + ") is overdue and escalated";
+        notificationWritePlatformService.notify(userIds, "VOICE_CALLBACK_REQUEST", callbackRequestId, "ESCALATED", null, content, true);
+    }
+
     private void notifyRecipients(final WhatsAppSupportTicket ticket, final WhatsAppOperationalNotificationType notificationType,
             final String content) {
         final List<Long> userIds = resolveRecipientUserIds();
