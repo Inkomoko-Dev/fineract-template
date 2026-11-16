@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Rectify late fees for one loan or every loan matching the discovery SQL.
+"""Remove daily late fees and keep / restore monthly penalties.
 
 Calls POST /loans/{loanId}?command=rectifyLateFees (LoanLateFeeRectifyService):
-waive legacy daily/% rows, fix schedule/summary, post missing monthly penalties,
-then reprocess repayments so balances recompute (same effect as editing a repayment).
+silently deactivates daily flat late-fee charge rows (no Waive Charges txn per day),
+keeps or posts one monthly penalty per month, then refreshes loan summary +
+m_loan_arrears_aging (same arrears update as editing a repayment).
 
 Dry-run is the default. Nothing is changed until you pass --apply.
 
@@ -138,10 +139,9 @@ def summarize(result, loan_id):
     changes = result.get("changes") or {}
     return {
         "loanId": result.get("loanId", loan_id),
-        "removedCharges": changes.get("removedCharges"),
-        "waivedAmount": changes.get("waivedAmount"),
+        "removedDailyCharges": changes.get("removedDailyCharges"),
         "postedMonthlyCharges": changes.get("postedMonthlyCharges"),
-        "repaymentsReprocessed": changes.get("repaymentsReprocessed"),
+        "arrearsRefreshed": changes.get("arrearsRefreshed"),
         "recomputed": changes.get("recomputed"),
     }
 
