@@ -778,6 +778,21 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     }
 
+    private static LoanTransaction latestLivePayment(final Loan loan, final LoanTransaction fallback) {
+        LoanTransaction latest = null;
+        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (!(transaction.isRepaymentType() || transaction.isPayoff())) {
+                continue;
+            }
+            if (latest == null || transaction.getTransactionDate().isAfter(latest.getTransactionDate())
+                    || (transaction.getTransactionDate().isEqual(latest.getTransactionDate()) && transaction.getId() != null
+                            && latest.getId() != null && transaction.getId() > latest.getId())) {
+                latest = transaction;
+            }
+        }
+        return latest == null ? fallback : latest;
+    }
+
     private void saveAndFlushLoanWithDataIntegrityViolationChecks(final Loan loan) {
         try {
             this.loanRepositoryWrapper.saveAndFlush(loan);
@@ -1466,6 +1481,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
             }
         }
+
+        final LoanTransaction settlingTransaction = newTransactionDetail.isGreaterThanZero(loan.getPrincpal().getCurrency())
+                ? newTransactionDetail
+                : latestLivePayment(loan, transactionToAdjust);
+        final LoanTransaction futureInterestCancellation = loan.reconcileFutureInterestCancellation(settlingTransaction,
+                settlingTransaction.getTransactionDate());
+        if (futureInterestCancellation != null) {
+            this.loanTransactionRepository.saveAndFlush(futureInterestCancellation);
+        }
+        saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
         // CGLT-649: symmetric counterpart to the makeLoanRepayment redraw sweep. If reversing/adjusting this
         // repayment has left the loan owing money again (outstanding > 0) while a deposit-redraw is still live,
