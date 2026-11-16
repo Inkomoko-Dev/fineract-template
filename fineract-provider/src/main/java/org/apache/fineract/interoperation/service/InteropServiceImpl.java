@@ -398,7 +398,7 @@ public class InteropServiceImpl implements InteropService {
             }
 
             PaymentDetail paymentDetail = instance(findPaymentType(), savingsAccount.getExternalId(), null, getRoutingCode(), transferCode,
-                    null);
+                    null, null);
             SavingsAccountTransaction holdTransaction = SavingsAccountTransaction.holdAmount(savingsAccount, savingsAccount.office(),
                     paymentDetail, transactionDate, Money.of(savingsAccount.getCurrency(), total), DateUtils.getLocalDateTimeOfTenant(),
                     getLoginUser(), false);
@@ -465,12 +465,12 @@ public class InteropServiceImpl implements InteropService {
 
             SavingsTransactionBooleanValues transactionValues = new SavingsTransactionBooleanValues(false, true, true, false, false);
             transaction = savingsAccountService.handleWithdrawal(savingsAccount, fmt, transactionDate, request.getAmount().getAmount(),
-                    instance(findPaymentType(), savingsAccount.getExternalId(), null, getRoutingCode(), transferCode, null),
+                    instance(findPaymentType(), savingsAccount.getExternalId(), null, getRoutingCode(), transferCode, null, null),
                     transactionValues, backdatedTxnsAllowedTill, isTransfer);
 
         } else {
             transaction = savingsAccountService.handleDeposit(savingsAccount, fmt, transactionDate, request.getAmount().getAmount(),
-                    instance(findPaymentType(), savingsAccount.getExternalId(), null, getRoutingCode(), transferCode, null), false, true,
+                    instance(findPaymentType(), savingsAccount.getExternalId(), null, getRoutingCode(), transferCode, null, null), false, true,
                     backdatedTxnsAllowedTill);
         }
 

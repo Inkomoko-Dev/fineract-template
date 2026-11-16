@@ -41,11 +41,13 @@ public class PaymentDetailData implements Serializable {
     private final String receiptNumber;
     @SuppressWarnings("unused")
     private final String bankNumber;
+    @SuppressWarnings("unused")
+    private final String mfiCode;
 
     private Long parentSavingsTranId;
 
     public PaymentDetailData(final Long id, final PaymentTypeData paymentType, final String accountNumber, final String checkNumber,
-            final String routingCode, final String receiptNumber, final String bankNumber) {
+            final String routingCode, final String receiptNumber, final String bankNumber, final String mfiCode) {
         this.id = id;
         this.paymentType = paymentType;
         this.accountNumber = accountNumber;
@@ -53,6 +55,7 @@ public class PaymentDetailData implements Serializable {
         this.routingCode = routingCode;
         this.receiptNumber = receiptNumber;
         this.bankNumber = bankNumber;
+        this.mfiCode = mfiCode;
     }
 
     @Override
@@ -67,16 +70,20 @@ public class PaymentDetailData implements Serializable {
         return Objects.equals(id, that.id) && Objects.equals(paymentType, that.paymentType)
                 && Objects.equals(accountNumber, that.accountNumber) && Objects.equals(checkNumber, that.checkNumber)
                 && Objects.equals(routingCode, that.routingCode) && Objects.equals(receiptNumber, that.receiptNumber)
-                && Objects.equals(bankNumber, that.bankNumber);
+                && Objects.equals(bankNumber, that.bankNumber) && Objects.equals(mfiCode, that.mfiCode);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, paymentType, accountNumber, checkNumber, routingCode, receiptNumber, bankNumber);
+        return Objects.hash(id, paymentType, accountNumber, checkNumber, routingCode, receiptNumber, bankNumber, mfiCode);
     }
 
     public PaymentTypeData getPaymentType() {
         return this.paymentType;
+    }
+
+    public String getMfiCode() {
+        return this.mfiCode;
     }
 
     public void setParentSavingsTranId(Long parentSavingsTranId) {
