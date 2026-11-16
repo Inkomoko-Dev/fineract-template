@@ -19,11 +19,13 @@
 package org.apache.fineract.organisation.provisioning.domain;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -32,6 +34,7 @@ import javax.persistence.OneToMany;
 import javax.persistence.Table;
 import javax.persistence.UniqueConstraint;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.audit.AuditChangeRecorder;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableCustom;
 import org.apache.fineract.organisation.provisioning.constants.ProvisioningCriteriaConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -86,11 +89,13 @@ public class ProvisioningCriteria extends AbstractAuditableCustom {
         final Map<String, Object> actualChanges = new LinkedHashMap<>(7);
         if (command.isChangeInStringParameterNamed(ProvisioningCriteriaConstants.JSON_CRITERIANAME_PARAM, criteriaName)) {
             final String valueAsInput = command.stringValueOfParameterNamed(ProvisioningCriteriaConstants.JSON_CRITERIANAME_PARAM);
-            actualChanges.put(ProvisioningCriteriaConstants.JSON_CRITERIANAME_PARAM, valueAsInput);
+            AuditChangeRecorder.recordChange(actualChanges, ProvisioningCriteriaConstants.JSON_CRITERIANAME_PARAM, this.criteriaName,
+                    valueAsInput);
             this.criteriaName = valueAsInput;
         }
 
         if (command.parameterExists(ProvisioningCriteriaConstants.JSON_LOANPRODUCTS_PARAM)) {
+            final List<Long> beforeProductIds = mappedLoanProductIds();
             Set<LoanProductProvisionCriteria> temp = new HashSet<>();
             Set<LoanProduct> productsTemp = new HashSet<>();
 
@@ -108,9 +113,48 @@ public class ProvisioningCriteria extends AbstractAuditableCustom {
                     this.loanProductMapping.add(new LoanProductProvisionCriteria(this, loanProduct));
                 }
             }
-            actualChanges.put(ProvisioningCriteriaConstants.JSON_LOANPRODUCTS_PARAM, loanProductMapping);
+            final List<Long> afterProductIds = mappedLoanProductIds();
+            AuditChangeRecorder.recordChange(actualChanges, ProvisioningCriteriaConstants.JSON_LOANPRODUCTS_PARAM, beforeProductIds,
+                    afterProductIds);
         }
         return actualChanges;
+    }
+
+    public List<Long> mappedLoanProductIds() {
+        return this.loanProductMapping.stream().map(mapping -> mapping.getLoanProduct().getId()).sorted().collect(Collectors.toList());
+    }
+
+    public List<Map<String, Object>> snapshotLatestDefinitions() {
+        final ProvisioningCriteriaVersion latest = getLatestVersion();
+        if (latest == null) {
+            return List.of();
+        }
+        final List<Map<String, Object>> bands = new ArrayList<>();
+        for (ProvisioningCriteriaDefinition definition : latest.getDefinitionsInDisplayOrder()) {
+            final Map<String, Object> band = new LinkedHashMap<>();
+            band.put(ProvisioningCriteriaConstants.JSON_CATEOGRYID_PARAM,
+                    definition.getProvisioningCategory() == null ? null : definition.getProvisioningCategory().getId());
+            band.put("categoryCode", definition.getCategoryCode());
+            band.put(ProvisioningCriteriaConstants.JSON_MINIMUM_AGE_PARAM, definition.getMinimumAge());
+            band.put(ProvisioningCriteriaConstants.JSON_MAXIMUM_AGE_PARAM, definition.getMaximumAge());
+            band.put(ProvisioningCriteriaConstants.JSON_PROVISIONING_PERCENTAGE_PARAM, definition.getProvisioningPercentage());
+            bands.add(band);
+        }
+        return bands;
+    }
+
+    public Map<String, Object> auditSnapshot() {
+        final Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put(ProvisioningCriteriaConstants.JSON_CRITERIANAME_PARAM, this.criteriaName);
+        snapshot.put(ProvisioningCriteriaConstants.JSON_LOANPRODUCTS_PARAM, mappedLoanProductIds());
+        final ProvisioningCriteriaVersion latest = getLatestVersion();
+        if (latest != null) {
+            snapshot.put(ProvisioningCriteriaConstants.VERSION_NO_PARAM, latest.getVersionNo());
+            snapshot.put(ProvisioningCriteriaConstants.JSON_EFFECTIVE_FROM_PARAM, latest.getEffectiveFrom());
+            snapshot.put(ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM, latest.getPolicyChangeReason());
+        }
+        snapshot.put(ProvisioningCriteriaConstants.JSON_PROVISIONING_DEFINITIONS_PARAM, snapshotLatestDefinitions());
+        return snapshot;
     }
 
     public Set<ProvisioningCriteriaVersion> getProvisioningCriteriaVersions() {

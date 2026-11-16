@@ -27,8 +27,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -55,7 +58,6 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
 
     private final JdbcTemplate jdbcTemplate;
 
-    private final PaginationHelper loanProductProvisioningEntryDataPaginationHelper;
     private final PaginationHelper provisioningEntryDataPaginationHelper;
     private final DatabaseSpecificSQLGenerator sqlGenerator;
 
@@ -248,8 +250,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
         @Override
         @SuppressWarnings("unused")
         public LoanProductProvisioningEntryData mapRow(ResultSet rs, int rowNum) throws SQLException {
-
-            Long id = rs.getLong("id");
+            // One SQL row = one entry/loan join; callers group by entry id.
             Long historyId = rs.getLong("historyId");
             Long officeId = rs.getLong("office_id");
             String officeName = rs.getString("officename");
@@ -274,25 +275,15 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
             String expenseAccountName = rs.getString("expensename");
 
             List<LoanData> loans = new ArrayList<>();
+            if (rs.getObject("loanId") != null) {
+                loans.add(new LoanData(rs.getLong("loanId"), rs.getString("loanAccountNo"), rs.getBigDecimal("outstandingBalance"),
+                        rs.getBigDecimal("provisioningAmount")));
+            }
 
-            LoanProductProvisioningEntryData data = new LoanProductProvisioningEntryData(historyId, officeId, officeName, currentcyCode,
-                    productId, productName, categoryId, categoryCode, categoryName, classificationType, overdueDays, amountreserved,
-                    liabilityAccountCode, liabilityAccountglCode, liabilityAccountName, expenseAccountCode, expenseAccountglCode,
-                    expenseAccountName, criteriaId, criteriaVersionId, criteriaVersionNo, criteriaDefinitionId, loans);
-
-            do {
-                if (rs.getObject("loanId") == null) {
-                    break;
-                }
-                Long loanId = rs.getLong("loanId");
-                String accountNo = rs.getString("loanAccountNo");
-                BigDecimal outstandingBalance= rs.getBigDecimal("outstandingBalance");
-                BigDecimal provisioningAmount =rs.getBigDecimal("provisioningAmount");
-
-                loans.add(new LoanData(loanId,accountNo,outstandingBalance,provisioningAmount));
-            } while (rs.next() && rs.getLong("id") == id);
-
-            return data;
+            return new LoanProductProvisioningEntryData(historyId, officeId, officeName, currentcyCode, productId, productName, categoryId,
+                    categoryCode, categoryName, classificationType, overdueDays, amountreserved, liabilityAccountCode,
+                    liabilityAccountglCode, liabilityAccountName, expenseAccountCode, expenseAccountglCode, expenseAccountName, criteriaId,
+                    criteriaVersionId, criteriaVersionNo, criteriaDefinitionId, loans);
         }
 
         public String getSchema() {
@@ -424,45 +415,85 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
     @Override
     public Page<LoanProductProvisioningEntryData> retrieveProvisioningEntries(SearchParameters searchParams) {
         LoanProductProvisioningEntryRowMapper mapper = new LoanProductProvisioningEntryRowMapper();
-        final StringBuilder sqlBuilder = new StringBuilder(200);
-        sqlBuilder.append("select " + sqlGenerator.calcFoundRows() + " ");
-        sqlBuilder.append(mapper.getSchema());
+        final StringBuilder filterSql = new StringBuilder();
+        final List<Object> filterArgs = new ArrayList<>();
         String whereClose = " where ";
-        List<Object> items = new ArrayList<>();
 
         if (searchParams.isProvisioningEntryIdPassed()) {
-            sqlBuilder.append(whereClose + " entry.history_id = ?");
-            items.add(searchParams.getProvisioningEntryId());
+            filterSql.append(whereClose).append(" entry.history_id = ?");
+            filterArgs.add(searchParams.getProvisioningEntryId());
             whereClose = " and ";
         }
-
         if (searchParams.isOfficeIdPassed()) {
-            sqlBuilder.append(whereClose + " entry.office_id = ?");
-            items.add(searchParams.getOfficeId());
+            filterSql.append(whereClose).append(" entry.office_id = ?");
+            filterArgs.add(searchParams.getOfficeId());
             whereClose = " and ";
         }
-
         if (searchParams.isProductIdPassed()) {
-            sqlBuilder.append(whereClose + " entry.product_id = ?");
-            items.add(searchParams.getProductId());
+            filterSql.append(whereClose).append(" entry.product_id = ?");
+            filterArgs.add(searchParams.getProductId());
             whereClose = " and ";
         }
-
         if (searchParams.isCategoryIdPassed()) {
-            sqlBuilder.append(whereClose + " entry.category_id = ?");
-            items.add(searchParams.getCategoryId());
+            filterSql.append(whereClose).append(" entry.category_id = ?");
+            filterArgs.add(searchParams.getCategoryId());
         }
-        sqlBuilder.append(" order by entry.id");
 
+        final String countSql = "select count(*) from m_loanproduct_provisioning_entry entry" + filterSql;
+        final Integer totalFilteredRecords = this.jdbcTemplate.queryForObject(countSql, Integer.class, filterArgs.toArray());
+        final int total = totalFilteredRecords == null ? 0 : totalFilteredRecords;
+
+        final StringBuilder idSql = new StringBuilder("select entry.id from m_loanproduct_provisioning_entry entry");
+        idSql.append(filterSql).append(" order by entry.id");
         if (searchParams.isLimited()) {
-            sqlBuilder.append(" limit ").append(searchParams.getLimit());
+            idSql.append(" limit ").append(searchParams.getLimit());
             if (searchParams.isOffset()) {
-                sqlBuilder.append(" offset ").append(searchParams.getOffset());
+                idSql.append(" offset ").append(searchParams.getOffset());
             }
         }
-        Object[] whereClauseItemsitems = items.toArray();
-        return this.loanProductProvisioningEntryDataPaginationHelper.fetchPage(this.jdbcTemplate, sqlBuilder.toString(),
-                whereClauseItemsitems, mapper);
+        final List<Long> entryIds = this.jdbcTemplate.queryForList(idSql.toString(), Long.class, filterArgs.toArray());
+        if (entryIds.isEmpty()) {
+            return new Page<>(List.of(), total);
+        }
+
+        final String placeholders = entryIds.stream().map(id -> "?").collect(Collectors.joining(","));
+        final StringBuilder dataSql = new StringBuilder("select ");
+        dataSql.append(mapper.getSchema());
+        dataSql.append(" where entry.id in (").append(placeholders).append(")");
+        dataSql.append(" order by entry.id");
+
+        final List<Object> dataArgs = new ArrayList<>(entryIds);
+        final List<ProvisioningEntryLoanRow> flatRows = this.jdbcTemplate.query(dataSql.toString(), (rs, rowNum) -> {
+            final Long entryId = rs.getLong("id");
+            return new ProvisioningEntryLoanRow(entryId, mapper.mapRow(rs, rowNum));
+        }, dataArgs.toArray());
+        return new Page<>(groupProvisioningEntryRows(flatRows), total);
+    }
+
+    /**
+     * Collapse loan-joined rows into one DTO per provisioning entry line (preserves entry id order).
+     */
+    public static List<LoanProductProvisioningEntryData> groupProvisioningEntryRows(List<ProvisioningEntryLoanRow> flatRows) {
+        final Map<Long, LoanProductProvisioningEntryData> byEntryId = new LinkedHashMap<>();
+        for (ProvisioningEntryLoanRow row : flatRows) {
+            final LoanProductProvisioningEntryData existing = byEntryId.get(row.entryId);
+            if (existing == null) {
+                byEntryId.put(row.entryId, row.data);
+            } else if (row.data.getLoans() != null && !row.data.getLoans().isEmpty()) {
+                existing.getLoans().addAll(row.data.getLoans());
+            }
+        }
+        return new ArrayList<>(byEntryId.values());
+    }
+
+    public static final class ProvisioningEntryLoanRow {
+        private final Long entryId;
+        private final LoanProductProvisioningEntryData data;
+
+        public ProvisioningEntryLoanRow(Long entryId, LoanProductProvisioningEntryData data) {
+            this.entryId = entryId;
+            this.data = data;
+        }
     }
 
     @Override

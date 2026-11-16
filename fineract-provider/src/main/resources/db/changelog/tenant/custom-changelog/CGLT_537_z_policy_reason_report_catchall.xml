@@ -51,6 +51,7 @@
     </changeSet>
 
     <changeSet id="CGLT-537-stretchy-provisioning-by-category-latest" author="felixm@inkomoko.com" context="mysql">
+        <validCheckSum>8:f31288b84f92c18b3b05dd646417b4b3</validCheckSum>
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Provisioning By Category (Latest Run)'</sqlCheck>
         </preConditions>
@@ -63,15 +64,15 @@
             <column name="report_sql">
                 <![CDATA[SELECT DATE(ph.created_date) AS run_date,
        o.name AS office_name,
-       COALESCE(pc.category_code, '-') AS category_code,
-       COALESCE(pc.category_name, e.classification_type) AS category_label,
+       COALESCE(cat.category_code, '-') AS category_code,
+       COALESCE(cat.category_name, e.classification_type) AS category_label,
        e.currency_code,
        SUM(e.reseve_amount) AS total_reserved_amount,
        COUNT(*) AS line_count
 FROM m_provisioning_history ph
 JOIN m_loanproduct_provisioning_entry e ON e.history_id = ph.id
 JOIN m_office o ON o.id = e.office_id
-LEFT JOIN m_provision_category pc ON pc.id = e.category_id
+LEFT JOIN m_provision_category cat ON cat.id = e.category_id
 WHERE ph.id = (SELECT MAX(id) FROM m_provisioning_history)
   AND o.id = ${officeId}
 GROUP BY run_date, office_name, category_code, category_label, e.currency_code
