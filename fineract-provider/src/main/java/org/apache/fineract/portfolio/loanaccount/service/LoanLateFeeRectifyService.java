@@ -20,13 +20,10 @@ package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.HashSet;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlatformService;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -37,22 +34,14 @@ import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRu
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
-import org.apache.fineract.organisation.monetary.domain.ApplicationCurrency;
-import org.apache.fineract.organisation.monetary.domain.ApplicationCurrencyRepositoryWrapper;
-import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
-import org.apache.fineract.portfolio.account.domain.AccountTransferRepository;
-import org.apache.fineract.portfolio.account.domain.AccountTransferTransaction;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
-import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -62,15 +51,16 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Late-fee data repair. Charge waive / monthly re-post is JDBC (+ journals) so it stays independent of
- * {@link LoanDailyLateFeeService}. After that work commits, repayments are reprocessed through the Loan graph — the
- * same path a repayment edit uses — so outstanding balances and schedule allocations recompute without a manual edit.
+ * Late-fee repair: remove daily late-fee charge rows (without creating a waive txn per day), keep / post one monthly
+ * penalty per month, then refresh loan summary and {@code m_loan_arrears_aging}. Independent of
+ * {@link LoanDailyLateFeeService}.
  */
 @Service
 @RequiredArgsConstructor
 public class LoanLateFeeRectifyService {
+
     private static final int CHARGE_TIME_SPECIFIED_DUE_DATE = ChargeTimeType.SPECIFIED_DUE_DATE.getValue();
-    private static final int CHARGE_CALC_FLAT = ChargeCalculationType.FLAT.getValue();
+    private static final int CHARGE_CALC_PERCENT_OF_AMOUNT = ChargeCalculationType.PERCENT_OF_AMOUNT.getValue();
     private static final int OVERDUE_INSTALLMENT = ChargeTimeType.OVERDUE_INSTALLMENT.getValue();
 
     private final JdbcTemplate jdbcTemplate;
@@ -80,9 +70,7 @@ public class LoanLateFeeRectifyService {
     private final JournalEntryWritePlatformService journalEntryWritePlatformService;
     private final LoanAssembler loanAssembler;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
-    private final LoanTransactionRepository loanTransactionRepository;
-    private final ApplicationCurrencyRepositoryWrapper applicationCurrencyRepository;
-    private final AccountTransferRepository accountTransferRepository;
+    private final LoanArrearsAgingService loanArrearsAgingService;
 
     public CommandProcessingResult rectifyLateFeesForLoan(final Long loanId) {
         final LocalDate effectiveDate = DateUtils.getBusinessLocalDate();
@@ -91,22 +79,11 @@ public class LoanLateFeeRectifyService {
         final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put("loanId", loanId);
 
-        if (!ctx.legacyLateFees) {
-            final int posted = postMissingMonthlyPenalties(ctx);
-            reprocessRepaymentsAndSummary(loanId);
-            changes.put("removedCharges", 0);
-            changes.put("postedMonthlyCharges", posted);
-            changes.put("repaymentsReprocessed", true);
-            changes.put("recomputed", true);
-            return new CommandProcessingResultBuilder().withLoanId(loanId).with(changes).build();
-        }
-
-        BigDecimal waivedAmount = BigDecimal.ZERO;
-        int removedCharges = 0;
-        for (final Long loanChargeId : ctx.legacyChargeIds) {
-            final WaiveResult result = waiveOneCharge(ctx, loanChargeId);
-            waivedAmount = waivedAmount.add(result.waivedAmount);
-            removedCharges += result.removedCharges;
+        int removedDaily = 0;
+        for (final Long loanChargeId : ctx.dailyChargeIds) {
+            if (removeDailyChargeQuietly(ctx, loanChargeId)) {
+                removedDaily++;
+            }
         }
 
         newRequiresNew().execute(status -> {
@@ -116,12 +93,11 @@ public class LoanLateFeeRectifyService {
         });
 
         final int posted = postMissingMonthlyPenalties(ctx);
-        reprocessRepaymentsAndSummary(loanId);
+        refreshSummaryAndArrears(loanId);
 
-        changes.put("removedCharges", removedCharges);
-        changes.put("waivedAmount", waivedAmount);
+        changes.put("removedDailyCharges", removedDaily);
         changes.put("postedMonthlyCharges", posted);
-        changes.put("repaymentsReprocessed", true);
+        changes.put("arrearsRefreshed", true);
         changes.put("recomputed", true);
         return new CommandProcessingResultBuilder().withLoanId(loanId).with(changes).build();
     }
@@ -187,127 +163,80 @@ public class LoanLateFeeRectifyService {
                     rs -> rs.next() ? JdbcSupport.getLocalDate(rs, "earliest_due") : null, loanId);
             final LocalDate firstPenaltyDate = earliestDue == null ? null : earliestDue.plusDays(gracePeriod + 1);
 
-            final List<LegacyChargeRow> lateFees = loadLegacyCharges(loanId, chargeDefinitionId);
-            final boolean legacy = firstPenaltyDate != null
-                    && hasLegacyLateFees(lateFees, firstPenaltyDate, monthInterval, effectiveDate);
-            final List<Long> chargeIds = new ArrayList<>();
-            for (final LegacyChargeRow row : lateFees) {
-                chargeIds.add(row.loanChargeId);
+            // Remove every flat late-fee row (daily and the flat “monthly” posts from the daily late-fee job).
+            // Keep percentage-of-amount rows — those are the original monthly overdue penalties.
+            final List<Map<String, Object>> activeCharges = this.jdbcTemplate.queryForList(
+                    "select lc.id, lc.charge_calculation_enum, lc.due_for_collection_as_of_date as due_date"
+                            + " from m_loan_charge lc where lc.loan_id = ? and lc.charge_id = ?"
+                            + " and lc.is_active = 1 and lc.waived = 0 order by lc.due_for_collection_as_of_date, lc.id",
+                    loanId, chargeDefinitionId);
+
+            final List<Long> dailyChargeIds = new ArrayList<>();
+            for (final Map<String, Object> charge : activeCharges) {
+                final int calc = ((Number) charge.get("charge_calculation_enum")).intValue();
+                if (!ChargeCalculationType.fromInt(calc).isPercentageOfAmount()) {
+                    dailyChargeIds.add(((Number) charge.get("id")).longValue());
+                }
             }
+
             return new RectifyContext(loanId, effectiveDate, loan, chargeDefinitionId, monthlyRate, monthInterval, gracePeriod,
-                    firstPenaltyDate, legacy, chargeIds);
+                    firstPenaltyDate, dailyChargeIds);
         });
     }
 
-    private List<LegacyChargeRow> loadLegacyCharges(final Long loanId, final Long chargeDefinitionId) {
-        final String sql = "select loanChargeId, calculationType, dueDate from ("
-                + " select lc.id as loanChargeId, lc.charge_calculation_enum as calculationType,"
-                + " lc.due_for_collection_as_of_date as dueDate from m_loan_charge lc"
-                + " where lc.loan_id = ? and lc.charge_id = ? and lc.is_active = 1 and lc.waived = 0"
-                + " union"
-                + " select lc.id as loanChargeId, lc.charge_calculation_enum as calculationType,"
-                + " lc.due_for_collection_as_of_date as dueDate from m_loan_daily_late_fee dlf"
-                + " join m_loan_charge lc on lc.id = dlf.loan_charge_id"
-                + " where dlf.loan_id = ? and dlf.is_active = 1 and dlf.loan_charge_id is not null"
-                + " and lc.is_active = 1 and lc.waived = 0"
-                + ") late_fees order by dueDate, loanChargeId";
-        final List<LegacyChargeRow> rows = this.jdbcTemplate.query(sql,
-                (rs, rowNum) -> new LegacyChargeRow(rs.getLong("loanChargeId"), JdbcSupport.getInteger(rs, "calculationType"),
-                        JdbcSupport.getLocalDate(rs, "dueDate")),
-                loanId, chargeDefinitionId, loanId);
-        final Map<Long, LegacyChargeRow> byId = new LinkedHashMap<>();
-        for (final LegacyChargeRow row : rows) {
-            byId.putIfAbsent(row.loanChargeId, row);
-        }
-        return new ArrayList<>(byId.values());
-    }
-
-    private boolean hasLegacyLateFees(final List<LegacyChargeRow> lateFees, final LocalDate firstPenaltyDate, final int monthInterval,
-            final LocalDate effectiveDate) {
-        if (lateFees.isEmpty()) {
-            return false;
-        }
-        final Set<LocalDate> postingDates = monthlyPostingDates(firstPenaltyDate, monthInterval, effectiveDate);
-        final Map<YearMonth, Integer> flatsPerMonth = new LinkedHashMap<>();
-        for (final LegacyChargeRow charge : lateFees) {
-            if (ChargeCalculationType.fromInt(charge.calculationType).isPercentageOfAmount()) {
-                return true;
-            }
-            if (charge.dueDate == null || !postingDates.contains(charge.dueDate)) {
-                return true;
-            }
-            if (flatsPerMonth.merge(YearMonth.from(charge.dueDate), 1, Integer::sum) > 1) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private WaiveResult waiveOneCharge(final RectifyContext ctx, final Long loanChargeId) {
-        return newRequiresNew().execute(status -> {
+    /**
+     * Deactivate a daily late-fee charge without inserting WAIVE_CHARGES (avoids Accrual+Waive pairs per day). Adjusts
+     * schedule and reverses linked accrual transactions when present.
+     */
+    private boolean removeDailyChargeQuietly(final RectifyContext ctx, final Long loanChargeId) {
+        return Boolean.TRUE.equals(newRequiresNew().execute(status -> {
             final List<Map<String, Object>> rows = this.jdbcTemplate.queryForList(
-                    "select lc.id, lc.loan_id, lc.charge_id, lc.is_active, lc.waived, lc.is_penalty,"
-                            + " coalesce(lc.amount_outstanding_derived, 0) as amount_outstanding,"
+                    "select lc.id, coalesce(lc.amount_outstanding_derived, 0) as amount_outstanding,"
                             + " coalesce(lc.amount_paid_derived, 0) as amount_paid,"
-                            + " coalesce(lc.amount_waived_derived, 0) as amount_waived,"
-                            + " lc.due_for_collection_as_of_date as due_date,"
-                            + " coalesce(lc.amount, 0) as amount"
+                            + " coalesce(lc.amount, 0) as amount, lc.due_for_collection_as_of_date as due_date,"
+                            + " lc.is_active, lc.waived"
                             + " from m_loan_charge lc where lc.id = ? and lc.loan_id = ?",
                     loanChargeId, ctx.loanId);
             if (rows.isEmpty()) {
-                return WaiveResult.empty();
+                return false;
             }
             final Map<String, Object> row = rows.get(0);
             if (!flag(row.get("is_active")) || flag(row.get("waived"))) {
-                return WaiveResult.empty();
+                return false;
             }
 
             final BigDecimal amountPaid = (BigDecimal) row.get("amount_paid");
             final BigDecimal amountOutstanding = (BigDecimal) row.get("amount_outstanding");
-            final BigDecimal amountWaivedSoFar = (BigDecimal) row.get("amount_waived");
             final BigDecimal chargeAmount = (BigDecimal) row.get("amount");
-            BigDecimal toWaive = amountOutstanding;
-            if (amountPaid.compareTo(BigDecimal.ZERO) > 0) {
-                toWaive = amountOutstanding.add(amountPaid);
-            }
-
-            if (toWaive.compareTo(BigDecimal.ZERO) <= 0) {
-                this.jdbcTemplate.update("update m_loan_charge set is_active = 0 where id = ?", loanChargeId);
-                deleteChargeChildren(loanChargeId);
-                subtractChargeFromSchedule(ctx.loanId, toLocalDate(row.get("due_date")), chargeAmount, BigDecimal.ZERO);
-                return WaiveResult.empty();
-            }
-
             final LocalDate dueDate = toLocalDate(row.get("due_date"));
-            final LocalDate transactionDate = dueDate != null ? dueDate : ctx.effectiveDate;
-            final BigDecimal newWaivedTotal = amountWaivedSoFar.add(toWaive);
+
             this.jdbcTemplate.update(
-                    "update m_loan_charge set waived = 1, is_active = 0, is_paid_derived = 0,"
-                            + " amount_paid_derived = 0, amount_outstanding_derived = 0, amount_waived_derived = ?"
-                            + " where id = ?",
-                    newWaivedTotal, loanChargeId);
+                    "update m_loan_charge set is_active = 0, amount_outstanding_derived = 0 where id = ?", loanChargeId);
             deleteChargeChildren(loanChargeId);
-            subtractChargeFromSchedule(ctx.loanId, dueDate, chargeAmount, toWaive);
 
-            final Long officeId = ((Number) ctx.loanRow.get("office_id")).longValue();
-            this.jdbcTemplate.update(
-                    "insert into m_loan_transaction (loan_id, office_id, is_reversed, transaction_type_enum, transaction_date,"
-                            + " amount, principal_portion_derived, interest_portion_derived, fee_charges_portion_derived,"
-                            + " penalty_charges_portion_derived, overpayment_portion_derived, unrecognized_income_portion,"
-                            + " submitted_on_date, manually_adjusted_or_reversed, is_reversal)"
-                            + " values (?, ?, false, ?, ?, ?, null, null, null, ?, null, null, ?, false, false)",
-                    ctx.loanId, officeId, LoanTransactionType.WAIVE_CHARGES.getValue(), transactionDate, toWaive, toWaive,
-                    ctx.effectiveDate);
-            @SuppressWarnings("deprecation")
-            final Long transactionId = this.jdbcTemplate.queryForObject("SELECT " + this.sqlGenerator.lastInsertId(), Long.class);
-            this.jdbcTemplate.update(
-                    "insert into m_loan_charge_paid_by (loan_transaction_id, loan_charge_id, amount, installment_number)"
-                            + " values (?, ?, ?, null)",
-                    transactionId, loanChargeId, toWaive);
+            if (amountPaid.compareTo(BigDecimal.ZERO) > 0) {
+                removePaidChargeFromSchedule(ctx.loanId, dueDate, chargeAmount, amountPaid);
+            } else if (amountOutstanding.compareTo(BigDecimal.ZERO) > 0) {
+                // Unpaid daily: take the charge off the schedule (no waive txn).
+                reduceScheduleCharged(ctx.loanId, dueDate, chargeAmount);
+            } else {
+                reduceScheduleCharged(ctx.loanId, dueDate, chargeAmount);
+            }
 
-            postWaiverJournal(ctx, row, transactionId, loanChargeId, toWaive, transactionDate);
-            return new WaiveResult(toWaive, 1);
-        });
+            reverseAccrualsForCharge(loanChargeId);
+            return true;
+        }));
+    }
+
+    private void reverseAccrualsForCharge(final Long loanChargeId) {
+        final List<Long> accrualIds = this.jdbcTemplate.queryForList(
+                "select distinct t.id from m_loan_transaction t"
+                        + " join m_loan_charge_paid_by cpb on cpb.loan_transaction_id = t.id"
+                        + " where cpb.loan_charge_id = ? and t.is_reversed = 0 and t.transaction_type_enum = ?",
+                Long.class, loanChargeId, LoanTransactionType.ACCRUAL.getValue());
+        for (final Long txnId : accrualIds) {
+            this.jdbcTemplate.update("update m_loan_transaction set is_reversed = 1 where id = ?", txnId);
+        }
     }
 
     private void deleteChargeChildren(final Long loanChargeId) {
@@ -315,36 +244,58 @@ public class LoanLateFeeRectifyService {
         this.jdbcTemplate.update("delete from m_loan_installment_charge where loan_charge_id = ?", loanChargeId);
     }
 
-    private void subtractChargeFromSchedule(final Long loanId, final LocalDate dueDate, final BigDecimal chargedAmount,
-            final BigDecimal waivedAmount) {
-        if (dueDate == null || chargedAmount == null || chargedAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            return;
+    private Long findScheduleId(final Long loanId, final LocalDate dueDate) {
+        if (dueDate == null) {
+            return null;
         }
         final List<Long> scheduleIds = this.jdbcTemplate.queryForList(
                 "select id from m_loan_repayment_schedule where loan_id = ? and recalculated_interest_component = 0"
                         + " and duedate >= ? order by duedate, installment limit 1",
                 Long.class, loanId, dueDate);
-        if (scheduleIds.isEmpty()) {
-            final List<Long> fallback = this.jdbcTemplate.queryForList(
-                    "select id from m_loan_repayment_schedule where loan_id = ? and recalculated_interest_component = 0"
-                            + " and duedate <= ? order by duedate desc, installment desc limit 1",
-                    Long.class, loanId, dueDate);
-            if (fallback.isEmpty()) {
-                return;
-            }
-            scheduleIds.add(fallback.get(0));
+        if (!scheduleIds.isEmpty()) {
+            return scheduleIds.get(0);
+        }
+        final List<Long> fallback = this.jdbcTemplate.queryForList(
+                "select id from m_loan_repayment_schedule where loan_id = ? and recalculated_interest_component = 0"
+                        + " and duedate <= ? order by duedate desc, installment desc limit 1",
+                Long.class, loanId, dueDate);
+        return fallback.isEmpty() ? null : fallback.get(0);
+    }
+
+    private void reduceScheduleCharged(final Long loanId, final LocalDate dueDate, final BigDecimal chargeAmount) {
+        if (chargeAmount == null || chargeAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        final Long scheduleId = findScheduleId(loanId, dueDate);
+        if (scheduleId == null) {
+            return;
         }
         this.jdbcTemplate.update(
                 "update m_loan_repayment_schedule set"
-                        + " penalty_charges_amount = greatest(0, coalesce(penalty_charges_amount, 0) - ?),"
-                        + " penalty_charges_waived_derived = coalesce(penalty_charges_waived_derived, 0) + ?"
+                        + " penalty_charges_amount = greatest(0, coalesce(penalty_charges_amount, 0) - ?)"
                         + " where id = ?",
-                chargedAmount, waivedAmount, scheduleIds.get(0));
+                chargeAmount, scheduleId);
+    }
+
+    private void removePaidChargeFromSchedule(final Long loanId, final LocalDate dueDate, final BigDecimal chargeAmount,
+            final BigDecimal amountPaid) {
+        if (chargeAmount == null || chargeAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        final Long scheduleId = findScheduleId(loanId, dueDate);
+        if (scheduleId == null) {
+            return;
+        }
+        final BigDecimal paid = amountPaid == null ? BigDecimal.ZERO : amountPaid;
+        this.jdbcTemplate.update(
+                "update m_loan_repayment_schedule set"
+                        + " penalty_charges_amount = greatest(0, coalesce(penalty_charges_amount, 0) - ?),"
+                        + " penalty_charges_completed_derived = greatest(0, coalesce(penalty_charges_completed_derived, 0) - ?)"
+                        + " where id = ?",
+                chargeAmount, paid, scheduleId);
     }
 
     private void refreshLoanPenaltySummary(final Long loanId) {
-        // Interim schedule-aligned totals until reprocessRepaymentsAndSummary runs (same fields a repayment edit
-        // refreshes via Loan.updateLoanSummaryDerivedFields).
         this.jdbcTemplate.update("update m_loan l set "
                 + "l.penalty_charges_charged_derived = (select coalesce(sum(rs.penalty_charges_amount), 0)"
                 + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
@@ -377,53 +328,25 @@ public class LoanLateFeeRectifyService {
                 + " where l.id = ?", loanId);
     }
 
-    /**
-     * Replays repayments against the corrected schedule/charges — equivalent to editing a repayment so balances
-     * recompute. Runs in its own transaction after JDBC waive/repost has committed. Journal posting is best-effort:
-     * legacy charge/payment mismatches must not undo the balance fix.
-     */
-    private void reprocessRepaymentsAndSummary(final Long loanId) {
-        final List<Long> existingTransactionIds = new ArrayList<>();
-        final List<Long> existingReversedTransactionIds = new ArrayList<>();
-
+    private void refreshSummaryAndArrears(final Long loanId) {
         newRequiresNew().execute(status -> {
             final Loan loan = this.loanAssembler.assembleFrom(loanId);
-            existingTransactionIds.addAll(loan.findExistingTransactionIds());
-            existingReversedTransactionIds.addAll(loan.findExistingReversedTransactionIds());
-
-            final ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
-            if (changedTransactionDetail != null) {
-                for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
-                    this.loanTransactionRepository.save(mapEntry.getValue());
-                    loan.addLoanTransaction(mapEntry.getValue());
-                    final AccountTransferTransaction transferTransaction = this.accountTransferRepository
-                            .findByToLoanTransactionId(mapEntry.getKey());
-                    if (transferTransaction != null) {
-                        transferTransaction.updateToLoanTransaction(mapEntry.getValue());
-                        this.accountTransferRepository.save(transferTransaction);
-                    }
-                }
-            }
+            loan.updateLoanSummaryDerivedFields();
             this.loanRepositoryWrapper.save(loan);
+            if (loan.isOpen() && loan.repaymentScheduleDetail().isInterestRecalculationEnabled()
+                    && loan.loanProduct().isArrearsBasedOnOriginalSchedule()) {
+                this.loanArrearsAgingService.updateLoanArrearsAgeingDetailsWithOriginalSchedule(loan);
+            } else {
+                this.loanArrearsAgingService.updateLoanArrearsAgeingDetails(loan);
+            }
             return null;
         });
-
-        try {
-            newRequiresNew().execute(status -> {
-                final Loan loan = this.loanAssembler.assembleFrom(loanId);
-                final MonetaryCurrency currency = loan.getCurrency();
-                final ApplicationCurrency applicationCurrency = this.applicationCurrencyRepository
-                        .findOneWithNotFoundDetection(currency);
-                final Map<String, Object> accountingBridgeData = loan.deriveAccountingBridgeData(applicationCurrency.toData(),
-                        existingTransactionIds, existingReversedTransactionIds, false);
-                this.journalEntryWritePlatformService.createJournalEntriesForLoan(accountingBridgeData);
-                return null;
-            });
-        } catch (final RuntimeException ex) {
-            // Keep corrected balances even when accrual/cash bridge rejects a legacy charge split.
-        }
     }
 
+    /**
+     * Restore original overdue-installment monthly behaviour: one % of that installment's principal when the installment
+     * passes grace — not cumulative overdue × rate (that was the daily-late-fee style).
+     */
     private int postMissingMonthlyPenalties(final RectifyContext ctx) {
         if (ctx.firstPenaltyDate == null || ctx.effectiveDate.isBefore(ctx.firstPenaltyDate)) {
             return 0;
@@ -440,47 +363,59 @@ public class LoanLateFeeRectifyService {
                 cumulative = BigDecimal.ZERO;
             }
 
-            LocalDate postingDate = ctx.firstPenaltyDate;
-            int guard = 0;
-            while (!postingDate.isAfter(ctx.effectiveDate) && cumulative.compareTo(cap) < 0 && guard < 600) {
+            final List<Map<String, Object>> installments = this.jdbcTemplate.queryForList(
+                    "select rs.duedate,"
+                            + " greatest(coalesce(rs.principal_amount, 0) - coalesce(rs.principal_completed_derived, 0)"
+                            + " - coalesce(rs.principal_writtenoff_derived, 0), 0) as outstanding_principal"
+                            + " from m_loan_repayment_schedule rs"
+                            + " where rs.loan_id = ? and rs.recalculated_interest_component = 0"
+                            + " and coalesce(rs.principal_amount, 0) > 0"
+                            + " order by rs.duedate, rs.installment",
+                    ctx.loanId);
+
+            for (final Map<String, Object> installment : installments) {
+                if (cumulative.compareTo(cap) >= 0) {
+                    break;
+                }
+                final LocalDate dueDate = toLocalDate(installment.get("duedate"));
+                if (dueDate == null) {
+                    continue;
+                }
+                final LocalDate postingDate = dueDate.plusDays(ctx.gracePeriod + 1);
+                if (postingDate.isAfter(ctx.effectiveDate)) {
+                    continue;
+                }
+                final BigDecimal installmentPrincipal = (BigDecimal) installment.get("outstanding_principal");
+                if (installmentPrincipal == null || installmentPrincipal.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+
+                // Month already covered if any active charge falls in that calendar month.
                 final Integer existing = this.jdbcTemplate.queryForObject(
                         "select count(1) from m_loan_charge lc where lc.loan_id = ? and lc.charge_id = ?"
-                                + " and lc.is_active = 1 and lc.waived = 0 and lc.due_for_collection_as_of_date = ?",
-                        Integer.class, ctx.loanId, ctx.chargeDefinitionId, postingDate);
-                if (existing == null || existing == 0) {
-                    final BigDecimal overduePrincipal = overduePrincipalOn(ctx.loanId, postingDate, ctx.gracePeriod);
-                    if (overduePrincipal.compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal penalty = overduePrincipal.multiply(ctx.monthlyRate, MoneyHelper.getMathContext())
-                                .divide(BigDecimal.valueOf(100L), scale, MoneyHelper.getRoundingMode());
-                        final BigDecimal remainingCap = cap.subtract(cumulative);
-                        if (penalty.compareTo(remainingCap) > 0) {
-                            penalty = remainingCap.setScale(scale, MoneyHelper.getRoundingMode());
-                        }
-                        if (penalty.compareTo(BigDecimal.ZERO) > 0) {
-                            insertMonthlyPenaltyCharge(ctx, postingDate, penalty, overduePrincipal);
-                            cumulative = cumulative.add(penalty);
-                            posted++;
-                        }
-                    }
+                                + " and lc.is_active = 1 and lc.waived = 0"
+                                + " and year(lc.due_for_collection_as_of_date) = ?"
+                                + " and month(lc.due_for_collection_as_of_date) = ?",
+                        Integer.class, ctx.loanId, ctx.chargeDefinitionId, postingDate.getYear(), postingDate.getMonthValue());
+                if (existing != null && existing > 0) {
+                    continue;
                 }
-                postingDate = postingDate.plusMonths(ctx.monthInterval);
-                guard++;
+
+                BigDecimal penalty = installmentPrincipal.multiply(ctx.monthlyRate, MoneyHelper.getMathContext()).divide(BigDecimal.valueOf(100L),
+                        scale, MoneyHelper.getRoundingMode());
+                final BigDecimal remainingCap = cap.subtract(cumulative);
+                if (penalty.compareTo(remainingCap) > 0) {
+                    penalty = remainingCap.setScale(scale, MoneyHelper.getRoundingMode());
+                }
+                if (penalty.compareTo(BigDecimal.ZERO) > 0) {
+                    insertMonthlyPenaltyCharge(ctx, postingDate, penalty, installmentPrincipal);
+                    cumulative = cumulative.add(penalty);
+                    posted++;
+                }
             }
             refreshLoanPenaltySummary(ctx.loanId);
             return posted;
         });
-    }
-
-    private BigDecimal overduePrincipalOn(final Long loanId, final LocalDate postingDate, final long gracePeriod) {
-        final LocalDate eligibleOnOrBefore = postingDate.minusDays(gracePeriod + 1);
-        final BigDecimal amount = this.jdbcTemplate.queryForObject(
-                "select coalesce(sum(greatest(coalesce(rs.principal_amount, 0) - coalesce(rs.principal_completed_derived, 0)"
-                        + " - coalesce(rs.principal_writtenoff_derived, 0), 0)), 0)"
-                        + " from m_loan_repayment_schedule rs"
-                        + " where rs.loan_id = ? and rs.recalculated_interest_component = 0"
-                        + " and rs.duedate <= ?",
-                BigDecimal.class, loanId, eligibleOnOrBefore);
-        return amount == null ? BigDecimal.ZERO : amount;
     }
 
     private void insertMonthlyPenaltyCharge(final RectifyContext ctx, final LocalDate postingDate, final BigDecimal penaltyAmount,
@@ -492,8 +427,8 @@ public class LoanLateFeeRectifyService {
                         + " amount, amount_outstanding_derived, is_paid_derived, waived, is_active,"
                         + " due_for_collection_as_of_date)"
                         + " values (?, ?, 1, ?, ?, 0, ?, ?, ?, ?, ?, 0, 0, 1, ?)",
-                ctx.loanId, ctx.chargeDefinitionId, CHARGE_TIME_SPECIFIED_DUE_DATE, CHARGE_CALC_FLAT, ctx.monthlyRate, overduePrincipal,
-                penaltyAmount, penaltyAmount, penaltyAmount, postingDate);
+                ctx.loanId, ctx.chargeDefinitionId, CHARGE_TIME_SPECIFIED_DUE_DATE, CHARGE_CALC_PERCENT_OF_AMOUNT, ctx.monthlyRate,
+                overduePrincipal, penaltyAmount, penaltyAmount, penaltyAmount, postingDate);
         @SuppressWarnings("deprecation")
         final Long loanChargeId = this.jdbcTemplate.queryForObject("SELECT " + this.sqlGenerator.lastInsertId(), Long.class);
 
@@ -519,7 +454,6 @@ public class LoanLateFeeRectifyService {
                     penaltyAmount);
         }
 
-        // Accrual / charge-applied journal when product uses accrual accounting
         final int accountingType = ((Number) ctx.loanRow.get("accounting_type")).intValue();
         if (accountingType == 3 || accountingType == 4) {
             this.jdbcTemplate.update(
@@ -547,29 +481,13 @@ public class LoanLateFeeRectifyService {
         if (dueDate == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
-        final List<Long> scheduleIds = this.jdbcTemplate.queryForList(
-                "select id from m_loan_repayment_schedule where loan_id = ? and recalculated_interest_component = 0"
-                        + " and duedate >= ? order by duedate, installment limit 1",
-                Long.class, loanId, dueDate);
-        Long scheduleId = scheduleIds.isEmpty() ? null : scheduleIds.get(0);
+        final Long scheduleId = findScheduleId(loanId, dueDate);
         if (scheduleId == null) {
-            final List<Long> fallback = this.jdbcTemplate.queryForList(
-                    "select id from m_loan_repayment_schedule where loan_id = ? and recalculated_interest_component = 0"
-                            + " order by duedate desc, installment desc limit 1",
-                    Long.class, loanId);
-            if (fallback.isEmpty()) {
-                return;
-            }
-            scheduleId = fallback.get(0);
+            return;
         }
         this.jdbcTemplate.update(
                 "update m_loan_repayment_schedule set penalty_charges_amount = coalesce(penalty_charges_amount, 0) + ? where id = ?",
                 amount, scheduleId);
-    }
-
-    private void postWaiverJournal(final RectifyContext ctx, final Map<String, Object> chargeRow, final Long transactionId,
-            final Long loanChargeId, final BigDecimal waivedAmount, final LocalDate transactionDate) {
-        postJournal(ctx, chargeRow, transactionId, loanChargeId, waivedAmount, transactionDate, LoanTransactionType.WAIVE_CHARGES, true);
     }
 
     private void postAccrualJournal(final RectifyContext ctx, final Map<String, Object> chargeRow, final Long transactionId,
@@ -646,20 +564,6 @@ public class LoanLateFeeRectifyService {
         return interval;
     }
 
-    private Set<LocalDate> monthlyPostingDates(final LocalDate firstPenaltyDate, final int monthInterval,
-            final LocalDate effectiveDate) {
-        final Set<LocalDate> postingDates = new HashSet<>();
-        LocalDate postingDate = firstPenaltyDate;
-        final LocalDate horizon = effectiveDate.plusMonths(monthInterval);
-        int guard = 0;
-        while (!postingDate.isAfter(horizon) && guard < 600) {
-            postingDates.add(postingDate);
-            postingDate = postingDate.plusMonths(monthInterval);
-            guard++;
-        }
-        return postingDates;
-    }
-
     private TransactionTemplate newRequiresNew() {
         final TransactionTemplate template = new TransactionTemplate(this.transactionManager);
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -701,12 +605,11 @@ public class LoanLateFeeRectifyService {
         private final int monthInterval;
         private final long gracePeriod;
         private final LocalDate firstPenaltyDate;
-        private final boolean legacyLateFees;
-        private final List<Long> legacyChargeIds;
+        private final List<Long> dailyChargeIds;
 
         private RectifyContext(final Long loanId, final LocalDate effectiveDate, final Map<String, Object> loanRow,
                 final Long chargeDefinitionId, final BigDecimal monthlyRate, final int monthInterval, final long gracePeriod,
-                final LocalDate firstPenaltyDate, final boolean legacyLateFees, final List<Long> legacyChargeIds) {
+                final LocalDate firstPenaltyDate, final List<Long> dailyChargeIds) {
             this.loanId = loanId;
             this.effectiveDate = effectiveDate;
             this.loanRow = loanRow;
@@ -715,34 +618,7 @@ public class LoanLateFeeRectifyService {
             this.monthInterval = monthInterval;
             this.gracePeriod = gracePeriod;
             this.firstPenaltyDate = firstPenaltyDate;
-            this.legacyLateFees = legacyLateFees;
-            this.legacyChargeIds = legacyChargeIds;
-        }
-    }
-
-    private static final class LegacyChargeRow {
-        private final Long loanChargeId;
-        private final Integer calculationType;
-        private final LocalDate dueDate;
-
-        private LegacyChargeRow(final Long loanChargeId, final Integer calculationType, final LocalDate dueDate) {
-            this.loanChargeId = loanChargeId;
-            this.calculationType = calculationType;
-            this.dueDate = dueDate;
-        }
-    }
-
-    private static final class WaiveResult {
-        private final BigDecimal waivedAmount;
-        private final int removedCharges;
-
-        private WaiveResult(final BigDecimal waivedAmount, final int removedCharges) {
-            this.waivedAmount = waivedAmount;
-            this.removedCharges = removedCharges;
-        }
-
-        private static WaiveResult empty() {
-            return new WaiveResult(BigDecimal.ZERO, 0);
+            this.dailyChargeIds = dailyChargeIds;
         }
     }
 }
