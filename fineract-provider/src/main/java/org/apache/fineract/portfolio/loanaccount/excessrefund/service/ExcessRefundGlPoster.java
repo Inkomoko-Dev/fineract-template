@@ -50,7 +50,7 @@ public class ExcessRefundGlPoster {
         PaymentDetail paymentDetail = null;
         if (paymentTypeId != null) {
             final PaymentType paymentType = this.paymentTypeRepository.findOneWithNotFoundDetection(paymentTypeId);
-            paymentDetail = PaymentDetail.instance(paymentType, null, null, null, null, null);
+            paymentDetail = PaymentDetail.instance(paymentType, null, null, null, null, null, null);
         }
         final CommandProcessingResult result = this.loanAccountDomainService
                 .creditBalanceRefund(loanId, transactionDate, amount, note, externalId, paymentDetail).build();
