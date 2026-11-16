@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Remove daily late fees and keep / restore monthly penalties.
+"""Remove daily late fees and keep existing monthly penalties.
 
 Calls POST /loans/{loanId}?command=rectifyLateFees (LoanLateFeeRectifyService):
 silently deactivates daily flat late-fee charge rows (no Waive Charges txn per day),
-keeps or posts one monthly penalty per month, then refreshes loan summary +
-m_loan_arrears_aging (same arrears update as editing a repayment).
+keeps existing monthly penalties (does not invent missing monthlies), then refreshes
+loan summary + m_loan_arrears_aging (same arrears update as editing a repayment).
 
 Dry-run is the default. Nothing is changed until you pass --apply.
 
