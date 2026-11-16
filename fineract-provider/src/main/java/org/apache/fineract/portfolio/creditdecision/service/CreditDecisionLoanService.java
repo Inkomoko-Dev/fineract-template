@@ -448,6 +448,28 @@ public class CreditDecisionLoanService {
                 detail == null ? null : truncate(detail, MAX_NOTE), CreditDecisionOutcome.INELIGIBLE, null, null);
     }
 
+
+    /** Keeps on the history where the delegated authority rules sent an application that needs IC review. */
+    public void recordRouting(final Long loanId, final String detail) {
+        event(loanId, CreditDecisionLoanData.EVENT_ROUTED, detail == null ? null : truncate(detail, MAX_NOTE),
+                CreditDecisionOutcome.IC_REVIEW_REQUIRED, null, null);
+    }
+
+    /** True when the engine's IC_REVIEW_REQUIRED sends this application through the IC levels. Shadow mode never does. */
+    @Transactional(readOnly = true)
+    public boolean requiresIcReview(final Long loanId) {
+        final DecisionRow row = decision(loanId);
+        return row != null && row.required && CreditDecisionLoanData.DECIDED.equals(row.requestStatus)
+                && CreditDecisionOutcome.IC_REVIEW_REQUIRED.equals(row.decision) && live(loanId);
+    }
+
+    /** The risk tier the engine gave this application, null when it gave none or has not decided. */
+    @Transactional(readOnly = true)
+    public String riskTier(final Long loanId) {
+        final DecisionRow row = decision(loanId);
+        return row == null ? null : row.riskTier;
+    }
+
     // ------------------------------------------------------------------ failed scoring: retry and exception queue
 
     /**

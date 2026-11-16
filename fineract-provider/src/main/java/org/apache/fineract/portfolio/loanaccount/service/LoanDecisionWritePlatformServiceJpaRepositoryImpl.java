@@ -28,10 +28,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.persistence.PersistenceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.portfolio.creditdecision.data.DelegatedAuthorityData.EntryData;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionAutoStart;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionDelegatedAuthority;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.loanaccount.domain.DefaultLoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
@@ -118,6 +122,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
     private final CreditDecisionLoanService creditDecisionLoanService;
     private final CreditDecisionAutoStart creditDecisionAutoStart;
+    private final CreditDecisionDelegatedAuthority delegatedAuthority;
     private final DocumentReadPlatformService documentReadPlatformService;
     private final MetropolCrbIdentityVerificationRepository metropolCrbIdentityVerificationRepository;
     private final TransunionCrbHeaderRepository transunionCrbHeaderRepository;
@@ -967,14 +972,59 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final boolean skipsIcReview = this.creditDecisionLoanService.bypassesIcReview(loanId);
         loanDecisionObj.setNextLoanIcReviewDecisionState(
                 (skipsIcReview ? LoanDecisionState.PREPARE_AND_SIGN_CONTRACT : LoanDecisionState.IC_REVIEW_LEVEL_ONE).getValue());
+
+        // An application that needs IC review enters at the level the delegated authority rules give, skipping the ones below
+        List<IcReviewLevelConfig> bypassedLevels = List.of();
+        AppUser designatedApprover = null;
+        String routedTo = null;
+        if (!skipsIcReview && this.creditDecisionLoanService.requiresIcReview(loanId)) {
+            final EntryData entry = this.delegatedAuthority.resolve(loan.getCurrencyCode(),
+                    loanDecisionObj.getDueDiligenceRecommendedAmount(), this.creditDecisionLoanService.riskTier(loanId));
+            final List<IcReviewLevelConfig> levels = entry == null || entry.getEntryLevelNumber() <= 1 ? List.of()
+                    : this.icReviewLevelConfigRepository.findAllActiveOrderByDisplayOrder();
+            int entryIndex = -1;
+            for (int i = 0; i < levels.size(); i++) {
+                if (levels.get(i).getLevelNumber().equals(entry.getEntryLevelNumber())) {
+                    entryIndex = i;
+                }
+            }
+            if (entryIndex > 0) {
+                bypassedLevels = new ArrayList<>(levels.subList(0, entryIndex));
+                final IcReviewLevelConfig entryLevel = levels.get(entryIndex);
+                loanDecisionObj.setNextLoanIcReviewDecisionState(entryLevel.getDecisionStateValue());
+                routedTo = "Sent straight to " + entryLevel.getLevelName() + " under delegated authority " + entry.getDescription()
+                        + ", skipping " + bypassedLevels.stream().map(IcReviewLevelConfig::getLevelName).collect(Collectors.joining(", "));
+                if (entry.getApproverUserId() != null && command.longValueOfParameterNamed("nextApproverUserId") == null) {
+                    designatedApprover = this.appUserRepository.findById(entry.getApproverUserId()).orElse(null);
+                }
+            } else if (entry != null && entry.getEntryLevelNumber() > 1) {
+                log.warn("Delegated authority {} points at IC level {} which is not active; loan {} starts at the first level",
+                        entry.getRuleId(), entry.getEntryLevelNumber(), loanId);
+            }
+        }
         Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
-        final AppUser nextApprover = getNextApprover(command, nextStage);
+        final AppUser nextApprover = designatedApprover != null ? designatedApprover : getNextApprover(command, nextStage);
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecisionObj);
 
         Loan loanObj = loan;
         loanObj.setLoanDecisionState(LoanDecisionState.DUE_DILIGENCE.getValue());
+        if (!bypassedLevels.isEmpty()) {
+            // The skipped levels are recorded as bypassed, so the history shows why they never signed, and the loan sits
+            // just below the level it enters, which is where that level expects it to be.
+            final LocalDate bypassedOn = DateUtils.getBusinessLocalDate();
+            for (final IcReviewLevelConfig level : bypassedLevels) {
+                markLevelBypassed(savedObj, level, bypassedOn, savedObj.getDueDiligenceRecommendedAmount(),
+                        savedObj.getDueDiligenceTermFrequency(), savedObj.getDueDiligenceTermFrequencyType(),
+                        "Bypassed: not needed under the delegated authority rules");
+            }
+            final Integer lastBypassed = bypassedLevels.get(bypassedLevels.size() - 1).getDecisionStateValue();
+            savedObj.setLoanDecisionState(lastBypassed);
+            savedObj = loanDecisionRepository.saveAndFlush(savedObj);
+            loanObj.setLoanDecisionState(lastBypassed);
+            this.creditDecisionLoanService.recordRouting(loanId, routedTo);
+        }
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
         Note note = null;
@@ -2552,8 +2602,39 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private void updateLegacyIcReviewFields(LoanDecision loanDecision, Integer levelNumber, JsonCommand command,
             AppUser currentUser, LocalDate icReviewOn, BigDecimal recommendedAmount,
             Integer termFrequency, Integer termPeriodFrequencyEnum, boolean isReject) {
+        updateLegacyIcReviewFields(loanDecision, levelNumber, command.stringValueOfParameterNamed("note"), currentUser, icReviewOn,
+                recommendedAmount, termFrequency, termPeriodFrequencyEnum, isReject);
+    }
 
-        String note = command.stringValueOfParameterNamed("note");
+    /** Records a level as bypassed under the delegated authority rules, in the legacy fields and in the level table. */
+    private void markLevelBypassed(LoanDecision loanDecision, IcReviewLevelConfig level, LocalDate on, BigDecimal recommendedAmount,
+            Integer termFrequency, Integer termPeriodFrequencyEnum, String note) {
+        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository.findByLoanDecisionIdAndLevelNumber(loanDecision.getId(),
+                level.getLevelNumber());
+        if (decisionLevel == null) {
+            decisionLevel = new LoanDecisionLevel();
+            decisionLevel.setLoanDecision(loanDecision);
+            decisionLevel.setIcReviewLevel(level);
+            decisionLevel.setLevelNumber(level.getLevelNumber());
+        }
+        decisionLevel.setNote(note);
+        decisionLevel.setIsSigned(true);
+        decisionLevel.setIsRejected(false);
+        decisionLevel.setDecisionOn(on);
+        decisionLevel.setDecisionBy(null);
+        decisionLevel.setRecommendedAmount(recommendedAmount);
+        decisionLevel.setTermFrequency(termFrequency);
+        decisionLevel.setTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+        loanDecisionLevelRepository.save(decisionLevel);
+        if (level.getLevelNumber() <= 5) {
+            updateLegacyIcReviewFields(loanDecision, level.getLevelNumber(), note, null, on, recommendedAmount, termFrequency,
+                    termPeriodFrequencyEnum, false);
+        }
+    }
+
+    private void updateLegacyIcReviewFields(LoanDecision loanDecision, Integer levelNumber, String note,
+            AppUser currentUser, LocalDate icReviewOn, BigDecimal recommendedAmount,
+            Integer termFrequency, Integer termPeriodFrequencyEnum, boolean isReject) {
 
         switch (levelNumber) {
             case 1:
