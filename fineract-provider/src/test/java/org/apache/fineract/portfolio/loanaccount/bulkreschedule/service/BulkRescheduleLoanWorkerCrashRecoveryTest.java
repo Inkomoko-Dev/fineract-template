@@ -76,9 +76,9 @@ class BulkRescheduleLoanWorkerCrashRecoveryTest {
     @Test
     void rejectsHigherIdApprovedRequestWithUnrelatedInterestRate() {
         final BulkRescheduleResult result = resultWithId(11L);
-        final BulkRescheduleExecution execution = executionStartedAt(LocalDateTime.of(2024, 11, 1, 10, 0));
-        final LoanRescheduleRequest unrelatedMaxId = approvedRequest(99L, new BigDecimal("12"), LocalDate.of(2024, 11, 2));
-        final LoanRescheduleRequest attributable = approvedRequest(50L, new BigDecimal("10"), LocalDate.of(2024, 11, 2));
+        final BulkRescheduleExecution execution = executionStartedAt(7L, LocalDateTime.of(2024, 11, 1, 10, 0));
+        final LoanRescheduleRequest unrelatedMaxId = approvedRequest(99L, new BigDecimal("12"), LocalDate.of(2024, 11, 2), 7L);
+        final LoanRescheduleRequest attributable = approvedRequest(50L, new BigDecimal("10"), LocalDate.of(2024, 11, 2), 7L);
         when(loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(anyLong(), anyInt()))
                 .thenReturn(List.of(unrelatedMaxId, attributable));
         when(resultRepository.findByRescheduleRequestId(50L)).thenReturn(Optional.empty());
@@ -93,8 +93,8 @@ class BulkRescheduleLoanWorkerCrashRecoveryTest {
     @Test
     void acceptsExactlyOneAttributableTargetRateRequest() {
         final BulkRescheduleResult result = resultWithId(22L);
-        final BulkRescheduleExecution execution = executionStartedAt(LocalDateTime.of(2024, 11, 1, 10, 0));
-        final LoanRescheduleRequest match = approvedRequest(77L, new BigDecimal("10"), LocalDate.of(2024, 11, 1));
+        final BulkRescheduleExecution execution = executionStartedAt(7L, LocalDateTime.of(2024, 11, 1, 10, 0));
+        final LoanRescheduleRequest match = approvedRequest(77L, new BigDecimal("10"), LocalDate.of(2024, 11, 1), 7L);
         when(loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(1L, LoanStatus.APPROVED.getValue())).thenReturn(List.of(match));
         when(resultRepository.findByRescheduleRequestId(77L)).thenReturn(Optional.empty());
 
@@ -106,9 +106,36 @@ class BulkRescheduleLoanWorkerCrashRecoveryTest {
     }
 
     @Test
+    void trustsEarlyPersistedRequestIdWithoutLookup() {
+        final BulkRescheduleResult result = resultWithId(22L);
+        result.setRescheduleRequestId(123L);
+        final BulkRescheduleExecution execution = executionStartedAt(7L, LocalDateTime.of(2024, 11, 1, 10, 0));
+
+        final BulkRescheduleLoanWorker.CrashRecoveryResolution resolution = worker.resolveCrashRecoveryRequestId(1L, result, execution,
+                new BigDecimal("10"));
+
+        assertThat(resolution.getStatus()).isEqualTo(BulkRescheduleResultStatus.SUCCEEDED);
+        assertThat(resolution.getRequestId()).isEqualTo(123L);
+    }
+
+    @Test
+    void rejectsTargetRateRequestWithoutExecutionMarker() {
+        final BulkRescheduleResult result = resultWithId(22L);
+        final BulkRescheduleExecution execution = executionStartedAt(7L, LocalDateTime.of(2024, 11, 1, 10, 0));
+        final LoanRescheduleRequest match = approvedRequest(77L, new BigDecimal("10"), LocalDate.of(2024, 11, 1), 99L);
+        when(loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(1L, LoanStatus.APPROVED.getValue())).thenReturn(List.of(match));
+
+        final BulkRescheduleLoanWorker.CrashRecoveryResolution resolution = worker.resolveCrashRecoveryRequestId(1L, result, execution,
+                new BigDecimal("10"));
+
+        assertThat(resolution.getStatus()).isEqualTo(BulkRescheduleResultStatus.SKIPPED);
+        assertThat(resolution.getRequestId()).isNull();
+    }
+
+    @Test
     void zeroMatchesYieldsSkippedNotSucceeded() {
         final BulkRescheduleResult result = resultWithId(33L);
-        final BulkRescheduleExecution execution = executionStartedAt(LocalDateTime.of(2024, 11, 1, 10, 0));
+        final BulkRescheduleExecution execution = executionStartedAt(7L, LocalDateTime.of(2024, 11, 1, 10, 0));
         when(loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(anyLong(), anyInt())).thenReturn(List.of());
 
         final BulkRescheduleLoanWorker.CrashRecoveryResolution resolution = worker.resolveCrashRecoveryRequestId(1L, result, execution,
@@ -122,9 +149,9 @@ class BulkRescheduleLoanWorkerCrashRecoveryTest {
     @Test
     void multipleMatchesYieldsFailedNotSucceeded() {
         final BulkRescheduleResult result = resultWithId(44L);
-        final BulkRescheduleExecution execution = executionStartedAt(LocalDateTime.of(2024, 11, 1, 10, 0));
-        final LoanRescheduleRequest first = approvedRequest(10L, new BigDecimal("10"), LocalDate.of(2024, 11, 1));
-        final LoanRescheduleRequest second = approvedRequest(11L, new BigDecimal("10"), LocalDate.of(2024, 11, 1));
+        final BulkRescheduleExecution execution = executionStartedAt(7L, LocalDateTime.of(2024, 11, 1, 10, 0));
+        final LoanRescheduleRequest first = approvedRequest(10L, new BigDecimal("10"), LocalDate.of(2024, 11, 1), 7L);
+        final LoanRescheduleRequest second = approvedRequest(11L, new BigDecimal("10"), LocalDate.of(2024, 11, 1), 7L);
         when(loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(anyLong(), anyInt())).thenReturn(List.of(first, second));
         when(resultRepository.findByRescheduleRequestId(10L)).thenReturn(Optional.empty());
         when(resultRepository.findByRescheduleRequestId(11L)).thenReturn(Optional.empty());
@@ -140,8 +167,8 @@ class BulkRescheduleLoanWorkerCrashRecoveryTest {
     @Test
     void claimedByAnotherResultIsNotAttributed() {
         final BulkRescheduleResult result = resultWithId(55L);
-        final BulkRescheduleExecution execution = executionStartedAt(LocalDateTime.of(2024, 11, 1, 10, 0));
-        final LoanRescheduleRequest match = approvedRequest(88L, new BigDecimal("10"), LocalDate.of(2024, 11, 1));
+        final BulkRescheduleExecution execution = executionStartedAt(7L, LocalDateTime.of(2024, 11, 1, 10, 0));
+        final LoanRescheduleRequest match = approvedRequest(88L, new BigDecimal("10"), LocalDate.of(2024, 11, 1), 7L);
         final BulkRescheduleResult otherOwner = resultWithId(999L);
         when(loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(anyLong(), anyInt())).thenReturn(List.of(match));
         when(resultRepository.findByRescheduleRequestId(88L)).thenReturn(Optional.of(otherOwner));
@@ -153,23 +180,36 @@ class BulkRescheduleLoanWorkerCrashRecoveryTest {
         assertThat(resolution.getRequestId()).isNull();
     }
 
+    @Test
+    void stampBulkExecutionMarkerAppendsExecutionId() {
+        final org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.ReschedulingDetailsDto details =
+                new org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.ReschedulingDetailsDto();
+        details.setRescheduleReasonComment("CRF-0004");
+        BulkRescheduleLoanWorker.stampBulkExecutionMarker(details, 42L);
+        assertThat(details.getRescheduleReasonComment()).isEqualTo("CRF-0004 bulkExecutionId=42");
+    }
+
     private static BulkRescheduleResult resultWithId(final Long id) {
         final BulkRescheduleResult result = new BulkRescheduleResult();
         ReflectionTestUtils.setField(result, "id", id);
         return result;
     }
 
-    private static BulkRescheduleExecution executionStartedAt(final LocalDateTime startedAt) {
+    private static BulkRescheduleExecution executionStartedAt(final Long id, final LocalDateTime startedAt) {
         final BulkRescheduleExecution execution = new BulkRescheduleExecution();
+        ReflectionTestUtils.setField(execution, "id", id);
         execution.setExecutionStartedAt(startedAt);
         return execution;
     }
 
-    private static LoanRescheduleRequest approvedRequest(final Long id, final BigDecimal rate, final LocalDate submittedOn) {
+    private static LoanRescheduleRequest approvedRequest(final Long id, final BigDecimal rate, final LocalDate submittedOn,
+            final Long executionId) {
         final LoanRescheduleRequest request = mock(LoanRescheduleRequest.class);
         when(request.getId()).thenReturn(id);
         lenient().when(request.getSubmittedOnDate()).thenReturn(submittedOn);
         lenient().when(request.getApprovedOnDate()).thenReturn(null);
+        lenient().when(request.getRescheduleReasonComment())
+                .thenReturn(BulkRescheduleLoanWorker.BULK_EXECUTION_MARKER_PREFIX + executionId);
 
         final LoanTermVariations variation = mock(LoanTermVariations.class);
         when(variation.getTermType()).thenReturn(LoanTermVariationType.INTEREST_RATE_FROM_INSTALLMENT);
