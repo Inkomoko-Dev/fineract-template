@@ -8,23 +8,26 @@ loan summary + m_loan_arrears_aging (same arrears update as editing a repayment)
 
 Dry-run is the default. Nothing is changed until you pass --apply.
 
+When using --loan-ids-file, progress is saved next to that file by default
+(<ids-file>.progress.jsonl) and already-ok loans are skipped on restart.
+
 Examples:
   # One loan
   python3 scripts/rectify_duplicate_monthly_penalty.py \\
     --base-url https://localhost:8443 --tenant default \\
     --username mifos --password password --loan-id 404941 --insecure --apply
 
+  # From a pre-exported id file (resumes automatically after failure/restart)
+  python3 scripts/rectify_duplicate_monthly_penalty.py \\
+    --base-url https://localhost:8443 --tenant default \\
+    --username mifos --password password --insecure \\
+    --loan-ids-file /tmp/rectify_loan_ids.txt --apply --continue-on-error
+
   # All loans from discovery SQL (local MySQL)
   python3 scripts/rectify_duplicate_monthly_penalty.py \\
     --base-url https://localhost:8443 --tenant default \\
     --username mifos --password password --insecure \\
     --from-discovery-db --mysql-db fineract_default --apply
-
-  # From a pre-exported id file (one loan_id per line)
-  python3 scripts/rectify_duplicate_monthly_penalty.py \\
-    --base-url https://localhost:8443 --tenant default \\
-    --username mifos --password password --insecure \\
-    --loan-ids-file /tmp/rectify_loan_ids.txt --apply
 """
 
 from __future__ import annotations
@@ -135,6 +138,39 @@ def load_loan_ids_from_mysql(host, port, user, password, database):
     return ids
 
 
+def load_ok_loan_ids(progress_file):
+    done = set()
+    if not progress_file or not os.path.exists(progress_file):
+        return done
+    with open(progress_file, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("status") == "ok" and row.get("loanId") is not None:
+                done.add(int(row["loanId"]))
+    return done
+
+
+def default_progress_file(loan_ids_file):
+    return loan_ids_file + ".progress.jsonl"
+
+
+def is_transient_error(message):
+    text = (message or "").lower()
+    return (
+        "connection refused" in text
+        or "remote end closed" in text
+        or "timed out" in text
+        or "temporary failure" in text
+        or "network is unreachable" in text
+    )
+
+
 def summarize(result, loan_id):
     changes = result.get("changes") or {}
     return {
@@ -166,11 +202,27 @@ def main():
     parser.add_argument("--sleep-ms", type=int, default=0, help="Pause between loans (milliseconds).")
     parser.add_argument("--limit", type=int, default=0, help="Process at most N loans (0 = all).")
     parser.add_argument("--offset", type=int, default=0, help="Skip the first N loan ids.")
-    parser.add_argument("--progress-file", help="Append JSONL results here (success and failure).")
+    parser.add_argument(
+        "--progress-file",
+        help="Append JSONL results here. Default with --loan-ids-file: <ids-file>.progress.jsonl",
+    )
     parser.add_argument(
         "--skip-ok-from-progress",
+        dest="skip_ok_from_progress",
         action="store_true",
-        help="Skip loan ids that already have status=ok in --progress-file (resume after restart).",
+        default=None,
+        help="Skip loan ids already status=ok in the progress file (default: on when a progress file is used).",
+    )
+    parser.add_argument(
+        "--no-skip-ok-from-progress",
+        dest="skip_ok_from_progress",
+        action="store_false",
+        help="Process every id even if already ok in the progress file.",
+    )
+    parser.add_argument(
+        "--no-progress-file",
+        action="store_true",
+        help="Do not write/resume from a progress file (even with --loan-ids-file).",
     )
     args = parser.parse_args()
 
@@ -195,25 +247,28 @@ def main():
     if not loan_ids:
         raise SystemExit("No loan ids. Pass --loan-id, --loan-ids-file, and/or --from-discovery-db.")
 
-    if args.skip_ok_from_progress:
-        if not args.progress_file:
-            raise SystemExit("--skip-ok-from-progress requires --progress-file")
-        done = set()
-        if os.path.exists(args.progress_file):
-            with open(args.progress_file, encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if row.get("status") == "ok" and row.get("loanId") is not None:
-                        done.add(int(row["loanId"]))
+    progress_file = args.progress_file
+    if args.no_progress_file:
+        progress_file = None
+    elif not progress_file and args.loan_ids_file:
+        progress_file = default_progress_file(args.loan_ids_file)
+
+    skip_ok = args.skip_ok_from_progress
+    if skip_ok is None:
+        skip_ok = bool(progress_file)
+
+    total_in_file = len(loan_ids)
+    if skip_ok:
+        if not progress_file:
+            raise SystemExit("--skip-ok-from-progress requires a progress file")
+        done = load_ok_loan_ids(progress_file)
         before = len(loan_ids)
         loan_ids = [loan_id for loan_id in loan_ids if loan_id not in done]
-        print("Skipping %s already-ok loans from progress file." % (before - len(loan_ids)))
+        skipped = before - len(loan_ids)
+        print(
+            "Resume: skipping %s already-ok loans (%s remaining of %s). Progress: %s"
+            % (skipped, len(loan_ids), total_in_file, progress_file)
+        )
 
     if args.offset:
         loan_ids = loan_ids[args.offset :]
@@ -221,9 +276,15 @@ def main():
         loan_ids = loan_ids[: args.limit]
 
     print("Loans to rectify: %s" % len(loan_ids))
+    if progress_file:
+        print("Progress file: %s" % progress_file)
     if not args.apply:
         print("Dry run only. First 20 ids: %s" % (loan_ids[:20],))
         print("Re-run with --apply to change these loans.")
+        return
+
+    if not loan_ids:
+        print(json.dumps({"done": True, "ok": 0, "failed": 0, "total": 0, "alreadyComplete": True}), flush=True)
         return
 
     client = FineractClient(args.base_url, args.tenant, args.username, args.password, args.insecure)
@@ -231,7 +292,7 @@ def main():
 
     ok = 0
     failed = 0
-    progress = open(args.progress_file, "a", encoding="utf-8") if args.progress_file else None
+    progress = open(progress_file, "a", encoding="utf-8") if progress_file else None
     try:
         for index, loan_id in enumerate(loan_ids, start=1):
             try:
@@ -243,22 +304,38 @@ def main():
                 if progress:
                     progress.write(line + "\n")
                     progress.flush()
+                    os.fsync(progress.fileno())
             except Exception as error:  # noqa: BLE001 - batch must keep going when asked
                 failed += 1
+                message = str(error)
                 line = json.dumps(
                     {
                         "status": "error",
                         "index": index,
                         "total": len(loan_ids),
                         "loanId": loan_id,
-                        "error": str(error),
+                        "error": message,
                     }
                 )
                 print(line, flush=True)
-                if progress:
+                # Persist business errors; skip writing transient outages so resume retries them.
+                if progress and not is_transient_error(message):
                     progress.write(line + "\n")
                     progress.flush()
+                    os.fsync(progress.fileno())
+                if is_transient_error(message):
+                    print(
+                        "Transient failure on loan %s. Re-run the same command to resume from progress."
+                        % loan_id,
+                        flush=True,
+                    )
+                    raise SystemExit(2) from error
                 if not args.continue_on_error:
+                    print(
+                        "Stopped on loan %s. Re-run the same command to resume; already-ok loans are skipped."
+                        % loan_id,
+                        flush=True,
+                    )
                     raise SystemExit("Stopped on loan %s. Pass --continue-on-error to keep going." % loan_id) from error
             if args.sleep_ms > 0 and index < len(loan_ids):
                 time.sleep(args.sleep_ms / 1000.0)
