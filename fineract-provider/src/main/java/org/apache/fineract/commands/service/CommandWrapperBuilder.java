@@ -3912,6 +3912,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder rectifyLateFees(final Long loanId) {
+        this.actionName = "RECTIFYLATEFEES";
+        this.entityName = "LOAN";
+        this.entityId = loanId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "?command=rectifyLateFees";
+        return this;
+    }
+
     public CommandWrapperBuilder nextWithdrawalDateSavingsAccount(final Long accountId) {
         this.actionName = "NEXTWITHDRAWALDATE";
         this.entityName = "SAVINGSACCOUNT";

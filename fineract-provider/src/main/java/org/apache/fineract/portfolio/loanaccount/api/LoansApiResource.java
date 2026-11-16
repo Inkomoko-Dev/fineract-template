@@ -1076,6 +1076,10 @@ public class LoansApiResource {
             final CommandWrapper commandRequest = builder.runCloneJobForLoanPenalty(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         }
+        } else if (is(commandParam, "rectifyLateFees")) {
+            final CommandWrapper commandRequest = builder.rectifyLateFees(loanId).build();
+            result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        }
 
         else if (is(commandParam, "withdrawalFromRedraw")) {
             final CommandWrapper commandRequest = builder.withdrawalFromRedraw(loanId).build();
