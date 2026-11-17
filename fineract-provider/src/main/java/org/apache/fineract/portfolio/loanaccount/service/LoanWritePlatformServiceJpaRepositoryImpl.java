@@ -989,6 +989,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final AppUser currentUser = getAppUserIfPresent();
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
 
+        // A top-up disbursal first settles the loan it tops up, which closes that loan. Undoing the disbursal therefore
+        // has to reopen it. The references needed for that (the topped-up loan and the amount transferred to it) are
+        // cleared off the top-up loan by undoDisbursal(), so they are captured while the loan is still disbursed.
+        final Long toppedUpLoanId = loan.isTopup() && loan.getTopupLoanDetails() != null
+                ? loan.getTopupLoanDetails().getLoanIdToClose()
+                : null;
+        final BigDecimal topupSettlementAmount = loan.isTopup() && loan.getTopupLoanDetails() != null
+                ? loan.getTopupLoanDetails().getTopupAmount()
+                : null;
+        final LocalDate topupDisbursementDate = toppedUpLoanId == null ? null : loan.getDisbursementDate();
+
         for (final LoanCharge loanCharge : loan.charges()) {
             if (loanCharge.isDisburseToSavings()) {
                 loanCharge.setDueDate(loan.getExpectedDisbursedOnLocalDate());
@@ -1015,22 +1026,22 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 existingReversedTransactionIds);
 
         if (!changes.isEmpty()) {
-            if (loan.isTopup() && loan.getClientId() != null) {
-                final Long loanIdToClose = loan.getTopupLoanDetails().getLoanIdToClose();
-                final LocalDate expectedDisbursementDate = command
-                        .localDateValueOfParameterNamed(LoanApiConstants.disbursementDateParameterName);
-                BigDecimal loanOutstanding = this.loanReadPlatformService
-                        .retrieveLoanPrePaymentTemplate(LoanTransactionType.REPAYMENT, loanIdToClose, expectedDisbursementDate).getAmount();
-                BigDecimal netDisbursalAmount = loan.getApprovedPrincipal().subtract(loanOutstanding);
-                loan.adjustNetDisbursalAmount(netDisbursalAmount);
-            }
             if (loan.getLoanType().equals(AccountType.GLIM.getValue())) {
                 GroupLoanIndividualMonitoringAccount parentLoan = glimRepository.findById(loan.getGlimId()).orElseThrow();
                 updateGlimActualPrincipal(parentLoan);
             }
             saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
             rebuildAndSyncDailyLateFeesForLoan(loanId, loan.getExpectedDisbursedOnLocalDate(), DateUtils.getBusinessLocalDate());
+            // A top-up loan is disbursed by transferring (part of) its principal to the loan it tops up: that transfer
+            // leg is what closed the topped-up loan, so it is reversed and the loan is reopened before the remaining
+            // transfers of this loan are reversed.
+            final boolean toppedUpLoanReopened = toppedUpLoanId != null && reopenToppedUpLoan(loanId, toppedUpLoanId);
             this.accountTransfersWritePlatformService.reverseAllTransactions(loanId, PortfolioAccountType.LOAN, loan);
+            if (toppedUpLoanReopened) {
+                changes.put("reopenedLoanId", toppedUpLoanId);
+                resetTopupNetDisbursalAmount(loan, command, toppedUpLoanId, topupSettlementAmount, topupDisbursementDate);
+                saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+            }
             String noteText = null;
             if (command.hasParameter("note")) {
                 noteText = command.stringValueOfParameterNamed("note");
@@ -1055,6 +1066,87 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .withLoanId(loanId) //
                 .with(changes) //
                 .build();
+    }
+
+    /**
+     * Undoing the disbursal of a top-up loan has to give back the loan the top-up settled. That settlement is the
+     * loan-to-loan transfer leg which repaid (and thereby closed) the topped-up loan, so the leg is reversed here and
+     * the loan is rebuilt from its remaining transactions: installments become outstanding again, summary and status
+     * return to the pre top-up position and the reversal is posted to the ledger.
+     *
+     * @return true when a settlement was reversed and the topped-up loan was reopened
+     */
+    private boolean reopenToppedUpLoan(final Long topupLoanId, final Long toppedUpLoanId) {
+        final Loan toppedUpLoan = this.loanAssembler.assembleFrom(toppedUpLoanId);
+
+        // Snapshot before reversing anything, so the reversal is picked up by the accounting bridge.
+        final List<Long> existingTransactionIds = new ArrayList<>(toppedUpLoan.findExistingTransactionIds());
+        final List<Long> existingReversedTransactionIds = new ArrayList<>(toppedUpLoan.findExistingReversedTransactionIds());
+
+        final boolean wasClosed = toppedUpLoan.status().isClosed();
+        boolean settlementReversed = false;
+        for (final AccountTransferTransaction accountTransfer : this.accountTransferRepository.findAllByLoanId(topupLoanId)) {
+            final LoanTransaction settlement = accountTransfer.getToLoanTransaction();
+            if (settlement == null || settlement.getLoan() == null || !toppedUpLoanId.equals(settlement.getLoan().getId())
+                    || settlement.isReversed()) {
+                continue;
+            }
+            // reverse the instance held by the loan, so the rebuild below sees the reversal
+            final LoanTransaction settlementOnLoan = findLoanTransactionById(toppedUpLoan, settlement.getId());
+            (settlementOnLoan != null ? settlementOnLoan : settlement).reverse();
+            accountTransfer.reverse();
+            this.accountTransferRepository.save(accountTransfer);
+            settlementReversed = true;
+        }
+
+        if (!settlementReversed && !wasClosed) {
+            return false;
+        }
+
+        // Rebuild the loan from its remaining transactions. Accrual rows are kept: they are already posted to the
+        // ledger and the FK on acc_gl_journal_entry.loan_transaction_id forbids deleting them.
+        toppedUpLoan.restoreLoanScheduleAndTransactionsPreservingAccruals();
+        if (wasClosed && !toppedUpLoan.status().isClosed() && toppedUpLoan.getLoanSubStatus() != null) {
+            // the loan is active again, so it is no longer foreclosed or pending disbursement
+            toppedUpLoan.setLoanSubStatus(null);
+        }
+        saveAndFlushLoanWithDataIntegrityViolationChecks(toppedUpLoan);
+
+        final ApplicationCurrency toppedUpLoanCurrency = this.applicationCurrencyRepository
+                .findOneWithNotFoundDetection(toppedUpLoan.getCurrency());
+        final Map<String, Object> accountingBridgeData = toppedUpLoan.deriveAccountingBridgeData(toppedUpLoanCurrency.toData(),
+                existingTransactionIds, existingReversedTransactionIds, false);
+        this.journalEntryWritePlatformService.createJournalEntriesForLoan(accountingBridgeData);
+
+        rebuildAndSyncDailyLateFeesForLoan(toppedUpLoanId, toppedUpLoan.getDisbursementDate(), DateUtils.getBusinessLocalDate());
+        return true;
+    }
+
+    private LoanTransaction findLoanTransactionById(final Loan loan, final Long loanTransactionId) {
+        for (final LoanTransaction loanTransaction : loan.getLoanTransactions()) {
+            if (loanTransaction.getId() != null && loanTransaction.getId().equals(loanTransactionId)) {
+                return loanTransaction;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The amount a top-up loan actually disburses to the client is its approved principal less the amount transferred
+     * to settle the loan it tops up.
+     */
+    private void resetTopupNetDisbursalAmount(final Loan loan, final JsonCommand command, final Long toppedUpLoanId,
+            final BigDecimal topupSettlementAmount, final LocalDate topupDisbursementDate) {
+        BigDecimal settlementAmount = topupSettlementAmount;
+        if (settlementAmount == null) {
+            LocalDate settlementDate = command.localDateValueOfParameterNamed(LoanApiConstants.disbursementDateParameterName);
+            if (settlementDate == null) {
+                settlementDate = topupDisbursementDate;
+            }
+            settlementAmount = this.loanReadPlatformService
+                    .retrieveLoanPrePaymentTemplate(LoanTransactionType.REPAYMENT, toppedUpLoanId, settlementDate).getAmount();
+        }
+        loan.adjustNetDisbursalAmount(loan.getApprovedPrincipal().subtract(settlementAmount));
     }
 
     @Transactional
