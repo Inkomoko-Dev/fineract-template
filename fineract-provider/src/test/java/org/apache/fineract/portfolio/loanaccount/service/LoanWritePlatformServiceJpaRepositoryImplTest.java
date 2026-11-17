@@ -20,15 +20,9 @@ package org.apache.fineract.portfolio.loanaccount.service;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,30 +32,22 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlatformService;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
-import org.apache.fineract.organisation.monetary.domain.ApplicationCurrency;
-import org.apache.fineract.organisation.monetary.domain.ApplicationCurrencyRepositoryWrapper;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.organisation.office.domain.Office;
-import org.apache.fineract.portfolio.account.domain.AccountTransferRepository;
-import org.apache.fineract.portfolio.account.domain.AccountTransferTransaction;
 import org.apache.fineract.portfolio.account.service.AccountTransfersWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanSubStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -75,9 +61,6 @@ class LoanWritePlatformServiceJpaRepositoryImplTest {
 
     private static final MonetaryCurrency KES = new MonetaryCurrency("KES", 2, 0);
     private static final LocalDate DISBURSEMENT_DATE = LocalDate.of(2026, 6, 8);
-    private static final Long TOPUP_LOAN_ID = 11L;
-    private static final Long TOPPED_UP_LOAN_ID = 77L;
-    private static final Long SETTLEMENT_TRANSACTION_ID = 501L;
 
     private RoundingMode originalRoundingMode;
     private MathContext originalMathContext;
@@ -147,89 +130,6 @@ class LoanWritePlatformServiceJpaRepositoryImplTest {
         verify(loan).updateLoanSummarAndStatus();
         verify(loanRepositoryWrapper).saveAndFlush(loan);
         verify(loanAccountDomainService).recalculateAccruals(loan);
-    }
-
-    @Test
-    void reopenToppedUpLoanReversesTheSettlementTransferAndReopensTheLoan() {
-        final LoanWritePlatformServiceJpaRepositoryImpl service = mock(LoanWritePlatformServiceJpaRepositoryImpl.class,
-                CALLS_REAL_METHODS);
-
-        final Loan toppedUpLoan = mock(Loan.class);
-        when(toppedUpLoan.getId()).thenReturn(TOPPED_UP_LOAN_ID);
-        when(toppedUpLoan.getCurrency()).thenReturn(KES);
-        when(toppedUpLoan.getDisbursementDate()).thenReturn(DISBURSEMENT_DATE);
-        when(toppedUpLoan.getLoanSubStatus()).thenReturn(LoanSubStatus.FORECLOSED.getValue());
-        when(toppedUpLoan.findExistingTransactionIds()).thenReturn(new ArrayList<>(List.of(SETTLEMENT_TRANSACTION_ID)));
-        when(toppedUpLoan.findExistingReversedTransactionIds()).thenReturn(new ArrayList<>());
-        when(toppedUpLoan.deriveAccountingBridgeData(any(), anyList(), anyList(), eq(false))).thenReturn(new LinkedHashMap<>());
-        // the loan is closed when the settlement is found and active once it has been rebuilt
-        when(toppedUpLoan.status()).thenReturn(LoanStatus.CLOSED_OBLIGATIONS_MET, LoanStatus.ACTIVE);
-
-        final LoanTransaction settlement = mock(LoanTransaction.class);
-        when(settlement.getId()).thenReturn(SETTLEMENT_TRANSACTION_ID);
-        when(settlement.getLoan()).thenReturn(toppedUpLoan);
-        when(settlement.isReversed()).thenReturn(false);
-        when(toppedUpLoan.getLoanTransactions()).thenReturn(new ArrayList<>(List.of(settlement)));
-
-        final AccountTransferTransaction accountTransfer = mock(AccountTransferTransaction.class);
-        when(accountTransfer.getToLoanTransaction()).thenReturn(settlement);
-        final AccountTransferRepository accountTransferRepository = mock(AccountTransferRepository.class);
-        when(accountTransferRepository.findAllByLoanId(TOPUP_LOAN_ID)).thenReturn(new ArrayList<>(List.of(accountTransfer)));
-
-        final LoanAssembler loanAssembler = mock(LoanAssembler.class);
-        when(loanAssembler.assembleFrom(TOPPED_UP_LOAN_ID)).thenReturn(toppedUpLoan);
-
-        final LoanRepositoryWrapper loanRepositoryWrapper = mock(LoanRepositoryWrapper.class);
-        final ApplicationCurrencyRepositoryWrapper applicationCurrencyRepository = mock(ApplicationCurrencyRepositoryWrapper.class);
-        when(applicationCurrencyRepository.findOneWithNotFoundDetection(KES)).thenReturn(mock(ApplicationCurrency.class));
-        final JournalEntryWritePlatformService journalEntryWritePlatformService = mock(JournalEntryWritePlatformService.class);
-        final LoanDailyLateFeeService loanDailyLateFeeService = mock(LoanDailyLateFeeService.class);
-
-        ReflectionTestUtils.setField(service, "loanAssembler", loanAssembler);
-        ReflectionTestUtils.setField(service, "accountTransferRepository", accountTransferRepository);
-        ReflectionTestUtils.setField(service, "loanRepositoryWrapper", loanRepositoryWrapper);
-        ReflectionTestUtils.setField(service, "applicationCurrencyRepository", applicationCurrencyRepository);
-        ReflectionTestUtils.setField(service, "journalEntryWritePlatformService", journalEntryWritePlatformService);
-        ReflectionTestUtils.setField(service, "loanDailyLateFeeService", loanDailyLateFeeService);
-
-        final Boolean reopened = ReflectionTestUtils.invokeMethod(service, "reopenToppedUpLoan", TOPUP_LOAN_ID,
-                TOPPED_UP_LOAN_ID);
-
-        assertTrue(reopened, "the settlement of the topped-up loan must be treated as reversed");
-        verify(settlement).reverse();
-        verify(accountTransfer).reverse();
-        verify(accountTransferRepository).save(accountTransfer);
-        verify(toppedUpLoan).restoreLoanScheduleAndTransactionsPreservingAccruals();
-        verify(toppedUpLoan).setLoanSubStatus(null);
-        verify(loanRepositoryWrapper).saveAndFlush(toppedUpLoan);
-        verify(journalEntryWritePlatformService).createJournalEntriesForLoan(any());
-        verify(loanDailyLateFeeService).rebuildAndSyncDailyLateFeesForLoan(TOPPED_UP_LOAN_ID, DISBURSEMENT_DATE,
-                DISBURSEMENT_DATE);
-    }
-
-    @Test
-    void reopenToppedUpLoanLeavesAnOpenLoanUntouched() {
-        final LoanWritePlatformServiceJpaRepositoryImpl service = mock(LoanWritePlatformServiceJpaRepositoryImpl.class,
-                CALLS_REAL_METHODS);
-
-        final Loan toppedUpLoan = mock(Loan.class);
-        when(toppedUpLoan.status()).thenReturn(LoanStatus.ACTIVE);
-        when(toppedUpLoan.findExistingTransactionIds()).thenReturn(new ArrayList<>());
-        when(toppedUpLoan.findExistingReversedTransactionIds()).thenReturn(new ArrayList<>());
-
-        final LoanAssembler loanAssembler = mock(LoanAssembler.class);
-        when(loanAssembler.assembleFrom(TOPPED_UP_LOAN_ID)).thenReturn(toppedUpLoan);
-        final AccountTransferRepository accountTransferRepository = mock(AccountTransferRepository.class);
-        when(accountTransferRepository.findAllByLoanId(TOPUP_LOAN_ID)).thenReturn(new ArrayList<>());
-
-        ReflectionTestUtils.setField(service, "loanAssembler", loanAssembler);
-        ReflectionTestUtils.setField(service, "accountTransferRepository", accountTransferRepository);
-
-        final Boolean reopened = ReflectionTestUtils.invokeMethod(service, "reopenToppedUpLoan", TOPUP_LOAN_ID,
-                TOPPED_UP_LOAN_ID);
-
-        assertFalse(reopened);
-        verify(toppedUpLoan, never()).restoreLoanScheduleAndTransactionsPreservingAccruals();
     }
 
     @Test

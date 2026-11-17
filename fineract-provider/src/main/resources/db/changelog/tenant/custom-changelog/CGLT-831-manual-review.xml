@@ -80,4 +80,28 @@
         </insert>
     </changeSet>
 
+    <changeSet author="inkomoko" id="CGLT-831-audit-actor-and-reschedule-permission">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_tranche_milestone" columnName="submitted_by_user_id"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan_tranche_milestone">
+            <column name="submitted_by_user_id" type="BIGINT"/>
+        </addColumn>
+        <addColumn tableName="m_loan_tranche_milestone_history">
+            <column name="submitted_by_user_id" type="BIGINT"/>
+            <column name="actor_user_id" type="BIGINT"/>
+            <column name="client_ip" type="VARCHAR(64)"/>
+            <column name="previous_loan_sub_status_id" type="INT"/>
+        </addColumn>
+        <insert tableName="m_permission">
+            <column name="grouping" value="portfolio"/>
+            <column name="code" value="RESCHEDULE_TRANCHEMILESTONE"/>
+            <column name="entity_name" value="TRANCHEMILESTONE"/>
+            <column name="action_name" value="RESCHEDULE"/>
+            <column name="can_maker_checker" valueNumeric="0"/>
+        </insert>
+    </changeSet>
+
 </databaseChangeLog>

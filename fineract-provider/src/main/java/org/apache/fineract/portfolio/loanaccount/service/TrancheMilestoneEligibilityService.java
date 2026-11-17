@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
@@ -53,13 +54,20 @@ import org.apache.fineract.portfolio.loanaccount.domain.TrancheScheduleRules;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 @Service
 @RequiredArgsConstructor
 public class TrancheMilestoneEligibilityService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(TrancheMilestoneEligibilityService.class);
 
     private final LoanRepository loanRepository;
     private final LoanTrancheMilestoneRepository milestoneRepository;
@@ -67,6 +75,7 @@ public class TrancheMilestoneEligibilityService {
     private final NoteRepository noteRepository;
     private final JdbcTemplate jdbcTemplate;
     private final FromJsonHelper fromApiJsonHelper;
+    private final ObjectProvider<TrancheMilestoneRefreshWorker> refreshWorker;
 
     public static final class Refresh {
 
@@ -163,7 +172,7 @@ public class TrancheMilestoneEligibilityService {
     }
 
     @Transactional
-    public String ingest(final String loanKey, final String json) {
+    public String ingest(final String loanKey, final String json, final Long submittedByUserId) {
         final JsonElement element = this.fromApiJsonHelper.parse(json);
         final Loan loan = findLoan(loanKey);
         final LoanDisbursementDetails target = waitingTranche(loan, element);
@@ -192,13 +201,16 @@ public class TrancheMilestoneEligibilityService {
         }
         applySubmission(milestone, element, submissionId);
         milestone.setSubmittedOn(DateUtils.getOffsetDateTimeOfTenant());
+        if (milestone.getSubmittedByUserId() == null && submittedByUserId != null) {
+            milestone.setSubmittedByUserId(submittedByUserId);
+        }
         this.milestoneRepository.save(milestone);
         final Refresh refresh = refresh(loan, true);
         return response(loan, refresh, false, milestone);
     }
 
     @Transactional
-    public String approveDeadlineException(final String loanKey, final String json, final String approvedBy) {
+    public String approveDeadlineException(final String loanKey, final String json, final String approvedBy, final Long actorUserId) {
         final JsonElement element = this.fromApiJsonHelper.parse(json == null || json.isBlank() ? "{}" : json);
         final Loan loan = findLoan(loanKey);
         final LoanDisbursementDetails target = waitingTranche(loan, element);
@@ -222,6 +234,8 @@ public class TrancheMilestoneEligibilityService {
         if (milestone == null) {
             milestone = new LoanTrancheMilestone(loan.getId(), target.getId(), DateUtils.getOffsetDateTimeOfTenant());
         }
+        rejectIfVerifierIsApprover(milestone, actorUserId);
+        snapshot(loan, milestone, actorUserId);
         milestone.setEligibilityDeadlineOverride(extended);
         // Extension moves the deadline; do not waive the deadline check.
         milestone.setDeadlineExceptionApproved(false);
@@ -238,7 +252,7 @@ public class TrancheMilestoneEligibilityService {
     }
 
     @Transactional
-    public String cancelUndisbursed(final String loanKey, final String json, final String cancelledBy) {
+    public String cancelUndisbursed(final String loanKey, final String json, final String cancelledBy, final Long actorUserId) {
         final JsonElement element = this.fromApiJsonHelper.parse(json == null || json.isBlank() ? "{}" : json);
         final Loan loan = findLoan(loanKey);
         if (loan.loanProduct() == null || !loan.isMultiDisburmentLoan()) {
@@ -274,25 +288,67 @@ public class TrancheMilestoneEligibilityService {
             if (milestone == null) {
                 milestone = new LoanTrancheMilestone(loan.getId(), detail.getId(), cancelledOn);
             }
+            rejectIfVerifierIsApprover(milestone, actorUserId);
+            snapshot(loan, milestone, actorUserId);
             milestone.setCancellationReason(limit(reason, 500));
             milestone.setCancelledBy(cancelledBy);
             milestone.setCancelledOn(cancelledOn);
             milestone.setReviewDecision("CANCEL");
             milestone.setDeadlineExceptionNote(limit(note, 1000));
             this.milestoneRepository.save(milestone);
-            final LoanTrancheMilestoneHistory history = new LoanTrancheMilestoneHistory(loan.getId(), detail.getId(),
-                    LoanSubStatus.EXPIRED.getValue(), cancelledOn);
-            history.copyFrom(milestone);
-            this.historyRepository.save(history);
+            final LoanTrancheMilestoneHistory after = new LoanTrancheMilestoneHistory(loan.getId(), detail.getId(),
+                    LoanSubStatus.TRANCHE_CANCELLED.getValue(), cancelledOn);
+            after.copyFrom(milestone);
+            after.stamp(actorUserId, clientIp(), loan.getLoanSubStatus());
+            this.historyRepository.save(after);
         }
         loan.cancelUndisbursedCommitment();
-        TrancheScheduleRules.apply(loan);
+        TrancheScheduleRules.rebaseToDisbursedPrincipal(loan);
+        storeSubStatus(loan, LoanSubStatus.TRANCHE_CANCELLED);
         this.loanRepository.saveAndFlush(loan);
         this.noteRepository.save(Note.loanNote(loan, "Manual review decision: CANCEL undisbursed tranche. Reason: " + reason + ". " + note));
-        final Refresh refresh = refresh(loan, true);
-        final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
-        final LoanTrancheMilestone display = milestoneForDisplay(loan, next);
-        return response(loan, refresh, false, display);
+        final Refresh preview = preview(loan);
+        final LoanTrancheMilestone display = milestoneForDisplay(loan, null);
+        return response(loan, withStatus(preview, LoanSubStatus.TRANCHE_CANCELLED), false, display);
+    }
+
+    @Transactional
+    public String rescheduleDisbursed(final String loanKey, final String json, final String rescheduledBy, final Long actorUserId) {
+        final JsonElement element = this.fromApiJsonHelper.parse(json == null || json.isBlank() ? "{}" : json);
+        final Loan loan = findLoan(loanKey);
+        if (loan.loanProduct() == null || !loan.isMultiDisburmentLoan()) {
+            throw validation("Only multi-disbursement loans can be rescheduled from manual review.",
+                    "tranche.milestone.reschedule.not.multi.disburse");
+        }
+        if (!hasDisbursedTranche(loan)) {
+            throw validation("At least one tranche must already be disbursed before the loan can be rescheduled.",
+                    "tranche.milestone.reschedule.no.disbursed.tranche");
+        }
+        final LoanDisbursementDetails target = waitingTranche(loan, element);
+        final String note = requiredText(element, "note", "A review note is required when rescheduling the loan.",
+                "tranche.milestone.review.note.required");
+        LoanTrancheMilestone milestone = this.milestoneRepository.findByLoanIdAndDisbursementDetailId(loan.getId(), target.getId())
+                .orElse(null);
+        if (milestone == null) {
+            milestone = new LoanTrancheMilestone(loan.getId(), target.getId(), DateUtils.getOffsetDateTimeOfTenant());
+        }
+        rejectIfVerifierIsApprover(milestone, actorUserId);
+        snapshot(loan, milestone, actorUserId);
+        milestone.setReviewDecision("RESCHEDULE");
+        milestone.setDeadlineExceptionBy(rescheduledBy);
+        milestone.setDeadlineExceptionOn(DateUtils.getOffsetDateTimeOfTenant());
+        milestone.setDeadlineExceptionNote(limit(note, 1000));
+        milestone.setDeadlineExceptionApproved(false);
+        this.milestoneRepository.save(milestone);
+        TrancheScheduleRules.rebaseToDisbursedPrincipal(loan);
+        recordStatusHistory(loan, LoanSubStatus.TRANCHE_RESCHEDULED, actorUserId);
+        storeSubStatus(loan, LoanSubStatus.TRANCHE_RESCHEDULED);
+        this.loanRepository.saveAndFlush(loan);
+        this.noteRepository.save(Note.loanNote(loan,
+                "Manual review decision: RESCHEDULE onto principal already disbursed. Further disbursement stays blocked while this decision stands. "
+                        + note));
+        final Refresh preview = preview(loan);
+        return response(loan, withStatus(preview, LoanSubStatus.TRANCHE_RESCHEDULED), false, milestone);
     }
 
     @Transactional(readOnly = true)
@@ -307,7 +363,6 @@ public class TrancheMilestoneEligibilityService {
     }
 
     @CronTarget(jobName = JobName.REFRESH_TRANCHE_MILESTONE_STATUS)
-    @Transactional
     public void refreshPastDeadline() {
         final LocalDate today = DateUtils.getBusinessLocalDate();
         final List<Long> loanIds = this.jdbcTemplate.queryForList("SELECT l.id FROM m_loan l WHERE l.loan_status_id = 300 "
@@ -317,8 +372,18 @@ public class TrancheMilestoneEligibilityService {
                 + "AND EXISTS (SELECT 1 FROM m_loan_disbursement_detail u WHERE u.loan_id = l.id AND u.disbursedon_date IS NULL) "
                 + "AND EXISTS (SELECT 1 FROM m_loan_repayment_schedule rs WHERE rs.loan_id = l.id "
                 + "AND rs.installment = COALESCE(l.grace_on_principal_periods, 0) + 1 AND rs.duedate < ?)", Long.class, Date.valueOf(today));
+        final TrancheMilestoneRefreshWorker worker = this.refreshWorker.getObject();
+        int failed = 0;
         for (final Long loanId : loanIds) {
-            this.loanRepository.findById(loanId).ifPresent(this::refresh);
+            try {
+                worker.refreshOne(loanId);
+            } catch (final RuntimeException ex) {
+                failed++;
+                LOG.error("Tranche milestone refresh failed for loan {}", loanId, ex);
+            }
+        }
+        if (failed > 0) {
+            LOG.error("Tranche milestone refresh finished with {} failed loan(s) out of {}", failed, loanIds.size());
         }
     }
 
@@ -368,14 +433,60 @@ public class TrancheMilestoneEligibilityService {
     }
 
     private void recordStatusHistory(final Loan loan, final LoanSubStatus status) {
+        recordStatusHistory(loan, status, null);
+    }
+
+    private void recordStatusHistory(final Loan loan, final LoanSubStatus status, final Long actorUserId) {
         final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
         final Long detailId = next == null ? null : next.getId();
         final LoanTrancheMilestone milestone = detailId == null ? null
                 : this.milestoneRepository.findByLoanIdAndDisbursementDetailId(loan.getId(), detailId).orElse(null);
+        final Integer previous = loan.getLoanSubStatus();
         final LoanTrancheMilestoneHistory history = new LoanTrancheMilestoneHistory(loan.getId(), detailId,
                 status == null ? null : status.getValue(), DateUtils.getOffsetDateTimeOfTenant());
         history.copyFrom(milestone);
+        history.stamp(actorUserId, clientIp(), previous);
         this.historyRepository.save(history);
+    }
+
+    private void snapshot(final Loan loan, final LoanTrancheMilestone milestone, final Long actorUserId) {
+        final Integer previous = loan.getLoanSubStatus();
+        final Long detailId = milestone == null ? null : milestone.getDisbursementDetailId();
+        final LoanTrancheMilestoneHistory history = new LoanTrancheMilestoneHistory(loan.getId(), detailId, previous,
+                DateUtils.getOffsetDateTimeOfTenant());
+        history.copyFrom(milestone);
+        history.stamp(actorUserId, clientIp(), previous);
+        this.historyRepository.save(history);
+    }
+
+    private static void rejectIfVerifierIsApprover(final LoanTrancheMilestone milestone, final Long actorUserId) {
+        if (milestone != null && actorUserId != null && actorUserId.equals(milestone.getSubmittedByUserId())) {
+            throw validation("The user who submitted the verification cannot approve, cancel, or reschedule this tranche.",
+                    "tranche.milestone.verifier.cannot.approve");
+        }
+    }
+
+    private static Refresh withStatus(final Refresh preview, final LoanSubStatus status) {
+        if (preview == null) {
+            return new Refresh(status, false, null, 0);
+        }
+        return new Refresh(status, preview.milestoneRequired, preview.firstRepaymentDueDate, preview.trancheNumber, preview.survey,
+                preview.pastDeadline, preview.deadlineExceptionApproved, preview.thresholdConfigured, preview.subsequentTranche);
+    }
+
+    private static String clientIp() {
+        if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)) {
+            return null;
+        }
+        final HttpServletRequest request = attributes.getRequest();
+        final String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            final int comma = forwarded.indexOf(',');
+            final String first = (comma < 0 ? forwarded : forwarded.substring(0, comma)).trim();
+            return limit(first, 64);
+        }
+        final String remote = request.getRemoteAddr();
+        return remote == null ? null : limit(remote, 64);
     }
 
     private List<Map<String, Object>> trancheSurveys(final Loan loan) {

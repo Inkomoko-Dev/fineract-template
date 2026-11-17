@@ -114,6 +114,9 @@ public class LoanTrancheMilestone extends AbstractPersistableCustom {
     @Column(name = "review_decision", length = 32)
     private String reviewDecision;
 
+    @Column(name = "submitted_by_user_id")
+    private Long submittedByUserId;
+
     @Column(name = "submitted_on", nullable = false)
     private OffsetDateTime submittedOn;
 

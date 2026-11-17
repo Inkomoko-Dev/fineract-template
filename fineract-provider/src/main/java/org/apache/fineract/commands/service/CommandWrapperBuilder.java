@@ -4411,6 +4411,13 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder rescheduleTrancheMilestone(final String loanKey) {
+        this.actionName = "RESCHEDULE";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones/reschedule";
+        return this;
+    }
+
     public CommandWrapperBuilder overrideLoanClassification(final Long loanId) {
         this.actionName = "OVERRIDE";
         this.entityName = "LOANCLASSIFICATION";

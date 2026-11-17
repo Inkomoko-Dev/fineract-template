@@ -23,6 +23,7 @@ import org.apache.fineract.commands.annotation.CommandType;
 import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.service.TrancheMilestoneEligibilityService;
 import org.springframework.stereotype.Service;
@@ -35,11 +36,13 @@ public class CreateTrancheMilestoneCommandHandler implements NewCommandSourceHan
 
     private final TrancheMilestoneEligibilityService eligibilityService;
     private final LoanRepository loanRepository;
+    private final PlatformSecurityContext securityContext;
 
     @Transactional
     @Override
     public CommandProcessingResult processCommand(final JsonCommand command) {
-        final String response = this.eligibilityService.ingest(TrancheMilestoneCommandResults.loanKey(command), command.json());
+        final String response = this.eligibilityService.ingest(TrancheMilestoneCommandResults.loanKey(command), command.json(),
+                this.securityContext.authenticatedUser().getId());
         return TrancheMilestoneCommandResults.result(this.loanRepository, response);
     }
 }

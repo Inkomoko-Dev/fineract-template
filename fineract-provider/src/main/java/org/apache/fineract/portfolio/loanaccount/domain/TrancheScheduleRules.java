@@ -144,6 +144,162 @@ public final class TrancheScheduleRules {
     }
 
     /**
+     * Rewrites the schedule onto principal already disbursed and scales interest by the same ratio.
+     * Runs even when the product has no configured first installment. Principal and interest are not
+     * reduced below amounts already paid, so outstanding principal is disbursed principal minus repayments.
+     */
+    public static void rebaseToDisbursedPrincipal(final Loan loan) {
+        if (loan == null || loan.loanProduct() == null || !loan.isMultiDisburmentLoan()) {
+            return;
+        }
+        final List<LoanRepaymentScheduleInstallment> regular = regularInstallments(loan);
+        if (regular.isEmpty()) {
+            return;
+        }
+        final int digits = loan.getCurrency() == null ? 2 : loan.getCurrency().getDigitsAfterDecimal();
+        final MonetaryCurrency currency = loan.getCurrency();
+        final BigDecimal disbursed = disbursedPrincipal(loan, digits);
+        final BigDecimal previousPrincipal = sumAmounts(principalAmounts(regular, currency));
+        final BigDecimal firstInstallment = configuredFirstRepayment(loan);
+        final Integer grace = loan.repaymentScheduleDetail() == null ? null : loan.repaymentScheduleDetail().graceOnPrincipalPayment();
+        final List<BigDecimal> principals = firstInstallment == null
+                ? proportionalPrincipals(principalAmounts(regular, currency), disbursed, digits)
+                : principalsFromDisbursedTranches(loan, regular, firstInstallment, grace == null ? 0 : grace, digits);
+        final BigDecimal interestRatio = previousPrincipal.signum() == 0 ? BigDecimal.ONE
+                : disbursed.divide(previousPrincipal, 8, RoundingMode.HALF_UP);
+        final BigDecimal previousInterest = sumAmounts(interestAmounts(regular, currency));
+        final BigDecimal targetInterest = previousInterest.multiply(interestRatio).setScale(digits, RoundingMode.HALF_UP);
+        BigDecimal interestAllocated = BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP);
+        for (int i = 0; i < regular.size(); i++) {
+            final LoanRepaymentScheduleInstallment installment = regular.get(i);
+            BigDecimal principal = i < principals.size() ? principals.get(i) : BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP);
+            final BigDecimal principalPaid = installment.getPrincipalCompleted(currency).getAmount();
+            if (principalPaid != null && principal.compareTo(principalPaid) < 0) {
+                principal = principalPaid.setScale(digits, RoundingMode.HALF_UP);
+            }
+            BigDecimal interest;
+            if (i == regular.size() - 1) {
+                interest = targetInterest.subtract(interestAllocated);
+            } else {
+                final BigDecimal charged = installment.getInterestCharged(currency).getAmount();
+                interest = (charged == null ? BigDecimal.ZERO : charged).multiply(interestRatio).setScale(digits, RoundingMode.HALF_UP);
+                interestAllocated = interestAllocated.add(interest);
+            }
+            final BigDecimal interestPaid = installment.getInterestPaid(currency).getAmount();
+            if (interestPaid != null && interest.compareTo(interestPaid) < 0) {
+                interest = interestPaid.setScale(digits, RoundingMode.HALF_UP);
+            }
+            if (interest.signum() < 0) {
+                interest = BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP);
+            }
+            final boolean raisedAbovePaid = principalPaid != null && principal.compareTo(principalPaid) > 0 && installment.isObligationsMet();
+            installment.updatePrincipal(principal);
+            installment.updateInterestCharged(interest.setScale(digits, RoundingMode.HALF_UP));
+            if (raisedAbovePaid) {
+                installment.updateObligationMet(false);
+                installment.updateObligationMetOnDate(null);
+            } else if (currency != null) {
+                installment.updateDerivedFields(currency, loan.getDisbursementDate());
+            }
+        }
+        loan.updateLoanSummaryDerivedFields();
+    }
+
+    /**
+     * Splits {@code total} across the current installment weights. The last installment receives the
+     * rounding remainder so the parts add back to {@code total}.
+     */
+    static List<BigDecimal> proportionalPrincipals(final List<BigDecimal> current, final BigDecimal total, final int digits) {
+        final int count = current == null ? 0 : current.size();
+        if (count == 0) {
+            return List.of();
+        }
+        final BigDecimal target = (total == null ? BigDecimal.ZERO : total.max(BigDecimal.ZERO)).setScale(digits, RoundingMode.HALF_UP);
+        final BigDecimal zero = BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP);
+        BigDecimal previous = BigDecimal.ZERO;
+        for (final BigDecimal value : current) {
+            previous = previous.add(value == null ? BigDecimal.ZERO : value);
+        }
+        final List<BigDecimal> amounts = new ArrayList<>(count);
+        if (previous.signum() <= 0) {
+            for (int i = 0; i < count; i++) {
+                amounts.add(i == count - 1 ? target : zero);
+            }
+            return amounts;
+        }
+        BigDecimal allocated = zero;
+        for (int i = 0; i < count; i++) {
+            if (i == count - 1) {
+                amounts.add(target.subtract(allocated).setScale(digits, RoundingMode.HALF_UP));
+            } else {
+                final BigDecimal share = current.get(i) == null ? BigDecimal.ZERO : current.get(i);
+                final BigDecimal scaled = target.multiply(share).divide(previous, digits, RoundingMode.DOWN);
+                amounts.add(scaled);
+                allocated = allocated.add(scaled);
+            }
+        }
+        return amounts;
+    }
+
+    private static List<LoanRepaymentScheduleInstallment> regularInstallments(final Loan loan) {
+        final List<LoanRepaymentScheduleInstallment> regular = new ArrayList<>();
+        if (loan.getRepaymentScheduleInstallments() == null) {
+            return regular;
+        }
+        for (final LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
+            if (!installment.isRecalculatedInterestComponent()) {
+                regular.add(installment);
+            }
+        }
+        regular.sort(LoanRepaymentScheduleInstallment.installmentNumberComparator);
+        return regular;
+    }
+
+    private static List<BigDecimal> principalAmounts(final List<LoanRepaymentScheduleInstallment> installments,
+            final MonetaryCurrency currency) {
+        final List<BigDecimal> amounts = new ArrayList<>(installments.size());
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            final BigDecimal amount = currency == null || installment.getPrincipal(currency) == null ? BigDecimal.ZERO
+                    : installment.getPrincipal(currency).getAmount();
+            amounts.add(amount == null ? BigDecimal.ZERO : amount);
+        }
+        return amounts;
+    }
+
+    private static List<BigDecimal> interestAmounts(final List<LoanRepaymentScheduleInstallment> installments,
+            final MonetaryCurrency currency) {
+        final List<BigDecimal> amounts = new ArrayList<>(installments.size());
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            final BigDecimal amount = currency == null ? null : installment.getInterestCharged(currency).getAmount();
+            amounts.add(amount == null ? BigDecimal.ZERO : amount);
+        }
+        return amounts;
+    }
+
+    private static BigDecimal sumAmounts(final List<BigDecimal> amounts) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (final BigDecimal amount : amounts) {
+            if (amount != null) {
+                total = total.add(amount);
+            }
+        }
+        return total;
+    }
+
+    private static BigDecimal disbursedPrincipal(final Loan loan, final int digits) {
+        BigDecimal total = BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP);
+        if (loan.getDisbursementDetails() == null) {
+            return total;
+        }
+        for (final LoanDisbursementDetails detail : loan.getDisbursementDetails()) {
+            if (detail.actualDisbursementDate() != null && detail.principal() != null && detail.principal().signum() > 0) {
+                total = total.add(detail.principal().setScale(digits, RoundingMode.HALF_UP));
+            }
+        }
+        return total;
+    }
+
+    /**
      * A regenerated schedule keeps the maturity already stored on the loan unless an officer
      * deliberately moves it. The last installment is moved back to that date when the generator
      * shifted it, provided the date is still after the previous installment.

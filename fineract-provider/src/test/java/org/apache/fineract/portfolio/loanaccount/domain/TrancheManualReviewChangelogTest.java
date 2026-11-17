@@ -35,5 +35,9 @@ class TrancheManualReviewChangelogTest {
         assertTrue(xml.contains("eligibility_deadline_override"));
         assertTrue(xml.contains("cancellation_reason"));
         assertTrue(xml.contains("CANCEL_TRANCHEMILESTONE"));
+        assertTrue(xml.contains("RESCHEDULE_TRANCHEMILESTONE"));
+        assertTrue(xml.contains("submitted_by_user_id"));
+        assertTrue(xml.contains("previous_loan_sub_status_id"));
+        assertTrue(xml.contains("client_ip"));
     }
 }

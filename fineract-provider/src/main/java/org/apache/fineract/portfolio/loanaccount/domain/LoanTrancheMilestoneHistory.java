@@ -107,6 +107,18 @@ public class LoanTrancheMilestoneHistory extends AbstractPersistableCustom {
     @Column(name = "review_decision", length = 32)
     private String reviewDecision;
 
+    @Column(name = "submitted_by_user_id")
+    private Long submittedByUserId;
+
+    @Column(name = "actor_user_id")
+    private Long actorUserId;
+
+    @Column(name = "client_ip", length = 64)
+    private String clientIp;
+
+    @Column(name = "previous_loan_sub_status_id")
+    private Integer previousLoanSubStatusId;
+
     @Column(name = "loan_sub_status_id")
     private Integer loanSubStatusId;
 
@@ -150,5 +162,12 @@ public class LoanTrancheMilestoneHistory extends AbstractPersistableCustom {
         this.cancelledBy = milestone.getCancelledBy();
         this.cancelledOn = milestone.getCancelledOn();
         this.reviewDecision = milestone.getReviewDecision();
+        this.submittedByUserId = milestone.getSubmittedByUserId();
+    }
+
+    public void stamp(final Long actorUserId, final String clientIp, final Integer previousLoanSubStatusId) {
+        this.actorUserId = actorUserId;
+        this.clientIp = clientIp;
+        this.previousLoanSubStatusId = previousLoanSubStatusId;
     }
 }

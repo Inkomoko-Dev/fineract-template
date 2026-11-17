@@ -31,7 +31,9 @@ public enum LoanSubStatus {
     AWAITING_SURVEY(420, "loanSubStatusType.awaiting.survey"),
     SURVEY_SUCCESSFUL(430, "loanSubStatusType.survey.successful"),
     EXPIRED(440, "loanSubStatusType.expired"),
-    REQUIRES_REVIEW(450, "loanSubStatusType.requires.review"),;
+    REQUIRES_REVIEW(450, "loanSubStatusType.requires.review"),
+    TRANCHE_CANCELLED(460, "loanSubStatusType.tranche.cancelled"),
+    TRANCHE_RESCHEDULED(470, "loanSubStatusType.tranche.rescheduled"),;
 
     private final Integer value;
     private final String code;
@@ -66,6 +68,12 @@ public enum LoanSubStatus {
             break;
             case 450:
                 enumeration = LoanSubStatus.REQUIRES_REVIEW;
+            break;
+            case 460:
+                enumeration = LoanSubStatus.TRANCHE_CANCELLED;
+            break;
+            case 470:
+                enumeration = LoanSubStatus.TRANCHE_RESCHEDULED;
             break;
         }
         return enumeration;
@@ -148,6 +156,14 @@ public enum LoanSubStatus {
             case REQUIRES_REVIEW:
                 optionData = new EnumOptionData(LoanSubStatus.REQUIRES_REVIEW.getValue().longValue(),
                         codePrefix + LoanSubStatus.REQUIRES_REVIEW.getCode(), "Manual review");
+            break;
+            case TRANCHE_CANCELLED:
+                optionData = new EnumOptionData(LoanSubStatus.TRANCHE_CANCELLED.getValue().longValue(),
+                        codePrefix + LoanSubStatus.TRANCHE_CANCELLED.getCode(), "Tranche cancelled");
+            break;
+            case TRANCHE_RESCHEDULED:
+                optionData = new EnumOptionData(LoanSubStatus.TRANCHE_RESCHEDULED.getValue().longValue(),
+                        codePrefix + LoanSubStatus.TRANCHE_RESCHEDULED.getCode(), "Rescheduled");
             break;
             default:
                 optionData = new EnumOptionData(LoanSubStatus.INVALID.getValue().longValue(), LoanSubStatus.INVALID.getCode(), "Invalid");

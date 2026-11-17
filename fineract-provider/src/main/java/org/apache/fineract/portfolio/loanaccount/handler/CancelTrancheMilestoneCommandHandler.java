@@ -46,7 +46,7 @@ public class CancelTrancheMilestoneCommandHandler implements NewCommandSourceHan
         final String cancelledBy = user.getDisplayName() == null || user.getDisplayName().isBlank() ? user.getUsername()
                 : user.getDisplayName();
         final String response = this.eligibilityService.cancelUndisbursed(TrancheMilestoneCommandResults.loanKey(command), command.json(),
-                cancelledBy);
+                cancelledBy, user.getId());
         return TrancheMilestoneCommandResults.result(this.loanRepository, response);
     }
 }

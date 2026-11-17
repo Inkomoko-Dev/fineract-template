@@ -46,7 +46,7 @@ public class ApproveTrancheMilestoneCommandHandler implements NewCommandSourceHa
         final String approvedBy = user.getDisplayName() == null || user.getDisplayName().isBlank() ? user.getUsername()
                 : user.getDisplayName();
         final String response = this.eligibilityService.approveDeadlineException(TrancheMilestoneCommandResults.loanKey(command),
-                command.json(), approvedBy);
+                command.json(), approvedBy, user.getId());
         return TrancheMilestoneCommandResults.result(this.loanRepository, response);
     }
 }
