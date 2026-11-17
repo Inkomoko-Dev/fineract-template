@@ -295,8 +295,9 @@ public class LoanLateFeeRectifyService {
 
     /**
      * Single source of truth: active penalty charges. Normalize each charge so
-     * {@code amount = paid + waived + writtenOff + outstanding}, push those figures onto the schedule, then set loan
-     * summary penalty Original / Paid / Outstanding from the same charge sums so Charges and Summary always tally.
+     * {@code amount = paid + waived + writtenOff + outstanding}, zero all schedule penalty columns (including
+     * recalculated-interest rows), push charge figures onto real installments, then set loan summary penalty Original /
+     * Paid / Outstanding from the same charge sums so Charges, Schedule and Summary tally.
      */
     private Map<String, BigDecimal> syncPenaltiesFromActiveCharges(final Long loanId) {
         normalizeActivePenaltyCharges(loanId);
@@ -334,11 +335,13 @@ public class LoanLateFeeRectifyService {
     }
 
     private void rebuildSchedulePenaltiesFromActiveCharges(final Long loanId) {
+        // Clear every schedule row — including recalculated-interest / post-maturity penalty-only installments.
+        // Leaving those uncleared made Schedule Penalties (e.g. +30,000.06) exceed Summary Original from charges.
         this.jdbcTemplate.update(
                 "update m_loan_repayment_schedule set penalty_charges_amount = 0,"
                         + " penalty_charges_completed_derived = 0, penalty_charges_waived_derived = 0,"
                         + " penalty_charges_writtenoff_derived = 0"
-                        + " where loan_id = ? and recalculated_interest_component = 0",
+                        + " where loan_id = ?",
                 loanId);
 
         final List<Map<String, Object>> activePenalties = this.jdbcTemplate.queryForList(
