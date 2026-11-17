@@ -89,6 +89,8 @@ public class LoanLateFeeRectifyService {
 
         newRequiresNew().execute(status -> {
             this.jdbcTemplate.update("update m_loan_daily_late_fee set is_active = 0 where loan_id = ? and is_active = 1", loanId);
+            // Schedule Original/Paid/Outstanding must match remaining active charges (not leftover daily rows).
+            rebuildSchedulePenaltiesFromActiveCharges(loanId);
             refreshLoanPenaltySummary(loanId);
             return null;
         });
@@ -204,10 +206,7 @@ public class LoanLateFeeRectifyService {
     private boolean removeDailyChargeQuietly(final RectifyContext ctx, final Long loanChargeId) {
         return Boolean.TRUE.equals(newRequiresNew().execute(status -> {
             final List<Map<String, Object>> rows = this.jdbcTemplate.queryForList(
-                    "select lc.id, coalesce(lc.amount_outstanding_derived, 0) as amount_outstanding,"
-                            + " coalesce(lc.amount_paid_derived, 0) as amount_paid,"
-                            + " coalesce(lc.amount, 0) as amount, lc.due_for_collection_as_of_date as due_date,"
-                            + " lc.is_active, lc.waived"
+                    "select lc.id, lc.is_active, lc.waived"
                             + " from m_loan_charge lc where lc.id = ? and lc.loan_id = ?",
                     loanChargeId, ctx.loanId);
             if (rows.isEmpty()) {
@@ -218,24 +217,10 @@ public class LoanLateFeeRectifyService {
                 return false;
             }
 
-            final BigDecimal amountPaid = (BigDecimal) row.get("amount_paid");
-            final BigDecimal amountOutstanding = (BigDecimal) row.get("amount_outstanding");
-            final BigDecimal chargeAmount = (BigDecimal) row.get("amount");
-            final LocalDate dueDate = toLocalDate(row.get("due_date"));
-
             this.jdbcTemplate.update(
                     "update m_loan_charge set is_active = 0, amount_outstanding_derived = 0 where id = ?", loanChargeId);
             deleteChargeChildren(loanChargeId);
-
-            if (amountPaid.compareTo(BigDecimal.ZERO) > 0) {
-                removePaidChargeFromSchedule(ctx.loanId, dueDate, chargeAmount, amountPaid);
-            } else if (amountOutstanding.compareTo(BigDecimal.ZERO) > 0) {
-                // Unpaid daily: take the charge off the schedule (no waive txn).
-                reduceScheduleCharged(ctx.loanId, dueDate, chargeAmount);
-            } else {
-                reduceScheduleCharged(ctx.loanId, dueDate, chargeAmount);
-            }
-
+            // Schedule totals are rebuilt from active charges after all daily rows are removed.
             reverseAccrualsForCharge(loanChargeId);
             return true;
         }));
@@ -257,55 +242,68 @@ public class LoanLateFeeRectifyService {
         this.jdbcTemplate.update("delete from m_loan_installment_charge where loan_charge_id = ?", loanChargeId);
     }
 
+    /**
+     * Map a charge/posting date onto the overdue installment (due on or before that date), not the next one.
+     */
     private Long findScheduleId(final Long loanId, final LocalDate dueDate) {
         if (dueDate == null) {
             return null;
         }
         final List<Long> scheduleIds = this.jdbcTemplate.queryForList(
                 "select id from m_loan_repayment_schedule where loan_id = ? and recalculated_interest_component = 0"
-                        + " and duedate >= ? order by duedate, installment limit 1",
+                        + " and duedate <= ? order by duedate desc, installment desc limit 1",
                 Long.class, loanId, dueDate);
         if (!scheduleIds.isEmpty()) {
             return scheduleIds.get(0);
         }
         final List<Long> fallback = this.jdbcTemplate.queryForList(
                 "select id from m_loan_repayment_schedule where loan_id = ? and recalculated_interest_component = 0"
-                        + " and duedate <= ? order by duedate desc, installment desc limit 1",
+                        + " and duedate >= ? order by duedate, installment limit 1",
                 Long.class, loanId, dueDate);
         return fallback.isEmpty() ? null : fallback.get(0);
     }
 
-    private void reduceScheduleCharged(final Long loanId, final LocalDate dueDate, final BigDecimal chargeAmount) {
-        if (chargeAmount == null || chargeAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            return;
-        }
-        final Long scheduleId = findScheduleId(loanId, dueDate);
-        if (scheduleId == null) {
-            return;
-        }
+    /**
+     * Reset schedule penalty columns and re-apply from active (non-waived) penalty charges so loan summary
+     * Original / Paid / Outstanding match the Charges tab after daily late fees were removed.
+     */
+    private void rebuildSchedulePenaltiesFromActiveCharges(final Long loanId) {
         this.jdbcTemplate.update(
-                "update m_loan_repayment_schedule set"
-                        + " penalty_charges_amount = greatest(0, coalesce(penalty_charges_amount, 0) - ?)"
-                        + " where id = ?",
-                chargeAmount, scheduleId);
-    }
+                "update m_loan_repayment_schedule set penalty_charges_amount = 0,"
+                        + " penalty_charges_completed_derived = 0, penalty_charges_waived_derived = 0,"
+                        + " penalty_charges_writtenoff_derived = 0"
+                        + " where loan_id = ? and recalculated_interest_component = 0",
+                loanId);
 
-    private void removePaidChargeFromSchedule(final Long loanId, final LocalDate dueDate, final BigDecimal chargeAmount,
-            final BigDecimal amountPaid) {
-        if (chargeAmount == null || chargeAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            return;
+        final List<Map<String, Object>> activePenalties = this.jdbcTemplate.queryForList(
+                "select coalesce(lc.amount, 0) as amount,"
+                        + " coalesce(lc.amount_paid_derived, 0) as amount_paid,"
+                        + " coalesce(lc.amount_waived_derived, 0) as amount_waived,"
+                        + " coalesce(lc.amount_writtenoff_derived, 0) as amount_writtenoff,"
+                        + " lc.due_for_collection_as_of_date as due_date"
+                        + " from m_loan_charge lc"
+                        + " where lc.loan_id = ? and lc.is_penalty = 1 and lc.is_active = 1 and lc.waived = 0",
+                loanId);
+
+        for (final Map<String, Object> charge : activePenalties) {
+            final Long scheduleId = findScheduleId(loanId, toLocalDate(charge.get("due_date")));
+            if (scheduleId == null) {
+                continue;
+            }
+            final BigDecimal amount = toBigDecimal(charge.get("amount"));
+            final BigDecimal paid = toBigDecimal(charge.get("amount_paid"));
+            final BigDecimal waived = toBigDecimal(charge.get("amount_waived"));
+            final BigDecimal writtenOff = toBigDecimal(charge.get("amount_writtenoff"));
+            this.jdbcTemplate.update(
+                    "update m_loan_repayment_schedule set"
+                            + " penalty_charges_amount = coalesce(penalty_charges_amount, 0) + ?,"
+                            + " penalty_charges_completed_derived = coalesce(penalty_charges_completed_derived, 0) + ?,"
+                            + " penalty_charges_waived_derived = coalesce(penalty_charges_waived_derived, 0) + ?,"
+                            + " penalty_charges_writtenoff_derived = coalesce(penalty_charges_writtenoff_derived, 0) + ?"
+                            + " where id = ?",
+                    amount == null ? BigDecimal.ZERO : amount, paid == null ? BigDecimal.ZERO : paid,
+                    waived == null ? BigDecimal.ZERO : waived, writtenOff == null ? BigDecimal.ZERO : writtenOff, scheduleId);
         }
-        final Long scheduleId = findScheduleId(loanId, dueDate);
-        if (scheduleId == null) {
-            return;
-        }
-        final BigDecimal paid = amountPaid == null ? BigDecimal.ZERO : amountPaid;
-        this.jdbcTemplate.update(
-                "update m_loan_repayment_schedule set"
-                        + " penalty_charges_amount = greatest(0, coalesce(penalty_charges_amount, 0) - ?),"
-                        + " penalty_charges_completed_derived = greatest(0, coalesce(penalty_charges_completed_derived, 0) - ?)"
-                        + " where id = ?",
-                chargeAmount, paid, scheduleId);
     }
 
     private void refreshLoanPenaltySummary(final Long loanId) {
