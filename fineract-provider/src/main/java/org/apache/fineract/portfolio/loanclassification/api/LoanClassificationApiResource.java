@@ -72,7 +72,7 @@ public class LoanClassificationApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieve(@PathParam("loanId") final Long loanId, @Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_LOANCLASSIFICATION");
+        this.context.authenticatedUser().validateHasReadPermission("LOANCLASSIFICATION");
         final LoanClassificationData data = this.readPlatformService.retrieveLoanClassification(loanId);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.toApiJsonSerializer.serialize(settings, data);
@@ -83,7 +83,7 @@ public class LoanClassificationApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveAudit(@PathParam("loanId") final Long loanId, @Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_LOANCLASSIFICATION");
+        this.context.authenticatedUser().validateHasReadPermission("LOANCLASSIFICATION");
         final Collection<LoanClassificationAuditData> data = this.readPlatformService.retrieveLoanAudit(loanId);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.toApiJsonSerializer.serialize(settings, data);
