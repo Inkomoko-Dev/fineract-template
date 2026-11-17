@@ -53,6 +53,7 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionPolicy;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.VerifyRequest;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLogReader;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionPolicyWorkflow;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionService;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -73,6 +74,7 @@ public class CreditDecisionApiResource {
 
     private final PlatformSecurityContext context;
     private final CreditDecisionService service;
+    private final CreditDecisionPolicyWorkflow workflow;
     private final CreditDecisionLogReader logReader;
     private final CreditDecisionLoanService loanService;
     private final DefaultToApiJsonSerializer<Object> toApiJsonSerializer;
@@ -122,7 +124,7 @@ public class CreditDecisionApiResource {
     @Operation(summary = "List decision profiles with their versions")
     public String profiles() {
         read();
-        return toApiJsonSerializer.serialize(service.profiles());
+        return toApiJsonSerializer.serialize(workflow.profiles());
     }
 
     @GET
@@ -131,7 +133,7 @@ public class CreditDecisionApiResource {
     @Operation(summary = "Retrieve one decision profile with its versions")
     public String profile(@PathParam("profileId") final Long profileId) {
         read();
-        return toApiJsonSerializer.serialize(service.profile(profileId));
+        return toApiJsonSerializer.serialize(workflow.profile(profileId));
     }
 
     @GET
@@ -188,23 +190,23 @@ public class CreditDecisionApiResource {
     @Path("profiles/{profileId}/versions/{versionNo}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Move a version along: command=submit, withdraw, approve or reject")
+    @Operation(summary = "Move a version along: command=submit (files a task in the Checker Inbox), withdraw, approve or reject (the checker's answer to that task)")
     public String command(@PathParam("profileId") final Long profileId, @PathParam("versionNo") final int versionNo,
             @QueryParam("command") @DefaultValue("") final String command, final String body) {
         final CommandRequest request = parse(body, CommandRequest.class);
         switch (command) {
             case "submit":
                 change();
-                return toApiJsonSerializer.serialize(service.submit(profileId, versionNo, request.getReason()));
+                return toApiJsonSerializer.serialize(workflow.submit(profileId, versionNo, request.getReason()));
             case "withdraw":
                 change();
-                return toApiJsonSerializer.serialize(service.withdraw(profileId, versionNo));
+                return toApiJsonSerializer.serialize(workflow.withdraw(profileId, versionNo));
             case "approve":
                 approve();
-                return toApiJsonSerializer.serialize(service.approve(profileId, versionNo));
+                return toApiJsonSerializer.serialize(workflow.approve(profileId, versionNo));
             case "reject":
                 approve();
-                return toApiJsonSerializer.serialize(service.reject(profileId, versionNo, request.getReason()));
+                return toApiJsonSerializer.serialize(workflow.reject(profileId, versionNo, request.getReason()));
             default:
                 throw new UnrecognizedQueryParamException("command", command, "submit", "withdraw", "approve", "reject");
         }

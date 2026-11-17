@@ -109,6 +109,9 @@ class CreditDecisionServiceDbTest {
                 + "is_misfired TINYINT(1), node_id INT, is_mismatched_job TINYINT(1))");
         jdbc.execute("CREATE TABLE m_role (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100))");
         jdbc.execute("CREATE TABLE m_role_permission (role_id BIGINT, permission_id BIGINT)");
+        jdbc.execute("CREATE TABLE m_appuser (id BIGINT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(100))");
+        jdbc.execute("CREATE TABLE m_portfolio_command_source (id BIGINT AUTO_INCREMENT PRIMARY KEY, action_name VARCHAR(100), "
+                + "entity_name VARCHAR(100), maker_id BIGINT, checker_id BIGINT NULL, processing_result_enum INT)");
         jdbc.execute("CREATE TABLE c_configuration (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), value BIGINT NULL, "
                 + "date_value DATE NULL, string_value VARCHAR(100) NULL, enabled TINYINT(1), is_trap_door TINYINT(1), "
                 + "description VARCHAR(500))");
@@ -121,6 +124,9 @@ class CreditDecisionServiceDbTest {
                 new FileSystemResourceAccessor(new File("src/main/resources/db/changelog/tenant/parts")), database).update("");
         // the decision log also keeps the risk tier, maximum exposure and model version, which the loan migration adds
         new Liquibase("CGLT-846_loan_credit_decision.xml",
+                new FileSystemResourceAccessor(new File("src/main/resources/db/changelog/tenant/parts")), database).update("");
+
+        new Liquibase("CGLT-846_policy_maker_checker.xml",
                 new FileSystemResourceAccessor(new File("src/main/resources/db/changelog/tenant/parts")), database).update("");
 
         context = mock(PlatformSecurityContext.class);
@@ -171,9 +177,9 @@ class CreditDecisionServiceDbTest {
     @Test
     void migrationCreatesTablesPermissionsAndTheConnectionRow() {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM m_credit_decision_connection", Integer.class));
-        assertEquals(5, jdbc.queryForObject("SELECT COUNT(*) FROM m_permission WHERE entity_name LIKE 'CREDITDECISION%' AND entity_name <> 'CREDITDECISIONLOAN'", Integer.class));
-        assertEquals(8, jdbc.queryForObject("SELECT COUNT(*) FROM m_role_permission", Integer.class),
-                "the 5 profile permissions and the 3 per-loan ones, since the loan migration is loaded too");
+        assertEquals(7, jdbc.queryForObject("SELECT COUNT(*) FROM m_permission WHERE entity_name LIKE 'CREDITDECISION%' AND entity_name <> 'CREDITDECISIONLOAN'", Integer.class));
+        assertEquals(10, jdbc.queryForObject("SELECT COUNT(*) FROM m_role_permission", Integer.class),
+                "the 5 profile permissions, the 3 per-loan ones and the 2 for activation through the Checker Inbox");
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM c_configuration WHERE name = 'credit-decision-allow-self-approval'",
                 Integer.class));
         assertFalse(service.connection().isEnabled());

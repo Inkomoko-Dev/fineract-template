@@ -1259,6 +1259,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    /** Makes a credit decision policy version the live one. A checker has to approve it. */
+    public CommandWrapperBuilder activateCreditDecisionVersion(final Long profileId) {
+        this.actionName = "ACTIVATE";
+        this.entityName = "CREDITDECISION";
+        this.entityId = profileId;
+        this.href = "/creditdecision/profiles/" + profileId;
+        return this;
+    }
+
     public CommandWrapperBuilder approveLoanApplication(final Long loanId) {
         this.actionName = "APPROVE";
         this.entityName = "LOAN";
