@@ -38,10 +38,14 @@ import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
+import org.apache.fineract.portfolio.account.service.AccountTransfersWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
+import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -53,8 +57,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Late-fee repair: remove daily late-fee charge rows (without creating a waive txn per day), keep existing monthly
  * penalties, rebuild schedule totals from active charges, and gap-fill missing monthlies on the product charge cadence
- * (% Amount, fee frequency/interval) through the business date while overdue principal remains. Then refresh loan
- * summary and {@code m_loan_arrears_aging}. Independent of {@link LoanDailyLateFeeService}.
+ * (% Amount, fee frequency/interval) through the business date while overdue principal remains. Then reprocess
+ * repayments so Summary Paid matches transaction allocations against the cleaned charge set, and refresh
+ * {@code m_loan_arrears_aging}. Independent of {@link LoanDailyLateFeeService}.
  */
 @Service
 @RequiredArgsConstructor
@@ -71,6 +76,8 @@ public class LoanLateFeeRectifyService {
     private final JournalEntryWritePlatformService journalEntryWritePlatformService;
     private final LoanAssembler loanAssembler;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
+    private final LoanTransactionRepository loanTransactionRepository;
+    private final AccountTransfersWritePlatformService accountTransfersWritePlatformService;
     private final LoanArrearsAgingService loanArrearsAgingService;
 
     public CommandProcessingResult rectifyLateFeesForLoan(final Long loanId) {
@@ -96,7 +103,7 @@ public class LoanLateFeeRectifyService {
         });
 
         final int posted = postMissingMonthlyPenalties(ctx);
-        refreshSummaryAndArrears(loanId);
+        final boolean repaymentsReprocessed = refreshSummaryAndArrears(loanId);
 
         changes.put("removedDailyCharges", removedDaily);
         changes.put("postedMonthlyCharges", posted);
@@ -105,6 +112,7 @@ public class LoanLateFeeRectifyService {
         changes.put("penaltyPercentFromCharge", ctx.monthlyRate);
         changes.put("feeIntervalMonths", ctx.monthInterval);
         changes.put("penaltyGraceDays", ctx.gracePeriod);
+        changes.put("repaymentsReprocessed", repaymentsReprocessed);
         changes.put("arrearsRefreshed", true);
         changes.put("recomputed", true);
         return new CommandProcessingResultBuilder().withLoanId(loanId).with(changes).build();
@@ -339,19 +347,31 @@ public class LoanLateFeeRectifyService {
                 + " where l.id = ?", loanId);
     }
 
-    private void refreshSummaryAndArrears(final Long loanId) {
-        newRequiresNew().execute(status -> {
+    /**
+     * Replays non-reversed post-disbursement transactions against the cleaned charge set so Summary Paid (especially
+     * penalties) matches repayment allocations. Cash received is not reversed — only component split is recalculated.
+     */
+    private boolean refreshSummaryAndArrears(final Long loanId) {
+        return Boolean.TRUE.equals(newRequiresNew().execute(status -> {
             final Loan loan = this.loanAssembler.assembleFrom(loanId);
+            final ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
+            if (changedTransactionDetail != null) {
+                for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
+                    this.loanTransactionRepository.save(mapEntry.getValue());
+                    loan.addLoanTransaction(mapEntry.getValue());
+                    this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
+                }
+            }
             loan.updateLoanSummaryDerivedFields();
-            this.loanRepositoryWrapper.save(loan);
+            this.loanRepositoryWrapper.saveAndFlush(loan);
             if (loan.isOpen() && loan.repaymentScheduleDetail().isInterestRecalculationEnabled()
                     && loan.loanProduct().isArrearsBasedOnOriginalSchedule()) {
                 this.loanArrearsAgingService.updateLoanArrearsAgeingDetailsWithOriginalSchedule(loan);
             } else {
                 this.loanArrearsAgingService.updateLoanArrearsAgeingDetails(loan);
             }
-            return null;
-        });
+            return true;
+        }));
     }
 
     /**
