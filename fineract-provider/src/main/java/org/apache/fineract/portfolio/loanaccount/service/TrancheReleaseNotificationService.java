@@ -133,14 +133,20 @@ public class TrancheReleaseNotificationService {
     }
 
     /**
-     * The repayment transaction has already committed before the email is attempted. The notice row is written
-     * only after a successful send, so a missing address or a mail failure can be retried on the next repayment.
+     * The repayment transaction has already committed before the email is attempted. EclipseLink closes that
+     * connection on commit, so the SMTP lookup and the notice read/write each run in a new transaction. The notice
+     * row is written only after a successful send, so a missing address or a mail failure can be retried on the
+     * next repayment.
      */
     private void sendNoticeAfterCommit(final Long loanId, final Long disbursementDetailId, final BooleanSupplier sender) {
         AfterCommitExecutor.execute(() -> {
             final boolean alreadyNotified = Boolean.TRUE.equals(inNewTransaction(
                     () -> this.noticeRepository.existsByLoanIdAndDisbursementDetailId(loanId, disbursementDetailId)));
-            if (alreadyNotified || !sender.getAsBoolean()) {
+            if (alreadyNotified) {
+                return;
+            }
+            final boolean sent = Boolean.TRUE.equals(inNewTransaction(sender::getAsBoolean));
+            if (!sent) {
                 return;
             }
             inNewTransaction(() -> {
