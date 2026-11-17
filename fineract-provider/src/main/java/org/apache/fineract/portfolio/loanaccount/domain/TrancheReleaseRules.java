@@ -167,7 +167,7 @@ public final class TrancheReleaseRules {
     }
 
     public static Assessment assess(final Loan loan) {
-        if (loan == null || loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan()) {
+        if (loan == null || loan.loanProduct() == null || !loan.isMultiDisburmentLoan()) {
             return null;
         }
         final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();

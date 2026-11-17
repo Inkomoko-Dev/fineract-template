@@ -23,6 +23,7 @@ public interface LoanApiConstants {
     String emiAmountParameterName = "fixedEmiAmount";
     String maxOutstandingBalanceParameterName = "maxOutstandingLoanBalance";
     String disbursementDataParameterName = "disbursementData";
+    String multiDisburseLoanParameterName = "multiDisburseLoan";
     String disbursementDateParameterName = "expectedDisbursementDate";
     String disbursementPrincipalParameterName = "principal";
     String disbursementNetDisbursalAmountParameterName = "netDisbursalAmount";

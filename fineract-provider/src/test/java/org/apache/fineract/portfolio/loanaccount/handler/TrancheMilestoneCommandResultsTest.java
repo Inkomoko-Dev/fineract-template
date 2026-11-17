@@ -1,0 +1,39 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.fineract.portfolio.loanaccount.handler;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import com.google.gson.JsonParser;
+import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.junit.jupiter.api.Test;
+
+public class TrancheMilestoneCommandResultsTest {
+
+    @Test
+    public void loanKeyStaysTheAccountNumberOrIdFromTheExistingPath() {
+        assertEquals("000123", TrancheMilestoneCommandResults.loanKey(command("/loans/000123/tranche-milestones")));
+        assertEquals("42", TrancheMilestoneCommandResults.loanKey(command("/loans/42/tranche-milestones/deadline-exception")));
+    }
+
+    private static JsonCommand command(final String url) {
+        return JsonCommand.from("{}", JsonParser.parseString("{}"), null, "TRANCHEMILESTONE", null, null, null, null, null, null, null,
+                url, null, null, null);
+    }
+}

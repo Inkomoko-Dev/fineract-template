@@ -510,6 +510,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         updateLoanCounters(loan, actualDisbursementDate);
         Money amountBeforeAdjust = loan.getPrincpal();
         loan.validateAccountStatus(LoanEvent.LOAN_DISBURSED);
+        validateTrancheManualReviewAllowsDisbursement(loan);
         boolean canDisburse = loan.canDisburse(actualDisbursementDate);
         ChangedTransactionDetail changedTransactionDetail = null;
         if (canDisburse) {
@@ -1178,7 +1179,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
             final LocalDate transactionDate = command.localDateValueOfParameterNamed("transactionDate");
             final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
-            if (repaymentTransactionType.isRepayment() && loan.loanProduct().isMultiDisburseLoan()) {
+            if (repaymentTransactionType.isRepayment() && loan.isMultiDisburmentLoan()) {
                 final ScheduleGeneratorDTO repaymentScheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
                 final BigDecimal maximumRepaymentAmount = loan.fetchPrepaymentDetail(repaymentScheduleGeneratorDTO, transactionDate)
                         .getTotalOutstanding(loan.getCurrency()).getAmount();
@@ -1188,7 +1189,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                             maximumRepaymentAmount);
                 }
             }
-            if (repaymentTransactionType.isPayOff() && loan.loanProduct().isMultiDisburseLoan()) {
+            if (repaymentTransactionType.isPayOff() && loan.isMultiDisburmentLoan()) {
                 final ScheduleGeneratorDTO payoffScheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
                 final BigDecimal maximumPayoffAmount = loan.fetchPrepaymentDetail(payoffScheduleGeneratorDTO, transactionDate)
                         .getTotalOutstanding(loan.getCurrency()).getAmount();
@@ -3715,7 +3716,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         checkClientOrGroupActive(loan);
         final Map<String, Object> actualChanges = new LinkedHashMap<>();
         LocalDate expectedDisbursementDate = loan.getExpectedDisbursedOnLocalDate();
-        if (!loan.loanProduct().isMultiDisburseLoan()) {
+        if (!loan.isMultiDisburmentLoan()) {
             final String errorMessage = "loan.product.does.not.support.multiple.disbursals";
             throw new LoanMultiDisbursementException(errorMessage);
         }
@@ -3771,7 +3772,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         } else {
             // For multi-disbursement loans, sum the actual disbursed amounts
             // For single disbursement loans, use approved principal
-            if (loan.loanProduct().isMultiDisburseLoan()) {
+            if (loan.isMultiDisburmentLoan()) {
                 Collection<LoanDisbursementDetails> loanDisburseDetails = loan.getDisbursementDetails();
                 BigDecimal setAmount = BigDecimal.ZERO;
                 for (LoanDisbursementDetails details : loanDisburseDetails) {
@@ -4215,7 +4216,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
 
         // Update disbursement details
-        if (!loan.loanProduct().isMultiDisburseLoan()
+        if (!loan.isMultiDisburmentLoan()
                 && this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
             final String mfiCode = command.stringValueOfParameterNamed(LoanApiConstants.mfiCodeParameterName);
             final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
@@ -4347,6 +4348,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     public CommandProcessingResult disburseRequestLoan(Long loanId, JsonCommand command) {
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
         loan.alignUndisbursedTranchesToApprovedPrincipal();
+        validateTrancheManualReviewAllowsDisbursement(loan);
         this.thirdPartySupplierDisbursementGuard.assertPartnerInstructionReceivedBeforeStaffDisbursement(loan);
         final LocalDate actualDisbursementDate = command.localDateValueOfParameterNamed("actualDisbursementDate");
         final Map<String, Object> entityChanges = new LinkedHashMap<>();
@@ -4504,6 +4506,31 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             return "SOUTH SUDAN".equalsIgnoreCase(StringUtils.normalizeSpace(loanDueDiligenceInfo.getCountry().label()));
         }
         return "SSP".equalsIgnoreCase(loan.getPrincpal().getCurrencyCode());
+    }
+
+    /**
+     * A subsequent tranche stuck in manual review or expired cannot be released until a reviewer
+     * extends the deadline or cancels the remaining commitment.
+     */
+    private void validateTrancheManualReviewAllowsDisbursement(final Loan loan) {
+        if (loan == null || !loan.isMultiDisburmentLoan() || loan.getNextUndisbursedDisbursementDetail() == null) {
+            return;
+        }
+        final boolean hasDisbursed = loan.getDisbursementDetails() != null
+                && loan.getDisbursementDetails().stream().anyMatch(detail -> detail.actualDisbursementDate() != null);
+        if (!hasDisbursed) {
+            return;
+        }
+        final Integer raw = loan.getLoanSubStatus();
+        if (raw == null) {
+            return;
+        }
+        final LoanSubStatus status = LoanSubStatus.fromInt(raw);
+        if (status == LoanSubStatus.REQUIRES_REVIEW || status == LoanSubStatus.EXPIRED
+                || status == LoanSubStatus.TRANCHE_RESCHEDULED || status == LoanSubStatus.TRANCHE_CANCELLED) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.tranche.manual.review.blocks.disbursement",
+                    "This loan is in manual review. Extend the deadline, reschedule, or cancel the undisbursed tranche before disbursing.");
+        }
     }
 
     @Override

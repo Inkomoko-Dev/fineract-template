@@ -268,6 +268,17 @@ class TrancheScheduleRulesTest {
                 LocalDate.of(2027, 2, 1), LocalDate.of(2026, 12, 1)));
     }
 
+    @Test
+    void proportionalPrincipalsScaleToDisbursedPrincipalAndPutTheRemainderOnTheLastInstallment() {
+        final List<BigDecimal> scaled = TrancheScheduleRules.proportionalPrincipals(
+                List.of(new BigDecimal("100"), new BigDecimal("100"), new BigDecimal("100")), new BigDecimal("200"), 2);
+
+        assertEquals(new BigDecimal("66.66"), scaled.get(0));
+        assertEquals(new BigDecimal("66.66"), scaled.get(1));
+        assertEquals(new BigDecimal("66.68"), scaled.get(2));
+        assertEquals(new BigDecimal("200.00"), sum(scaled));
+    }
+
     private static BigDecimal sum(final List<BigDecimal> amounts) {
         BigDecimal total = BigDecimal.ZERO;
         for (final BigDecimal amount : amounts) {

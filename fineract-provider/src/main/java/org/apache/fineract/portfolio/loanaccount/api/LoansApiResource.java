@@ -801,7 +801,7 @@ public class LoansApiResource {
 
             fundOptions = this.fundReadPlatformService.retrieveAllFunds();
             repaymentStrategyOptions = this.dropdownReadPlatformService.retreiveTransactionProcessingStrategies();
-            if (product.getMultiDisburseLoan()) {
+            if (loanBasicDetails.isMultiDisburseLoan()) {
                 chargeOptions = this.chargeReadPlatformService.retrieveLoanAccountApplicableCharges(loanId,
                         new ChargeTimeType[] { ChargeTimeType.OVERDUE_INSTALLMENT });
             } else {

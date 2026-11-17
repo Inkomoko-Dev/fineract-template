@@ -49,6 +49,7 @@ import org.apache.fineract.portfolio.accountdetails.domain.AccountType;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanMultiDisburseChoice;
 import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
 import org.apache.fineract.portfolio.loanaccount.domain.TrancheScheduleRules;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
@@ -186,7 +187,8 @@ public class LoanScheduleCalculationPlatformServiceImpl implements LoanScheduleC
 
     private LoanScheduleModel applyLoanTranchePreview(final LoanScheduleModel model, final JsonElement element,
             final LoanProduct loanProduct) {
-        if (model == null || loanProduct == null || !loanProduct.isMultiDisburseLoan()) {
+        if (model == null || loanProduct == null || !LoanMultiDisburseChoice.selected(loanProduct.isMultiDisburseLoan(),
+                LoanMultiDisburseChoice.requested(this.fromJsonHelper, element))) {
             return model;
         }
         BigDecimal requestRepayment = null;
@@ -294,7 +296,7 @@ public class LoanScheduleCalculationPlatformServiceImpl implements LoanScheduleC
             return;
         }
 
-        if (loan.loanProduct().isMultiDisburseLoan()) {
+        if (loan.isMultiDisburmentLoan()) {
             BigDecimal disbursedAmount = loan.getDisbursedAmount();
             BigDecimal principalRepaid = loan.getLoanSummary().getTotalPrincipalRepaid();
             BigDecimal principalWrittenOff = loan.getLoanSummary().getTotalPrincipalWrittenOff();

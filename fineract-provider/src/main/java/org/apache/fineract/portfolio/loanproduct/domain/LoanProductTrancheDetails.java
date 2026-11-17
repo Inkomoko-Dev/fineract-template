@@ -63,6 +63,9 @@ public class LoanProductTrancheDetails {
     @Column(name = "require_milestone_survey")
     private boolean requireMilestoneSurvey;
 
+    @Column(name = "block_application_while_unsettled")
+    private boolean blockApplicationWhileUnsettled;
+
     protected LoanProductTrancheDetails() {
         // TODO Auto-generated constructor stub
     }
@@ -108,6 +111,7 @@ public class LoanProductTrancheDetails {
             this.firstTrancheAsPercentage = null;
             this.firstTrancheAmount = null;
             this.requireMilestoneSurvey = false;
+            this.blockApplicationWhileUnsettled = false;
         }
     }
 
@@ -180,6 +184,16 @@ public class LoanProductTrancheDetails {
                 }
             }
         }
+        if (command.parameterExists(LoanProductConstants.BLOCK_APPLICATION_WHILE_UNSETTLED)) {
+            final boolean newValue = command
+                    .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.BLOCK_APPLICATION_WHILE_UNSETTLED);
+            if (newValue != this.blockApplicationWhileUnsettled) {
+                this.blockApplicationWhileUnsettled = newValue;
+                if (actualChanges != null) {
+                    actualChanges.put(LoanProductConstants.BLOCK_APPLICATION_WHILE_UNSETTLED, newValue);
+                }
+            }
+        }
         if (command.parameterExists(LoanProductConstants.FIRST_TRANCHE_AMOUNT)) {
             final BigDecimal newValue = command.bigDecimalValueOfParameterNamed(LoanProductConstants.FIRST_TRANCHE_AMOUNT);
             if (!sameAmount(newValue, this.firstTrancheAmount)) {
@@ -233,6 +247,10 @@ public class LoanProductTrancheDetails {
 
     public boolean isRequireMilestoneSurvey() {
         return this.requireMilestoneSurvey;
+    }
+
+    public boolean isBlockApplicationWhileUnsettled() {
+        return this.blockApplicationWhileUnsettled;
     }
 
     private static boolean sameAmount(final BigDecimal left, final BigDecimal right) {

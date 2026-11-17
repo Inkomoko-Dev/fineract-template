@@ -41,6 +41,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheDisbursementCharge;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanMultiDisburseChoice;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.apache.fineract.portfolio.loanproduct.exception.LoanProductNotFoundException;
@@ -94,7 +95,8 @@ public class LoanChargeAssembler {
         final Long productId = this.fromApiJsonHelper.extractLongNamed("productId", element);
         final LoanProduct loanProduct = this.loanProductRepository.findById(productId)
                 .orElseThrow(() -> new LoanProductNotFoundException(productId));
-        final boolean isMultiDisbursal = loanProduct.isMultiDisburseLoan();
+        final boolean isMultiDisbursal = LoanMultiDisburseChoice.selected(loanProduct.isMultiDisburseLoan(),
+                LoanMultiDisburseChoice.requested(this.fromApiJsonHelper, element));
         LocalDate expectedDisbursementDate = null;
 
         if (element.isJsonObject()) {
