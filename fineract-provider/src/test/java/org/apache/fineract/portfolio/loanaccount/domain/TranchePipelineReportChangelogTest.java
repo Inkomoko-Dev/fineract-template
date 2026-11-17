@@ -28,29 +28,67 @@ import org.junit.jupiter.api.Test;
 public class TranchePipelineReportChangelogTest {
 
     @Test
-    public void pipelineReportUsesTheSurveyAlreadyStoredByTheExternalApplication() throws Exception {
+    public void pipelineReportIsTheOnlyMultiTrancheReportLeft() throws Exception {
         final String xml = Files.readString(changelog());
-        assertTrue(xml.contains("report_name\" value=\"Multi-tranche pipeline\""));
-        assertTrue(xml.contains("report_name\" value=\"Multi-tranche amounts\""));
-        assertTrue(xml.contains("AS loanId"));
-        assertTrue(xml.contains("AS clientId"));
-        assertTrue(xml.contains("AS country"));
-        assertTrue(xml.contains("AS entity"));
-        assertTrue(xml.contains("AS approvedPrincipal"));
-        assertTrue(xml.contains("AS firstTrancheDisbursedAmount"));
-        assertTrue(xml.contains("AS firstRepaymentDueAmount"));
-        assertTrue(xml.contains("AS outstandingPrincipal"));
-        assertTrue(xml.contains("AS totalLoanBalance"));
-        assertTrue(xml.contains("AS generatedBy"));
-        assertTrue(xml.contains("AS asOfDate"));
-        assertTrue(xml.contains("AS filterFromDate"));
-        assertTrue(xml.contains("loan_sub_status_id = 430"));
-        assertTrue(xml.contains("READ_Multi-tranche pipeline"));
-        assertTrue(xml.contains("READ_Multi-tranche eligibility"));
-        assertTrue(xml.contains("READ_Multi-tranche amounts"));
-        assertFalse(xml.contains("release_approved"));
-        assertFalse(xml.contains("APPROVE_TRANCHERELEASE"));
-        assertFalse(xml.contains("READ_TRANCHEAUDIT"));
+        assertTrue(xml.contains("report_name\" value=\"Mutli-tranche pipeline Report\""));
+        assertTrue(xml.contains("DELETE FROM stretchy_report"));
+        assertTrue(xml.contains("WHERE report_name IN ('Multi-tranche eligibility', 'Multi-tranche pipeline', 'Multi-tranche amounts')"));
+        assertTrue(xml.contains("DELETE FROM m_permission"));
+        assertTrue(xml.contains("DELETE rp FROM m_role_permission rp"));
+        assertFalse(xml.contains("report_name\" value=\"Multi-tranche eligibility\""));
+        assertFalse(xml.contains("report_name\" value=\"Multi-tranche pipeline\""));
+        assertFalse(xml.contains("report_name\" value=\"Multi-tranche amounts\""));
+        assertFalse(xml.contains("READ_Multi-tranche pipeline\""));
+    }
+
+    @Test
+    public void pipelineReportReturnsTheRequestedHeadersInOrder() throws Exception {
+        final String xml = Files.readString(changelog());
+        final String[] headers = { "Loan ID", "Loan Account Number", "Loan Status", "Client ID & Client Name", "Office",
+                "Loan Officer", "Product Name", "Approved Principal Amount", "Total number of tranches", "Tranche Pipeline Status",
+                "Outstanding Principal", "Total Loan Balance", "First-Tranche Disbursed Amount & Date",
+                "First Repayment Due Date & Amount", "First Repayment Received Date & Amount",
+                "BGS Verification Status (Operational & Funding Need)", "Investment Verification Status (Operational & Funding Need)",
+                "Second-Tranche Eligibility Status", "Second-Tranche Approved Amount", "Second-Tranche Planned Disbursement Date",
+                "Actual Second-Tranche Disbursement Date" };
+        int previous = -1;
+        for (final String header : headers) {
+            final int position = xml.indexOf("AS `" + header + "`");
+            assertTrue(position > previous, header + " is missing or out of order");
+            previous = position;
+        }
+        assertTrue(xml.contains("COUNT(*) AS tranche_count"));
+        assertTrue(xml.contains("COALESCE(tranche_total.tranche_count, 0) AS tranche_count"));
+        assertFalse(xml.contains("asOfDate"));
+        assertFalse(xml.contains("filterFromDate"));
+    }
+
+    @Test
+    public void pipelineReportBindsTheRequestedFilters() throws Exception {
+        final String xml = Files.readString(changelog());
+        assertTrue(xml.contains("'OfficeIdSelectOne'"));
+        assertTrue(xml.contains("'loanOfficerIdSelectAll'"));
+        assertTrue(xml.contains("'loanProductIdSelectAllWithoutCurrency'"));
+        assertTrue(xml.contains("'tranchePipelineStatusSelectAll'"));
+        assertTrue(xml.contains("'trancheLoanStatusSelectAll'"));
+        assertFalse(xml.contains("parameter_name\" value=\"trancheLoanStatusSelectAll\""));
+        assertTrue(xml.contains("'trancheDeadlineProximitySelectAll'"));
+        assertTrue(xml.contains("'tranchePipelineStartDate'"));
+        assertTrue(xml.contains("'tranchePipelineEndDate'"));
+        assertTrue(xml.contains("READ_Mutli-tranche pipeline Report"));
+        assertTrue(xml.contains("AND (ml.loan_officer_id = ${loanOfficerId} OR ${loanOfficerId} IN (-1, -10, 0))"));
+        assertTrue(xml.contains("pipeline.eligibility_deadline"));
+    }
+
+    @Test
+    public void pipelineReportReadsTrancheMilestonesAndDisbursementDetails() throws Exception {
+        final String xml = Files.readString(changelog());
+        assertTrue(xml.contains("m_loan_tranche_milestone"));
+        assertTrue(xml.contains("m_loan_disbursement_detail"));
+        assertTrue(xml.contains("m_loan_repayment_schedule"));
+        assertTrue(xml.contains("COALESCE(mile.eligibility_deadline_override, first_due.duedate) AS eligibility_deadline"));
+        assertTrue(xml.contains("AND mile.disbursement_detail_id = second_plan.id"));
+        assertTrue(xml.contains("AND srv.disbursement_detail_id = second_plan.id"));
     }
 
     private static Path changelog() {
