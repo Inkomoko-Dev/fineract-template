@@ -18,9 +18,13 @@
  */
 package org.apache.fineract.portfolio.loanaccount.guarantor.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.io.InputStream;
 import java.util.Arrays;
@@ -123,11 +127,14 @@ public class GuarantorsApiResource {
         this.bulkImportWorkbookPopulatorService = bulkImportWorkbookPopulatorService;
     }
 
+    @Operation(summary = "New Guarantor Template", description = "New Guarantor Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String newGuarantorTemplate(@Context final UriInfo uriInfo, @PathParam("loanId") final Long loanId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String newGuarantorTemplate(@Context final UriInfo uriInfo,
+            @PathParam("loanId") @Parameter(description = "loanId") final Long loanId) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermission);
 
         final List<EnumOptionData> guarantorTypeOptions = GuarantorEnumerations.guarantorType(GuarantorType.values());
@@ -143,10 +150,13 @@ public class GuarantorsApiResource {
         return this.apiJsonSerializerService.serialize(settings, guarantorData, RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve Guarantor Details", description = "Retrieve Guarantor Details.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveGuarantorDetails(@Context final UriInfo uriInfo, @PathParam("loanId") final Long loanId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveGuarantorDetails(@Context final UriInfo uriInfo,
+            @PathParam("loanId") @Parameter(description = "loanId") final Long loanId) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermission);
 
         final List<GuarantorData> guarantorDatas = this.guarantorReadPlatformService.retrieveGuarantorsForValidLoan(loanId);
@@ -156,12 +166,15 @@ public class GuarantorsApiResource {
         return this.apiJsonSerializerService.serialize(settings, guarantorDatas, RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Retrieve Guarantor Details", description = "Retrieve Guarantor Details.")
     @GET
     @Path("{guarantorId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveGuarantorDetails(@Context final UriInfo uriInfo, @PathParam("loanId") final Long loanId,
-            @PathParam("guarantorId") final Long guarantorId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveGuarantorDetails(@Context final UriInfo uriInfo,
+            @PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            @PathParam("guarantorId") @Parameter(description = "guarantorId") final Long guarantorId) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermission);
 
         GuarantorData guarantorData = this.guarantorReadPlatformService.retrieveGuarantor(loanId, guarantorId);
@@ -181,10 +194,13 @@ public class GuarantorsApiResource {
         return this.apiJsonSerializerService.serialize(settings, guarantorData, RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Create Guarantor", description = "Create Guarantor.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createGuarantor(@PathParam("loanId") final Long loanId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createGuarantor(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createGuarantor(loanId).withJson(apiRequestBodyAsJson).build();
 
@@ -193,12 +209,14 @@ public class GuarantorsApiResource {
         return this.apiJsonSerializerService.serialize(result);
     }
 
+    @Operation(summary = "Update Guarantor", description = "Update Guarantor.")
     @PUT
     @Path("{guarantorId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateGuarantor(@PathParam("loanId") final Long loanId, @PathParam("guarantorId") final Long guarantorId,
-            final String jsonRequestBody) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateGuarantor(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            @PathParam("guarantorId") @Parameter(description = "guarantorId") final Long guarantorId, final String jsonRequestBody) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateGuarantor(loanId, guarantorId).withJson(jsonRequestBody)
                 .build();
 
@@ -207,12 +225,15 @@ public class GuarantorsApiResource {
         return this.apiJsonSerializerService.serialize(result);
     }
 
+    @Operation(summary = "Delete Guarantor", description = "Delete Guarantor.")
     @DELETE
     @Path("{guarantorId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteGuarantor(@PathParam("loanId") final Long loanId, @PathParam("guarantorId") final Long guarantorId,
-            @QueryParam("guarantorFundingId") final Long guarantorFundingId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteGuarantor(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            @PathParam("guarantorId") @Parameter(description = "guarantorId") final Long guarantorId,
+            @QueryParam("guarantorFundingId") @Parameter(description = "guarantorFundingId") final Long guarantorFundingId) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteGuarantor(loanId, guarantorId, guarantorFundingId).build();
 
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
@@ -220,12 +241,14 @@ public class GuarantorsApiResource {
         return this.apiJsonSerializerService.serialize(result);
     }
 
+    @Operation(summary = "Accounts Template", description = "Accounts Template.")
     @GET
     @Path("accounts/template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String accountsTemplate(@QueryParam("clientId") final Long clientId, @PathParam("loanId") final Long loanId,
-            @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String accountsTemplate(@QueryParam("clientId") @Parameter(description = "clientId") final Long clientId,
+            @PathParam("loanId") @Parameter(description = "loanId") final Long loanId, @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermission);
 
@@ -239,22 +262,28 @@ public class GuarantorsApiResource {
         return this.apiJsonSerializerService.serialize(settings, guarantorData, ACCOUNT_TRANSFER_API_RESPONSE_DATA_PARAMETERS);
     }
 
+    @Operation(summary = "Get Guarantor Template", description = "Get Guarantor Template.")
     @GET
     @Path("downloadtemplate")
     @Produces("application/vnd.ms-excel")
-    public Response getGuarantorTemplate(@QueryParam("officeId") final Long officeId, @QueryParam("dateFormat") final String dateFormat,
-            @PathParam("loanId") final Long loanId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response getGuarantorTemplate(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("dateFormat") @Parameter(description = "dateFormat") final String dateFormat,
+            @PathParam("loanId") @Parameter(description = "loanId") final Long loanId) {
         return bulkImportWorkbookPopulatorService.getTemplate(GlobalEntityType.GUARANTORS.toString(), officeId, null, dateFormat);
     }
 
+    @Operation(summary = "Post Guarantor Template", description = "Post Guarantor Template.")
     @POST
     @Path("uploadtemplate")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @RequestBody(description = "Upload guarantor template", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String postGuarantorTemplate(@FormDataParam("file") InputStream uploadedInputStream,
             @FormDataParam("file") FormDataContentDisposition fileDetail, @FormDataParam("locale") final String locale,
-            @FormDataParam("dateFormat") final String dateFormat, @PathParam("loanId") final Long loanId) {
+            @FormDataParam("dateFormat") final String dateFormat,
+            @PathParam("loanId") @Parameter(description = "loanId") final Long loanId) {
         final Long importDocumentId = this.bulkImportWorkbookService.importWorkbook(GlobalEntityType.GUARANTORS.toString(),
                 uploadedInputStream, fileDetail, locale, dateFormat);
         return this.apiJsonSerializerService.serialize(importDocumentId);

@@ -19,6 +19,10 @@
 
 package org.apache.fineract.portfolio.client.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -56,7 +60,7 @@ import org.springframework.stereotype.Component;
 public class ClientOtherInfoApiResources {
 
     private final Set<String> responseDataParameters = new HashSet<>(Arrays.asList("id", "clientId", "numberOfChildren",
-            "numberOfDependents", "yearArrivedInHostCountry", "co_signors", "guarantor" ,"bankId", "bank"));
+            "numberOfDependents", "yearArrivedInHostCountry", "co_signors", "guarantor", "bankId", "bank"));
     private final String resourceNameForPermissions = "ClientOtherInfo";
     private final PlatformSecurityContext context;
     private final ClientOtherInfoReadPlatformService readPlatformService;
@@ -79,19 +83,24 @@ public class ClientOtherInfoApiResources {
 
     }
 
+    @Operation(summary = "Template", description = "Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String template(@Context final UriInfo uriInfo) {
         ClientOtherInfoData templateData = this.readPlatformService.retrieveTemplate();
         return this.toApiJsonSerializer.serialize(templateData);
     }
 
+    @Operation(summary = "Retrieve All Client Other Info", description = "Retrieve All Client Other Info.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAllClientOtherInfo(@Context final UriInfo uriInfo, @PathParam("clientId") final long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAllClientOtherInfo(@Context final UriInfo uriInfo,
+            @PathParam("clientId") @Parameter(description = "clientId") final long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -102,12 +111,15 @@ public class ClientOtherInfoApiResources {
 
     }
 
+    @Operation(summary = "Retrieve Client Other Info", description = "Retrieve Client Other Info.")
     @GET
     @Path("/{otherInfoId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveClientOtherInfo(@Context final UriInfo uriInfo, @PathParam("otherInfoId") final Long otherInfoId,
-            @PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveClientOtherInfo(@Context final UriInfo uriInfo,
+            @PathParam("otherInfoId") @Parameter(description = "otherInfoId") final Long otherInfoId,
+            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -118,10 +130,13 @@ public class ClientOtherInfoApiResources {
 
     }
 
+    @Operation(summary = "Create Client Other Info", description = "Create Client Other Info.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createClientOtherInfo(@PathParam("clientId") final long clientId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createClientOtherInfo(@PathParam("clientId") @Parameter(description = "clientId") final long clientId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createClientOtherInfo(clientId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -131,12 +146,14 @@ public class ClientOtherInfoApiResources {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Client Other Info", description = "Update Client Other Info.")
     @PUT
     @Path("/{otherInfoId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateClientOtherInfo(@PathParam("otherInfoId") final long otherInfoId, final String apiRequestBodyAsJson,
-            @PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateClientOtherInfo(@PathParam("otherInfoId") @Parameter(description = "otherInfoId") final long otherInfoId,
+            final String apiRequestBodyAsJson, @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateClientOtherInfo(otherInfoId, clientId)
                 .withJson(apiRequestBodyAsJson).build();
@@ -146,11 +163,14 @@ public class ClientOtherInfoApiResources {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Retrieve All Client Other Info Entity", description = "Retrieve All Client Other Info Entity.")
     @GET
     @Path("/entity")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveAllClientOtherInfoEntity(@Context final UriInfo uriInfo, @PathParam("clientId") final long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveAllClientOtherInfoEntity(@Context final UriInfo uriInfo,
+            @PathParam("clientId") @Parameter(description = "clientId") final long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -161,12 +181,15 @@ public class ClientOtherInfoApiResources {
 
     }
 
+    @Operation(summary = "Retrieve Client Other Info Entity", description = "Retrieve Client Other Info Entity.")
     @GET
     @Path("/entity/{otherInfoId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveClientOtherInfoEntity(@Context final UriInfo uriInfo, @PathParam("otherInfoId") final Long otherInfoId,
-            @PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveClientOtherInfoEntity(@Context final UriInfo uriInfo,
+            @PathParam("otherInfoId") @Parameter(description = "otherInfoId") final Long otherInfoId,
+            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 

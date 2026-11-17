@@ -79,10 +79,12 @@ public class ProductsApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Retrieve Template", description = "Retrieve Template.")
     @GET
     @Path("template")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveTemplate(@PathParam("type") @Parameter(description = "type") final String productType,
             @Context final UriInfo uriInfo) {
         String serviceName = productType + ProductsApiConstants.READPLATFORM_NAME;
@@ -157,10 +159,12 @@ public class ProductsApiResource {
         return this.toApiJsonSerializer.serialize(commandProcessingResult);
     }
 
+    @Operation(summary = "Handle Commands", description = "Handle Commands.")
     @POST
     @Path("{productId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String handleCommands(@PathParam("type") @Parameter(description = "type") final String productType,
             @PathParam("productId") @Parameter(description = "productId") final Long productId,
             @QueryParam("command") @Parameter(description = "command") final String commandParam,

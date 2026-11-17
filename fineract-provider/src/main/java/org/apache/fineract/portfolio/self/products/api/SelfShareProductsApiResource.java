@@ -19,6 +19,10 @@
 
 package org.apache.fineract.portfolio.self.products.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -53,22 +57,28 @@ public class SelfShareProductsApiResource {
 
     }
 
+    @Operation(summary = "Retrieve Product", description = "Retrieve Product.")
     @GET
     @Path("{productId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveProduct(@QueryParam(ShareAccountApiConstants.clientid_paramname) final Long clientId,
-            @PathParam("productId") final Long productId, @PathParam("type") final String productType, @Context final UriInfo uriInfo) {
+            @PathParam("productId") @Parameter(description = "productId") final Long productId,
+            @PathParam("type") @Parameter(description = "type") final String productType, @Context final UriInfo uriInfo) {
         this.appUserClientMapperReadService.validateAppuserClientsMapping(clientId);
         return this.productsApiResource.retrieveProduct(productId, ShareAccountApiConstants.shareEntityType, uriInfo);
 
     }
 
+    @Operation(summary = "Retrieve All Products", description = "Retrieve All Products.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAllProducts(@QueryParam(ShareAccountApiConstants.clientid_paramname) final Long clientId,
-            @QueryParam("offset") final Integer offset, @QueryParam("limit") final Integer limit, @Context final UriInfo uriInfo) {
+            @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
+            @QueryParam("limit") @Parameter(description = "limit") final Integer limit, @Context final UriInfo uriInfo) {
         this.appUserClientMapperReadService.validateAppuserClientsMapping(clientId);
         return this.productsApiResource.retrieveAllProducts(ShareAccountApiConstants.shareEntityType, offset, limit, uriInfo);
 

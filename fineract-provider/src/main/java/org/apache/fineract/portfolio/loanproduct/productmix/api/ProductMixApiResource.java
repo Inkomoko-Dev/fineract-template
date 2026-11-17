@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanproduct.productmix.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -83,10 +87,13 @@ public class ProductMixApiResource {
         this.loanProductReadPlatformService = loanProductReadPlatformService;
     }
 
+    @Operation(summary = "Retrieve Template", description = "Retrieve Template.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveTemplate(@PathParam("productId") final Long productId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveTemplate(@PathParam("productId") @Parameter(description = "productId") final Long productId,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
 
@@ -100,10 +107,13 @@ public class ProductMixApiResource {
         return this.toApiJsonSerializer.serialize(settings, productMixData, this.productMixDataParameters);
     }
 
+    @Operation(summary = "Create Product Mix", description = "Create Product Mix.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String createProductMix(@PathParam("productId") final Long productId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String createProductMix(@PathParam("productId") @Parameter(description = "productId") final Long productId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().createProductMix(productId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -113,10 +123,13 @@ public class ProductMixApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update Product Mix", description = "Update Product Mix.")
     @PUT
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateProductMix(@PathParam("productId") final Long productId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateProductMix(@PathParam("productId") @Parameter(description = "productId") final Long productId,
+            final String apiRequestBodyAsJson) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateProductMix(productId).withJson(apiRequestBodyAsJson)
                 .build();
@@ -126,10 +139,12 @@ public class ProductMixApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete Product Mix", description = "Delete Product Mix.")
     @DELETE
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteProductMix(@PathParam("productId") final Long productId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteProductMix(@PathParam("productId") @Parameter(description = "productId") final Long productId) {
 
         final CommandWrapper commandRequest = new CommandWrapperBuilder().deleteProductMix(productId).build();
 

@@ -252,15 +252,17 @@ public class SelfClientsApiResource {
         }
     }
 
+    @Operation(summary = "Add New Client Image", description = "Add New Client Image.")
     @POST
     @Path("{clientId}/images")
     @Consumes({ MediaType.MULTIPART_FORM_DATA })
     @Produces({ MediaType.APPLICATION_JSON })
     @RequestBody(description = "Add new client image", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
-    public String addNewClientImage(@PathParam("clientId") final Long clientId, @HeaderParam("Content-Length") final Long fileSize,
-            @FormDataParam("file") final InputStream inputStream, @FormDataParam("file") final FormDataContentDisposition fileDetails,
-            @FormDataParam("file") final FormDataBodyPart bodyPart) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addNewClientImage(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId,
+            @HeaderParam("Content-Length") final Long fileSize, @FormDataParam("file") final InputStream inputStream,
+            @FormDataParam("file") final FormDataContentDisposition fileDetails, @FormDataParam("file") final FormDataBodyPart bodyPart) {
 
         validateAppuserClientsMapping(clientId);
         return this.imagesApiResource.addNewClientImage(ClientApiConstants.clientEntityName, clientId, fileSize, inputStream, fileDetails,
@@ -268,33 +270,40 @@ public class SelfClientsApiResource {
 
     }
 
+    @Operation(summary = "Add New Client Image", description = "Add New Client Image.")
     @POST
     @Path("{clientId}/images")
     @Consumes({ MediaType.TEXT_PLAIN, MediaType.TEXT_HTML, MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String addNewClientImage(@PathParam("entity") final String entityName, @PathParam("clientId") final Long clientId,
-            final String jsonRequestBody) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addNewClientImage(@PathParam("entity") @Parameter(description = "entity") final String entityName,
+            @PathParam("clientId") @Parameter(description = "clientId") final Long clientId, final String jsonRequestBody) {
         validateAppuserClientsMapping(clientId);
         return this.imagesApiResource.addNewClientImage(ClientApiConstants.clientEntityName, clientId, jsonRequestBody);
 
     }
 
+    @Operation(summary = "Delete Client Image", description = "Delete Client Image.")
     @DELETE
     @Path("{clientId}/images")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteClientImage(@PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteClientImage(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
 
         validateAppuserClientsMapping(clientId);
         return this.imagesApiResource.deleteClientImage(ClientApiConstants.clientEntityName, clientId);
 
     }
 
+    @Operation(summary = "Retrieve Obligee Details", description = "Retrieve Obligee Details.")
     @GET
     @Path("{clientId}/obligeedetails")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveObligeeDetails(@PathParam("clientId") final Long clientId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveObligeeDetails(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId,
+            @Context final UriInfo uriInfo) {
 
         validateAppuserClientsMapping(clientId);
 

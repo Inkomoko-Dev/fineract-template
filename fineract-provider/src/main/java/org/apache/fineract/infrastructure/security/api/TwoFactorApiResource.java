@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.infrastructure.security.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.Map;
@@ -79,8 +83,10 @@ public class TwoFactorApiResource {
         this.twoFactorService = twoFactorService;
     }
 
+    @Operation(summary = "Get OTPDelivery Methods", description = "Get OTPDelivery Methods.")
     @GET
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getOTPDeliveryMethods(@Context final UriInfo uriInfo) {
         AppUser user = context.authenticatedUserIgnoreReset();
 
@@ -88,20 +94,25 @@ public class TwoFactorApiResource {
         return this.otpDeliveryMethodSerializer.serialize(otpDeliveryMethods);
     }
 
+    @Operation(summary = "Request Token", description = "Request Token.")
     @POST
     @Produces({ MediaType.APPLICATION_JSON })
-    public String requestToken(@QueryParam("deliveryMethod") final String deliveryMethod,
-            @QueryParam("extendedToken") @DefaultValue("false") boolean extendedAccessToken, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String requestToken(@QueryParam("deliveryMethod") @Parameter(description = "deliveryMethod") final String deliveryMethod,
+            @QueryParam("extendedToken") @Parameter(description = "extendedToken") @DefaultValue("false") boolean extendedAccessToken,
+            @Context final UriInfo uriInfo) {
         final AppUser user = context.authenticatedUserIgnoreReset();
 
         final OTPRequest request = twoFactorService.createNewOTPToken(user, deliveryMethod, extendedAccessToken);
         return this.otpRequestSerializer.serialize(request.getMetadata());
     }
 
+    @Operation(summary = "Validate", description = "Validate.")
     @Path("validate")
     @POST
     @Produces({ MediaType.APPLICATION_JSON })
-    public String validate(@QueryParam("token") final String token) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String validate(@QueryParam("token") @Parameter(description = "token") final String token) {
         final AppUser user = context.authenticatedUserIgnoreReset();
 
         TFAccessToken accessToken = twoFactorService.createAccessTokenFromOTP(user, token);
@@ -109,9 +120,11 @@ public class TwoFactorApiResource {
         return accessTokenSerializer.serialize(accessToken.toTokenData());
     }
 
+    @Operation(summary = "Update Configuration", description = "Update Configuration.")
     @Path("invalidate")
     @POST
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String updateConfiguration(final String apiRequestBodyAsJson) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder().invalidateTwoFactorAccessToken().withJson(apiRequestBodyAsJson)
                 .build();

@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.organisation.teller.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -53,11 +57,15 @@ public class CashierApiResource {
         this.readPlatformService = readPlatformService;
     }
 
+    @Operation(summary = "Get Cashier Data", description = "Get Cashier Data.")
     @GET
     @Consumes({ MediaType.TEXT_HTML, MediaType.APPLICATION_JSON })
     @Produces(MediaType.APPLICATION_JSON)
-    public String getCashierData(@QueryParam("officeId") final Long officeId, @QueryParam("tellerId") final Long tellerId,
-            @QueryParam("staffId") final Long staffId, @QueryParam("date") final String date) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String getCashierData(@QueryParam("officeId") @Parameter(description = "officeId") final Long officeId,
+            @QueryParam("tellerId") @Parameter(description = "tellerId") final Long tellerId,
+            @QueryParam("staffId") @Parameter(description = "staffId") final Long staffId,
+            @QueryParam("date") @Parameter(description = "date") final String date) {
         final DateTimeFormatter dateFormatter = DateTimeFormatter.BASIC_ISO_DATE;
 
         final LocalDate dateRestriction = (date != null ? LocalDate.parse(date, dateFormatter) : DateUtils.getBusinessLocalDate());

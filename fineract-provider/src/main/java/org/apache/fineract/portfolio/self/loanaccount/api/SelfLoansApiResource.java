@@ -287,11 +287,14 @@ public class SelfLoansApiResource {
         return StringUtils.isNotBlank(commandParam) && commandParam.trim().equalsIgnoreCase(commandValue);
     }
 
+    @Operation(summary = "Retrieve Guarantor Details", description = "Retrieve Guarantor Details.")
     @GET
     @Path("{loanId}/guarantors")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveGuarantorDetails(@PathParam("loanId") final Long loanId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveGuarantorDetails(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            @Context final UriInfo uriInfo) {
 
         validateAppuserLoanMapping(loanId);
         return this.guarantorsApiResource.retrieveGuarantorDetails(uriInfo, loanId);

@@ -142,10 +142,12 @@ public class TellerApiResource {
         return this.jsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Delete Teller", description = "Delete Teller.")
     @DELETE
     @Path("{tellerId}")
     @Consumes({ MediaType.TEXT_HTML, MediaType.APPLICATION_JSON })
     @Produces(MediaType.APPLICATION_JSON)
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String deleteTeller(@PathParam("tellerId") @Parameter(description = "tellerId") final Long tellerId) {
         final CommandWrapper request = new CommandWrapperBuilder().deleteTeller(tellerId).build();
 
@@ -376,10 +378,12 @@ public class TellerApiResource {
         return this.jsonSerializer.serialize(cashierTxnTemplate);
     }
 
+    @Operation(summary = "Get Transaction Data", description = "Get Transaction Data.")
     @GET
     @Path("{tellerId}/transactions")
     @Consumes({ MediaType.TEXT_HTML, MediaType.APPLICATION_JSON })
     @Produces(MediaType.APPLICATION_JSON)
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getTransactionData(@PathParam("tellerId") @Parameter(description = "tellerId") final Long tellerId,
             @QueryParam("dateRange") @Parameter(description = "dateRange") final String dateRange) {
         final DateRange dateRangeHolder = DateRange.fromString(dateRange);
@@ -390,10 +394,12 @@ public class TellerApiResource {
         return this.jsonSerializer.serialize(transactions);
     }
 
+    @Operation(summary = "Find Transaction Data", description = "Find Transaction Data.")
     @GET
     @Path("{tellerId}/transactions/{transactionId}")
     @Consumes({ MediaType.TEXT_HTML, MediaType.APPLICATION_JSON })
     @Produces(MediaType.APPLICATION_JSON)
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String findTransactionData(@PathParam("tellerId") @Parameter(description = "tellerId") final Long tellerid,
             @PathParam("transactionId") @Parameter(description = "transactionId") final Long transactionId) {
         final TellerTransactionData transaction = this.readPlatformService.findTellerTransaction(transactionId);
@@ -401,10 +407,12 @@ public class TellerApiResource {
         return this.jsonSerializer.serialize(transaction);
     }
 
+    @Operation(summary = "Get Journal Data", description = "Get Journal Data.")
     @GET
     @Path("{tellerId}/journals")
     @Consumes({ MediaType.TEXT_HTML, MediaType.APPLICATION_JSON })
     @Produces(MediaType.APPLICATION_JSON)
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getJournalData(@PathParam("tellerId") @Parameter(description = "tellerId") final Long tellerId,
             @QueryParam("cashierId") @Parameter(description = "cashierId") final Long cashierDate,
             @QueryParam("dateRange") @Parameter(description = "dateRange") final String dateRange) {

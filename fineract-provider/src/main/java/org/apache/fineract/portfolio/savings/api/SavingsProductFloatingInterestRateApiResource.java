@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.portfolio.savings.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.Collection;
@@ -76,22 +80,27 @@ public class SavingsProductFloatingInterestRateApiResource {
         this.apiRequestParameterHelper = apiRequestParameterHelper;
     }
 
+    @Operation(summary = "Add", description = "Add.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String add(@PathParam("savingsProductId") final long savingsProductId, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String add(@PathParam("savingsProductId") @Parameter(description = "savingsProductId") final long savingsProductId,
+            final String apiRequestBodyAsJson) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder().addSavingsProductFloatingInterestRate(savingsProductId)
                 .withJson(apiRequestBodyAsJson).build();
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Update", description = "Update.")
     @PUT
     @Path("{savingsProductFloatingInterestRateId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String update(@PathParam("savingsProductId") final long savingsProductId,
-            @PathParam("savingsProductFloatingInterestRateId") final Long savingsProductFloatingInterestRateId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String update(@PathParam("savingsProductId") @Parameter(description = "savingsProductId") final long savingsProductId,
+            @PathParam("savingsProductFloatingInterestRateId") @Parameter(description = "savingsProductFloatingInterestRateId") final Long savingsProductFloatingInterestRateId,
             final String apiRequestBodyAsJson) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder()
                 .updateSavingsProductFloatingInterestRate(savingsProductFloatingInterestRateId, savingsProductId)
@@ -100,10 +109,13 @@ public class SavingsProductFloatingInterestRateApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Retrieve Business Owners", description = "Retrieve Business Owners.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveBusinessOwners(@Context final UriInfo uriInfo, @PathParam("savingsProductId") final long savingsProductId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveBusinessOwners(@Context final UriInfo uriInfo,
+            @PathParam("savingsProductId") @Parameter(description = "savingsProductId") final long savingsProductId) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         final Collection<SavingsProductFloatingInterestRateData> savingsProductFloatingInterestRates = this.readPlatformService
                 .getSavingsProductFloatingInterestRateForSavingsProduct(savingsProductId);
@@ -112,13 +124,15 @@ public class SavingsProductFloatingInterestRateApiResource {
 
     }
 
+    @Operation(summary = "Get Savings Product Floating Interest Rate By Id", description = "Get Savings Product Floating Interest Rate By Id.")
     @GET
     @Path("/{savingsProductFloatingInterestRateId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String getSavingsProductFloatingInterestRateById(@Context final UriInfo uriInfo,
-            @PathParam("savingsProductFloatingInterestRateId") final Long savingsProductFloatingInterestRateId,
-            @PathParam("savingsProductId") final Long savingsProductId) {
+            @PathParam("savingsProductFloatingInterestRateId") @Parameter(description = "savingsProductFloatingInterestRateId") final Long savingsProductFloatingInterestRateId,
+            @PathParam("savingsProductId") @Parameter(description = "savingsProductId") final Long savingsProductId) {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         final SavingsProductFloatingInterestRateData savingsProductFloatingInterestRateData = this.readPlatformService
                 .getSavingsProductFloatingInterestRateById(savingsProductFloatingInterestRateId);
@@ -126,11 +140,14 @@ public class SavingsProductFloatingInterestRateApiResource {
         return this.toApiJsonSerializer.serialize(settings, savingsProductFloatingInterestRateData, this.responseDataParameters);
     }
 
+    @Operation(summary = "Delete Charge", description = "Delete Charge.")
     @DELETE
     @Path("{savingsProductFloatingInterestRateId}")
     @Produces({ MediaType.APPLICATION_JSON })
-    public String deleteCharge(@PathParam("savingsProductFloatingInterestRateId") final Long savingsProductFloatingInterestRateId,
-            @PathParam("savingsProductId") final Long savingsProductId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteCharge(
+            @PathParam("savingsProductFloatingInterestRateId") @Parameter(description = "savingsProductFloatingInterestRateId") final Long savingsProductFloatingInterestRateId,
+            @PathParam("savingsProductId") @Parameter(description = "savingsProductId") final Long savingsProductId) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder()
                 .deleteSavingsProductFloatingInterestRate(savingsProductFloatingInterestRateId, savingsProductId).build();
         final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);

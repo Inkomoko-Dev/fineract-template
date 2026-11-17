@@ -19,6 +19,9 @@
 
 package org.apache.fineract.portfolio.self.spm.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import javax.ws.rs.Consumes;
@@ -50,10 +53,12 @@ public class SelfSpmApiResource {
         this.spmApiResource = spmApiResource;
     }
 
+    @Operation(summary = "Fetch All Surveys", description = "Fetch All Surveys.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Transactional
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public List<SurveyData> fetchAllSurveys() {
         securityContext.authenticatedUser();
         final Boolean isActive = true;
