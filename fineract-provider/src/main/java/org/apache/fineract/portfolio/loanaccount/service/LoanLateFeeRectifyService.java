@@ -61,7 +61,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class LoanLateFeeRectifyService {
 
-    private static final int CHARGE_TIME_SPECIFIED_DUE_DATE = ChargeTimeType.SPECIFIED_DUE_DATE.getValue();
     private static final int CHARGE_CALC_PERCENT_OF_AMOUNT = ChargeCalculationType.PERCENT_OF_AMOUNT.getValue();
     private static final int OVERDUE_INSTALLMENT = ChargeTimeType.OVERDUE_INSTALLMENT.getValue();
 
@@ -179,7 +178,8 @@ public class LoanLateFeeRectifyService {
                             + " where rs.loan_id = ? and rs.recalculated_interest_component = 0"
                             + " and coalesce(rs.principal_amount, 0) > 0",
                     rs -> rs.next() ? JdbcSupport.getLocalDate(rs, "earliest_due") : null, loanId);
-            final LocalDate firstPenaltyDate = earliestDue == null ? null : earliestDue.plusDays(gracePeriod + 1);
+            // Match original Overdue Fees day (installment due + grace), not due+grace+1 (that shifted 13th → 14th).
+            final LocalDate firstPenaltyDate = earliestDue == null ? null : earliestDue.plusDays(gracePeriod);
 
             // Remove every flat late-fee row (daily and the flat “monthly” posts from the daily late-fee job).
             // Keep percentage-of-amount rows — those are the original monthly overdue penalties.
@@ -474,17 +474,18 @@ public class LoanLateFeeRectifyService {
                             + " order by rs.duedate, rs.installment",
                     ctx.loanId);
 
-            // Same cadence as Late Fee RW: first grace date, then every fee_interval months through today.
-            LocalDate postingDate = ctx.firstPenaltyDate;
+            // Keep the same day-of-month as existing Overdue Fees (e.g. 13th), not due+grace+1 (14th).
+            final int penaltyDayOfMonth = resolveMonthlyPenaltyDayOfMonth(ctx, installments);
+            LocalDate postingDate = withDayOfMonthSafe(ctx.firstPenaltyDate, penaltyDayOfMonth);
             while (!postingDate.isAfter(ctx.effectiveDate) && cumulative.compareTo(cap) < 0) {
                 if (monthAlreadyHasActiveCharge(ctx, postingDate)) {
-                    postingDate = postingDate.plusMonths(ctx.monthInterval);
+                    postingDate = withDayOfMonthSafe(postingDate.plusMonths(ctx.monthInterval), penaltyDayOfMonth);
                     continue;
                 }
 
                 final BigDecimal overduePrincipal = overduePrincipalOn(installments, postingDate, ctx.gracePeriod);
                 if (overduePrincipal.compareTo(BigDecimal.ZERO) <= 0) {
-                    postingDate = postingDate.plusMonths(ctx.monthInterval);
+                    postingDate = withDayOfMonthSafe(postingDate.plusMonths(ctx.monthInterval), penaltyDayOfMonth);
                     continue;
                 }
 
@@ -500,7 +501,7 @@ public class LoanLateFeeRectifyService {
                     cumulative = cumulative.add(penalty);
                     posted++;
                 }
-                postingDate = postingDate.plusMonths(ctx.monthInterval);
+                postingDate = withDayOfMonthSafe(postingDate.plusMonths(ctx.monthInterval), penaltyDayOfMonth);
             }
             rebuildSchedulePenaltiesFromActiveCharges(ctx.loanId);
             refreshLoanPenaltySummary(ctx.loanId);
@@ -519,6 +520,33 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
+     * Prefer the day-of-month already used by active % overdue charges (e.g. 13); otherwise installment due day.
+     */
+    private int resolveMonthlyPenaltyDayOfMonth(final RectifyContext ctx, final List<Map<String, Object>> installments) {
+        final LocalDate existingDue = this.jdbcTemplate.query(
+                "select lc.due_for_collection_as_of_date as due_date from m_loan_charge lc"
+                        + " where lc.loan_id = ? and lc.charge_id = ? and lc.is_active = 1 and lc.waived = 0"
+                        + " and lc.charge_calculation_enum = ? and lc.due_for_collection_as_of_date is not null"
+                        + " order by lc.due_for_collection_as_of_date desc limit 1",
+                rs -> rs.next() ? JdbcSupport.getLocalDate(rs, "due_date") : null, ctx.loanId, ctx.chargeDefinitionId,
+                CHARGE_CALC_PERCENT_OF_AMOUNT);
+        if (existingDue != null) {
+            return existingDue.getDayOfMonth();
+        }
+        for (final Map<String, Object> installment : installments) {
+            final LocalDate dueDate = toLocalDate(installment.get("duedate"));
+            if (dueDate != null) {
+                return dueDate.getDayOfMonth();
+            }
+        }
+        return ctx.firstPenaltyDate.getDayOfMonth();
+    }
+
+    private static LocalDate withDayOfMonthSafe(final LocalDate date, final int dayOfMonth) {
+        return date.withDayOfMonth(Math.min(dayOfMonth, date.lengthOfMonth()));
+    }
+
+    /**
      * Principal still outstanding on installments that were already past penalty grace on {@code postingDate}.
      */
     private BigDecimal overduePrincipalOn(final List<Map<String, Object>> installments, final LocalDate postingDate,
@@ -529,7 +557,8 @@ public class LoanLateFeeRectifyService {
             if (dueDate == null) {
                 continue;
             }
-            final LocalDate eligibleFrom = dueDate.plusDays(gracePeriod + 1);
+            // Eligible once the installment due (+ grace) is on or before the posting date (same day as Overdue Fees).
+            final LocalDate eligibleFrom = dueDate.plusDays(gracePeriod);
             if (eligibleFrom.isAfter(postingDate)) {
                 continue;
             }
@@ -550,7 +579,7 @@ public class LoanLateFeeRectifyService {
                         + " amount, amount_outstanding_derived, is_paid_derived, waived, is_active,"
                         + " due_for_collection_as_of_date)"
                         + " values (?, ?, 1, ?, ?, 0, ?, ?, ?, ?, ?, 0, 0, 1, ?)",
-                ctx.loanId, ctx.chargeDefinitionId, CHARGE_TIME_SPECIFIED_DUE_DATE, CHARGE_CALC_PERCENT_OF_AMOUNT, ctx.monthlyRate,
+                ctx.loanId, ctx.chargeDefinitionId, OVERDUE_INSTALLMENT, CHARGE_CALC_PERCENT_OF_AMOUNT, ctx.monthlyRate,
                 overduePrincipal, penaltyAmount, penaltyAmount, penaltyAmount, postingDate);
         @SuppressWarnings("deprecation")
         final Long loanChargeId = this.jdbcTemplate.queryForObject("SELECT " + this.sqlGenerator.lastInsertId(), Long.class);
