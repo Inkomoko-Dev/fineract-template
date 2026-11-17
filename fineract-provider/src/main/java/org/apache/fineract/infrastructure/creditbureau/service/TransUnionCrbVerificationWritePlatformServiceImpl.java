@@ -29,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
@@ -47,6 +48,7 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.creditbureau.data.CrbRequestType;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
@@ -108,6 +110,7 @@ public class  TransUnionCrbVerificationWritePlatformServiceImpl implements Trans
     private final TransunionCrbSummaryRepository transunionCrbSummaryRepository;
     private final TransunionCrbAccountRepository transunionCrbAccountRepository;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
+    private final CrbDuplicateRequestGuard crbDuplicateRequestGuard;
 
     @Autowired
     private Environment env;
@@ -124,6 +127,14 @@ public class  TransUnionCrbVerificationWritePlatformServiceImpl implements Trans
         String requestToCrb = null;
         TransunionCrbHeader transunionCrbHeader = null;
 
+
+        Optional<Long> recentReportId = this.crbDuplicateRequestGuard.acquire(CrbRequestType.TRANSUNION_RWANDA, loanId);
+        if (recentReportId.isPresent()) {
+            return new CommandProcessingResultBuilder()
+                    .withCommandId(command.commandId())
+                    .withEntityId(clientObj.getId())
+                    .withResourceIdAsString(recentReportId.get().toString()).build();
+        }
 
         TransunionCrbHeader existingHeader = this.transunionCrbHeaderRepository
                 .findLatestByClientId(clientObj.getId())
@@ -175,6 +186,9 @@ public class  TransUnionCrbVerificationWritePlatformServiceImpl implements Trans
                     transunionCrbHeader = saveConsumerVerificationReport(clientObj, loan, resObject);
                 } else {
                     transunionCrbHeader = saveCorporateVerificationReport(clientObj, loan, resObject);
+                }
+                if (transunionCrbHeader != null) {
+                    this.crbDuplicateRequestGuard.complete(CrbRequestType.TRANSUNION_RWANDA, loanId, transunionCrbHeader.getId());
                 }
 
             }
