@@ -108,8 +108,8 @@ scope AS (
           OR (NOT p.is_today
               AND ml.loan_status_id IN (300, 600, 601, 602, 700)
               AND ml.disbursedon_date <= p.d
-              AND (ml.closedon_date IS NULL OR ml.closedon_date > p.d)
-              AND (ml.writtenoffon_date IS NULL OR ml.writtenoffon_date > p.d))
+              AND (ml.loan_status_id NOT IN (600, 601, 602) OR ml.closedon_date IS NULL OR ml.closedon_date > p.d)
+              AND (ml.loan_status_id NOT IN (600, 601, 602) OR ml.writtenoffon_date IS NULL OR ml.writtenoffon_date > p.d))
       )
 ),
 live AS (

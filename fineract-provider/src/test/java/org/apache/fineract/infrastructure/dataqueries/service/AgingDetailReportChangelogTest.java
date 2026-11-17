@@ -138,10 +138,20 @@ class AgingDetailReportChangelogTest {
         assertTrue(reportSql.contains("AND t.transaction_date <= p.d"));
         assertTrue(reportSql.contains("AND rs.duedate < DATE_SUB(p.d, INTERVAL COALESCE(s.grace, 0) DAY)"));
         assertTrue(reportSql.contains("AND ml.disbursedon_date <= p.d"));
-        assertTrue(reportSql.contains("AND (ml.closedon_date IS NULL OR ml.closedon_date > p.d)"));
-        assertTrue(reportSql.contains("AND (ml.writtenoffon_date IS NULL OR ml.writtenoffon_date > p.d)"));
         assertTrue(reportSql.contains("WHERE type IN (2, 5, 8, 28)"));
         assertTrue(reportSql.contains("WHERE live.type = 9"));
+    }
+
+    @Test
+    @DisplayName("AC1: a closed loan drops out after its close date, a reopened loan is not cut off by a stale one")
+    void onlyClosedLoansAreBoundedByTheirCloseDates() {
+        assertTrue(reportSql.contains("AND ml.loan_status_id IN (300, 600, 601, 602, 700)"));
+        assertTrue(reportSql
+                .contains("AND (ml.loan_status_id NOT IN (600, 601, 602) OR ml.closedon_date IS NULL OR ml.closedon_date > p.d)"));
+        assertTrue(reportSql.contains(
+                "AND (ml.loan_status_id NOT IN (600, 601, 602) OR ml.writtenoffon_date IS NULL OR ml.writtenoffon_date > p.d)"));
+        assertFalse(reportSql.contains("AND (ml.closedon_date IS NULL OR ml.closedon_date > p.d)"));
+        assertFalse(reportSql.contains("AND (ml.writtenoffon_date IS NULL OR ml.writtenoffon_date > p.d)"));
     }
 
     @Test
