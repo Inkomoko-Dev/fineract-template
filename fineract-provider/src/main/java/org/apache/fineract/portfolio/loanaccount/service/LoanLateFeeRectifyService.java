@@ -63,6 +63,8 @@ public class LoanLateFeeRectifyService {
     private static final int CHARGE_CALC_PERCENT_OF_AMOUNT = ChargeCalculationType.PERCENT_OF_AMOUNT.getValue();
     private static final int OVERDUE_INSTALLMENT = ChargeTimeType.OVERDUE_INSTALLMENT.getValue();
     private static final int SPECIFIED_DUE_DATE = ChargeTimeType.SPECIFIED_DUE_DATE.getValue();
+    /** Prefix for {@code m_loan_charge.external_id} on gap-filled monthlies (unique per loan+date). */
+    static final String GAP_FILL_EXTERNAL_ID_PREFIX = "CGLT-852-GAPFILL:";
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformTransactionManager transactionManager;
@@ -567,14 +569,15 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
-     * Remove earlier incorrect refills (Specified due date / daily-job style amounts) so months can be restored using
-     * the original Overdue Fees pattern.
+     * Remove earlier incorrect / previous gap-fill rows (Specified due date, or tagged {@link #GAP_FILL_EXTERNAL_ID_PREFIX})
+     * so months can be restored cleanly using the original Overdue Fees pattern.
      */
     private void deactivateIncorrectPriorGapFillCharges(final RectifyContext ctx) {
         final List<Long> ids = this.jdbcTemplate.queryForList(
                 "select lc.id from m_loan_charge lc where lc.loan_id = ? and lc.charge_id = ?"
-                        + " and lc.is_active = 1 and lc.waived = 0 and lc.charge_time_enum = ?",
-                Long.class, ctx.loanId, ctx.chargeDefinitionId, SPECIFIED_DUE_DATE);
+                        + " and lc.is_active = 1 and lc.waived = 0"
+                        + " and (lc.charge_time_enum = ? or lc.external_id like ?)",
+                Long.class, ctx.loanId, ctx.chargeDefinitionId, SPECIFIED_DUE_DATE, GAP_FILL_EXTERNAL_ID_PREFIX + "%");
         for (final Long loanChargeId : ids) {
             this.jdbcTemplate.update(
                     "update m_loan_charge set is_active = 0, amount_outstanding_derived = 0 where id = ?", loanChargeId);
@@ -583,9 +586,14 @@ public class LoanLateFeeRectifyService {
         }
     }
 
+    static String gapFillExternalId(final Long loanId, final LocalDate postingDate) {
+        return GAP_FILL_EXTERNAL_ID_PREFIX + loanId + ":" + postingDate;
+    }
+
     /**
      * Principal base used by original monthly Overdue Fees: prefer {@code calculation_on_amount} (or amount÷%) from
-     * existing Overdue Fees rows; otherwise the scheduled principal of the earliest still-overdue installment.
+     * existing Overdue Fees rows (excluding gap-fill tags); otherwise scheduled principal of the earliest still-overdue
+     * installment.
      */
     private BigDecimal resolveOriginalMonthlyPrincipalBase(final RectifyContext ctx, final List<Map<String, Object>> installments,
             final int scale) {
@@ -595,8 +603,10 @@ public class LoanLateFeeRectifyService {
                         + " from m_loan_charge lc"
                         + " where lc.loan_id = ? and lc.charge_id = ? and lc.is_active = 1 and lc.waived = 0"
                         + " and lc.charge_calculation_enum = ? and lc.charge_time_enum = ?"
+                        + " and (lc.external_id is null or lc.external_id not like ?)"
                         + " order by lc.due_for_collection_as_of_date desc, lc.id desc",
-                ctx.loanId, ctx.chargeDefinitionId, CHARGE_CALC_PERCENT_OF_AMOUNT, OVERDUE_INSTALLMENT);
+                ctx.loanId, ctx.chargeDefinitionId, CHARGE_CALC_PERCENT_OF_AMOUNT, OVERDUE_INSTALLMENT,
+                GAP_FILL_EXTERNAL_ID_PREFIX + "%");
         for (final Map<String, Object> row : existing) {
             final BigDecimal calcOn = toBigDecimal(row.get("calc_on"));
             if (calcOn != null && calcOn.compareTo(BigDecimal.ZERO) > 0) {
@@ -647,9 +657,10 @@ public class LoanLateFeeRectifyService {
                 "select lc.due_for_collection_as_of_date as due_date from m_loan_charge lc"
                         + " where lc.loan_id = ? and lc.charge_id = ? and lc.is_active = 1 and lc.waived = 0"
                         + " and lc.charge_calculation_enum = ? and lc.due_for_collection_as_of_date is not null"
+                        + " and (lc.external_id is null or lc.external_id not like ?)"
                         + " order by lc.due_for_collection_as_of_date desc limit 1",
                 rs -> rs.next() ? JdbcSupport.getLocalDate(rs, "due_date") : null, ctx.loanId, ctx.chargeDefinitionId,
-                CHARGE_CALC_PERCENT_OF_AMOUNT);
+                CHARGE_CALC_PERCENT_OF_AMOUNT, GAP_FILL_EXTERNAL_ID_PREFIX + "%");
         if (existingDue != null) {
             return existingDue.getDayOfMonth();
         }
@@ -688,14 +699,15 @@ public class LoanLateFeeRectifyService {
     private void insertMonthlyPenaltyCharge(final RectifyContext ctx, final LocalDate postingDate, final BigDecimal penaltyAmount,
             final BigDecimal overduePrincipal) {
         final Long officeId = ((Number) ctx.loanRow.get("office_id")).longValue();
+        final String externalId = gapFillExternalId(ctx.loanId, postingDate);
         this.jdbcTemplate.update(
                 "insert into m_loan_charge (loan_id, charge_id, is_penalty, charge_time_enum, charge_calculation_enum,"
                         + " charge_payment_mode_enum, calculation_percentage, calculation_on_amount, charge_amount_or_percentage,"
                         + " amount, amount_outstanding_derived, is_paid_derived, waived, is_active,"
-                        + " due_for_collection_as_of_date)"
-                        + " values (?, ?, 1, ?, ?, 0, ?, ?, ?, ?, ?, 0, 0, 1, ?)",
+                        + " due_for_collection_as_of_date, external_id)"
+                        + " values (?, ?, 1, ?, ?, 0, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?)",
                 ctx.loanId, ctx.chargeDefinitionId, OVERDUE_INSTALLMENT, CHARGE_CALC_PERCENT_OF_AMOUNT, ctx.monthlyRate,
-                overduePrincipal, penaltyAmount, penaltyAmount, penaltyAmount, postingDate);
+                overduePrincipal, penaltyAmount, penaltyAmount, penaltyAmount, postingDate, externalId);
         @SuppressWarnings("deprecation")
         final Long loanChargeId = this.jdbcTemplate.queryForObject("SELECT " + this.sqlGenerator.lastInsertId(), Long.class);
 
