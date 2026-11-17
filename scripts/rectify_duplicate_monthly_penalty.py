@@ -3,10 +3,10 @@
 
 Calls POST /loans/{loanId}?command=rectifyLateFees (LoanLateFeeRectifyService):
   1. Quietly deactivates daily/flat late-fee charge rows (no Waive Charges txn)
-  2. Rebuilds schedule Original/Paid/Outstanding from remaining active penalties
-  3. Posts missing monthlies on the product charge cadence (e.g. Months/1, % Amount)
-     through the business date while overdue principal remains
-  4. Refreshes loan summary + m_loan_arrears_aging
+  2. Gap-fills missing *original* monthly Overdue Fees (same day-of-month and % principal
+     base as pre-daily charges — not cumulative daily-late-fee amounts)
+  3. Syncs schedule/summary so penalty charged/paid/outstanding tally
+  4. Refreshes m_loan_arrears_aging
 
 IRREVERSIBLE on production: there is no undo. Always:
   - Deploy the build that includes monthly-cadence gap-fill (CGLT-852 e7d8be522+)
