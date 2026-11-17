@@ -21,9 +21,13 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.accounting.journalentry.service.JournalEntryWritePlatformService;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
@@ -43,6 +47,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.DefaultScheduledDateGenerator;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.ScheduledDateGenerator;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -52,9 +58,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Late-fee repair in two steps: (1) quietly remove daily/flat late fees that should not have gone to prod;
- * (2) gap-fill missing <em>original</em> monthly Overdue Fees (% Amount, same day-of-month and principal base as the
- * pre-daily schedule), then sync schedule/summary so charged/paid/outstanding tally. Independent of
- * {@link LoanDailyLateFeeService}.
+ * (2) gap-fill missing original Overdue Fees using the same per-installment rules as
+ * {@code applyChargeToOverdueLoanInstallment} (installment due + wait, fee frequency/interval, maturity cap), then sync
+ * charged/paid/outstanding. Independent of {@link LoanDailyLateFeeService}.
  */
 @Service
 @RequiredArgsConstructor
@@ -123,6 +129,7 @@ public class LoanLateFeeRectifyService {
                             + " l.currency_code, l.currency_digits, l.currency_multiplesof,"
                             + " coalesce(l.interest_charged_derived, 0) as total_interest_charged,"
                             + " coalesce(l.principal_disbursed_derived, 0) as principal_disbursed,"
+                            + " l.expected_maturedon_date,"
                             + " lp.accounting_type, l.fund_id,"
                             + " c.status_enum as client_status, g.status_enum as group_status"
                             + " from m_loan l"
@@ -174,15 +181,26 @@ public class LoanLateFeeRectifyService {
                         "The overdue penalty charge has no usable percentage amount configured.", loanId);
             }
             final int monthInterval = monthlyPostingInterval(chargeDef);
+            final Integer feeFrequency = chargeDef.get("fee_frequency") == null ? null
+                    : ((Number) chargeDef.get("fee_frequency")).intValue();
+            final Integer feeInterval = chargeDef.get("fee_interval") == null ? null
+                    : ((Number) chargeDef.get("fee_interval")).intValue();
 
             final long gracePeriod = this.configurationDomainService.retrievePenaltyWaitPeriod();
+            final long penaltyPostingWaitPeriod = this.configurationDomainService.retrieveGraceOnPenaltyPostingPeriod();
+            final LocalDate expectedMaturity = toLocalDate(loan.get("expected_maturedon_date"));
             final LocalDate earliestDue = this.jdbcTemplate.query(
                     "select min(rs.duedate) as earliest_due from m_loan_repayment_schedule rs"
                             + " where rs.loan_id = ? and rs.recalculated_interest_component = 0"
                             + " and coalesce(rs.principal_amount, 0) > 0",
                     rs -> rs.next() ? JdbcSupport.getLocalDate(rs, "earliest_due") : null, loanId);
-            // Match original Overdue Fees day (installment due + grace), not due+grace+1 (that shifted 13th → 14th).
-            final LocalDate firstPenaltyDate = earliestDue == null ? null : earliestDue.plusDays(gracePeriod);
+            // Same first posting anchor as applyChargeToOverdueLoanInstallment when waits are zero: installment due date.
+            long diff = gracePeriod + 1 - penaltyPostingWaitPeriod;
+            if (diff < 1) {
+                diff = 1L;
+            }
+            final LocalDate firstPenaltyDate = earliestDue == null ? null
+                    : earliestDue.plusDays((int) gracePeriod + 1).minusDays(diff);
 
             // Remove every flat late-fee row (daily and the flat “monthly” posts from the daily late-fee job).
             // Keep percentage-of-amount rows — those are the original monthly overdue penalties.
@@ -202,7 +220,8 @@ public class LoanLateFeeRectifyService {
 
             final String chargeName = chargeDef.get("name") == null ? null : String.valueOf(chargeDef.get("name"));
             return new RectifyContext(loanId, effectiveDate, loan, chargeDefinitionId, chargeName, monthlyRate, monthInterval,
-                    gracePeriod, firstPenaltyDate, dailyChargeIds);
+                    feeFrequency, feeInterval, gracePeriod, penaltyPostingWaitPeriod, expectedMaturity, firstPenaltyDate,
+                    dailyChargeIds);
         });
     }
 
@@ -498,9 +517,10 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
-     * Gap-fill missing <em>original</em> monthly Overdue Fees: same day-of-month and same % principal base as the
-     * pre-daily schedule (not cumulative overdue × rate from the daily late-fee job). Clears prior incorrect
-     * specified-due-date refills first so those months can be reposted correctly.
+     * Gap-fill missing Overdue Fees using the same per-installment rules as
+     * {@code applyChargeToOverdueLoanInstallment}: incomplete installments past penalty wait, fee frequency/interval,
+     * one occurrence before maturity and recurring through the business date on/after maturity, % of installment
+     * outstanding principal. Clears prior incorrect specified-due-date / gap-fill rows first.
      */
     private int postMissingMonthlyPenalties(final RectifyContext ctx) {
         if (ctx.firstPenaltyDate == null || ctx.effectiveDate.isBefore(ctx.firstPenaltyDate)) {
@@ -520,52 +540,127 @@ public class LoanLateFeeRectifyService {
                 cumulative = BigDecimal.ZERO;
             }
 
+            // Same population as the classic overdue job: incomplete schedule rows past penalty wait.
             final List<Map<String, Object>> installments = this.jdbcTemplate.queryForList(
-                    "select rs.duedate, coalesce(rs.principal_amount, 0) as principal_amount,"
+                    "select rs.id as schedule_id, rs.installment, rs.duedate,"
+                            + " coalesce(rs.principal_amount, 0) as principal_amount,"
                             + " greatest(coalesce(rs.principal_amount, 0) - coalesce(rs.principal_completed_derived, 0)"
                             + " - coalesce(rs.principal_writtenoff_derived, 0), 0) as outstanding_principal"
                             + " from m_loan_repayment_schedule rs"
                             + " where rs.loan_id = ? and rs.recalculated_interest_component = 0"
+                            + " and rs.completed_derived = 0"
                             + " and coalesce(rs.principal_amount, 0) > 0"
                             + " order by rs.duedate, rs.installment",
                     ctx.loanId);
 
-            final int penaltyDayOfMonth = resolveMonthlyPenaltyDayOfMonth(ctx, installments);
-            final BigDecimal monthlyPrincipalBase = resolveOriginalMonthlyPrincipalBase(ctx, installments, scale);
-            if (monthlyPrincipalBase.compareTo(BigDecimal.ZERO) <= 0) {
-                syncPenaltiesFromActiveCharges(ctx.loanId);
-                return 0;
+            final ScheduledDateGenerator scheduledDateGenerator = new DefaultScheduledDateGenerator();
+            long diff = ctx.gracePeriod + 1 - ctx.penaltyPostingWaitPeriod;
+            if (diff < 1) {
+                diff = 1L;
             }
 
-            LocalDate postingDate = withDayOfMonthSafe(ctx.firstPenaltyDate, penaltyDayOfMonth);
-            while (!postingDate.isAfter(ctx.effectiveDate) && cumulative.compareTo(cap) < 0) {
-                if (monthAlreadyHasActiveCharge(ctx, postingDate)) {
-                    postingDate = withDayOfMonthSafe(postingDate.plusMonths(ctx.monthInterval), penaltyDayOfMonth);
+            for (final Map<String, Object> installment : installments) {
+                if (cumulative.compareTo(cap) >= 0) {
+                    break;
+                }
+                final LocalDate dueDate = toLocalDate(installment.get("duedate"));
+                if (dueDate == null) {
                     continue;
                 }
-                // Only while the loan still has overdue principal on the original schedule.
-                if (!hasOverduePrincipalOn(installments, postingDate, ctx.gracePeriod)) {
-                    postingDate = withDayOfMonthSafe(postingDate.plusMonths(ctx.monthInterval), penaltyDayOfMonth);
+                // businessDate > dueDate + wait  ⇔  dueDate + wait < businessDate
+                if (!ctx.effectiveDate.isAfter(dueDate.plusDays(ctx.gracePeriod))) {
+                    continue;
+                }
+                final BigDecimal outstandingPrincipal = nullToZero(toBigDecimal(installment.get("outstanding_principal")));
+                if (outstandingPrincipal.compareTo(BigDecimal.ZERO) <= 0) {
                     continue;
                 }
 
-                // Same formula as original Overdue Fees: charge % of the original monthly principal base.
-                BigDecimal penalty = monthlyPrincipalBase.multiply(ctx.monthlyRate, MoneyHelper.getMathContext())
-                        .divide(BigDecimal.valueOf(100L), scale, MoneyHelper.getRoundingMode());
-                final BigDecimal remainingCap = cap.subtract(cumulative);
-                if (penalty.compareTo(remainingCap) > 0) {
-                    penalty = remainingCap.setScale(scale, MoneyHelper.getRoundingMode());
+                final Long scheduleId = ((Number) installment.get("schedule_id")).longValue();
+                final Integer periodNumber = ((Number) installment.get("installment")).intValue();
+                final Map<Integer, LocalDate> scheduleDates = buildClassicOverdueScheduleDates(ctx, dueDate, diff,
+                        scheduledDateGenerator);
+                final Set<Integer> existingFrequencies = new HashSet<>(retrieveExistingOverdueFrequencies(ctx.loanId,
+                        ctx.chargeDefinitionId, periodNumber));
+                for (final Integer frequency : existingFrequencies) {
+                    scheduleDates.remove(frequency);
                 }
-                if (penalty.compareTo(BigDecimal.ZERO) > 0) {
-                    insertMonthlyPenaltyCharge(ctx, postingDate, penalty, monthlyPrincipalBase);
+
+                for (final Map.Entry<Integer, LocalDate> entry : scheduleDates.entrySet()) {
+                    if (cumulative.compareTo(cap) >= 0) {
+                        break;
+                    }
+                    final LocalDate postingDate = entry.getValue();
+                    if (postingDate == null || postingDate.isAfter(ctx.effectiveDate)) {
+                        continue;
+                    }
+                    if (hasActiveChargeOnDate(ctx, postingDate)) {
+                        continue;
+                    }
+
+                    BigDecimal penalty = outstandingPrincipal.multiply(ctx.monthlyRate, MoneyHelper.getMathContext())
+                            .divide(BigDecimal.valueOf(100L), scale, MoneyHelper.getRoundingMode());
+                    final BigDecimal remainingCap = cap.subtract(cumulative);
+                    if (penalty.compareTo(remainingCap) > 0) {
+                        penalty = remainingCap.setScale(scale, MoneyHelper.getRoundingMode());
+                    }
+                    if (penalty.compareTo(BigDecimal.ZERO) <= 0) {
+                        continue;
+                    }
+                    insertMonthlyPenaltyCharge(ctx, postingDate, penalty, outstandingPrincipal, scheduleId, entry.getKey());
                     cumulative = cumulative.add(penalty);
                     posted++;
                 }
-                postingDate = withDayOfMonthSafe(postingDate.plusMonths(ctx.monthInterval), penaltyDayOfMonth);
             }
             syncPenaltiesFromActiveCharges(ctx.loanId);
             return posted;
         });
+    }
+
+    /**
+     * Mirrors {@code applyChargeToOverdueLoanInstallment} schedule-date generation: before maturity only the first fee
+     * interval posts; on/after maturity recurrence continues through the business date while the installment is open.
+     */
+    private Map<Integer, LocalDate> buildClassicOverdueScheduleDates(final RectifyContext ctx, final LocalDate dueDate,
+            final long diff, final ScheduledDateGenerator scheduledDateGenerator) {
+        final Map<Integer, LocalDate> scheduleDates = new TreeMap<>();
+        LocalDate startDate = dueDate.plusDays((int) ctx.gracePeriod + 1);
+        LocalDate endDate = ctx.effectiveDate;
+        if (ctx.expectedMaturity != null && dueDate.isBefore(ctx.expectedMaturity) && ctx.feeInterval != null
+                && ctx.feeFrequency != null) {
+            endDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(ctx.feeFrequency), ctx.feeInterval,
+                    startDate);
+        }
+        int frequencyNumber = 1;
+        if (ctx.feeFrequency == null) {
+            scheduleDates.put(frequencyNumber, startDate.minusDays(diff));
+            return scheduleDates;
+        }
+        final int interval = ctx.feeInterval == null ? 1 : Math.max(ctx.feeInterval, 1);
+        while (!startDate.isAfter(endDate) && !startDate.isEqual(endDate)) {
+            scheduleDates.put(frequencyNumber++, startDate.minusDays(diff));
+            startDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(ctx.feeFrequency), interval,
+                    startDate);
+        }
+        return scheduleDates;
+    }
+
+    private Collection<Integer> retrieveExistingOverdueFrequencies(final Long loanId, final Long chargeDefinitionId,
+            final Integer periodNumber) {
+        return this.jdbcTemplate.queryForList(
+                "select oic.frequency_number from m_loan_overdue_installment_charge oic"
+                        + " inner join m_loan_charge lc on lc.id = oic.loan_charge_id"
+                        + " inner join m_loan_repayment_schedule rs on rs.id = oic.loan_schedule_id"
+                        + " where lc.is_active = 1 and rs.loan_id = ? and rs.installment = ? and lc.charge_id = ?",
+                Integer.class, loanId, periodNumber, chargeDefinitionId);
+    }
+
+    private boolean hasActiveChargeOnDate(final RectifyContext ctx, final LocalDate postingDate) {
+        final Integer existing = this.jdbcTemplate.queryForObject(
+                "select count(1) from m_loan_charge lc where lc.loan_id = ? and lc.charge_id = ?"
+                        + " and lc.is_active = 1 and lc.waived = 0 and lc.due_for_collection_as_of_date = ?",
+                Integer.class, ctx.loanId, ctx.chargeDefinitionId, postingDate);
+        return existing != null && existing > 0;
     }
 
     /**
@@ -590,114 +685,8 @@ public class LoanLateFeeRectifyService {
         return GAP_FILL_EXTERNAL_ID_PREFIX + loanId + ":" + postingDate;
     }
 
-    /**
-     * Principal base used by original monthly Overdue Fees: prefer {@code calculation_on_amount} (or amount÷%) from
-     * existing Overdue Fees rows (excluding gap-fill tags); otherwise scheduled principal of the earliest still-overdue
-     * installment.
-     */
-    private BigDecimal resolveOriginalMonthlyPrincipalBase(final RectifyContext ctx, final List<Map<String, Object>> installments,
-            final int scale) {
-        final List<Map<String, Object>> existing = this.jdbcTemplate.queryForList(
-                "select coalesce(lc.calculation_on_amount, 0) as calc_on,"
-                        + " coalesce(lc.amount, 0) as amount"
-                        + " from m_loan_charge lc"
-                        + " where lc.loan_id = ? and lc.charge_id = ? and lc.is_active = 1 and lc.waived = 0"
-                        + " and lc.charge_calculation_enum = ? and lc.charge_time_enum = ?"
-                        + " and (lc.external_id is null or lc.external_id not like ?)"
-                        + " order by lc.due_for_collection_as_of_date desc, lc.id desc",
-                ctx.loanId, ctx.chargeDefinitionId, CHARGE_CALC_PERCENT_OF_AMOUNT, OVERDUE_INSTALLMENT,
-                GAP_FILL_EXTERNAL_ID_PREFIX + "%");
-        for (final Map<String, Object> row : existing) {
-            final BigDecimal calcOn = toBigDecimal(row.get("calc_on"));
-            if (calcOn != null && calcOn.compareTo(BigDecimal.ZERO) > 0) {
-                return calcOn;
-            }
-            final BigDecimal amount = toBigDecimal(row.get("amount"));
-            if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0 && ctx.monthlyRate.compareTo(BigDecimal.ZERO) > 0) {
-                return amount.multiply(BigDecimal.valueOf(100L), MoneyHelper.getMathContext())
-                        .divide(ctx.monthlyRate, scale, MoneyHelper.getRoundingMode());
-            }
-        }
-        for (final Map<String, Object> installment : installments) {
-            final LocalDate dueDate = toLocalDate(installment.get("duedate"));
-            if (dueDate == null) {
-                continue;
-            }
-            final LocalDate eligibleFrom = dueDate.plusDays(ctx.gracePeriod);
-            if (eligibleFrom.isAfter(ctx.effectiveDate)) {
-                continue;
-            }
-            final BigDecimal outstanding = toBigDecimal(installment.get("outstanding_principal"));
-            if (outstanding == null || outstanding.compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
-            final BigDecimal principalAmount = toBigDecimal(installment.get("principal_amount"));
-            if (principalAmount != null && principalAmount.compareTo(BigDecimal.ZERO) > 0) {
-                return principalAmount;
-            }
-        }
-        return BigDecimal.ZERO;
-    }
-
-    private boolean monthAlreadyHasActiveCharge(final RectifyContext ctx, final LocalDate postingDate) {
-        final Integer existing = this.jdbcTemplate.queryForObject(
-                "select count(1) from m_loan_charge lc where lc.loan_id = ? and lc.charge_id = ?"
-                        + " and lc.is_active = 1 and lc.waived = 0"
-                        + " and year(lc.due_for_collection_as_of_date) = ?"
-                        + " and month(lc.due_for_collection_as_of_date) = ?",
-                Integer.class, ctx.loanId, ctx.chargeDefinitionId, postingDate.getYear(), postingDate.getMonthValue());
-        return existing != null && existing > 0;
-    }
-
-    /**
-     * Prefer the day-of-month already used by active % overdue charges (e.g. 13); otherwise installment due day.
-     */
-    private int resolveMonthlyPenaltyDayOfMonth(final RectifyContext ctx, final List<Map<String, Object>> installments) {
-        final LocalDate existingDue = this.jdbcTemplate.query(
-                "select lc.due_for_collection_as_of_date as due_date from m_loan_charge lc"
-                        + " where lc.loan_id = ? and lc.charge_id = ? and lc.is_active = 1 and lc.waived = 0"
-                        + " and lc.charge_calculation_enum = ? and lc.due_for_collection_as_of_date is not null"
-                        + " and (lc.external_id is null or lc.external_id not like ?)"
-                        + " order by lc.due_for_collection_as_of_date desc limit 1",
-                rs -> rs.next() ? JdbcSupport.getLocalDate(rs, "due_date") : null, ctx.loanId, ctx.chargeDefinitionId,
-                CHARGE_CALC_PERCENT_OF_AMOUNT, GAP_FILL_EXTERNAL_ID_PREFIX + "%");
-        if (existingDue != null) {
-            return existingDue.getDayOfMonth();
-        }
-        for (final Map<String, Object> installment : installments) {
-            final LocalDate dueDate = toLocalDate(installment.get("duedate"));
-            if (dueDate != null) {
-                return dueDate.getDayOfMonth();
-            }
-        }
-        return ctx.firstPenaltyDate.getDayOfMonth();
-    }
-
-    private static LocalDate withDayOfMonthSafe(final LocalDate date, final int dayOfMonth) {
-        return date.withDayOfMonth(Math.min(dayOfMonth, date.lengthOfMonth()));
-    }
-
-    private boolean hasOverduePrincipalOn(final List<Map<String, Object>> installments, final LocalDate postingDate,
-            final long gracePeriod) {
-        for (final Map<String, Object> installment : installments) {
-            final LocalDate dueDate = toLocalDate(installment.get("duedate"));
-            if (dueDate == null) {
-                continue;
-            }
-            final LocalDate eligibleFrom = dueDate.plusDays(gracePeriod);
-            if (eligibleFrom.isAfter(postingDate)) {
-                continue;
-            }
-            final BigDecimal outstanding = toBigDecimal(installment.get("outstanding_principal"));
-            if (outstanding != null && outstanding.compareTo(BigDecimal.ZERO) > 0) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private void insertMonthlyPenaltyCharge(final RectifyContext ctx, final LocalDate postingDate, final BigDecimal penaltyAmount,
-            final BigDecimal overduePrincipal) {
+            final BigDecimal overduePrincipal, final Long scheduleId, final Integer frequencyNumber) {
         final Long officeId = ((Number) ctx.loanRow.get("office_id")).longValue();
         final String externalId = gapFillExternalId(ctx.loanId, postingDate);
         this.jdbcTemplate.update(
@@ -710,6 +699,11 @@ public class LoanLateFeeRectifyService {
                 overduePrincipal, penaltyAmount, penaltyAmount, penaltyAmount, postingDate, externalId);
         @SuppressWarnings("deprecation")
         final Long loanChargeId = this.jdbcTemplate.queryForObject("SELECT " + this.sqlGenerator.lastInsertId(), Long.class);
+
+        this.jdbcTemplate.update(
+                "insert into m_loan_overdue_installment_charge (loan_charge_id, loan_schedule_id, frequency_number)"
+                        + " values (?, ?, ?)",
+                loanChargeId, scheduleId, frequencyNumber);
 
         addChargeToSchedule(ctx.loanId, postingDate, penaltyAmount);
 
@@ -900,13 +894,19 @@ public class LoanLateFeeRectifyService {
         private final String chargeName;
         private final BigDecimal monthlyRate;
         private final int monthInterval;
+        private final Integer feeFrequency;
+        private final Integer feeInterval;
         private final long gracePeriod;
+        private final long penaltyPostingWaitPeriod;
+        private final LocalDate expectedMaturity;
         private final LocalDate firstPenaltyDate;
         private final List<Long> dailyChargeIds;
 
         private RectifyContext(final Long loanId, final LocalDate effectiveDate, final Map<String, Object> loanRow,
                 final Long chargeDefinitionId, final String chargeName, final BigDecimal monthlyRate, final int monthInterval,
-                final long gracePeriod, final LocalDate firstPenaltyDate, final List<Long> dailyChargeIds) {
+                final Integer feeFrequency, final Integer feeInterval, final long gracePeriod,
+                final long penaltyPostingWaitPeriod, final LocalDate expectedMaturity, final LocalDate firstPenaltyDate,
+                final List<Long> dailyChargeIds) {
             this.loanId = loanId;
             this.effectiveDate = effectiveDate;
             this.loanRow = loanRow;
@@ -914,7 +914,11 @@ public class LoanLateFeeRectifyService {
             this.chargeName = chargeName;
             this.monthlyRate = monthlyRate;
             this.monthInterval = monthInterval;
+            this.feeFrequency = feeFrequency;
+            this.feeInterval = feeInterval;
             this.gracePeriod = gracePeriod;
+            this.penaltyPostingWaitPeriod = penaltyPostingWaitPeriod;
+            this.expectedMaturity = expectedMaturity;
             this.firstPenaltyDate = firstPenaltyDate;
             this.dailyChargeIds = dailyChargeIds;
         }
