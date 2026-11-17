@@ -62,6 +62,7 @@ import org.apache.fineract.portfolio.group.exception.GroupNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.domain.DefaultLoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanMultiDisburseChoice;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
@@ -206,12 +207,14 @@ public class LoanAssembler {
             departmentCv = this.codeValueRepository.findOneWithNotFoundDetection(department);
         }
         List<LoanDisbursementDetails> disbursementDetails = new ArrayList<>();
+        final boolean loanIsMultiDisburse = LoanMultiDisburseChoice.selected(loanProduct.isMultiDisburseLoan(),
+                LoanMultiDisburseChoice.requested(this.fromApiJsonHelper, element));
         BigDecimal fixedEmiAmount = null;
-        if (loanProduct.isMultiDisburseLoan() || loanProduct.canDefineInstallmentAmount()) {
+        if (loanIsMultiDisburse || loanProduct.canDefineInstallmentAmount()) {
             fixedEmiAmount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(LoanApiConstants.emiAmountParameterName, element);
         }
         BigDecimal maxOutstandingLoanBalance = null;
-        if (loanProduct.isMultiDisburseLoan()) {
+        if (loanIsMultiDisburse) {
             final Locale locale = this.fromApiJsonHelper.extractLocaleParameter(element.getAsJsonObject());
             maxOutstandingLoanBalance = this.fromApiJsonHelper.extractBigDecimalNamed(LoanApiConstants.maxOutstandingBalanceParameterName,
                     element, locale);
@@ -346,14 +349,15 @@ public class LoanAssembler {
         }
         loanApplication.setHelpers(defaultLoanLifecycleStateMachine(), this.loanSummaryWrapper,
                 this.loanRepaymentScheduleTransactionProcessorFactory);
+        loanApplication.setMultiDisburseLoan(loanIsMultiDisburse);
 
-        if (loanProduct.isMultiDisburseLoan()) {
+        if (loanApplication.isMultiDisburmentLoan()) {
             for (final LoanDisbursementDetails loanDisbursementDetails : loanApplication.getDisbursementDetails()) {
                 loanDisbursementDetails.updateLoan(loanApplication);
             }
+            applySubmittedTrancheOverrides(loanApplication, element);
+            TrancheReleaseRules.applyConfiguredPrincipals(loanApplication);
         }
-        applySubmittedTrancheOverrides(loanApplication, element);
-        TrancheReleaseRules.applyConfiguredPrincipals(loanApplication);
 
         final LoanApplicationTerms loanApplicationTerms = this.loanScheduleAssembler.assembleLoanTerms(element);
         final boolean isHolidayEnabled = this.configurationDomainService.isRescheduleRepaymentsOnHolidaysEnabled();
@@ -448,7 +452,7 @@ public class LoanAssembler {
     }
 
     private void applySubmittedTrancheOverrides(final Loan loanApplication, final JsonElement element) {
-        if (loanApplication.loanProduct() == null || !loanApplication.loanProduct().isMultiDisburseLoan()) {
+        if (!loanApplication.isMultiDisburmentLoan()) {
             return;
         }
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, element)) {

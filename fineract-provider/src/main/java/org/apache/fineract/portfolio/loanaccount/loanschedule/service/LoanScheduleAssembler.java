@@ -85,6 +85,7 @@ import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanMultiDisburseChoice;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -356,7 +357,10 @@ public class LoanScheduleAssembler {
         final BigDecimal maxOutstandingBalance = this.fromApiJsonHelper
                 .extractBigDecimalWithLocaleNamed(LoanApiConstants.maxOutstandingBalanceParameterName, element);
 
-        final List<DisbursementData> disbursementDatas = fetchDisbursementData(element.getAsJsonObject());
+        final boolean loanIsMultiDisburse = LoanMultiDisburseChoice.selected(loanProduct.isMultiDisburseLoan(),
+                LoanMultiDisburseChoice.requested(this.fromApiJsonHelper, element));
+        final List<DisbursementData> disbursementDatas = loanIsMultiDisburse ? fetchDisbursementData(element.getAsJsonObject())
+                : new ArrayList<>();
 
         /**
          * Interest recalculation settings copy from product definition
@@ -484,7 +488,7 @@ public class LoanScheduleAssembler {
                 allowPartialPeriodInterestCalcualtion, principalMoney, expectedDisbursementDate, repaymentsStartingFromDate,
                 calculatedRepaymentsStartingFromDate, graceOnPrincipalPayment, recurringMoratoriumOnPrincipalPeriods,
                 graceOnInterestPayment, graceOnInterestCharged, interestChargedFromDate, inArrearsToleranceMoney,
-                loanProduct.isMultiDisburseLoan(), emiAmount, disbursementDatas, maxOutstandingBalance, graceOnArrearsAgeing,
+                loanIsMultiDisburse, emiAmount, disbursementDatas, loanIsMultiDisburse ? maxOutstandingBalance : null, graceOnArrearsAgeing,
                 daysInMonthType, daysInYearType, isInterestRecalculationEnabled, recalculationFrequencyType, restCalendarInstance,
                 compoundingMethod, compoundingCalendarInstance, compoundingFrequencyType, principalThresholdForLastInstalment,
                 installmentAmountInMultiplesOf, loanProduct.preCloseInterestCalculationStrategy(), calendar, BigDecimal.ZERO,

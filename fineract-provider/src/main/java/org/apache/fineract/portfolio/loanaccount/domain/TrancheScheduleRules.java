@@ -102,7 +102,7 @@ public final class TrancheScheduleRules {
     }
 
     public static void apply(final Loan loan) {
-        if (loan == null || loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan()) {
+        if (loan == null || loan.loanProduct() == null || !loan.isMultiDisburmentLoan()) {
             return;
         }
         final BigDecimal firstInstallment = configuredFirstRepayment(loan);
@@ -149,7 +149,7 @@ public final class TrancheScheduleRules {
      * shifted it, provided the date is still after the previous installment.
      */
     public static void keepOriginalMaturity(final Loan loan, final LocalDate originalMaturity) {
-        if (loan == null || loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan() || originalMaturity == null
+        if (loan == null || loan.loanProduct() == null || !loan.isMultiDisburmentLoan() || originalMaturity == null
                 || configuredFirstRepayment(loan) == null) {
             return;
         }

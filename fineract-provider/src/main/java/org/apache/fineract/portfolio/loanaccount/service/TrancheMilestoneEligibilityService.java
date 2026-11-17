@@ -126,7 +126,7 @@ public class TrancheMilestoneEligibilityService {
 
     private Refresh refresh(final Loan loan, final boolean alwaysRecord) {
         final Refresh result = preview(loan);
-        if (loan != null && loan.getId() != null && loan.loanProduct() != null && loan.loanProduct().isMultiDisburseLoan()) {
+        if (loan != null && loan.getId() != null && loan.loanProduct() != null && loan.isMultiDisburmentLoan()) {
             final Integer before = loan.getLoanSubStatus();
             storeSubStatus(loan, result.status);
             if (alwaysRecord || !java.util.Objects.equals(before, loan.getLoanSubStatus())) {
@@ -138,7 +138,7 @@ public class TrancheMilestoneEligibilityService {
 
     @Transactional(readOnly = true)
     public Refresh preview(final Loan loan) {
-        if (loan == null || loan.getId() == null || loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan()) {
+        if (loan == null || loan.getId() == null || loan.loanProduct() == null || !loan.isMultiDisburmentLoan()) {
             return new Refresh(null, false, null, 0);
         }
         final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
@@ -241,7 +241,7 @@ public class TrancheMilestoneEligibilityService {
     public String cancelUndisbursed(final String loanKey, final String json, final String cancelledBy) {
         final JsonElement element = this.fromApiJsonHelper.parse(json == null || json.isBlank() ? "{}" : json);
         final Loan loan = findLoan(loanKey);
-        if (loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan()) {
+        if (loan.loanProduct() == null || !loan.isMultiDisburmentLoan()) {
             throw validation("Only multi-disbursement loans can cancel an undisbursed tranche.",
                     "tranche.milestone.cancel.not.multi.disburse");
         }

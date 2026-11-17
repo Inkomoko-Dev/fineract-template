@@ -1256,7 +1256,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
             final LocalDate transactionDate = command.localDateValueOfParameterNamed("transactionDate");
             final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
-            if (repaymentTransactionType.isRepayment() && loan.loanProduct().isMultiDisburseLoan()) {
+            if (repaymentTransactionType.isRepayment() && loan.isMultiDisburmentLoan()) {
                 final ScheduleGeneratorDTO repaymentScheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
                 final BigDecimal maximumRepaymentAmount = loan.fetchPrepaymentDetail(repaymentScheduleGeneratorDTO, transactionDate)
                         .getTotalOutstanding(loan.getCurrency()).getAmount();
@@ -1266,7 +1266,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                             maximumRepaymentAmount);
                 }
             }
-            if (repaymentTransactionType.isPayOff() && loan.loanProduct().isMultiDisburseLoan()) {
+            if (repaymentTransactionType.isPayOff() && loan.isMultiDisburmentLoan()) {
                 final ScheduleGeneratorDTO payoffScheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
                 final BigDecimal maximumPayoffAmount = loan.fetchPrepaymentDetail(payoffScheduleGeneratorDTO, transactionDate)
                         .getTotalOutstanding(loan.getCurrency()).getAmount();
@@ -3783,7 +3783,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         checkClientOrGroupActive(loan);
         final Map<String, Object> actualChanges = new LinkedHashMap<>();
         LocalDate expectedDisbursementDate = loan.getExpectedDisbursedOnLocalDate();
-        if (!loan.loanProduct().isMultiDisburseLoan()) {
+        if (!loan.isMultiDisburmentLoan()) {
             final String errorMessage = "loan.product.does.not.support.multiple.disbursals";
             throw new LoanMultiDisbursementException(errorMessage);
         }
@@ -3839,7 +3839,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         } else {
             // For multi-disbursement loans, sum the actual disbursed amounts
             // For single disbursement loans, use approved principal
-            if (loan.loanProduct().isMultiDisburseLoan()) {
+            if (loan.isMultiDisburmentLoan()) {
                 Collection<LoanDisbursementDetails> loanDisburseDetails = loan.getDisbursementDetails();
                 BigDecimal setAmount = BigDecimal.ZERO;
                 for (LoanDisbursementDetails details : loanDisburseDetails) {
@@ -4283,7 +4283,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         this.thirdPartySupplierDisbursementGuard.assertManualRecipientEditAllowed(loan, command, currentUser);
 
         // Update disbursement details
-        if (!loan.loanProduct().isMultiDisburseLoan()
+        if (!loan.isMultiDisburmentLoan()
                 && this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
             final String mfiCode = command.stringValueOfParameterNamed(LoanApiConstants.mfiCodeParameterName);
             final String clientPhoneNumber = command.stringValueOfParameterNamed("clientPhoneNumber");
