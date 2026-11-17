@@ -35,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.commands.domain.CommandProcessingResultType;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -333,7 +334,7 @@ public class CreditDecisionService {
     public ProfileData withdraw(final Long profileId, final int versionNo) {
         final VersionRow version = version(profileId, versionNo);
         requireStatus(version, PENDING, "Only a version awaiting approval can be withdrawn");
-        jdbcTemplate.update("UPDATE m_credit_decision_profile_version SET status = ? WHERE id = ?", DRAFT, version.id);
+        jdbcTemplate.update("UPDATE m_credit_decision_profile_version SET status = ?, maker_checker_id = NULL WHERE id = ?", DRAFT, version.id);
         audit(profileId, versionNo, "WITHDRAWN", "status", PENDING, DRAFT, DateUtils.getLocalDateTimeOfSystem());
         return profile(profileId);
     }
@@ -347,8 +348,8 @@ public class CreditDecisionService {
         }
         final LocalDateTime now = DateUtils.getLocalDateTimeOfSystem();
         jdbcTemplate.update(
-                "UPDATE m_credit_decision_profile_version SET status = ?, reason = ?, decided_by = ?, decided_on = ? WHERE id = ?", DRAFT,
-                "Returned: " + reason.trim(), username(), Timestamp.valueOf(now), version.id);
+                "UPDATE m_credit_decision_profile_version SET status = ?, reason = ?, decided_by = ?, decided_on = ?, maker_checker_id = NULL "
+                        + "WHERE id = ?", DRAFT, "Returned: " + reason.trim(), username(), Timestamp.valueOf(now), version.id);
         audit(profileId, versionNo, "RETURNED", "reason", null, reason.trim(), now);
         return profile(profileId);
     }
@@ -387,6 +388,54 @@ public class CreditDecisionService {
         auditChanges(profileId, versionNo, "ACTIVATED", before, after, now);
         dropCachedActive();
         return profile(profileId);
+    }
+
+    // ------------------------------------------------------------------ the Maker-Checker task of a version
+
+    /** Remembers which task in the Checker Inbox activates this version. */
+    @Transactional
+    public void linkMakerChecker(final Long profileId, final int versionNo, final Long taskId) {
+        final VersionRow version = version(profileId, versionNo);
+        jdbcTemplate.update("UPDATE m_credit_decision_profile_version SET maker_checker_id = ? WHERE id = ?", taskId, version.id);
+    }
+
+    /** The task in the Checker Inbox that activates this version, null when it has none. */
+    @Transactional(readOnly = true)
+    public Long makerCheckerIdOf(final Long profileId, final int versionNo) {
+        final VersionRow version = version(profileId, versionNo);
+        final List<Long> ids = jdbcTemplate.query("SELECT maker_checker_id FROM m_credit_decision_profile_version WHERE id = ?",
+                (rs, i) -> (Long) rs.getObject("maker_checker_id"), version.id);
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
+    /**
+     * A checker can turn a task down, or delete it, in the Checker Inbox, which knows nothing of the profile. Versions
+     * whose task is no longer waiting are returned to draft here, with the checker's name, so they can be changed and
+     * sent again. Does nothing for a version whose task is still waiting.
+     */
+    @Transactional
+    public void settleClosedTasks(final Long profileId) {
+        final List<Object[]> closed = new ArrayList<>();
+        jdbcTemplate.query("SELECT v.version_no, c.id AS task_id, u.username FROM m_credit_decision_profile_version v "
+                + "LEFT JOIN m_portfolio_command_source c ON c.id = v.maker_checker_id "
+                + "LEFT JOIN m_appuser u ON u.id = c.checker_id WHERE v.profile_id = ? AND v.status = ? AND v.maker_checker_id IS NOT NULL "
+                + "AND (c.id IS NULL OR c.processing_result_enum = ?)", rs -> {
+                    closed.add(new Object[] { rs.getInt("version_no"), rs.getObject("task_id"), rs.getString("username") });
+                }, profileId, PENDING, CommandProcessingResultType.REJECTED.getValue());
+        for (final Object[] row : closed) {
+            final int versionNo = (Integer) row[0];
+            final String by = row[2] == null ? "a checker" : (String) row[2];
+            final String reason = row[1] == null ? "Returned: its approval task was deleted from the Checker Inbox"
+                    : "Returned: rejected by " + by + " in the Checker Inbox";
+            final VersionRow version = version(profileId, versionNo);
+            jdbcTemplate.update("UPDATE m_credit_decision_profile_version SET status = ?, reason = ?, decided_by = ?, decided_on = ?, "
+                    + "maker_checker_id = NULL WHERE id = ? AND status = ?", DRAFT, reason, row[2],
+                    Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem()), version.id, PENDING);
+            // the checker did it, not whoever happens to open the page now
+            jdbcTemplate.update("INSERT INTO m_credit_decision_audit (profile_id, version_no, action, field_name, old_value, new_value, "
+                    + "acted_by, acted_on) VALUES (?, ?, 'RETURNED', 'reason', NULL, ?, ?, ?)", profileId, versionNo, abbreviate(reason),
+                    row[2] == null ? "Checker Inbox" : row[2], Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem()));
+        }
     }
 
     /**
@@ -654,7 +703,8 @@ public class CreditDecisionService {
                             .add(new VersionData(versionId, rs.getInt("version_no"), rs.getString("status"), rs.getString("reason"),
                                     rs.getString("prepared_by"), iso(rs.getTimestamp("prepared_on")), rs.getString("decided_by"),
                                     iso(rs.getTimestamp("decided_on")), productIdsOf(versionId), paramsOf(versionId), rulesOf(versionId),
-                                    rs.getString("submitted_by"), iso(rs.getTimestamp("submitted_on"))));
+                                    rs.getString("submitted_by"), iso(rs.getTimestamp("submitted_on")),
+                                    (Long) rs.getObject("maker_checker_id")));
                 }, args);
         return jdbcTemplate.query(
                 "SELECT p.id, p.name, p.mode, p.created_by, p.created_on, p.mode_changed_by, p.mode_changed_on, p.pending_mode, "

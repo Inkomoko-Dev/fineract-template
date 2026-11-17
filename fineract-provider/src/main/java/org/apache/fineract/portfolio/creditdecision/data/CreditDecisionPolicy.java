@@ -73,7 +73,7 @@ public final class CreditDecisionPolicy {
         COUNTRIES.put("KES", "Kenya");
         COUNTRIES.put("ETB", "Ethiopia");
         COUNTRIES.put("SSP", "South Sudan");
-        COUNTRIES.put("XAF", "Central Africa (CFA franc)");
+        COUNTRIES.put("XAF", "Chad");
     }
 
     public enum Unit {

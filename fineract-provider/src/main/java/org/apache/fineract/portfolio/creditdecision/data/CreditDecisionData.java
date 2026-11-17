@@ -84,6 +84,8 @@ public final class CreditDecisionData {
         /** Who sent it for approval and when. Different from the preparer when someone else made the last edit. */
         private final String submittedBy;
         private final String submittedOn;
+        /** The Maker-Checker task (in the Checker Inbox) that activates this version, while it waits for a checker. */
+        private final Long makerCheckerId;
     }
 
     /** One policy setting: a number for a rule, for everyone, a country (by currency) or a loan product. */

@@ -149,6 +149,8 @@ class CreditDecisionLoanServiceDbTest {
                 + "is_misfired TINYINT(1), node_id INT, is_mismatched_job TINYINT(1))");
         jdbc.execute("CREATE TABLE m_appuser (id BIGINT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(100), is_deleted TINYINT(1) DEFAULT 0, "
                 + "enabled TINYINT(1) DEFAULT 1)");
+        jdbc.execute("CREATE TABLE m_portfolio_command_source (id BIGINT AUTO_INCREMENT PRIMARY KEY, action_name VARCHAR(100), "
+                + "entity_name VARCHAR(100), maker_id BIGINT, checker_id BIGINT NULL, processing_result_enum INT)");
         jdbc.execute("CREATE TABLE m_appuser_role (appuser_id BIGINT, role_id BIGINT)");
         jdbc.execute("CREATE TABLE m_loan_decision (id BIGINT AUTO_INCREMENT PRIMARY KEY, loan_id BIGINT, "
                 + "is_due_diligence_signed TINYINT(1), is_reject_due_diligence TINYINT(1), due_diligence_recommended_amount DECIMAL(19,6), "
@@ -163,6 +165,7 @@ class CreditDecisionLoanServiceDbTest {
         final FileSystemResourceAccessor files = new FileSystemResourceAccessor(new File("src/main/resources/db/changelog/tenant/parts"));
         new Liquibase("CGLT-846_credit_decision_profiles.xml", files, database).update("");
         new Liquibase("CGLT-846_loan_credit_decision.xml", files, database).update("");
+        new Liquibase("CGLT-846_policy_maker_checker.xml", files, database).update("");
 
         context = mock(PlatformSecurityContext.class);
         actAs("credit.analyst");
@@ -271,7 +274,7 @@ class CreditDecisionLoanServiceDbTest {
     @Test
     void migrationAddsTheTableAndTheThreePermissionsForTheSuperUser() {
         assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM m_permission WHERE entity_name = 'CREDITDECISIONLOAN'", Integer.class));
-        assertEquals(8, jdbc.queryForObject("SELECT COUNT(*) FROM m_role_permission", Integer.class));
+        assertEquals(10, jdbc.queryForObject("SELECT COUNT(*) FROM m_role_permission", Integer.class));
     }
 
     @Test
