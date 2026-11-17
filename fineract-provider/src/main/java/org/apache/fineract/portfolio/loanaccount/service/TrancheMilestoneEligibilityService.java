@@ -46,9 +46,13 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheMilestone;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheMilestoneHistory;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheMilestoneHistoryRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheMilestoneRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheManualReviewRules;
 import org.apache.fineract.portfolio.loanaccount.domain.TrancheMilestoneRules;
 import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
+import org.apache.fineract.portfolio.loanaccount.domain.TrancheScheduleRules;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
+import org.apache.fineract.portfolio.note.domain.Note;
+import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,6 +64,7 @@ public class TrancheMilestoneEligibilityService {
     private final LoanRepository loanRepository;
     private final LoanTrancheMilestoneRepository milestoneRepository;
     private final LoanTrancheMilestoneHistoryRepository historyRepository;
+    private final NoteRepository noteRepository;
     private final JdbcTemplate jdbcTemplate;
     private final FromJsonHelper fromApiJsonHelper;
 
@@ -197,27 +202,97 @@ public class TrancheMilestoneEligibilityService {
         final JsonElement element = this.fromApiJsonHelper.parse(json == null || json.isBlank() ? "{}" : json);
         final Loan loan = findLoan(loanKey);
         final LoanDisbursementDetails target = waitingTranche(loan, element);
+        final LocalDate scheduleDeadline = scheduleEligibilityDeadline(loan);
         final LocalDate dueDate = eligibilityDeadline(loan);
-        final boolean pastDeadline = dueDate != null && DateUtils.getBusinessLocalDate().isAfter(dueDate);
+        final LocalDate today = DateUtils.getBusinessLocalDate();
+        final boolean pastDeadline = dueDate != null && today.isAfter(dueDate);
         if (!pastDeadline) {
             throw validation("A deadline exception can be approved after the eligibility deadline.",
                     "tranche.milestone.deadline.not.passed");
         }
+        final Integer extensionDays = integerValue(element, "extensionDays");
+        if (!TrancheManualReviewRules.acceptableExtensionDays(extensionDays)) {
+            throw validation("extensionDays must be between 1 and 3660.", "tranche.milestone.extension.days.invalid");
+        }
+        final String note = requiredText(element, "note", "A review note is required when extending the deadline.",
+                "tranche.milestone.review.note.required");
+        final LocalDate extended = TrancheManualReviewRules.extendedDeadline(dueDate, today, extensionDays);
         LoanTrancheMilestone milestone = this.milestoneRepository.findByLoanIdAndDisbursementDetailId(loan.getId(), target.getId())
                 .orElse(null);
         if (milestone == null) {
             milestone = new LoanTrancheMilestone(loan.getId(), target.getId(), DateUtils.getOffsetDateTimeOfTenant());
         }
-        milestone.setDeadlineExceptionApproved(true);
+        milestone.setEligibilityDeadlineOverride(extended);
+        // Extension moves the deadline; do not waive the deadline check.
+        milestone.setDeadlineExceptionApproved(false);
         milestone.setDeadlineExceptionBy(approvedBy);
         milestone.setDeadlineExceptionOn(DateUtils.getOffsetDateTimeOfTenant());
-        final String note = text(element, "note");
-        if (note != null) {
-            milestone.setDeadlineExceptionNote(note);
-        }
+        milestone.setDeadlineExceptionNote(note);
+        milestone.setReviewDecision("EXTEND");
         this.milestoneRepository.save(milestone);
+        this.noteRepository.save(Note.loanNote(loan,
+                "Manual review decision: EXTEND by " + extensionDays + " day(s) to " + extended + ". Schedule deadline was "
+                        + scheduleDeadline + ". " + note));
         final Refresh refresh = refresh(loan, true);
         return response(loan, refresh, false, milestone);
+    }
+
+    @Transactional
+    public String cancelUndisbursed(final String loanKey, final String json, final String cancelledBy) {
+        final JsonElement element = this.fromApiJsonHelper.parse(json == null || json.isBlank() ? "{}" : json);
+        final Loan loan = findLoan(loanKey);
+        if (loan.loanProduct() == null || !loan.loanProduct().isMultiDisburseLoan()) {
+            throw validation("Only multi-disbursement loans can cancel an undisbursed tranche.",
+                    "tranche.milestone.cancel.not.multi.disburse");
+        }
+        if (!hasDisbursedTranche(loan)) {
+            throw validation("At least one tranche must already be disbursed before the remaining commitment can be cancelled.",
+                    "tranche.milestone.cancel.no.disbursed.tranche");
+        }
+        final List<LoanDisbursementDetails> pending = new ArrayList<>();
+        if (loan.getDisbursementDetails() != null) {
+            for (final LoanDisbursementDetails detail : loan.getDisbursementDetails()) {
+                if (detail.actualDisbursementDate() == null) {
+                    pending.add(detail);
+                }
+            }
+        }
+        if (pending.isEmpty()) {
+            throw validation("There is no undisbursed tranche commitment to cancel.", "tranche.milestone.cancel.nothing.pending");
+        }
+        final String reason = requiredText(element, "reason", "A cancellation reason is required.",
+                "tranche.milestone.cancel.reason.required");
+        final String note = requiredText(element, "note", "A review note is required when cancelling the undisbursed tranche.",
+                "tranche.milestone.review.note.required");
+        final OffsetDateTime cancelledOn = DateUtils.getOffsetDateTimeOfTenant();
+        for (final LoanDisbursementDetails detail : pending) {
+            if (detail.getId() == null) {
+                continue;
+            }
+            LoanTrancheMilestone milestone = this.milestoneRepository.findByLoanIdAndDisbursementDetailId(loan.getId(), detail.getId())
+                    .orElse(null);
+            if (milestone == null) {
+                milestone = new LoanTrancheMilestone(loan.getId(), detail.getId(), cancelledOn);
+            }
+            milestone.setCancellationReason(limit(reason, 500));
+            milestone.setCancelledBy(cancelledBy);
+            milestone.setCancelledOn(cancelledOn);
+            milestone.setReviewDecision("CANCEL");
+            milestone.setDeadlineExceptionNote(limit(note, 1000));
+            this.milestoneRepository.save(milestone);
+            final LoanTrancheMilestoneHistory history = new LoanTrancheMilestoneHistory(loan.getId(), detail.getId(),
+                    LoanSubStatus.EXPIRED.getValue(), cancelledOn);
+            history.copyFrom(milestone);
+            this.historyRepository.save(history);
+        }
+        loan.cancelUndisbursedCommitment();
+        TrancheScheduleRules.apply(loan);
+        this.loanRepository.saveAndFlush(loan);
+        this.noteRepository.save(Note.loanNote(loan, "Manual review decision: CANCEL undisbursed tranche. Reason: " + reason + ". " + note));
+        final Refresh refresh = refresh(loan, true);
+        final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
+        final LoanTrancheMilestone display = milestoneForDisplay(loan, next);
+        return response(loan, refresh, false, display);
     }
 
     @Transactional(readOnly = true)
@@ -654,10 +729,14 @@ public class TrancheMilestoneEligibilityService {
     }
 
     /**
-     * Deadline is the due date of the first repayment after grace. One month of grace uses
-     * installment 2; two months of grace uses installment 3.
+     * Deadline is the due date of the first repayment after grace, unless a reviewer has extended it.
+     * One month of grace uses installment 2; two months of grace uses installment 3.
      */
     private LocalDate eligibilityDeadline(final Loan loan) {
+        return TrancheManualReviewRules.effectiveDeadline(scheduleEligibilityDeadline(loan), deadlineOverride(loan));
+    }
+
+    private LocalDate scheduleEligibilityDeadline(final Loan loan) {
         if (loan == null || loan.getId() == null) {
             return null;
         }
@@ -670,6 +749,42 @@ public class TrancheMilestoneEligibilityService {
                     }
                     return rs.getDate(1).toLocalDate();
                 }, loan.getId(), installment);
+    }
+
+    private LocalDate deadlineOverride(final Loan loan) {
+        final LoanDisbursementDetails next = loan.getNextUndisbursedDisbursementDetail();
+        if (next == null || next.getId() == null) {
+            return null;
+        }
+        return this.milestoneRepository.findByLoanIdAndDisbursementDetailId(loan.getId(), next.getId())
+                .map(LoanTrancheMilestone::getEligibilityDeadlineOverride).orElse(null);
+    }
+
+    private static Integer integerValue(final JsonElement element, final String name) {
+        final JsonElement value = field(element, name);
+        final JsonPrimitive primitive = primitive(value);
+        if (primitive == null) {
+            return null;
+        }
+        if (primitive.isNumber()) {
+            return primitive.getAsInt();
+        }
+        if (primitive.isString() && !primitive.getAsString().isBlank()) {
+            try {
+                return Integer.valueOf(primitive.getAsString().trim());
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static String requiredText(final JsonElement element, final String name, final String message, final String code) {
+        final String value = text(element, name);
+        if (value == null || value.isBlank()) {
+            throw validation(message, code);
+        }
+        return limit(value, 1000);
     }
 
     private Loan findLoan(final String loanKey) {
@@ -708,6 +823,9 @@ public class TrancheMilestoneEligibilityService {
         body.put("pastDeadline", refresh.subsequentTranche && refresh.pastDeadline);
         body.put("subsequentTranche", refresh.subsequentTranche);
         body.put("deadlineExceptionApproved", refresh.deadlineExceptionApproved);
+        body.put("eligibilityDeadlineOverride", milestone == null ? null : dateText(milestone.getEligibilityDeadlineOverride()));
+        body.put("reviewDecision", milestone == null ? null : milestone.getReviewDecision());
+        body.put("cancellationReason", milestone == null ? null : milestone.getCancellationReason());
         body.put("surveyAnswer", refresh.survey.name());
         putSurvey(body, milestone);
         return body;

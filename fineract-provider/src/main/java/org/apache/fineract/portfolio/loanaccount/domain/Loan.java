@@ -67,6 +67,7 @@ import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.JsonParserHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -3647,7 +3648,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 }
             }
 
-            if (this.isTopup) {
+            if (this.isTopup && this.loanTopupDetails != null) {
+                // the transfer (and the amount it settled on the topped-up loan) is reversed by undo-disbursal, so the
+                // top-up can be disbursed again from scratch
                 this.loanTopupDetails.setAccountTransferDetails(null);
                 this.loanTopupDetails.setTopupAmount(null);
             }
@@ -5013,6 +5016,47 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return remaining.signum() < 0 ? BigDecimal.ZERO : remaining;
     }
 
+    /**
+     * Removes every undisbursed tranche, lowers the approved commitment to what has already been
+     * disbursed, and leaves the first-tranche transactions untouched. Returns the new approved principal.
+     */
+    public BigDecimal cancelUndisbursedCommitment() {
+        if (this.disbursementDetails == null || this.disbursementDetails.isEmpty()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.tranche.cancel.no.disbursements",
+                    "This loan has no tranche disbursement rows to cancel.");
+        }
+        final List<LoanDisbursementDetails> keep = new ArrayList<>();
+        BigDecimal disbursed = BigDecimal.ZERO;
+        boolean removed = false;
+        for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+            if (detail.actualDisbursementDate() != null) {
+                keep.add(detail);
+                if (detail.principal() != null) {
+                    disbursed = disbursed.add(detail.principal());
+                }
+            } else {
+                removed = true;
+                if (detail.getId() != null) {
+                    removeChargesByDisbursementID(detail.getId());
+                }
+            }
+        }
+        if (!removed) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.tranche.cancel.nothing.pending",
+                    "There is no undisbursed tranche commitment to cancel.");
+        }
+        if (keep.isEmpty()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.tranche.cancel.no.disbursed.tranche",
+                    "At least one tranche must already be disbursed before the remaining commitment can be cancelled.");
+        }
+        this.disbursementDetails.clear();
+        this.disbursementDetails.addAll(keep);
+        this.approvedPrincipal = disbursed;
+        this.loanRepaymentScheduleDetail.setPrincipal(disbursed);
+        adjustNetDisbursalAmount(disbursed);
+        return disbursed;
+    }
+
     public void alignUndisbursedTranchesToApprovedPrincipal() {
         if (this.approvedPrincipal == null || this.disbursementDetails == null || this.disbursementDetails.isEmpty()) {
             return;
@@ -6095,12 +6139,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                             defaultUserMessage);
                     dataValidationErrors.add(error);
                 }
-                if (isOpen() && this.isTopup()) {
-                    final String defaultUserMessage = "Loan Undo disbursal is not allowed on Topup Loans";
-                    final ApiParameterError error = ApiParameterError
-                            .generalError("error.msg.loan.undo.disbursal.not.allowed.on.topup.loan", defaultUserMessage);
-                    dataValidationErrors.add(error);
-                }
+                // Top-up loans can be undisbursed as well: undoing the disbursal also reverses the loan-to-loan transfer
+                // that settled the topped-up loan, so the previous loan is reopened by the write platform service.
             break;
             case LOAN_REPAYMENT_OR_WAIVER:
                 if (!isOpen()) {
@@ -8003,11 +8043,28 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public void restoreLoanScheduleAndTransactions() {
+        restoreLoanScheduleAndTransactions(true);
+    }
+
+    /**
+     * Same repair as {@link #restoreLoanScheduleAndTransactions()}, but keeps the accrual transactions on the loan.
+     * <p>
+     * {@code acc_gl_journal_entry.loan_transaction_id} references {@code m_loan_transaction}, so dropping an accrual
+     * transaction from the (orphan removing) transaction collection makes Hibernate delete a row that the ledger still
+     * points at, and the database rejects it. Accruals take no part in the repayment replay, so the rebuild produces
+     * the same installments, summary and status either way. Used when a closed loan is reopened after the transaction
+     * that settled it has been reversed.
+     */
+    public void restoreLoanScheduleAndTransactionsPreservingAccruals() {
+        restoreLoanScheduleAndTransactions(false);
+    }
+
+    private void restoreLoanScheduleAndTransactions(final boolean removeAccrualTransactions) {
 
         Collection<LoanTransaction> retainTransactions = new ArrayList<>();
         for (final LoanTransaction transaction : this.loanTransactions) {
             transaction.getLoanTransactionToRepaymentScheduleMappings().clear();
-            if (!transaction.isAccrualTransaction()) {
+            if (!removeAccrualTransactions || !transaction.isAccrualTransaction()) {
                 retainTransactions.add(transaction);
             }
 

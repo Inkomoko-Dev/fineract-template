@@ -209,4 +209,10 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
     @Query("select loan from Loan loan where loan.id = :loanId")
     Optional<Loan> findByIdForUpdate(@Param("loanId") Long loanId);
 
+    @Query("select case when (count(loan) > 0) then true else false end from Loan loan "
+            + "where loan.client.id = :clientId and loan.loanStatus = 300 "
+            + "and loan.loanProduct.loanProducTrancheDetails.requireMilestoneSurvey = true "
+            + "and loan.summary.totalOutstanding > 0")
+    boolean existsActiveUnsettledMilestoneLoanForClient(@Param("clientId") Long clientId);
+
 }

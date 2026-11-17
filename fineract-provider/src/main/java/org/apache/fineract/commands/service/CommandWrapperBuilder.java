@@ -4404,6 +4404,13 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder cancelTrancheMilestone(final String loanKey) {
+        this.actionName = "CANCEL";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones/cancel-undisbursed";
+        return this;
+    }
+
     public CommandWrapperBuilder overrideLoanClassification(final Long loanId) {
         this.actionName = "OVERRIDE";
         this.entityName = "LOANCLASSIFICATION";

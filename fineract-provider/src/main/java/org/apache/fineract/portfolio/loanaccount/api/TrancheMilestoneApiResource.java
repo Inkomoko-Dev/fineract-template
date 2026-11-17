@@ -62,6 +62,15 @@ public class TrancheMilestoneApiResource {
         return response(this.commandsSourceWritePlatformService.logCommandSource(commandRequest));
     }
 
+    @POST
+    @Path("cancel-undisbursed")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String cancelUndisbursed(@PathParam("loanKey") final String loanKey, final String json) {
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().cancelTrancheMilestone(loanKey).withJson(body(json)).build();
+        return response(this.commandsSourceWritePlatformService.logCommandSource(commandRequest));
+    }
+
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })

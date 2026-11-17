@@ -294,6 +294,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 Client client = this.clientRepository.findOneWithNotFoundDetection(clientId);
                 officeSpecificLoanProductValidation(productId, client.getOffice().getId());
                 this.clientAddressLocationValidator.validateClientHasLocation(clientId);
+                validateNoUnsettledMilestoneLoan(loanProduct, clientId);
             }
             final Long groupId = this.fromJsonHelper.extractLongNamed("groupId", command.parsedJson());
             if (groupId != null) {
@@ -2098,6 +2099,20 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                         dataValidationErrors);
             }
         }
+    }
+
+    private void validateNoUnsettledMilestoneLoan(final LoanProduct loanProduct, final Long clientId) {
+        if (loanProduct == null || clientId == null || !loanProduct.isBlockApplicationWhileUnsettled()) {
+            return;
+        }
+        if (!this.loanRepository.existsActiveUnsettledMilestoneLoanForClient(clientId)) {
+            return;
+        }
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loanapplication");
+        baseDataValidator.reset().parameter("clientId").value(clientId).failWithCode("client.has.an.unsettled.active.loan.account");
+        throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist",
+                "Client has an unsettled active loan account", dataValidationErrors);
     }
 
     @Transactional

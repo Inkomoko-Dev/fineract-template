@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -88,6 +89,24 @@ public class LoanTrancheMilestoneHistory extends AbstractPersistableCustom {
     @Column(name = "deadline_exception_by", length = 200)
     private String deadlineExceptionBy;
 
+    @Column(name = "deadline_exception_note", length = 1000)
+    private String deadlineExceptionNote;
+
+    @Column(name = "eligibility_deadline_override")
+    private LocalDate eligibilityDeadlineOverride;
+
+    @Column(name = "cancellation_reason", length = 500)
+    private String cancellationReason;
+
+    @Column(name = "cancelled_by", length = 200)
+    private String cancelledBy;
+
+    @Column(name = "cancelled_on")
+    private OffsetDateTime cancelledOn;
+
+    @Column(name = "review_decision", length = 32)
+    private String reviewDecision;
+
     @Column(name = "loan_sub_status_id")
     private Integer loanSubStatusId;
 
@@ -125,5 +144,11 @@ public class LoanTrancheMilestoneHistory extends AbstractPersistableCustom {
         this.evidenceReferences = milestone.getEvidenceReferences();
         this.deadlineExceptionApproved = milestone.getDeadlineExceptionApproved();
         this.deadlineExceptionBy = milestone.getDeadlineExceptionBy();
+        this.deadlineExceptionNote = milestone.getDeadlineExceptionNote();
+        this.eligibilityDeadlineOverride = milestone.getEligibilityDeadlineOverride();
+        this.cancellationReason = milestone.getCancellationReason();
+        this.cancelledBy = milestone.getCancelledBy();
+        this.cancelledOn = milestone.getCancelledOn();
+        this.reviewDecision = milestone.getReviewDecision();
     }
 }

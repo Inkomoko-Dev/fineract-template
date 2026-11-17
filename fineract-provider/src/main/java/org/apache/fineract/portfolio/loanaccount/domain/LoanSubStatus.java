@@ -147,7 +147,7 @@ public enum LoanSubStatus {
             break;
             case REQUIRES_REVIEW:
                 optionData = new EnumOptionData(LoanSubStatus.REQUIRES_REVIEW.getValue().longValue(),
-                        codePrefix + LoanSubStatus.REQUIRES_REVIEW.getCode(), "Requires review");
+                        codePrefix + LoanSubStatus.REQUIRES_REVIEW.getCode(), "Manual review");
             break;
             default:
                 optionData = new EnumOptionData(LoanSubStatus.INVALID.getValue().longValue(), LoanSubStatus.INVALID.getCode(), "Invalid");

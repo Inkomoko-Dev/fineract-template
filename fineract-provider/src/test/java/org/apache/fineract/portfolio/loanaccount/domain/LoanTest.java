@@ -61,6 +61,7 @@ import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.LoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.exception.IncompatibleLoanTermAndFrequencyException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
@@ -1177,5 +1178,90 @@ public class LoanTest {
         assertNull(detail.actualDisbursementDate());
         assertNull(ReflectionTestUtils.getField(loan, "actualDisbursementDate"));
         assertEquals(LoanStatus.APPROVED.getValue(), loan.getLoanStatus());
+    }
+
+    @Test
+    void undoDisbursalIsAllowedOnTopupLoanAndClearsTheSettlementDetails() {
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(false);
+
+        final LoanProductRelatedDetail scheduleDetail = mutableScheduleDetail(new BigDecimal("5000000.00"));
+        final LoanLifecycleStateMachine stateMachine = mock(LoanLifecycleStateMachine.class);
+        when(stateMachine.transition(any(), any())).thenReturn(LoanStatus.APPROVED);
+
+        final LocalDate expectedDate = LocalDate.of(2026, 7, 7);
+        final LocalDate actualDate = LocalDate.of(2026, 7, 7);
+        final LoanDisbursementDetails detail = new LoanDisbursementDetails(expectedDate, actualDate, new BigDecimal("5000000.00"), null);
+
+        final Loan loan = new Loan();
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
+        ReflectionTestUtils.setField(loan, "loanLifecycleStateMachine", stateMachine);
+        ReflectionTestUtils.setField(loan, "summary", LoanSummary.create(BigDecimal.ZERO));
+
+        final List<LoanDisbursementDetails> details = Collections.singletonList(detail);
+        ReflectionTestUtils.setField(loan, "disbursementDetails", details);
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.ACTIVE.getValue());
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", expectedDate);
+        ReflectionTestUtils.setField(loan, "actualDisbursementDate", actualDate);
+        ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("5000000.00"));
+        ReflectionTestUtils.setField(loan, "isTopup", true);
+
+        final Long loanIdToClose = 77L;
+        final LoanTopupDetails topupDetails = new LoanTopupDetails(loan, loanIdToClose);
+        topupDetails.setTopupAmount(new BigDecimal("2000000.00"));
+        topupDetails.setAccountTransferDetails(31L);
+        loan.setTopupLoanDetails(topupDetails);
+
+        final org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO scheduleGeneratorDTO = mock(
+                org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO.class);
+
+        final Map<String, Object> changes = loan.undoDisbursal(scheduleGeneratorDTO, new ArrayList<>(), new ArrayList<>());
+
+        assertFalse(changes.isEmpty(), "undoing the disbursal of a top-up loan must not be rejected");
+        assertEquals(LoanStatus.APPROVED.getValue(), loan.getLoanStatus());
+        assertNull(topupDetails.getTopupAmount(), "the settled amount was reversed together with the transfer");
+        assertEquals(loanIdToClose, topupDetails.getLoanIdToClose(), "the topped-up loan is kept so the top-up can be disbursed again");
+    }
+
+    @Test
+    void restorePreservingAccrualsKeepsAccrualTransactionsThatTheLedgerReferences() {
+        final LocalDate disbursementDate = LocalDate.of(2026, 7, 7);
+
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(false);
+
+        final LoanLifecycleStateMachine stateMachine = mock(LoanLifecycleStateMachine.class);
+        when(stateMachine.transition(any(), any())).thenReturn(LoanStatus.CLOSED_OBLIGATIONS_MET);
+
+        final LoanRepaymentScheduleTransactionProcessor transactionProcessor = mock(LoanRepaymentScheduleTransactionProcessor.class);
+        when(transactionProcessor.handleTransaction(any(), any(), any(), any(), any())).thenReturn(new ChangedTransactionDetail());
+        final LoanRepaymentScheduleTransactionProcessorFactory transactionProcessorFactory = mock(
+                LoanRepaymentScheduleTransactionProcessorFactory.class);
+        when(transactionProcessorFactory.determineProcessor(any())).thenReturn(transactionProcessor);
+
+        final Loan loan = new Loan();
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", mutableScheduleDetail(new BigDecimal("1000000.00")));
+        ReflectionTestUtils.setField(loan, "loanLifecycleStateMachine", stateMachine);
+        ReflectionTestUtils.setField(loan, "summary", LoanSummary.create(BigDecimal.ZERO));
+        ReflectionTestUtils.setField(loan, "expectedDisbursementDate", disbursementDate);
+        ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.CLOSED_OBLIGATIONS_MET.getValue());
+        ReflectionTestUtils.setField(loan, "transactionProcessorFactory", transactionProcessorFactory);
+        ReflectionTestUtils.setField(loan, "transactionProcessingStrategy", mock(LoanTransactionProcessingStrategy.class));
+
+        final LoanTransaction accrual = LoanTransaction.accrueTransaction(loan, mock(Office.class), disbursementDate.plusMonths(1),
+                new BigDecimal("100.00"), new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO);
+        final LoanTransaction settlement = LoanTransaction.repayment(mock(Office.class), Money.of(KES, new BigDecimal("1000000.00")),
+                null, disbursementDate.plusMonths(2), null);
+        settlement.updateLoan(loan);
+        settlement.reverse();
+        ReflectionTestUtils.setField(loan, "loanTransactions", new ArrayList<>(Arrays.asList(accrual, settlement)));
+
+        loan.restoreLoanScheduleAndTransactionsPreservingAccruals();
+
+        assertTrue(loan.getLoanTransactions().stream().anyMatch(LoanTransaction::isAccrual),
+                "accrual rows must stay on the loan: acc_gl_journal_entry still references them");
+        assertTrue(loan.getLoanTransactions().contains(settlement), "the reversed settlement is kept for the audit trail");
     }
 }
