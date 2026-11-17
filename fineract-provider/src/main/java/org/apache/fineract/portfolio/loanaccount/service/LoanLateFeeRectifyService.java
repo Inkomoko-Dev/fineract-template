@@ -58,9 +58,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Late-fee repair in two steps: (1) quietly remove daily/flat late fees that should not have gone to prod;
- * (2) gap-fill missing original Overdue Fees using the same per-installment rules as
- * {@code applyChargeToOverdueLoanInstallment} (installment due + wait, fee frequency/interval, maturity cap), then sync
- * charged/paid/outstanding. Independent of {@link LoanDailyLateFeeService}.
+ * (2) gap-fill missing original Overdue Fees using the Sep-2026 / {@code inkomoko-prod-bkp21092026} rules from
+ * {@code applyChargeToOverdueLoanInstallment} (per incomplete installment, fee frequency/interval, maturity cap,
+ * max_occurrence, % of installment outstanding), then sync charged/paid/outstanding. Independent of
+ * {@link LoanDailyLateFeeService}.
  */
 @Service
 @RequiredArgsConstructor
@@ -159,7 +160,8 @@ public class LoanLateFeeRectifyService {
             // Percentage, frequency and interval always come from the product overdue charge (e.g. Late Fee RW) —
             // never hard-coded. Gap-fill only runs when this definition exists and the loan is past penalty grace.
             final List<Map<String, Object>> chargeDefs = this.jdbcTemplate.queryForList(
-                    "select c.id, c.name, c.amount, c.fee_interval, c.fee_frequency, c.charge_calculation_enum"
+                    "select c.id, c.name, c.amount, c.fee_interval, c.fee_frequency, c.charge_calculation_enum,"
+                            + " c.max_occurrence"
                             + " from m_product_loan_charge plc"
                             + " join m_charge c on c.id = plc.charge_id"
                             + " where plc.product_loan_id = ? and c.is_active = 1 and c.is_penalty = 1"
@@ -185,6 +187,8 @@ public class LoanLateFeeRectifyService {
                     : ((Number) chargeDef.get("fee_frequency")).intValue();
             final Integer feeInterval = chargeDef.get("fee_interval") == null ? null
                     : ((Number) chargeDef.get("fee_interval")).intValue();
+            final Integer maxOccurrence = chargeDef.get("max_occurrence") == null ? null
+                    : ((Number) chargeDef.get("max_occurrence")).intValue();
 
             final long gracePeriod = this.configurationDomainService.retrievePenaltyWaitPeriod();
             final long penaltyPostingWaitPeriod = this.configurationDomainService.retrieveGraceOnPenaltyPostingPeriod();
@@ -220,8 +224,8 @@ public class LoanLateFeeRectifyService {
 
             final String chargeName = chargeDef.get("name") == null ? null : String.valueOf(chargeDef.get("name"));
             return new RectifyContext(loanId, effectiveDate, loan, chargeDefinitionId, chargeName, monthlyRate, monthInterval,
-                    feeFrequency, feeInterval, gracePeriod, penaltyPostingWaitPeriod, expectedMaturity, firstPenaltyDate,
-                    dailyChargeIds);
+                    feeFrequency, feeInterval, maxOccurrence, gracePeriod, penaltyPostingWaitPeriod, expectedMaturity,
+                    firstPenaltyDate, dailyChargeIds);
         });
     }
 
@@ -517,10 +521,11 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
-     * Gap-fill missing Overdue Fees using the same per-installment rules as
+     * Gap-fill missing Overdue Fees using {@code inkomoko-prod-bkp21092026}
      * {@code applyChargeToOverdueLoanInstallment}: incomplete installments past penalty wait, fee frequency/interval,
-     * one occurrence before maturity and recurring through the business date on/after maturity, % of installment
-     * outstanding principal. Clears prior incorrect specified-due-date / gap-fill rows first.
+     * one occurrence before maturity and recurring through the business date on/after maturity while unpaid, optional
+     * max_occurrence, % of installment outstanding principal. Clears prior incorrect specified-due-date / gap-fill rows
+     * first. Closed loans were never charged by that job ({@code loan_status_id = 300} only).
      */
     private int postMissingMonthlyPenalties(final RectifyContext ctx) {
         if (ctx.firstPenaltyDate == null || ctx.effectiveDate.isBefore(ctx.firstPenaltyDate)) {
@@ -563,6 +568,11 @@ public class LoanLateFeeRectifyService {
                 if (cumulative.compareTo(cap) >= 0) {
                     break;
                 }
+                final Integer periodNumber = ((Number) installment.get("installment")).intValue();
+                // applyMaxOccurrenceWhileApplyingOverdueChargesForLoan: only installments with period <= max_occurrence
+                if (ctx.maxOccurrence != null && ctx.maxOccurrence > 0 && periodNumber > ctx.maxOccurrence) {
+                    continue;
+                }
                 final LocalDate dueDate = toLocalDate(installment.get("duedate"));
                 if (dueDate == null) {
                     continue;
@@ -577,7 +587,6 @@ public class LoanLateFeeRectifyService {
                 }
 
                 final Long scheduleId = ((Number) installment.get("schedule_id")).longValue();
-                final Integer periodNumber = ((Number) installment.get("installment")).intValue();
                 final Map<Integer, LocalDate> scheduleDates = buildClassicOverdueScheduleDates(ctx, dueDate, diff,
                         scheduledDateGenerator);
                 final Set<Integer> existingFrequencies = new HashSet<>(retrieveExistingOverdueFrequencies(ctx.loanId,
@@ -618,14 +627,16 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
-     * Mirrors {@code applyChargeToOverdueLoanInstallment} schedule-date generation: before maturity only the first fee
-     * interval posts; on/after maturity recurrence continues through the business date while the installment is open.
+     * Exact schedule-date generation from {@code inkomoko-prod-bkp21092026}
+     * {@code applyChargeToOverdueLoanInstallment}: before maturity only the first fee interval posts; on/after maturity
+     * recurrence continues through the business date while the installment is open.
      */
     private Map<Integer, LocalDate> buildClassicOverdueScheduleDates(final RectifyContext ctx, final LocalDate dueDate,
             final long diff, final ScheduledDateGenerator scheduledDateGenerator) {
         final Map<Integer, LocalDate> scheduleDates = new TreeMap<>();
         LocalDate startDate = dueDate.plusDays((int) ctx.gracePeriod + 1);
         LocalDate endDate = ctx.effectiveDate;
+        // Backup: if due before maturity and feeInterval is set, endDate = start + one fee interval (one post only).
         if (ctx.expectedMaturity != null && dueDate.isBefore(ctx.expectedMaturity) && ctx.feeInterval != null
                 && ctx.feeFrequency != null) {
             endDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(ctx.feeFrequency), ctx.feeInterval,
@@ -896,6 +907,7 @@ public class LoanLateFeeRectifyService {
         private final int monthInterval;
         private final Integer feeFrequency;
         private final Integer feeInterval;
+        private final Integer maxOccurrence;
         private final long gracePeriod;
         private final long penaltyPostingWaitPeriod;
         private final LocalDate expectedMaturity;
@@ -904,7 +916,7 @@ public class LoanLateFeeRectifyService {
 
         private RectifyContext(final Long loanId, final LocalDate effectiveDate, final Map<String, Object> loanRow,
                 final Long chargeDefinitionId, final String chargeName, final BigDecimal monthlyRate, final int monthInterval,
-                final Integer feeFrequency, final Integer feeInterval, final long gracePeriod,
+                final Integer feeFrequency, final Integer feeInterval, final Integer maxOccurrence, final long gracePeriod,
                 final long penaltyPostingWaitPeriod, final LocalDate expectedMaturity, final LocalDate firstPenaltyDate,
                 final List<Long> dailyChargeIds) {
             this.loanId = loanId;
@@ -916,6 +928,7 @@ public class LoanLateFeeRectifyService {
             this.monthInterval = monthInterval;
             this.feeFrequency = feeFrequency;
             this.feeInterval = feeInterval;
+            this.maxOccurrence = maxOccurrence;
             this.gracePeriod = gracePeriod;
             this.penaltyPostingWaitPeriod = penaltyPostingWaitPeriod;
             this.expectedMaturity = expectedMaturity;

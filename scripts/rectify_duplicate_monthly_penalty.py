@@ -3,10 +3,11 @@
 
 Calls POST /loans/{loanId}?command=rectifyLateFees (LoanLateFeeRectifyService):
   1. Quietly deactivates daily/flat late-fee charge rows (no Waive Charges txn)
-  2. Gap-fills missing Overdue Fees using classic per-installment rules
+  2. Gap-fills missing Overdue Fees using Sep-2026 / inkomoko-prod-bkp21092026 rules
      (applyChargeToOverdueLoanInstallment): incomplete installments past penalty wait,
      fee frequency/interval, one post before maturity and recurring on/after maturity
-     while unpaid, % of installment outstanding principal — not cumulative daily amounts.
+     while unpaid, max_occurrence, % of installment outstanding — not daily late fees.
+     Closed loans were never charged by that job (active only).
      Each gap-fill row is tagged: m_loan_charge.external_id = CGLT-852-GAPFILL:{loanId}:{date}
   3. Syncs schedule/summary so penalty charged/paid/outstanding tally
   4. Refreshes m_loan_arrears_aging
