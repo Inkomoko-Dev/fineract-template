@@ -38,14 +38,10 @@ import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
-import org.apache.fineract.portfolio.account.service.AccountTransfersWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
-import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -57,9 +53,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Late-fee repair: remove daily late-fee charge rows (without creating a waive txn per day), keep existing monthly
  * penalties, rebuild schedule totals from active charges, and gap-fill missing monthlies on the product charge cadence
- * (% Amount, fee frequency/interval) through the business date while overdue principal remains. Then reprocess
- * repayments so Summary Paid matches transaction allocations against the cleaned charge set, and refresh
- * {@code m_loan_arrears_aging}. Independent of {@link LoanDailyLateFeeService}.
+ * (% Amount, fee frequency/interval) through the business date while overdue principal remains. Money that had been
+ * paid against removed daily penalties is moved onto principal on the schedule (no repayment reverse/replay). Then
+ * refresh summary and {@code m_loan_arrears_aging}. Independent of {@link LoanDailyLateFeeService}.
  */
 @Service
 @RequiredArgsConstructor
@@ -76,8 +72,6 @@ public class LoanLateFeeRectifyService {
     private final JournalEntryWritePlatformService journalEntryWritePlatformService;
     private final LoanAssembler loanAssembler;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
-    private final LoanTransactionRepository loanTransactionRepository;
-    private final AccountTransfersWritePlatformService accountTransfersWritePlatformService;
     private final LoanArrearsAgingService loanArrearsAgingService;
 
     public CommandProcessingResult rectifyLateFeesForLoan(final Long loanId) {
@@ -94,25 +88,27 @@ public class LoanLateFeeRectifyService {
             }
         }
 
-        newRequiresNew().execute(status -> {
+        final BigDecimal orphanPaidToPrincipal = newRequiresNew().execute(status -> {
             this.jdbcTemplate.update("update m_loan_daily_late_fee set is_active = 0 where loan_id = ? and is_active = 1", loanId);
-            // Schedule Original/Paid/Outstanding must match remaining active charges (not leftover daily rows).
+            // Schedule Original/Paid must match remaining active charges; orphan paid on removed dailies → principal.
+            final BigDecimal moved = reallocateOrphanPenaltyPaidToPrincipal(loanId);
             rebuildSchedulePenaltiesFromActiveCharges(loanId);
             refreshLoanPenaltySummary(loanId);
-            return null;
+            refreshLoanPrincipalSummary(loanId);
+            return moved;
         });
 
         final int posted = postMissingMonthlyPenalties(ctx);
-        final boolean repaymentsReprocessed = refreshSummaryAndArrears(loanId);
+        refreshSummaryAndArrears(loanId);
 
         changes.put("removedDailyCharges", removedDaily);
         changes.put("postedMonthlyCharges", posted);
+        changes.put("orphanPenaltyPaidMovedToPrincipal", orphanPaidToPrincipal);
         changes.put("chargeDefinitionId", ctx.chargeDefinitionId);
         changes.put("chargeName", ctx.chargeName);
         changes.put("penaltyPercentFromCharge", ctx.monthlyRate);
         changes.put("feeIntervalMonths", ctx.monthInterval);
         changes.put("penaltyGraceDays", ctx.gracePeriod);
-        changes.put("repaymentsReprocessed", repaymentsReprocessed);
         changes.put("arrearsRefreshed", true);
         changes.put("recomputed", true);
         return new CommandProcessingResultBuilder().withLoanId(loanId).with(changes).build();
@@ -208,8 +204,9 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
-     * Deactivate a daily late-fee charge without inserting WAIVE_CHARGES (avoids Accrual+Waive pairs per day). Adjusts
-     * schedule and reverses linked accrual transactions when present.
+     * Deactivate a daily late-fee charge without inserting WAIVE_CHARGES (avoids Accrual+Waive pairs per day). Linked
+     * accrual transactions are soft-reversed. Paid amounts stay on the charge row until
+     * {@link #reallocateOrphanPenaltyPaidToPrincipal(Long)} moves them onto principal (no repayment replay).
      */
     private boolean removeDailyChargeQuietly(final RectifyContext ctx, final Long loanChargeId) {
         return Boolean.TRUE.equals(newRequiresNew().execute(status -> {
@@ -228,7 +225,6 @@ public class LoanLateFeeRectifyService {
             this.jdbcTemplate.update(
                     "update m_loan_charge set is_active = 0, amount_outstanding_derived = 0 where id = ?", loanChargeId);
             deleteChargeChildren(loanChargeId);
-            // Schedule totals are rebuilt from active charges after all daily rows are removed.
             reverseAccrualsForCharge(loanChargeId);
             return true;
         }));
@@ -314,6 +310,59 @@ public class LoanLateFeeRectifyService {
         }
     }
 
+    /**
+     * Money already collected against removed (inactive) daily penalties must not disappear from Total Paid. Move it
+     * onto principal completed on the schedule and clear {@code amount_paid_derived} on those inactive rows so a
+     * second run is idempotent. Does not reverse or rewrite repayment transactions.
+     */
+    private BigDecimal reallocateOrphanPenaltyPaidToPrincipal(final Long loanId) {
+        final List<Map<String, Object>> orphans = this.jdbcTemplate.queryForList(
+                "select lc.id, coalesce(lc.amount_paid_derived, 0) as amount_paid"
+                        + " from m_loan_charge lc"
+                        + " where lc.loan_id = ? and lc.is_penalty = 1 and lc.is_active = 0"
+                        + " and coalesce(lc.amount_paid_derived, 0) > 0",
+                loanId);
+        BigDecimal moved = BigDecimal.ZERO;
+        for (final Map<String, Object> orphan : orphans) {
+            final BigDecimal paid = toBigDecimal(orphan.get("amount_paid"));
+            if (paid == null || paid.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            applyPaymentToPrincipalSchedule(loanId, paid);
+            this.jdbcTemplate.update("update m_loan_charge set amount_paid_derived = 0 where id = ?", orphan.get("id"));
+            moved = moved.add(paid);
+        }
+        return moved;
+    }
+
+    private void applyPaymentToPrincipalSchedule(final Long loanId, final BigDecimal amount) {
+        BigDecimal remaining = amount;
+        final List<Map<String, Object>> installments = this.jdbcTemplate.queryForList(
+                "select rs.id,"
+                        + " greatest(coalesce(rs.principal_amount, 0) - coalesce(rs.principal_completed_derived, 0)"
+                        + " - coalesce(rs.principal_writtenoff_derived, 0), 0) as outstanding_principal"
+                        + " from m_loan_repayment_schedule rs"
+                        + " where rs.loan_id = ? and rs.recalculated_interest_component = 0"
+                        + " order by rs.duedate, rs.installment",
+                loanId);
+        for (final Map<String, Object> installment : installments) {
+            if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
+                break;
+            }
+            final BigDecimal outstanding = toBigDecimal(installment.get("outstanding_principal"));
+            if (outstanding == null || outstanding.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            final BigDecimal apply = remaining.min(outstanding);
+            this.jdbcTemplate.update(
+                    "update m_loan_repayment_schedule set"
+                            + " principal_completed_derived = coalesce(principal_completed_derived, 0) + ?"
+                            + " where id = ?",
+                    apply, installment.get("id"));
+            remaining = remaining.subtract(apply);
+        }
+    }
+
     private void refreshLoanPenaltySummary(final Long loanId) {
         this.jdbcTemplate.update("update m_loan l set "
                 + "l.penalty_charges_charged_derived = (select coalesce(sum(rs.penalty_charges_amount), 0)"
@@ -347,31 +396,50 @@ public class LoanLateFeeRectifyService {
                 + " where l.id = ?", loanId);
     }
 
-    /**
-     * Replays non-reversed post-disbursement transactions against the cleaned charge set so Summary Paid (especially
-     * penalties) matches repayment allocations. Cash received is not reversed — only component split is recalculated.
-     */
-    private boolean refreshSummaryAndArrears(final Long loanId) {
-        return Boolean.TRUE.equals(newRequiresNew().execute(status -> {
+    private void refreshLoanPrincipalSummary(final Long loanId) {
+        this.jdbcTemplate.update("update m_loan l set "
+                + "l.principal_repaid_derived = (select coalesce(sum(rs.principal_completed_derived), 0)"
+                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
+                + "l.principal_outstanding_derived = greatest(0, coalesce(l.principal_disbursed_derived, 0)"
+                + " - (select coalesce(sum(rs.principal_completed_derived), 0) from m_loan_repayment_schedule rs"
+                + " where rs.loan_id = l.id)"
+                + " - coalesce(l.principal_writtenoff_derived, 0)), "
+                + "l.total_repayment_derived = coalesce(l.principal_repaid_derived, 0)"
+                + " + coalesce(l.interest_repaid_derived, 0) + coalesce(l.fee_charges_repaid_derived, 0)"
+                + " + coalesce(l.penalty_charges_repaid_derived, 0), "
+                + "l.total_outstanding_derived = coalesce(l.principal_outstanding_derived, 0)"
+                + " + coalesce(l.interest_outstanding_derived, 0) + coalesce(l.fee_charges_outstanding_derived, 0)"
+                + " + coalesce(l.penalty_charges_outstanding_derived, 0)"
+                + " where l.id = ?", loanId);
+        // principal_repaid_derived in total_repayment uses the column before this update's assignment is visible in
+        // the same SET in MySQL — recompute total_repayment in a second pass from schedule.
+        this.jdbcTemplate.update("update m_loan l set "
+                + "l.total_repayment_derived ="
+                + " (select coalesce(sum(rs.principal_completed_derived), 0) from m_loan_repayment_schedule rs where rs.loan_id = l.id)"
+                + " + coalesce(l.interest_repaid_derived, 0) + coalesce(l.fee_charges_repaid_derived, 0)"
+                + " + coalesce(l.penalty_charges_repaid_derived, 0),"
+                + "l.total_outstanding_derived ="
+                + " greatest(0, coalesce(l.principal_disbursed_derived, 0)"
+                + " - (select coalesce(sum(rs.principal_completed_derived), 0) from m_loan_repayment_schedule rs where rs.loan_id = l.id)"
+                + " - coalesce(l.principal_writtenoff_derived, 0))"
+                + " + coalesce(l.interest_outstanding_derived, 0) + coalesce(l.fee_charges_outstanding_derived, 0)"
+                + " + coalesce(l.penalty_charges_outstanding_derived, 0)"
+                + " where l.id = ?", loanId);
+    }
+
+    private void refreshSummaryAndArrears(final Long loanId) {
+        newRequiresNew().execute(status -> {
             final Loan loan = this.loanAssembler.assembleFrom(loanId);
-            final ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
-            if (changedTransactionDetail != null) {
-                for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings().entrySet()) {
-                    this.loanTransactionRepository.save(mapEntry.getValue());
-                    loan.addLoanTransaction(mapEntry.getValue());
-                    this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
-                }
-            }
             loan.updateLoanSummaryDerivedFields();
-            this.loanRepositoryWrapper.saveAndFlush(loan);
+            this.loanRepositoryWrapper.save(loan);
             if (loan.isOpen() && loan.repaymentScheduleDetail().isInterestRecalculationEnabled()
                     && loan.loanProduct().isArrearsBasedOnOriginalSchedule()) {
                 this.loanArrearsAgingService.updateLoanArrearsAgeingDetailsWithOriginalSchedule(loan);
             } else {
                 this.loanArrearsAgingService.updateLoanArrearsAgeingDetails(loan);
             }
-            return true;
-        }));
+            return null;
+        });
     }
 
     /**

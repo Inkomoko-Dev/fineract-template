@@ -197,7 +197,7 @@ def summarize(result, loan_id):
         "penaltyPercentFromCharge": changes.get("penaltyPercentFromCharge"),
         "feeIntervalMonths": changes.get("feeIntervalMonths"),
         "penaltyGraceDays": changes.get("penaltyGraceDays"),
-        "repaymentsReprocessed": changes.get("repaymentsReprocessed"),
+        "orphanPenaltyPaidMovedToPrincipal": changes.get("orphanPenaltyPaidMovedToPrincipal"),
         "arrearsRefreshed": changes.get("arrearsRefreshed"),
         "recomputed": changes.get("recomputed"),
     }
