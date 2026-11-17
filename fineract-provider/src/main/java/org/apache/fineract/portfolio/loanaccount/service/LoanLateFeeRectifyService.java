@@ -52,9 +52,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Late-fee repair: remove daily late-fee charge rows (without creating a waive txn per day), keep existing monthly
- * penalties, and post missing monthlies for installments past the penalty grace period using the product overdue charge
- * configuration (% Amount, fee frequency/interval). Then refresh loan summary and {@code m_loan_arrears_aging}.
- * Independent of {@link LoanDailyLateFeeService}.
+ * penalties, rebuild schedule totals from active charges, and gap-fill missing monthlies on the product charge cadence
+ * (% Amount, fee frequency/interval) through the business date while overdue principal remains. Then refresh loan
+ * summary and {@code m_loan_arrears_aging}. Independent of {@link LoanDailyLateFeeService}.
  */
 @Service
 @RequiredArgsConstructor
@@ -355,9 +355,10 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
-     * Gap-fill missing overdue monthlies using the product charge settings already loaded into {@code ctx}
-     * ({@code amount} % of installment principal, {@code fee_frequency}/{@code fee_interval}, after penalty grace).
-     * Skips calendar months that already have an active charge for that definition.
+     * Gap-fill missing overdue monthlies on the charge cadence ({@code fee_frequency}/{@code fee_interval}, e.g. Months/1)
+     * from {@code firstPenaltyDate} through the business date. While overdue principal remains, each missing month gets
+     * {@code charge.amount}% of cumulative overdue principal (installments past grace). Skips months that already have
+     * an active charge for this definition — so a loan last charged in January still gets February…current month.
      */
     private int postMissingMonthlyPenalties(final RectifyContext ctx) {
         if (ctx.firstPenaltyDate == null || ctx.effectiveDate.isBefore(ctx.firstPenaltyDate)) {
@@ -385,58 +386,71 @@ public class LoanLateFeeRectifyService {
                             + " order by rs.duedate, rs.installment",
                     ctx.loanId);
 
-            LocalDate lastPostedAnchor = null;
-            for (final Map<String, Object> installment : installments) {
-                if (cumulative.compareTo(cap) >= 0) {
-                    break;
-                }
-                final LocalDate dueDate = toLocalDate(installment.get("duedate"));
-                if (dueDate == null) {
-                    continue;
-                }
-                final LocalDate postingDate = dueDate.plusDays(ctx.gracePeriod + 1);
-                if (postingDate.isBefore(ctx.firstPenaltyDate) || postingDate.isAfter(ctx.effectiveDate)) {
-                    continue;
-                }
-                // Honour fee_interval from the charge (Months / 1 for Late Fee RW → every month).
-                if (lastPostedAnchor != null
-                        && postingDate.isBefore(lastPostedAnchor.plusMonths(ctx.monthInterval))) {
-                    continue;
-                }
-                final BigDecimal installmentPrincipal = toBigDecimal(installment.get("outstanding_principal"));
-                if (installmentPrincipal == null || installmentPrincipal.compareTo(BigDecimal.ZERO) <= 0) {
+            // Same cadence as Late Fee RW: first grace date, then every fee_interval months through today.
+            LocalDate postingDate = ctx.firstPenaltyDate;
+            while (!postingDate.isAfter(ctx.effectiveDate) && cumulative.compareTo(cap) < 0) {
+                if (monthAlreadyHasActiveCharge(ctx, postingDate)) {
+                    postingDate = postingDate.plusMonths(ctx.monthInterval);
                     continue;
                 }
 
-                // Month already covered if any active charge for this definition falls in that calendar month.
-                final Integer existing = this.jdbcTemplate.queryForObject(
-                        "select count(1) from m_loan_charge lc where lc.loan_id = ? and lc.charge_id = ?"
-                                + " and lc.is_active = 1 and lc.waived = 0"
-                                + " and year(lc.due_for_collection_as_of_date) = ?"
-                                + " and month(lc.due_for_collection_as_of_date) = ?",
-                        Integer.class, ctx.loanId, ctx.chargeDefinitionId, postingDate.getYear(), postingDate.getMonthValue());
-                if (existing != null && existing > 0) {
-                    lastPostedAnchor = postingDate;
+                final BigDecimal overduePrincipal = overduePrincipalOn(installments, postingDate, ctx.gracePeriod);
+                if (overduePrincipal.compareTo(BigDecimal.ZERO) <= 0) {
+                    postingDate = postingDate.plusMonths(ctx.monthInterval);
                     continue;
                 }
 
                 // Rate = charge.amount from config (e.g. 2 for 2% Amount) — not a constant in code.
-                BigDecimal penalty = installmentPrincipal.multiply(ctx.monthlyRate, MoneyHelper.getMathContext())
+                BigDecimal penalty = overduePrincipal.multiply(ctx.monthlyRate, MoneyHelper.getMathContext())
                         .divide(BigDecimal.valueOf(100L), scale, MoneyHelper.getRoundingMode());
                 final BigDecimal remainingCap = cap.subtract(cumulative);
                 if (penalty.compareTo(remainingCap) > 0) {
                     penalty = remainingCap.setScale(scale, MoneyHelper.getRoundingMode());
                 }
                 if (penalty.compareTo(BigDecimal.ZERO) > 0) {
-                    insertMonthlyPenaltyCharge(ctx, postingDate, penalty, installmentPrincipal);
+                    insertMonthlyPenaltyCharge(ctx, postingDate, penalty, overduePrincipal);
                     cumulative = cumulative.add(penalty);
-                    lastPostedAnchor = postingDate;
                     posted++;
                 }
+                postingDate = postingDate.plusMonths(ctx.monthInterval);
             }
+            rebuildSchedulePenaltiesFromActiveCharges(ctx.loanId);
             refreshLoanPenaltySummary(ctx.loanId);
             return posted;
         });
+    }
+
+    private boolean monthAlreadyHasActiveCharge(final RectifyContext ctx, final LocalDate postingDate) {
+        final Integer existing = this.jdbcTemplate.queryForObject(
+                "select count(1) from m_loan_charge lc where lc.loan_id = ? and lc.charge_id = ?"
+                        + " and lc.is_active = 1 and lc.waived = 0"
+                        + " and year(lc.due_for_collection_as_of_date) = ?"
+                        + " and month(lc.due_for_collection_as_of_date) = ?",
+                Integer.class, ctx.loanId, ctx.chargeDefinitionId, postingDate.getYear(), postingDate.getMonthValue());
+        return existing != null && existing > 0;
+    }
+
+    /**
+     * Principal still outstanding on installments that were already past penalty grace on {@code postingDate}.
+     */
+    private BigDecimal overduePrincipalOn(final List<Map<String, Object>> installments, final LocalDate postingDate,
+            final long gracePeriod) {
+        BigDecimal overdue = BigDecimal.ZERO;
+        for (final Map<String, Object> installment : installments) {
+            final LocalDate dueDate = toLocalDate(installment.get("duedate"));
+            if (dueDate == null) {
+                continue;
+            }
+            final LocalDate eligibleFrom = dueDate.plusDays(gracePeriod + 1);
+            if (eligibleFrom.isAfter(postingDate)) {
+                continue;
+            }
+            final BigDecimal outstanding = toBigDecimal(installment.get("outstanding_principal"));
+            if (outstanding != null && outstanding.compareTo(BigDecimal.ZERO) > 0) {
+                overdue = overdue.add(outstanding);
+            }
+        }
+        return overdue;
     }
 
     private void insertMonthlyPenaltyCharge(final RectifyContext ctx, final LocalDate postingDate, final BigDecimal penaltyAmount,
