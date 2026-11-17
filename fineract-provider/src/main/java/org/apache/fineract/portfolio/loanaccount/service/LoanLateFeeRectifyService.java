@@ -89,20 +89,21 @@ public class LoanLateFeeRectifyService {
 
         final BigDecimal orphanPaidToPrincipal = newRequiresNew().execute(status -> {
             this.jdbcTemplate.update("update m_loan_daily_late_fee set is_active = 0 where loan_id = ? and is_active = 1", loanId);
-            // Schedule Original/Paid must match remaining active charges; orphan paid on removed dailies → principal.
             final BigDecimal moved = reallocateOrphanPenaltyPaidToPrincipal(loanId);
-            rebuildSchedulePenaltiesFromActiveCharges(loanId);
-            refreshLoanPenaltySummary(loanId);
+            syncPenaltiesFromActiveCharges(loanId);
             refreshLoanPrincipalSummary(loanId);
             return moved;
         });
 
         final int posted = postMissingMonthlyPenalties(ctx);
-        refreshSummaryAndArrears(loanId);
+        final Map<String, BigDecimal> penaltyTotals = refreshSummaryAndArrears(loanId);
 
         changes.put("removedDailyCharges", removedDaily);
         changes.put("postedMonthlyCharges", posted);
         changes.put("orphanPenaltyPaidMovedToPrincipal", orphanPaidToPrincipal);
+        changes.put("penaltyCharged", penaltyTotals.get("charged"));
+        changes.put("penaltyPaid", penaltyTotals.get("paid"));
+        changes.put("penaltyOutstanding", penaltyTotals.get("outstanding"));
         changes.put("chargeDefinitionId", ctx.chargeDefinitionId);
         changes.put("chargeName", ctx.chargeName);
         changes.put("penaltyPercentFromCharge", ctx.monthlyRate);
@@ -268,9 +269,45 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
-     * Reset schedule penalty columns and re-apply from active (non-waived) penalty charges so loan summary
-     * Original / Paid / Outstanding match the Charges tab after daily late fees were removed.
+     * Single source of truth: active penalty charges. Normalize each charge so
+     * {@code amount = paid + waived + writtenOff + outstanding}, push those figures onto the schedule, then set loan
+     * summary penalty Original / Paid / Outstanding from the same charge sums so Charges and Summary always tally.
      */
+    private Map<String, BigDecimal> syncPenaltiesFromActiveCharges(final Long loanId) {
+        normalizeActivePenaltyCharges(loanId);
+        rebuildSchedulePenaltiesFromActiveCharges(loanId);
+        return writeLoanPenaltySummaryFromActiveCharges(loanId);
+    }
+
+    private void normalizeActivePenaltyCharges(final Long loanId) {
+        this.jdbcTemplate.update(
+                "update m_loan_charge set"
+                        + " amount_paid_derived = least(coalesce(amount_paid_derived, 0), coalesce(amount, 0)),"
+                        + " amount_waived_derived = least(coalesce(amount_waived_derived, 0),"
+                        + "   greatest(0, coalesce(amount, 0) - coalesce(amount_paid_derived, 0))),"
+                        + " amount_writtenoff_derived = least(coalesce(amount_writtenoff_derived, 0),"
+                        + "   greatest(0, coalesce(amount, 0) - coalesce(amount_paid_derived, 0) - coalesce(amount_waived_derived, 0))),"
+                        + " amount_outstanding_derived = greatest(0, coalesce(amount, 0) - coalesce(amount_paid_derived, 0)"
+                        + "   - coalesce(amount_waived_derived, 0) - coalesce(amount_writtenoff_derived, 0)),"
+                        + " is_paid_derived = case"
+                        + "   when coalesce(amount, 0) > 0 and coalesce(amount_outstanding_derived, 0) = 0"
+                        + "        and coalesce(amount_paid_derived, 0) > 0 then 1 else 0 end"
+                        + " where loan_id = ? and is_penalty = 1 and is_active = 1 and waived = 0",
+                loanId);
+        // Second pass: recompute outstanding after paid/waived/writtenoff caps (MySQL evaluates SET left-to-right).
+        this.jdbcTemplate.update(
+                "update m_loan_charge set"
+                        + " amount_outstanding_derived = greatest(0, coalesce(amount, 0) - coalesce(amount_paid_derived, 0)"
+                        + "   - coalesce(amount_waived_derived, 0) - coalesce(amount_writtenoff_derived, 0)),"
+                        + " is_paid_derived = case"
+                        + "   when coalesce(amount, 0) > 0"
+                        + "        and greatest(0, coalesce(amount, 0) - coalesce(amount_paid_derived, 0)"
+                        + "          - coalesce(amount_waived_derived, 0) - coalesce(amount_writtenoff_derived, 0)) = 0"
+                        + "        and coalesce(amount_paid_derived, 0) > 0 then 1 else 0 end"
+                        + " where loan_id = ? and is_penalty = 1 and is_active = 1 and waived = 0",
+                loanId);
+    }
+
     private void rebuildSchedulePenaltiesFromActiveCharges(final Long loanId) {
         this.jdbcTemplate.update(
                 "update m_loan_repayment_schedule set penalty_charges_amount = 0,"
@@ -290,14 +327,17 @@ public class LoanLateFeeRectifyService {
                 loanId);
 
         for (final Map<String, Object> charge : activePenalties) {
-            final Long scheduleId = findScheduleId(loanId, toLocalDate(charge.get("due_date")));
+            Long scheduleId = findScheduleId(loanId, toLocalDate(charge.get("due_date")));
+            if (scheduleId == null) {
+                scheduleId = findLastScheduleId(loanId);
+            }
             if (scheduleId == null) {
                 continue;
             }
-            final BigDecimal amount = toBigDecimal(charge.get("amount"));
-            final BigDecimal paid = toBigDecimal(charge.get("amount_paid"));
-            final BigDecimal waived = toBigDecimal(charge.get("amount_waived"));
-            final BigDecimal writtenOff = toBigDecimal(charge.get("amount_writtenoff"));
+            final BigDecimal amount = nullToZero(toBigDecimal(charge.get("amount")));
+            final BigDecimal paid = nullToZero(toBigDecimal(charge.get("amount_paid")));
+            final BigDecimal waived = nullToZero(toBigDecimal(charge.get("amount_waived")));
+            final BigDecimal writtenOff = nullToZero(toBigDecimal(charge.get("amount_writtenoff")));
             this.jdbcTemplate.update(
                     "update m_loan_repayment_schedule set"
                             + " penalty_charges_amount = coalesce(penalty_charges_amount, 0) + ?,"
@@ -305,9 +345,63 @@ public class LoanLateFeeRectifyService {
                             + " penalty_charges_waived_derived = coalesce(penalty_charges_waived_derived, 0) + ?,"
                             + " penalty_charges_writtenoff_derived = coalesce(penalty_charges_writtenoff_derived, 0) + ?"
                             + " where id = ?",
-                    amount == null ? BigDecimal.ZERO : amount, paid == null ? BigDecimal.ZERO : paid,
-                    waived == null ? BigDecimal.ZERO : waived, writtenOff == null ? BigDecimal.ZERO : writtenOff, scheduleId);
+                    amount, paid, waived, writtenOff, scheduleId);
         }
+    }
+
+    private Long findLastScheduleId(final Long loanId) {
+        final List<Long> ids = this.jdbcTemplate.queryForList(
+                "select id from m_loan_repayment_schedule where loan_id = ? and recalculated_interest_component = 0"
+                        + " order by duedate desc, installment desc limit 1",
+                Long.class, loanId);
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
+    /**
+     * Write loan summary penalty columns from active charges (not only schedule), so Summary always matches Charges.
+     */
+    private Map<String, BigDecimal> writeLoanPenaltySummaryFromActiveCharges(final Long loanId) {
+        final Map<String, Object> sums = this.jdbcTemplate.queryForMap(
+                "select coalesce(sum(lc.amount), 0) as charged,"
+                        + " coalesce(sum(lc.amount_paid_derived), 0) as paid,"
+                        + " coalesce(sum(lc.amount_waived_derived), 0) as waived,"
+                        + " coalesce(sum(lc.amount_writtenoff_derived), 0) as writtenoff,"
+                        + " coalesce(sum(lc.amount_outstanding_derived), 0) as outstanding"
+                        + " from m_loan_charge lc"
+                        + " where lc.loan_id = ? and lc.is_penalty = 1 and lc.is_active = 1 and lc.waived = 0",
+                loanId);
+        final BigDecimal charged = nullToZero(toBigDecimal(sums.get("charged")));
+        final BigDecimal paid = nullToZero(toBigDecimal(sums.get("paid")));
+        final BigDecimal waived = nullToZero(toBigDecimal(sums.get("waived")));
+        final BigDecimal writtenOff = nullToZero(toBigDecimal(sums.get("writtenoff")));
+        final BigDecimal outstanding = nullToZero(toBigDecimal(sums.get("outstanding")));
+
+        this.jdbcTemplate.update(
+                "update m_loan set"
+                        + " penalty_charges_charged_derived = ?,"
+                        + " penalty_charges_repaid_derived = ?,"
+                        + " penalty_charges_waived_derived = ?,"
+                        + " penalty_charges_writtenoff_derived = ?,"
+                        + " penalty_charges_outstanding_derived = ?,"
+                        + " total_waived_derived = coalesce(interest_waived_derived, 0) + coalesce(fee_charges_waived_derived, 0) + ?,"
+                        + " total_expected_repayment_derived = coalesce(principal_disbursed_derived, 0)"
+                        + "   + coalesce(interest_charged_derived, 0) + coalesce(fee_charges_charged_derived, 0) + ?,"
+                        + " total_expected_costofloan_derived = coalesce(interest_charged_derived, 0)"
+                        + "   + coalesce(fee_charges_charged_derived, 0) + ?,"
+                        + " total_repayment_derived = coalesce(principal_repaid_derived, 0) + coalesce(interest_repaid_derived, 0)"
+                        + "   + coalesce(fee_charges_repaid_derived, 0) + ?,"
+                        + " total_outstanding_derived = coalesce(principal_outstanding_derived, 0)"
+                        + "   + coalesce(interest_outstanding_derived, 0) + coalesce(fee_charges_outstanding_derived, 0) + ?"
+                        + " where id = ?",
+                charged, paid, waived, writtenOff, outstanding, waived, charged, charged, paid, outstanding, loanId);
+
+        final Map<String, BigDecimal> totals = new LinkedHashMap<>();
+        totals.put("charged", charged);
+        totals.put("paid", paid);
+        totals.put("waived", waived);
+        totals.put("writtenOff", writtenOff);
+        totals.put("outstanding", outstanding);
+        return totals;
     }
 
     /**
@@ -363,39 +457,6 @@ public class LoanLateFeeRectifyService {
         }
     }
 
-    private void refreshLoanPenaltySummary(final Long loanId) {
-        this.jdbcTemplate.update("update m_loan l set "
-                + "l.penalty_charges_charged_derived = (select coalesce(sum(rs.penalty_charges_amount), 0)"
-                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
-                + "l.penalty_charges_waived_derived = (select coalesce(sum(rs.penalty_charges_waived_derived), 0)"
-                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
-                + "l.penalty_charges_repaid_derived = (select coalesce(sum(rs.penalty_charges_completed_derived), 0)"
-                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
-                + "l.penalty_charges_outstanding_derived = (select coalesce(sum(greatest(0,"
-                + " coalesce(rs.penalty_charges_amount, 0) - coalesce(rs.penalty_charges_completed_derived, 0)"
-                + " - coalesce(rs.penalty_charges_waived_derived, 0) - coalesce(rs.penalty_charges_writtenoff_derived, 0))), 0)"
-                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id), "
-                + "l.total_waived_derived = coalesce(l.interest_waived_derived, 0)"
-                + " + coalesce(l.fee_charges_waived_derived, 0)"
-                + " + (select coalesce(sum(rs.penalty_charges_waived_derived), 0) from m_loan_repayment_schedule rs"
-                + " where rs.loan_id = l.id), "
-                + "l.total_expected_repayment_derived = coalesce(l.principal_disbursed_derived, 0)"
-                + " + coalesce(l.interest_charged_derived, 0) + coalesce(l.fee_charges_charged_derived, 0)"
-                + " + (select coalesce(sum(rs.penalty_charges_amount), 0) from m_loan_repayment_schedule rs"
-                + " where rs.loan_id = l.id), "
-                + "l.total_expected_costofloan_derived = coalesce(l.interest_charged_derived, 0)"
-                + " + coalesce(l.fee_charges_charged_derived, 0)"
-                + " + (select coalesce(sum(rs.penalty_charges_amount), 0) from m_loan_repayment_schedule rs"
-                + " where rs.loan_id = l.id), "
-                + "l.total_outstanding_derived = coalesce(l.principal_outstanding_derived, 0)"
-                + " + coalesce(l.interest_outstanding_derived, 0) + coalesce(l.fee_charges_outstanding_derived, 0)"
-                + " + (select coalesce(sum(greatest(0, coalesce(rs.penalty_charges_amount, 0)"
-                + " - coalesce(rs.penalty_charges_completed_derived, 0) - coalesce(rs.penalty_charges_waived_derived, 0)"
-                + " - coalesce(rs.penalty_charges_writtenoff_derived, 0))), 0)"
-                + " from m_loan_repayment_schedule rs where rs.loan_id = l.id)"
-                + " where l.id = ?", loanId);
-    }
-
     private void refreshLoanPrincipalSummary(final Long loanId) {
         this.jdbcTemplate.update("update m_loan l set "
                 + "l.principal_repaid_derived = (select coalesce(sum(rs.principal_completed_derived), 0)"
@@ -403,42 +464,34 @@ public class LoanLateFeeRectifyService {
                 + "l.principal_outstanding_derived = greatest(0, coalesce(l.principal_disbursed_derived, 0)"
                 + " - (select coalesce(sum(rs.principal_completed_derived), 0) from m_loan_repayment_schedule rs"
                 + " where rs.loan_id = l.id)"
-                + " - coalesce(l.principal_writtenoff_derived, 0)), "
-                + "l.total_repayment_derived = coalesce(l.principal_repaid_derived, 0)"
-                + " + coalesce(l.interest_repaid_derived, 0) + coalesce(l.fee_charges_repaid_derived, 0)"
-                + " + coalesce(l.penalty_charges_repaid_derived, 0), "
-                + "l.total_outstanding_derived = coalesce(l.principal_outstanding_derived, 0)"
-                + " + coalesce(l.interest_outstanding_derived, 0) + coalesce(l.fee_charges_outstanding_derived, 0)"
-                + " + coalesce(l.penalty_charges_outstanding_derived, 0)"
+                + " - coalesce(l.principal_writtenoff_derived, 0))"
                 + " where l.id = ?", loanId);
-        // principal_repaid_derived in total_repayment uses the column before this update's assignment is visible in
-        // the same SET in MySQL — recompute total_repayment in a second pass from schedule.
         this.jdbcTemplate.update("update m_loan l set "
                 + "l.total_repayment_derived ="
-                + " (select coalesce(sum(rs.principal_completed_derived), 0) from m_loan_repayment_schedule rs where rs.loan_id = l.id)"
-                + " + coalesce(l.interest_repaid_derived, 0) + coalesce(l.fee_charges_repaid_derived, 0)"
-                + " + coalesce(l.penalty_charges_repaid_derived, 0),"
+                + " coalesce(l.principal_repaid_derived, 0) + coalesce(l.interest_repaid_derived, 0)"
+                + " + coalesce(l.fee_charges_repaid_derived, 0) + coalesce(l.penalty_charges_repaid_derived, 0),"
                 + "l.total_outstanding_derived ="
-                + " greatest(0, coalesce(l.principal_disbursed_derived, 0)"
-                + " - (select coalesce(sum(rs.principal_completed_derived), 0) from m_loan_repayment_schedule rs where rs.loan_id = l.id)"
-                + " - coalesce(l.principal_writtenoff_derived, 0))"
-                + " + coalesce(l.interest_outstanding_derived, 0) + coalesce(l.fee_charges_outstanding_derived, 0)"
-                + " + coalesce(l.penalty_charges_outstanding_derived, 0)"
+                + " coalesce(l.principal_outstanding_derived, 0) + coalesce(l.interest_outstanding_derived, 0)"
+                + " + coalesce(l.fee_charges_outstanding_derived, 0) + coalesce(l.penalty_charges_outstanding_derived, 0)"
                 + " where l.id = ?", loanId);
     }
 
-    private void refreshSummaryAndArrears(final Long loanId) {
-        newRequiresNew().execute(status -> {
+    /**
+     * Final pass: sync penalties from active charges (Charges = Summary), refresh principal/total, then arrears.
+     * Skips {@code updateLoanSummaryDerivedFields()} so JPA cannot overwrite the charge-based penalty totals.
+     */
+    private Map<String, BigDecimal> refreshSummaryAndArrears(final Long loanId) {
+        return newRequiresNew().execute(status -> {
+            final Map<String, BigDecimal> totals = syncPenaltiesFromActiveCharges(loanId);
+            refreshLoanPrincipalSummary(loanId);
             final Loan loan = this.loanAssembler.assembleFrom(loanId);
-            loan.updateLoanSummaryDerivedFields();
-            this.loanRepositoryWrapper.save(loan);
             if (loan.isOpen() && loan.repaymentScheduleDetail().isInterestRecalculationEnabled()
                     && loan.loanProduct().isArrearsBasedOnOriginalSchedule()) {
                 this.loanArrearsAgingService.updateLoanArrearsAgeingDetailsWithOriginalSchedule(loan);
             } else {
                 this.loanArrearsAgingService.updateLoanArrearsAgeingDetails(loan);
             }
-            return null;
+            return totals;
         });
     }
 
@@ -503,8 +556,7 @@ public class LoanLateFeeRectifyService {
                 }
                 postingDate = withDayOfMonthSafe(postingDate.plusMonths(ctx.monthInterval), penaltyDayOfMonth);
             }
-            rebuildSchedulePenaltiesFromActiveCharges(ctx.loanId);
-            refreshLoanPenaltySummary(ctx.loanId);
+            syncPenaltiesFromActiveCharges(ctx.loanId);
             return posted;
         });
     }
@@ -759,6 +811,10 @@ public class LoanLateFeeRectifyService {
             return BigDecimal.valueOf(((Number) value).doubleValue());
         }
         return new BigDecimal(value.toString());
+    }
+
+    private static BigDecimal nullToZero(final BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private static final class RectifyContext {
