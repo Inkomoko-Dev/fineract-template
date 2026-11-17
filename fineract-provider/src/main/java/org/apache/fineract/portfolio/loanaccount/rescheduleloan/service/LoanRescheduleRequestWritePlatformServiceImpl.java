@@ -646,7 +646,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
                 }
             }
-            alignTransactionChargePortionsForJournal(loan);
+            rebuildTransactionChargePaymentLinesForJournal(loan);
             postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
 
             this.loanAccountDomainService.recalculateAccruals(loan, true);
@@ -842,6 +842,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                 this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
             }
         }
+        rebuildTransactionChargePaymentLinesForJournal(loan);
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
         this.loanAccountDomainService.recalculateAccruals(loan, true);
         if (noteText != null && !noteText.isBlank()) {
@@ -942,22 +943,29 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
     }
 
     /**
-     * Before journal posting, force fee/penalty portions to match charge-payment lines so advanced accounting does not
-     * meltdown when reschedule replay leaves a portion without matching {@code LoanChargePaidBy} rows.
+     * Before journal posting, rebuild missing {@code LoanChargePaidBy} rows so they match posted fee/penalty portions.
+     * Never reclassifies fees into overpayment.
      */
-    private void alignTransactionChargePortionsForJournal(final Loan loan) {
+    private void rebuildTransactionChargePaymentLinesForJournal(final Loan loan) {
         final MonetaryCurrency currency = loan.getCurrency();
         for (final LoanTransaction transaction : loan.getLoanTransactions()) {
             if (transaction == null || transaction.isReversed()) {
                 continue;
             }
-            final BigDecimal previousFee = transaction.getFeeChargesPortion(currency).getAmount();
-            final BigDecimal previousPenalty = transaction.getPenaltyChargesPortion(currency).getAmount();
-            if (transaction.alignChargePortionsToPaidCharges(currency)) {
-                LOG.warn(
-                        "Aligned charge portions for loan {} transaction {}: fee {} -> {}, penalty {} -> {}",
-                        loan.getId(), transaction.getId(), previousFee, transaction.getFeeChargesPortion(currency).getAmount(),
-                        previousPenalty, transaction.getPenaltyChargesPortion(currency).getAmount());
+            final int before = transaction.getLoanChargesPaid() == null ? 0 : transaction.getLoanChargesPaid().size();
+            try {
+                if (transaction.rebuildMissingChargePaymentLines(currency, loan.getLoanCharges())) {
+                    final int after = transaction.getLoanChargesPaid() == null ? 0 : transaction.getLoanChargesPaid().size();
+                    LOG.warn(
+                            "Rebuilt charge payment lines for loan {} transaction {}: lines {} -> {}, fee portion {}, penalty portion {}",
+                            loan.getId(), transaction.getId(), before, after, transaction.getFeeChargesPortion(currency).getAmount(),
+                            transaction.getPenaltyChargesPortion(currency).getAmount());
+                }
+            } catch (final IllegalStateException ex) {
+                throw new PlatformDataIntegrityException("error.msg.loan.reschedule.charge.payment.rebuild.failed",
+                        "Unable to rebuild charge payment lines before journaling. Loan: " + loan.getId() + ", transaction: "
+                                + transaction.getId() + ". " + ex.getMessage(),
+                        loan.getId(), transaction.getId());
             }
         }
     }
