@@ -1,30 +1,51 @@
 #!/usr/bin/env python3
-"""Remove daily late fees and keep existing monthly penalties.
+"""Remove daily late fees, rebuild schedule totals, and gap-fill missing monthly penalties.
 
 Calls POST /loans/{loanId}?command=rectifyLateFees (LoanLateFeeRectifyService):
-silently deactivates daily flat late-fee charge rows (no Waive Charges txn per day),
-keeps existing monthly penalties (does not invent missing monthlies), then refreshes
-loan summary + m_loan_arrears_aging (same arrears update as editing a repayment).
+  1. Quietly deactivates daily/flat late-fee charge rows (no Waive Charges txn)
+  2. Gap-fills missing Overdue Fees using Sep-2026 / inkomoko-prod-bkp21092026 rules
+     (applyChargeToOverdueLoanInstallment): incomplete installments past penalty wait,
+     fee frequency/interval, one post before maturity and recurring on/after maturity
+     while unpaid, max_occurrence, % of installment outstanding — not daily late fees.
+     Closed loans were never charged by that job (active only).
+     Each gap-fill row is tagged: m_loan_charge.external_id = CGLT-852-GAPFILL:{loanId}:{date}
+  3. Syncs schedule/summary so penalty charged/paid/outstanding tally
+  4. Refreshes m_loan_arrears_aging
+
+Identify gap-filled charges:
+  SELECT * FROM m_loan_charge WHERE external_id LIKE 'CGLT-852-GAPFILL:%' AND is_active = 1;
+
+IRREVERSIBLE on production: there is no undo. Always:
+  - Deploy the build that includes classic per-installment gap-fill (CGLT-852)
+  - Pause the daily late-fee / overdue penalty job for the batch window
+  - Dry-run first (default), then pilot ONE loan, verify Charges + summary, then batch
+  - After a code fix, do NOT resume an old progress file (it skips already-ok loans).
+    Use a new --progress-file or pass --no-skip-ok-from-progress
 
 Dry-run is the default. Nothing is changed until you pass --apply.
+--apply also requires CONFIRM_RECTIFY=YES (production safety gate).
 
 Examples:
-  # One loan
-  python3 scripts/rectify_duplicate_monthly_penalty.py \\
+  # Pilot one loan (after deploy)
+  CONFIRM_RECTIFY=YES python3 scripts/rectify_duplicate_monthly_penalty.py \\
     --base-url https://localhost:8443 --tenant default \\
-    --username mifos --password password --loan-id 404941 --insecure --apply
+    --username mifos --password password --loan-id 387264 --insecure \\
+    --no-progress-file --apply
 
-  # All loans from discovery SQL (local MySQL)
+  # Dry-run discovery only
   python3 scripts/rectify_duplicate_monthly_penalty.py \\
     --base-url https://localhost:8443 --tenant default \\
     --username mifos --password password --insecure \\
-    --from-discovery-db --mysql-db fineract_default --apply
+    --from-discovery-db --mysql-db fineract_default
 
-  # From a pre-exported id file (one loan_id per line)
-  python3 scripts/rectify_duplicate_monthly_penalty.py \\
-    --base-url https://localhost:8443 --tenant default \\
-    --username mifos --password password --insecure \\
-    --loan-ids-file /tmp/rectify_loan_ids.txt --apply
+  # Batch from id file (new progress file after a code change)
+  CONFIRM_RECTIFY=YES python3 scripts/rectify_duplicate_monthly_penalty.py \\
+    --base-url https://cbs.example.com --tenant default \\
+    --username mifos --password '***' \\
+    --cert /path/to/client.crt --key /path/to/client.key \\
+    --loan-ids-file /tmp/rectify_loan_ids.txt \\
+    --progress-file /tmp/rectify_loan_ids.gapfill-v2.progress.jsonl \\
+    --apply --continue-on-error --sleep-ms 200
 """
 
 from __future__ import annotations
@@ -39,6 +60,7 @@ import time
 import urllib.error
 import urllib.request
 
+# Active overdue-% loans that still need cleanup and/or months after the last posted penalty.
 DISCOVERY_SQL = """
 SELECT DISTINCT l.id AS loan_id
 FROM m_loan l
@@ -46,12 +68,14 @@ JOIN m_product_loan_charge plc ON plc.product_loan_id = l.product_id
 JOIN m_charge c ON c.id = plc.charge_id
     AND c.is_active = 1 AND c.is_penalty = 1
     AND c.charge_time_enum = 9 AND c.charge_calculation_enum = 2
-JOIN m_loan_charge lc ON lc.loan_id = l.id AND lc.charge_id = c.id
-    AND lc.is_active = 1 AND lc.waived = 0
 WHERE l.loan_status_id = 300
-GROUP BY l.id, c.id
-HAVING SUM(CASE WHEN lc.charge_calculation_enum = 2 THEN 1 ELSE 0 END) > 0
-    OR COUNT(DISTINCT DATE(lc.due_for_collection_as_of_date)) > 1
+AND (
+    EXISTS (
+        SELECT 1 FROM m_loan_charge lc
+        WHERE lc.loan_id = l.id AND lc.charge_id = c.id
+          AND lc.is_active = 1 AND lc.waived = 0
+          AND lc.charge_calculation_enum <> 2
+    )
     OR EXISTS (
         SELECT 1
         FROM m_loan_charge lc2
@@ -61,18 +85,52 @@ HAVING SUM(CASE WHEN lc.charge_calculation_enum = 2 THEN 1 ELSE 0 END) > 0
         GROUP BY YEAR(lc2.due_for_collection_as_of_date), MONTH(lc2.due_for_collection_as_of_date)
         HAVING COUNT(*) > 1
     )
+    OR (
+        EXISTS (
+            SELECT 1 FROM m_loan_repayment_schedule rs
+            WHERE rs.loan_id = l.id
+              AND rs.recalculated_interest_component = 0
+              AND coalesce(rs.principal_amount, 0) > 0
+              AND greatest(
+                    coalesce(rs.principal_amount, 0) - coalesce(rs.principal_completed_derived, 0)
+                    - coalesce(rs.principal_writtenoff_derived, 0), 0
+                  ) > 0
+              AND rs.duedate < CURDATE()
+        )
+        AND (
+            SELECT MAX(lc3.due_for_collection_as_of_date)
+            FROM m_loan_charge lc3
+            WHERE lc3.loan_id = l.id AND lc3.charge_id = c.id
+              AND lc3.is_active = 1 AND lc3.waived = 0
+              AND lc3.charge_calculation_enum = 2
+        ) < DATE_FORMAT(CURDATE(), '%Y-%m-01')
+    )
+)
 ORDER BY l.id
 """
 
 
+def build_ssl_context(insecure=False, cert=None, key=None, cacert=None, key_password=None):
+    """Build an SSLContext; load a client cert when the gateway requires mTLS."""
+    if insecure:
+        context = ssl._create_unverified_context()
+    elif cacert:
+        context = ssl.create_default_context(cafile=cacert)
+    else:
+        context = ssl.create_default_context()
+    if cert:
+        context.load_cert_chain(certfile=cert, keyfile=key or cert, password=key_password)
+    return context
+
+
 class FineractClient:
-    def __init__(self, base_url, tenant, username, password, insecure):
+    def __init__(self, base_url, tenant, username, password, ssl_context):
         self.base_url = base_url.rstrip("/")
         self.tenant = tenant
         self.username = username
         self.password = password
         self.auth_key = None
-        self.ssl_context = ssl._create_unverified_context() if insecure else None
+        self.ssl_context = ssl_context
 
     def authenticate(self):
         body = json.dumps({"username": self.username, "password": self.password}).encode("utf-8")
@@ -141,6 +199,15 @@ def summarize(result, loan_id):
         "loanId": result.get("loanId", loan_id),
         "removedDailyCharges": changes.get("removedDailyCharges"),
         "postedMonthlyCharges": changes.get("postedMonthlyCharges"),
+        "chargeDefinitionId": changes.get("chargeDefinitionId"),
+        "chargeName": changes.get("chargeName"),
+        "penaltyPercentFromCharge": changes.get("penaltyPercentFromCharge"),
+        "feeIntervalMonths": changes.get("feeIntervalMonths"),
+        "penaltyGraceDays": changes.get("penaltyGraceDays"),
+        "orphanPenaltyPaidMovedToPrincipal": changes.get("orphanPenaltyPaidMovedToPrincipal"),
+        "penaltyCharged": changes.get("penaltyCharged"),
+        "penaltyPaid": changes.get("penaltyPaid"),
+        "penaltyOutstanding": changes.get("penaltyOutstanding"),
         "arrearsRefreshed": changes.get("arrearsRefreshed"),
         "recomputed": changes.get("recomputed"),
     }
@@ -162,17 +229,39 @@ def main():
     parser.add_argument("--mysql-db", default="fineract_default")
     parser.add_argument("--apply", action="store_true", help="Run the correction. Without this flag only lists loan ids.")
     parser.add_argument("--insecure", action="store_true", help="Do not verify the server TLS certificate.")
+    parser.add_argument("--cert", help="Client certificate PEM for mTLS (required by some prod gateways).")
+    parser.add_argument("--key", help="Client private key PEM for mTLS (defaults to --cert if omitted).")
+    parser.add_argument("--cacert", help="CA bundle PEM used to verify the server certificate.")
+    parser.add_argument("--key-password", help="Password for an encrypted client private key.")
     parser.add_argument("--continue-on-error", action="store_true", help="Keep going after a loan fails (batch mode).")
     parser.add_argument("--sleep-ms", type=int, default=0, help="Pause between loans (milliseconds).")
     parser.add_argument("--limit", type=int, default=0, help="Process at most N loans (0 = all).")
     parser.add_argument("--offset", type=int, default=0, help="Skip the first N loan ids.")
-    parser.add_argument("--progress-file", help="Append JSONL results here (success and failure).")
+    parser.add_argument(
+        "--progress-file",
+        help="Append JSONL results here. Default with --loan-ids-file: <ids-file>.progress.jsonl",
+    )
     parser.add_argument(
         "--skip-ok-from-progress",
+        dest="skip_ok_from_progress",
         action="store_true",
-        help="Skip loan ids that already have status=ok in --progress-file (resume after restart).",
+        default=None,
+        help="Skip loan ids already status=ok in the progress file (default: on when a progress file is used).",
+    )
+    parser.add_argument(
+        "--no-skip-ok-from-progress",
+        dest="skip_ok_from_progress",
+        action="store_false",
+        help="Process every id even if already ok in the progress file (use after a code fix).",
+    )
+    parser.add_argument(
+        "--no-progress-file",
+        action="store_true",
+        help="Do not write/resume from a progress file (even with --loan-ids-file).",
     )
     args = parser.parse_args()
+    if args.key and not args.cert:
+        raise SystemExit("--key requires --cert")
 
     loan_ids = list(args.loan_ids or [])
     if args.loan_ids_file:
@@ -195,12 +284,23 @@ def main():
     if not loan_ids:
         raise SystemExit("No loan ids. Pass --loan-id, --loan-ids-file, and/or --from-discovery-db.")
 
-    if args.skip_ok_from_progress:
-        if not args.progress_file:
-            raise SystemExit("--skip-ok-from-progress requires --progress-file")
+    progress_file = args.progress_file
+    if args.no_progress_file:
+        progress_file = None
+    elif not progress_file and args.loan_ids_file:
+        progress_file = args.loan_ids_file + ".progress.jsonl"
+
+    skip_ok = args.skip_ok_from_progress
+    if skip_ok is None:
+        skip_ok = bool(progress_file)
+
+    total_in_file = len(loan_ids)
+    if skip_ok:
+        if not progress_file:
+            raise SystemExit("--skip-ok-from-progress requires a progress file")
         done = set()
-        if os.path.exists(args.progress_file):
-            with open(args.progress_file, encoding="utf-8") as handle:
+        if os.path.exists(progress_file):
+            with open(progress_file, encoding="utf-8") as handle:
                 for line in handle:
                     line = line.strip()
                     if not line:
@@ -213,7 +313,16 @@ def main():
                         done.add(int(row["loanId"]))
         before = len(loan_ids)
         loan_ids = [loan_id for loan_id in loan_ids if loan_id not in done]
-        print("Skipping %s already-ok loans from progress file." % (before - len(loan_ids)))
+        print(
+            "Resume: skipping %s already-ok loans (%s remaining of %s). Progress: %s"
+            % (before - len(loan_ids), len(loan_ids), total_in_file, progress_file)
+        )
+        if before > len(loan_ids):
+            print(
+                "NOTE: after deploying a gap-fill fix, use a NEW --progress-file or --no-skip-ok-from-progress "
+                "or those skipped loans will keep the old incomplete monthlies.",
+                flush=True,
+            )
 
     if args.offset:
         loan_ids = loan_ids[args.offset :]
@@ -221,17 +330,48 @@ def main():
         loan_ids = loan_ids[: args.limit]
 
     print("Loans to rectify: %s" % len(loan_ids))
+    if progress_file:
+        print("Progress file: %s" % progress_file)
     if not args.apply:
         print("Dry run only. First 20 ids: %s" % (loan_ids[:20],))
-        print("Re-run with --apply to change these loans.")
+        print("Re-run with --apply and CONFIRM_RECTIFY=YES to change these loans.")
         return
 
-    client = FineractClient(args.base_url, args.tenant, args.username, args.password, args.insecure)
+    if os.environ.get("CONFIRM_RECTIFY") != "YES":
+        raise SystemExit(
+            "Refusing --apply: this mutation is irreversible on production.\n"
+            "Pilot one loan first, pause the late-fee job, then re-run with CONFIRM_RECTIFY=YES --apply."
+        )
+
+    print(
+        "CONFIRM_RECTIFY=YES: applying irreversible rectifyLateFees to %s loan(s). Late-fee job should be paused."
+        % len(loan_ids),
+        flush=True,
+    )
+
+    if not loan_ids:
+        print(json.dumps({"done": True, "ok": 0, "failed": 0, "total": 0, "alreadyComplete": True}), flush=True)
+        return
+
+    ssl_context = build_ssl_context(
+        insecure=args.insecure,
+        cert=args.cert,
+        key=args.key,
+        cacert=args.cacert,
+        key_password=args.key_password,
+    )
+    if not args.cert:
+        print(
+            "Warning: no --cert/--key provided. Prod gateways that require mTLS will return HTTP 403.",
+            flush=True,
+        )
+
+    client = FineractClient(args.base_url, args.tenant, args.username, args.password, ssl_context)
     client.authenticate()
 
     ok = 0
     failed = 0
-    progress = open(args.progress_file, "a", encoding="utf-8") if args.progress_file else None
+    progress = open(progress_file, "a", encoding="utf-8") if progress_file else None
     try:
         for index, loan_id in enumerate(loan_ids, start=1):
             try:
@@ -243,6 +383,7 @@ def main():
                 if progress:
                     progress.write(line + "\n")
                     progress.flush()
+                    os.fsync(progress.fileno())
             except Exception as error:  # noqa: BLE001 - batch must keep going when asked
                 failed += 1
                 line = json.dumps(
@@ -258,7 +399,14 @@ def main():
                 if progress:
                     progress.write(line + "\n")
                     progress.flush()
+                    os.fsync(progress.fileno())
                 if not args.continue_on_error:
+                    print(
+                        "Stopped on loan %s. Re-run the same command to resume; already-ok loans are skipped "
+                        "unless you use a new progress file or --no-skip-ok-from-progress."
+                        % loan_id,
+                        flush=True,
+                    )
                     raise SystemExit("Stopped on loan %s. Pass --continue-on-error to keep going." % loan_id) from error
             if args.sleep_ms > 0 and index < len(loan_ids):
                 time.sleep(args.sleep_ms / 1000.0)
