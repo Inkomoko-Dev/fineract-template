@@ -213,8 +213,8 @@ public final class TrancheReleaseRules {
     }
 
     public static void applyConfiguredPrincipals(final Loan loan) {
-        final LoanProduct product = loan.loanProduct();
-        if (product == null || !product.isMultiDisburseLoan()) {
+        final LoanProduct product = loan == null ? null : loan.loanProduct();
+        if (product == null || !loan.isMultiDisburmentLoan()) {
             return;
         }
         if (loan.getDisbursementDetails() == null || loan.getDisbursementDetails().isEmpty()) {

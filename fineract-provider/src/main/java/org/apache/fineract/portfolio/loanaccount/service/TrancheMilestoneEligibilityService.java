@@ -372,6 +372,7 @@ public class TrancheMilestoneEligibilityService {
     public void refreshPastDeadline() {
         final LocalDate today = DateUtils.getBusinessLocalDate();
         final List<Long> loanIds = this.jdbcTemplate.queryForList("SELECT l.id FROM m_loan l WHERE l.loan_status_id = 300 "
+                + "AND l.multi_disburse_loan = 1 "
                 + "AND EXISTS (SELECT 1 FROM m_product_loan lp WHERE lp.id = l.product_id AND lp.allow_multiple_disbursals = 1 "
                 + "AND lp.require_milestone_survey = 1) "
                 + "AND EXISTS (SELECT 1 FROM m_loan_disbursement_detail d WHERE d.loan_id = l.id AND d.disbursedon_date IS NOT NULL) "

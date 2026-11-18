@@ -86,7 +86,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
                     // Principal outstanding is based on utilization, not the approved facility. For multi-disbursement loans use
                     // tranche principal actually disbursed by the provisioning cut-off date; single-disbursement loans retain the
                     // established derived balance source.
-                    "GREATEST((CASE WHEN product.allow_multiple_disbursals = 1 " +
+                    "GREATEST((CASE WHEN product.allow_multiple_disbursals = 1 AND loan.multi_disburse_loan = 1 " +
                     "THEN IFNULL(disbursementTbl.principal_disbursed, 0) " +
                     "ELSE IFNULL(loan.principal_disbursed_derived, 0) END) - IFNULL(paymentTbl.princ_paid, 0), 0) " +
                     "AS principal_outstanding, " +
@@ -95,7 +95,7 @@ public class ProvisioningEntriesReadPlatformServiceImpl implements ProvisioningE
                     "(IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0)) AS accrued_interest_to_cutoff, " +
 
                     // Total Exposure = Principal Outstanding + Accrued Interest
-                    "(GREATEST((CASE WHEN product.allow_multiple_disbursals = 1 " +
+                    "(GREATEST((CASE WHEN product.allow_multiple_disbursals = 1 AND loan.multi_disburse_loan = 1 " +
                     "THEN IFNULL(disbursementTbl.principal_disbursed, 0) " +
                     "ELSE IFNULL(loan.principal_disbursed_derived, 0) END) - IFNULL(paymentTbl.princ_paid, 0), 0) " +
                     "+ (IFNULL(scheduleInterestTbl.interest_due_to_cutoff, 0) - IFNULL(paymentTbl.int_paid, 0))) AS outstandingbalance " +

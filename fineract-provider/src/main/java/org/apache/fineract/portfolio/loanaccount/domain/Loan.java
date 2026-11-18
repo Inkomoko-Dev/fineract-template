@@ -2107,10 +2107,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public boolean isMultiDisburmentLoan() {
-        if (this.loanProduct == null || !this.loanProduct.isMultiDisburseLoan()) {
-            return false;
-        }
-        return this.multiDisburseLoan == null || this.multiDisburseLoan;
+        return this.loanProduct != null && this.loanProduct.isMultiDisburseLoan() && Boolean.TRUE.equals(this.multiDisburseLoan);
     }
 
     public void setMultiDisburseLoan(final Boolean multiDisburseLoan) {
@@ -5149,6 +5146,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
         if (undisbursed.size() == 1) {
             applyApprovedPrincipalToTranche(undisbursed.get(0), remainingApproved);
+            return;
+        }
+        if (!this.isMultiDisburmentLoan()) {
             return;
         }
         for (final LoanDisbursementDetails detail : undisbursed) {

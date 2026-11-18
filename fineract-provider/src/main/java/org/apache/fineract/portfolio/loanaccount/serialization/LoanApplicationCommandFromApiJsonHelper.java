@@ -1520,8 +1520,7 @@ public final class LoanApplicationCommandFromApiJsonHelper {
     public void validateLoanMultiDisbursementDate(final JsonElement element, final DataValidatorBuilder baseDataValidator,
             LocalDate expectedDisbursement, BigDecimal totalPrincipal, final LoanProduct loanProduct) {
 
-        if (loanProduct != null && loanProduct.isMultiDisburseLoan()
-                && !LoanMultiDisburseChoice.selected(true, requestedMultiDisburse(element))) {
+        if (loanProduct != null && loanProduct.isMultiDisburseLoan() && Boolean.FALSE.equals(requestedMultiDisburse(element))) {
             return;
         }
 

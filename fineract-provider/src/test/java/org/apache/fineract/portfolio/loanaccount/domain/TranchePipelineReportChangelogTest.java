@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -96,7 +97,11 @@ public class TranchePipelineReportChangelogTest {
         assertTrue(xml.contains("WHEN ml.loan_sub_status_id = 470 THEN 9"));
         assertFalse(xml.contains("WHEN ml.loan_sub_status_id = 420 AND second_plan.id IS NOT NULL THEN 2"));
         assertTrue(xml.contains("AND (ml.loan_officer_id = ${loanOfficerId} OR ${loanOfficerId} IN (-1, -10, 0))"));
-        assertTrue(xml.contains("pipeline.eligibility_deadline"));
+        final String inheritedChoice = "COALESCE(ml.multi_disburse_loan, 1) = 1";
+        assertTrue(xml.contains("AND ml.multi_disburse_loan = 1"));
+        assertTrue(xml.contains("CGLT-832-pipeline-report-explicit-loan"));
+        assertTrue(xml.contains("REPLACE(report_sql, '" + inheritedChoice + "', 'ml.multi_disburse_loan = 1')"));
+        assertEquals(xml.indexOf(inheritedChoice), xml.lastIndexOf(inheritedChoice));
     }
 
     @Test
