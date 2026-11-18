@@ -98,4 +98,29 @@ public class SQLInjectionValidatorTest {
         assertDoesNotThrow(() -> SQLInjectionValidator.validateSQLInput("status_id = 300"));
         assertDoesNotThrow(() -> SQLInjectionValidator.validateSQLInput("amount > 100"));
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "callback", "selected", "updates", "selectedOffice", "callbackNumber", "CallBack",
+            "SELECTED", "callbackUrl" })
+    public void acceptsLegitimateValuesContainingCommandSubstrings(final String value) {
+        assertDoesNotThrow(() -> SQLInjectionValidator.validateSQLInput(value));
+        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, value));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "select * from m_loan", "select 1", "update m_loan set x = 1", "delete from m_loan",
+            "drop table m_loan", "create table foo", "alter table m_loan", "truncate table m_loan",
+            "call some_proc", "merge into m_loan", "sleep(5)" })
+    public void stillRejectsStandaloneSqlCommands(final String value) {
+        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateSQLInput(value));
+        assertThrows(SQLInjectionException.class, () -> SQLInjectionValidator.validateReportParameter(OFFICE_ID, value));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "callback", "selectedOffice", "updates", "callbackUrl" })
+    public void acceptsCampaignReportParametersContainingCommandSubstrings(final String value) {
+        // Simulates campaign report parameter values (e.g. ${officeId}=callback, ${loanOfficerId}=selectedOffice)
+        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter("${officeId}", value));
+        assertDoesNotThrow(() -> SQLInjectionValidator.validateReportParameter("${loanOfficerId}", value));
+    }
 }

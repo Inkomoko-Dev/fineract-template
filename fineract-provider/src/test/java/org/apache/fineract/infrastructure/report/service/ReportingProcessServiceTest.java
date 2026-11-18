@@ -19,11 +19,13 @@
 package org.apache.fineract.infrastructure.report.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Map;
 import javax.ws.rs.core.MultivaluedHashMap;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
+import org.apache.fineract.infrastructure.security.utils.SQLInjectionException;
 import org.junit.jupiter.api.Test;
 
 class ReportingProcessServiceTest {
@@ -44,5 +46,18 @@ class ReportingProcessServiceTest {
         final Map<String, String> reportParams = service.getReportParams(queryParams);
 
         assertThat(reportParams).containsExactly(Map.entry("${reportListing}", "'Loan Due in X days'"));
+    }
+
+    @Test
+    void legacyCampaignReportNameIsMetadataWhileRealParametersRemainValidated() {
+        final MultivaluedMap<String, String> queryParams = new MultivaluedHashMap<>();
+        queryParams.add("R_reportName", "Loan Repayment");
+        queryParams.add("R_officeId", "120");
+
+        assertThat(service.getReportParams(queryParams)).containsExactlyInAnyOrderEntriesOf(Map.of("${reportName}", "Loan Repayment",
+                "${officeId}", "120"));
+
+        queryParams.putSingle("R_officeId", "120 UNION SELECT 1");
+        assertThatThrownBy(() -> service.getReportParams(queryParams)).isInstanceOf(SQLInjectionException.class);
     }
 }

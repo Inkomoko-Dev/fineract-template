@@ -49,14 +49,28 @@ public class VoiceCallLogReadPlatformService {
     }
 
     public List<VoiceCallLogData> retrieveCallLogs(final int offset, final int limit) {
+        return retrieveCallLogs(offset, limit, null);
+    }
+
+    public List<VoiceCallLogData> retrieveCallLogs(final String status) {
+        return retrieveCallLogs(0, DEFAULT_PAGE_SIZE, status);
+    }
+
+    public List<VoiceCallLogData> retrieveCallLogs(final int offset, final int limit, final String status) {
         final int safeLimit = limit <= 0 ? DEFAULT_PAGE_SIZE : Math.min(limit, 500);
         final int safeOffset = Math.max(offset, 0);
         final ScopeFilter scope = buildScopeFilter();
-        final String sql = "select " + listMapper.schema() + scope.whereClause + " order by vcl.created_date desc limit ? offset ?";
+        final StringBuilder sql = new StringBuilder();
+        sql.append("select ").append(listMapper.schema()).append(scope.whereClause);
         final List<Object> args = new ArrayList<>(scope.args);
+        if (status != null && !status.isBlank()) {
+            sql.append(" and vcl.status = ?");
+            args.add(status);
+        }
+        sql.append(" order by vcl.created_date desc limit ? offset ?");
         args.add(safeLimit);
         args.add(safeOffset);
-        return this.jdbcTemplate.query(sql, listMapper, args.toArray());
+        return this.jdbcTemplate.query(sql.toString(), listMapper, args.toArray());
     }
 
     public VoiceCallLogData retrieveOne(final Long callId) {

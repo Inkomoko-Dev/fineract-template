@@ -37,6 +37,7 @@ import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingPr
 import org.apache.fineract.infrastructure.africastalking.data.CommunicationMessageData;
 import org.apache.fineract.infrastructure.africastalking.data.ConnectivityTestResultData;
 import org.apache.fineract.infrastructure.africastalking.data.VoiceCallLogData;
+import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingConnectivityService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingClient;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingVoiceService;
@@ -132,10 +133,12 @@ public class AfricasTalkingApiResource {
     @Path("messages")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveMessages(@Context final UriInfo uriInfo) {
+    public String retrieveMessages(@Context final UriInfo uriInfo, @QueryParam("status") final String statusParam) {
         this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
+        final CommunicationMessageStatus status = StringUtils.isBlank(statusParam) ? null
+                : CommunicationMessageStatus.valueOf(statusParam.trim().toUpperCase(java.util.Locale.ROOT));
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
-        return this.messageSerializer.serialize(settings, this.communicationMessageReadPlatformService.retrieveWhatsAppMessages());
+        return this.messageSerializer.serialize(settings, this.communicationMessageReadPlatformService.retrieveWhatsAppMessages(status));
     }
 
     @GET
@@ -203,10 +206,12 @@ public class AfricasTalkingApiResource {
     @Path("voice/calls")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveVoiceCalls(@Context final UriInfo uriInfo) {
+    public String retrieveVoiceCalls(@Context final UriInfo uriInfo,
+                                     @QueryParam("status") final String statusParam) {
         this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
-        return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveCallLogs());
+        return this.voiceCallLogSerializer.serialize(settings,
+                this.voiceCallLogReadPlatformService.retrieveCallLogs(statusParam));
     }
 
     @GET
