@@ -41,8 +41,10 @@ import org.apache.fineract.infrastructure.jobs.annotation.CronTarget;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleTransactionProcessorFactory;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSubStatus;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanSummaryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheMilestone;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheMilestoneHistory;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheMilestoneHistoryRepository;
@@ -76,6 +78,8 @@ public class TrancheMilestoneEligibilityService {
     private final JdbcTemplate jdbcTemplate;
     private final FromJsonHelper fromApiJsonHelper;
     private final ObjectProvider<TrancheMilestoneRefreshWorker> refreshWorker;
+    private final LoanSummaryWrapper loanSummaryWrapper;
+    private final LoanRepaymentScheduleTransactionProcessorFactory transactionProcessorFactory;
 
     public static final class Refresh {
 
@@ -302,6 +306,7 @@ public class TrancheMilestoneEligibilityService {
             after.stamp(actorUserId, clientIp(), loan.getLoanSubStatus());
             this.historyRepository.save(after);
         }
+        attachLoanHelpers(loan);
         loan.cancelUndisbursedCommitment();
         TrancheScheduleRules.rebaseToDisbursedPrincipal(loan);
         storeSubStatus(loan, LoanSubStatus.TRANCHE_CANCELLED);
@@ -340,6 +345,7 @@ public class TrancheMilestoneEligibilityService {
         milestone.setDeadlineExceptionNote(limit(note, 1000));
         milestone.setDeadlineExceptionApproved(false);
         this.milestoneRepository.save(milestone);
+        attachLoanHelpers(loan);
         TrancheScheduleRules.rebaseToDisbursedPrincipal(loan);
         recordStatusHistory(loan, LoanSubStatus.TRANCHE_RESCHEDULED, actorUserId);
         storeSubStatus(loan, LoanSubStatus.TRANCHE_RESCHEDULED);
@@ -415,6 +421,14 @@ public class TrancheMilestoneEligibilityService {
                     "tranche.milestone.no.open.tranche");
         }
         return next;
+    }
+
+    /**
+     * The summary calculator and repayment processor live only in memory. A loan loaded for review does
+     * not have them, and rewriting the schedule needs the calculator to refresh principal and interest totals.
+     */
+    private void attachLoanHelpers(final Loan loan) {
+        loan.setHelpers(null, this.loanSummaryWrapper, this.transactionProcessorFactory);
     }
 
     private static boolean hasDisbursedTranche(final Loan loan) {
