@@ -39,13 +39,17 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
+import org.apache.fineract.portfolio.account.service.AccountTransfersWritePlatformService;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
+import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.DefaultScheduledDateGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.ScheduledDateGenerator;
@@ -60,8 +64,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Late-fee repair in two steps: (1) quietly remove daily/flat late fees that should not have gone to prod;
  * (2) gap-fill missing original Overdue Fees using the Sep-2026 / {@code inkomoko-prod-bkp21092026} rules from
  * {@code applyChargeToOverdueLoanInstallment} (per incomplete installment, fee frequency/interval, maturity cap,
- * max_occurrence, % of installment outstanding), then sync charged/paid/outstanding. Independent of
- * {@link LoanDailyLateFeeService}.
+ * max_occurrence), using the original installment principal base (not today's reduced outstanding). Then reprocess
+ * repayments so Paid reallocates onto the cleaned charge set (same as a new payment would), and sync
+ * charged/paid/outstanding. Independent of {@link LoanDailyLateFeeService}.
  */
 @Service
 @RequiredArgsConstructor
@@ -80,6 +85,8 @@ public class LoanLateFeeRectifyService {
     private final JournalEntryWritePlatformService journalEntryWritePlatformService;
     private final LoanAssembler loanAssembler;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
+    private final LoanTransactionRepository loanTransactionRepository;
+    private final AccountTransfersWritePlatformService accountTransfersWritePlatformService;
     private final LoanArrearsAgingService loanArrearsAgingService;
 
     public CommandProcessingResult rectifyLateFeesForLoan(final Long loanId) {
@@ -96,20 +103,22 @@ public class LoanLateFeeRectifyService {
             }
         }
 
-        final BigDecimal orphanPaidToPrincipal = newRequiresNew().execute(status -> {
+        newRequiresNew().execute(status -> {
             this.jdbcTemplate.update("update m_loan_daily_late_fee set is_active = 0 where loan_id = ? and is_active = 1", loanId);
-            final BigDecimal moved = reallocateOrphanPenaltyPaidToPrincipal(loanId);
+            // Drop paid flags on removed dailies; repayment reprocess reallocates cash onto remaining charges.
+            clearPaidOnInactivePenaltyCharges(loanId);
             syncPenaltiesFromActiveCharges(loanId);
-            refreshLoanPrincipalSummary(loanId);
-            return moved;
+            return null;
         });
 
         final int posted = postMissingMonthlyPenalties(ctx);
-        final Map<String, BigDecimal> penaltyTotals = refreshSummaryAndArrears(loanId);
+        final Map<String, Object> refresh = refreshSummaryAndArrears(loanId);
 
+        @SuppressWarnings("unchecked")
+        final Map<String, BigDecimal> penaltyTotals = (Map<String, BigDecimal>) refresh.get("penaltyTotals");
         changes.put("removedDailyCharges", removedDaily);
         changes.put("postedMonthlyCharges", posted);
-        changes.put("orphanPenaltyPaidMovedToPrincipal", orphanPaidToPrincipal);
+        changes.put("repaymentsReprocessed", refresh.get("repaymentsReprocessed"));
         changes.put("penaltyCharged", penaltyTotals.get("charged"));
         changes.put("penaltyPaid", penaltyTotals.get("paid"));
         changes.put("penaltyOutstanding", penaltyTotals.get("outstanding"));
@@ -231,8 +240,8 @@ public class LoanLateFeeRectifyService {
 
     /**
      * Deactivate a daily late-fee charge without inserting WAIVE_CHARGES (avoids Accrual+Waive pairs per day). Linked
-     * accrual transactions are soft-reversed. Paid amounts stay on the charge row until
-     * {@link #reallocateOrphanPenaltyPaidToPrincipal(Long)} moves them onto principal (no repayment replay).
+     * accrual transactions are soft-reversed. Paid amounts on inactive rows are cleared before repayment reprocess
+     * reallocates cash onto the remaining active charges.
      */
     private boolean removeDailyChargeQuietly(final RectifyContext ctx, final Long loanChargeId) {
         return Boolean.TRUE.equals(newRequiresNew().execute(status -> {
@@ -433,56 +442,15 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
-     * Money already collected against removed (inactive) daily penalties must not disappear from Total Paid. Move it
-     * onto principal completed on the schedule and clear {@code amount_paid_derived} on those inactive rows so a
-     * second run is idempotent. Does not reverse or rewrite repayment transactions.
+     * Clear paid flags on inactive penalty rows so repayment reprocess can reallocate that cash onto active charges
+     * (idempotent on re-run).
      */
-    private BigDecimal reallocateOrphanPenaltyPaidToPrincipal(final Long loanId) {
-        final List<Map<String, Object>> orphans = this.jdbcTemplate.queryForList(
-                "select lc.id, coalesce(lc.amount_paid_derived, 0) as amount_paid"
-                        + " from m_loan_charge lc"
-                        + " where lc.loan_id = ? and lc.is_penalty = 1 and lc.is_active = 0"
-                        + " and coalesce(lc.amount_paid_derived, 0) > 0",
+    private void clearPaidOnInactivePenaltyCharges(final Long loanId) {
+        this.jdbcTemplate.update(
+                "update m_loan_charge set amount_paid_derived = 0, is_paid_derived = 0"
+                        + " where loan_id = ? and is_penalty = 1 and is_active = 0"
+                        + " and coalesce(amount_paid_derived, 0) > 0",
                 loanId);
-        BigDecimal moved = BigDecimal.ZERO;
-        for (final Map<String, Object> orphan : orphans) {
-            final BigDecimal paid = toBigDecimal(orphan.get("amount_paid"));
-            if (paid == null || paid.compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
-            applyPaymentToPrincipalSchedule(loanId, paid);
-            this.jdbcTemplate.update("update m_loan_charge set amount_paid_derived = 0 where id = ?", orphan.get("id"));
-            moved = moved.add(paid);
-        }
-        return moved;
-    }
-
-    private void applyPaymentToPrincipalSchedule(final Long loanId, final BigDecimal amount) {
-        BigDecimal remaining = amount;
-        final List<Map<String, Object>> installments = this.jdbcTemplate.queryForList(
-                "select rs.id,"
-                        + " greatest(coalesce(rs.principal_amount, 0) - coalesce(rs.principal_completed_derived, 0)"
-                        + " - coalesce(rs.principal_writtenoff_derived, 0), 0) as outstanding_principal"
-                        + " from m_loan_repayment_schedule rs"
-                        + " where rs.loan_id = ? and rs.recalculated_interest_component = 0"
-                        + " order by rs.duedate, rs.installment",
-                loanId);
-        for (final Map<String, Object> installment : installments) {
-            if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
-                break;
-            }
-            final BigDecimal outstanding = toBigDecimal(installment.get("outstanding_principal"));
-            if (outstanding == null || outstanding.compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
-            final BigDecimal apply = remaining.min(outstanding);
-            this.jdbcTemplate.update(
-                    "update m_loan_repayment_schedule set"
-                            + " principal_completed_derived = coalesce(principal_completed_derived, 0) + ?"
-                            + " where id = ?",
-                    apply, installment.get("id"));
-            remaining = remaining.subtract(apply);
-        }
     }
 
     private void refreshLoanPrincipalSummary(final Long loanId) {
@@ -505,21 +473,41 @@ public class LoanLateFeeRectifyService {
     }
 
     /**
-     * Final pass: sync penalties from active charges (Charges = Summary), refresh principal/total, then arrears.
-     * Skips {@code updateLoanSummaryDerivedFields()} so JPA cannot overwrite the charge-based penalty totals.
+     * Sync schedule from active charges, reprocess repayments so Paid reallocates onto the cleaned charge set (cash
+     * received is not reversed — only component split is recalculated), sync again so Charges/Schedule/Summary tally,
+     * then refresh arrears.
      */
-    private Map<String, BigDecimal> refreshSummaryAndArrears(final Long loanId) {
+    private Map<String, Object> refreshSummaryAndArrears(final Long loanId) {
         return newRequiresNew().execute(status -> {
+            syncPenaltiesFromActiveCharges(loanId);
+
+            final Loan loan = this.loanAssembler.assembleFrom(loanId);
+            final ChangedTransactionDetail changedTransactionDetail = loan.reprocessTransactions();
+            if (changedTransactionDetail != null) {
+                for (final Map.Entry<Long, LoanTransaction> mapEntry : changedTransactionDetail.getNewTransactionMappings()
+                        .entrySet()) {
+                    this.loanTransactionRepository.save(mapEntry.getValue());
+                    loan.addLoanTransaction(mapEntry.getValue());
+                    this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
+                }
+            }
+            this.loanRepositoryWrapper.saveAndFlush(loan);
+
             final Map<String, BigDecimal> totals = syncPenaltiesFromActiveCharges(loanId);
             refreshLoanPrincipalSummary(loanId);
-            final Loan loan = this.loanAssembler.assembleFrom(loanId);
-            if (loan.isOpen() && loan.repaymentScheduleDetail().isInterestRecalculationEnabled()
-                    && loan.loanProduct().isArrearsBasedOnOriginalSchedule()) {
-                this.loanArrearsAgingService.updateLoanArrearsAgeingDetailsWithOriginalSchedule(loan);
+
+            final Loan refreshed = this.loanAssembler.assembleFrom(loanId);
+            if (refreshed.isOpen() && refreshed.repaymentScheduleDetail().isInterestRecalculationEnabled()
+                    && refreshed.loanProduct().isArrearsBasedOnOriginalSchedule()) {
+                this.loanArrearsAgingService.updateLoanArrearsAgeingDetailsWithOriginalSchedule(refreshed);
             } else {
-                this.loanArrearsAgingService.updateLoanArrearsAgeingDetails(loan);
+                this.loanArrearsAgingService.updateLoanArrearsAgeingDetails(refreshed);
             }
-            return totals;
+
+            final Map<String, Object> result = new LinkedHashMap<>();
+            result.put("repaymentsReprocessed", true);
+            result.put("penaltyTotals", totals);
+            return result;
         });
     }
 
@@ -527,8 +515,9 @@ public class LoanLateFeeRectifyService {
      * Gap-fill missing Overdue Fees using {@code inkomoko-prod-bkp21092026}
      * {@code applyChargeToOverdueLoanInstallment}: incomplete installments past penalty wait, fee frequency/interval,
      * one occurrence before maturity and recurring through the business date on/after maturity while unpaid, optional
-     * max_occurrence, % of installment outstanding principal. Clears prior incorrect specified-due-date / gap-fill rows
-     * first. Closed loans were never charged by that job ({@code loan_status_id = 300} only).
+     * max_occurrence. Amount uses the original principal base (existing Overdue Fees {@code calculation_on_amount} or
+     * scheduled installment principal) so historical fills match 1,666.67-style originals — not today's reduced
+     * outstanding. Clears prior incorrect specified-due-date / gap-fill rows first.
      */
     private int postMissingMonthlyPenalties(final RectifyContext ctx) {
         if (ctx.firstPenaltyDate == null || ctx.effectiveDate.isBefore(ctx.firstPenaltyDate)) {
@@ -590,6 +579,9 @@ public class LoanLateFeeRectifyService {
                 }
 
                 final Long scheduleId = ((Number) installment.get("schedule_id")).longValue();
+                final BigDecimal principalAmount = nullToZero(toBigDecimal(installment.get("principal_amount")));
+                final BigDecimal principalBase = resolveGapFillPrincipalBase(ctx, scheduleId, principalAmount,
+                        outstandingPrincipal);
                 final Map<Integer, LocalDate> scheduleDates = buildClassicOverdueScheduleDates(ctx, dueDate, diff,
                         scheduledDateGenerator);
                 final Set<Integer> existingFrequencies = new HashSet<>(retrieveExistingOverdueFrequencies(ctx.loanId,
@@ -610,7 +602,7 @@ public class LoanLateFeeRectifyService {
                         continue;
                     }
 
-                    BigDecimal penalty = outstandingPrincipal.multiply(ctx.monthlyRate, MoneyHelper.getMathContext())
+                    BigDecimal penalty = principalBase.multiply(ctx.monthlyRate, MoneyHelper.getMathContext())
                             .divide(BigDecimal.valueOf(100L), scale, MoneyHelper.getRoundingMode());
                     final BigDecimal remainingCap = cap.subtract(cumulative);
                     if (penalty.compareTo(remainingCap) > 0) {
@@ -619,7 +611,7 @@ public class LoanLateFeeRectifyService {
                     if (penalty.compareTo(BigDecimal.ZERO) <= 0) {
                         continue;
                     }
-                    insertMonthlyPenaltyCharge(ctx, postingDate, penalty, outstandingPrincipal, scheduleId, entry.getKey());
+                    insertMonthlyPenaltyCharge(ctx, postingDate, penalty, principalBase, scheduleId, entry.getKey());
                     cumulative = cumulative.add(penalty);
                     posted++;
                 }
@@ -627,6 +619,43 @@ public class LoanLateFeeRectifyService {
             syncPenaltiesFromActiveCharges(ctx.loanId);
             return posted;
         });
+    }
+
+    /**
+     * Prefer the principal base already used by original (non-gap-fill) Overdue Fees on this installment; otherwise the
+     * scheduled installment principal. Avoids using today's reduced outstanding, which understates historical fills.
+     */
+    private BigDecimal resolveGapFillPrincipalBase(final RectifyContext ctx, final Long scheduleId,
+            final BigDecimal principalAmount, final BigDecimal outstandingPrincipal) {
+        final List<BigDecimal> existingBases = this.jdbcTemplate.queryForList(
+                "select lc.calculation_on_amount from m_loan_charge lc"
+                        + " inner join m_loan_overdue_installment_charge oic on oic.loan_charge_id = lc.id"
+                        + " where oic.loan_schedule_id = ? and lc.charge_id = ? and lc.is_active = 1 and lc.waived = 0"
+                        + " and lc.charge_calculation_enum = ?"
+                        + " and (lc.external_id is null or lc.external_id not like ?)"
+                        + " and coalesce(lc.calculation_on_amount, 0) > 0"
+                        + " order by lc.due_for_collection_as_of_date desc, lc.id desc",
+                BigDecimal.class, scheduleId, ctx.chargeDefinitionId, CHARGE_CALC_PERCENT_OF_AMOUNT,
+                GAP_FILL_EXTERNAL_ID_PREFIX + "%");
+        if (!existingBases.isEmpty() && existingBases.get(0) != null) {
+            return existingBases.get(0);
+        }
+        final List<BigDecimal> loanLevelBases = this.jdbcTemplate.queryForList(
+                "select lc.calculation_on_amount from m_loan_charge lc"
+                        + " where lc.loan_id = ? and lc.charge_id = ? and lc.is_active = 1 and lc.waived = 0"
+                        + " and lc.charge_calculation_enum = ? and lc.charge_time_enum = ?"
+                        + " and (lc.external_id is null or lc.external_id not like ?)"
+                        + " and coalesce(lc.calculation_on_amount, 0) > 0"
+                        + " order by lc.due_for_collection_as_of_date desc, lc.id desc limit 1",
+                BigDecimal.class, ctx.loanId, ctx.chargeDefinitionId, CHARGE_CALC_PERCENT_OF_AMOUNT, OVERDUE_INSTALLMENT,
+                GAP_FILL_EXTERNAL_ID_PREFIX + "%");
+        if (!loanLevelBases.isEmpty() && loanLevelBases.get(0) != null) {
+            return loanLevelBases.get(0);
+        }
+        if (principalAmount.compareTo(BigDecimal.ZERO) > 0) {
+            return principalAmount;
+        }
+        return outstandingPrincipal;
     }
 
     /**

@@ -6,11 +6,12 @@ Calls POST /loans/{loanId}?command=rectifyLateFees (LoanLateFeeRectifyService):
   2. Gap-fills missing Overdue Fees using Sep-2026 / inkomoko-prod-bkp21092026 rules
      (applyChargeToOverdueLoanInstallment): incomplete installments past penalty wait,
      fee frequency/interval, one post before maturity and recurring on/after maturity
-     while unpaid, max_occurrence, % of installment outstanding — not daily late fees.
-     Closed loans were never charged by that job (active only).
+     while unpaid, max_occurrence, % of original installment principal base (not today's
+     reduced outstanding) — not daily late fees. Closed loans were never charged (active only).
      Each gap-fill row is tagged: m_loan_charge.external_id = CGLT-852-GAPFILL:{loanId}:{date}
-  3. Syncs schedule/summary so penalty charged/paid/outstanding tally
-  4. Refreshes m_loan_arrears_aging
+  3. Reprocesses repayments so Paid reallocates onto the cleaned charge set
+  4. Syncs schedule/summary so penalty charged/paid/outstanding tally
+  5. Refreshes m_loan_arrears_aging
 
 Identify gap-filled charges:
   SELECT * FROM m_loan_charge WHERE external_id LIKE 'CGLT-852-GAPFILL:%' AND is_active = 1;
