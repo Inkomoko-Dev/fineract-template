@@ -78,22 +78,6 @@
             <column name="selectAll" value="Y"/>
             <column name="parameter_sql"><![CDATA[(select -1 as id, 'All' as name) union all (select 7, 'Within 7 days') union all (select 14, 'Within 14 days') union all (select 1, 'Past deadline')]]></column>
         </insert>
-        <insert tableName="stretchy_parameter">
-            <column name="parameter_name" value="tranchePipelineStartDate"/>
-            <column name="parameter_variable" value="startDate"/>
-            <column name="parameter_label" value="From date"/>
-            <column name="parameter_displayType" value="date"/>
-            <column name="parameter_FormatType" value="date"/>
-            <column name="parameter_default" value="2000-01-01"/>
-        </insert>
-        <insert tableName="stretchy_parameter">
-            <column name="parameter_name" value="tranchePipelineEndDate"/>
-            <column name="parameter_variable" value="endDate"/>
-            <column name="parameter_label" value="To date"/>
-            <column name="parameter_displayType" value="date"/>
-            <column name="parameter_FormatType" value="date"/>
-            <column name="parameter_default" value="2100-12-31"/>
-        </insert>
     </changeSet>
 
     <changeSet author="inkomoko" id="CGLT-832-multi-tranche-pipeline-report">
@@ -151,7 +135,7 @@ WITH scoped_loan AS (
         SELECT loan_id, id, principal, expected_disburse_date
         FROM (
             SELECT d.loan_id, d.id, d.principal, d.expected_disburse_date,
-                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.id) AS rn
+                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.expected_disburse_date IS NULL, d.expected_disburse_date, d.id) AS rn
             FROM m_loan_disbursement_detail d
             JOIN scoped_loan s ON s.loan_id = d.loan_id
         ) ranked WHERE rn = 2
@@ -181,6 +165,31 @@ WITH scoped_loan AS (
                END AS survey_answer
         FROM m_loan_tranche_milestone m
         JOIN scoped_loan s ON s.loan_id = m.loan_id
+    ),
+    chosen AS (
+        SELECT loan_id, disbursement_detail_id, survey_answer
+        FROM (
+            SELECT srv.loan_id, srv.disbursement_detail_id, srv.survey_answer,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY srv.loan_id
+                       ORDER BY
+                           CASE
+                               WHEN sp.id IS NOT NULL AND srv.disbursement_detail_id = sp.id
+                                    AND COALESCE(TRIM(m.submission_id), '') <> '' THEN 0
+                               WHEN COALESCE(TRIM(m.submission_id), '') <> '' THEN 1
+                               WHEN sp.id IS NOT NULL AND srv.disbursement_detail_id = sp.id THEN 2
+                               WHEN m.review_decision IS NOT NULL AND TRIM(m.review_decision) <> '' THEN 3
+                               ELSE 4
+                           END,
+                           m.submitted_on DESC,
+                           m.id DESC
+                   ) AS rn
+            FROM survey srv
+            JOIN m_loan_tranche_milestone m
+                ON m.loan_id = srv.loan_id AND m.disbursement_detail_id = srv.disbursement_detail_id
+            LEFT JOIN second_plan sp ON sp.loan_id = srv.loan_id
+        ) ranked
+        WHERE rn = 1
     ),
     review AS (
         SELECT m.loan_id,
@@ -221,10 +230,9 @@ WITH scoped_loan AS (
             WHEN 700 THEN 'Overpaid'
             ELSE CAST(ml.loan_status_id AS CHAR)
         END AS loan_status,
-        CASE WHEN mc.id IS NULL THEN 'No client'
-             ELSE CONCAT(mc.id, ' - ', COALESCE(mc.display_name, '')) END AS client_id_and_name,
+        mc.id AS client_id,
+        COALESCE(mc.display_name, 'No client') AS client_name,
         branch.name AS office_name,
-        COALESCE(parent_office.name, branch.name) AS entity_name,
         COALESCE(ms.display_name, 'Unassigned') AS loan_officer,
         lp.name AS product_name,
         COALESCE(ml.approved_principal, 0) AS approved_principal,
@@ -242,21 +250,12 @@ WITH scoped_loan AS (
         END AS pipeline_status_id,
         COALESCE(ml.principal_outstanding_derived, 0) AS outstanding_principal,
         COALESCE(ml.total_outstanding_derived, 0) AS total_loan_balance,
-        CONCAT(
-            CASE WHEN first_disb.disbursedon_date IS NULL THEN 'Not disbursed'
-                 ELSE DATE_FORMAT(first_disb.disbursedon_date, '%Y-%m-%d') END,
-            ' & ', FORMAT(COALESCE(first_disb.principal, 0), 2)
-        ) AS first_tranche_amount_and_date,
-        CONCAT(
-            CASE WHEN first_due.duedate IS NULL THEN 'Not scheduled'
-                 ELSE DATE_FORMAT(first_due.duedate, '%Y-%m-%d') END,
-            ' & ', FORMAT(COALESCE(first_due.due_amount, 0), 2)
-        ) AS first_due_date_and_amount,
-        CONCAT(
-            CASE WHEN first_due.received_on IS NULL THEN 'Not received'
-                 ELSE DATE_FORMAT(first_due.received_on, '%Y-%m-%d') END,
-            ' & ', FORMAT(COALESCE(first_due.paid_amount, 0), 2)
-        ) AS first_received_date_and_amount,
+        first_disb.disbursedon_date AS first_tranche_date,
+        first_disb.principal AS first_tranche_amount,
+        first_due.duedate AS first_repayment_due_date,
+        first_due.due_amount AS first_repayment_amount,
+        first_due.received_on AS first_repayment_received_date,
+        first_due.paid_amount AS first_repayment_received_amount,
         CASE WHEN COALESCE(lp.require_milestone_survey, 0) = 0 THEN 'Not required'
              WHEN mile.loan_id IS NULL THEN 'Not captured'
              ELSE CONCAT(
@@ -291,32 +290,42 @@ WITH scoped_loan AS (
                      ELSE 'Awaiting first repayment'
                 END
             WHEN first_due.duedate IS NOT NULL AND first_due.paid_amount >= first_due.due_amount THEN
-                CASE srv.survey_answer
+                CASE chosen.survey_answer
                     WHEN 'POSITIVE' THEN 'Eligible'
                     WHEN 'NEGATIVE' THEN 'Not eligible'
                     WHEN 'INCOMPLETE' THEN 'Survey incomplete'
                     ELSE 'Awaiting BGS survey'
                 END
-            WHEN srv.survey_answer = 'POSITIVE' THEN 'Eligible pending first repayment'
-            WHEN srv.survey_answer = 'NEGATIVE' THEN 'Not eligible'
-            WHEN srv.survey_answer = 'INCOMPLETE' THEN 'Survey incomplete'
+            WHEN chosen.survey_answer = 'POSITIVE' THEN 'Eligible pending first repayment'
+            WHEN chosen.survey_answer = 'NEGATIVE' THEN 'Not eligible'
+            WHEN chosen.survey_answer = 'INCOMPLETE' THEN 'Survey incomplete'
             ELSE 'Awaiting BGS survey'
         END AS second_tranche_eligibility_status,
         CASE WHEN second_disb.loan_id IS NOT NULL THEN second_disb.principal
              WHEN ml.loan_sub_status_id = 430 THEN second_plan.principal
              ELSE NULL END AS second_tranche_approved_amount,
-        second_plan.expected_disburse_date AS second_tranche_planned_date,
         second_disb.disbursedon_date AS second_tranche_actual_date,
         COALESCE(mile.eligibility_deadline_override, first_due.duedate) AS eligibility_deadline,
-        second_disb.payment_reference AS payment_reference,
-        review.cancellation_reason AS cancellation_reason,
-        review.approver AS approver
+        CASE
+            WHEN mile.review_decision IN ('EXTEND', 'CANCEL', 'RESCHEDULE') THEN 'Yes'
+            ELSE 'No'
+        END AS manual_review,
+        CASE mile.review_decision
+            WHEN 'EXTEND' THEN 'Extend'
+            WHEN 'CANCEL' THEN 'Cancel'
+            WHEN 'RESCHEDULE' THEN 'Reschedule'
+            ELSE NULL
+        END AS manual_action,
+        CASE
+            WHEN mile.review_decision IN ('EXTEND', 'CANCEL', 'RESCHEDULE')
+                THEN COALESCE(mile.deadline_exception_by, mile.cancelled_by)
+            ELSE NULL
+        END AS manual_review_approver
     FROM scoped_loan s
     JOIN m_loan ml ON ml.id = s.loan_id
     JOIN m_product_loan lp ON lp.id = ml.product_id
     LEFT JOIN m_client mc ON mc.id = ml.client_id
     JOIN m_office branch ON branch.id = COALESCE(ml.office_id, mc.office_id)
-    LEFT JOIN m_office parent_office ON parent_office.id = branch.parent_id
     LEFT JOIN m_staff ms ON ms.id = ml.loan_officer_id
     LEFT JOIN review ON review.loan_id = ml.id
     LEFT JOIN tranche_total ON tranche_total.loan_id = ml.id
@@ -324,21 +333,23 @@ WITH scoped_loan AS (
     LEFT JOIN second_disb ON second_disb.loan_id = ml.id
     LEFT JOIN second_plan ON second_plan.loan_id = ml.id
     LEFT JOIN first_due ON first_due.loan_id = ml.id
-    LEFT JOIN survey srv ON srv.loan_id = ml.id AND srv.disbursement_detail_id = second_plan.id
+    LEFT JOIN chosen ON chosen.loan_id = ml.id
     LEFT JOIN m_loan_tranche_milestone mile ON mile.loan_id = ml.id
-        AND mile.disbursement_detail_id = second_plan.id
+        AND mile.disbursement_detail_id = chosen.disbursement_detail_id
 )
 SELECT
     pipeline.loan_id AS `Loan ID`,
     pipeline.loan_account_number AS `Loan Account Number`,
     pipeline.loan_status AS `Loan Status`,
-    pipeline.client_id_and_name AS `Client ID & Client Name`,
-    pipeline.entity_name AS `Country/Entity`,
+    pipeline.client_id AS `Client ID`,
+    pipeline.client_name AS `Client Name`,
     pipeline.office_name AS `Office`,
     pipeline.loan_officer AS `Loan Officer`,
     pipeline.product_name AS `Product Name`,
     pipeline.approved_principal AS `Approved Principal Amount`,
-    pipeline.tranche_count AS `Total number of tranches`,
+    pipeline.outstanding_principal AS `Outstanding Principal`,
+    pipeline.total_loan_balance AS `Total Loan Balance`,
+    pipeline.tranche_count AS `Total number of Tranches`,
     CASE pipeline.pipeline_status_id
         WHEN 1 THEN 'Awaiting second-tranche verification'
         WHEN 2 THEN 'Eligible awaiting approval'
@@ -349,28 +360,22 @@ SELECT
         WHEN 8 THEN 'Cancelled'
         WHEN 9 THEN 'Rescheduled'
         ELSE 'Approved'
-    END AS `Tranche Pipeline Status`,
-    pipeline.outstanding_principal AS `Outstanding Principal`,
-    pipeline.total_loan_balance AS `Total Loan Balance`,
-    pipeline.first_tranche_amount_and_date AS `First-Tranche Disbursed Amount & Date`,
-    pipeline.first_due_date_and_amount AS `First Repayment Due Date & Amount`,
-    pipeline.first_received_date_and_amount AS `First Repayment Received Date & Amount`,
+    END AS `Tranche Status`,
+    pipeline.first_tranche_date AS `First-Tranche Date`,
+    pipeline.first_tranche_amount AS `First-Tranche Disbursed Amount`,
+    pipeline.first_repayment_due_date AS `First Repayment Due Date`,
+    pipeline.first_repayment_amount AS `First Repayment Amount`,
+    pipeline.first_repayment_received_date AS `First Repayment Received Date`,
+    pipeline.first_repayment_received_amount AS `First Repayment Received Amount`,
     pipeline.bgs_verification_status AS `BGS Verification Status (Operational & Funding Need)`,
     pipeline.investment_verification_status AS `Investment Verification Status (Operational & Funding Need)`,
     pipeline.second_tranche_eligibility_status AS `Second-Tranche Eligibility Status`,
     pipeline.second_tranche_approved_amount AS `Second-Tranche Approved Amount`,
-    pipeline.second_tranche_planned_date AS `Second-Tranche Planned Disbursement Date`,
-    pipeline.second_tranche_actual_date AS `Actual Second-Tranche Disbursement Date`,
-    pipeline.eligibility_deadline AS `Eligibility Deadline`,
-    pipeline.payment_reference AS `Payment Reference`,
-    pipeline.cancellation_reason AS `Cancellation Reason`,
-    pipeline.approver AS `Approver`,
-    ${currentDate} AS `As-of Date`,
-    NOW() AS `Generated On`,
-    (SELECT username FROM m_appuser WHERE id = ${currentUserId}) AS `Generated By`,
-    CONCAT('Office=', ${officeId}, '; Officer=', ${loanOfficerId}, '; Product=', ${loanProductId},
-           '; Loan status=', ${loanStatusId}, '; Pipeline status=', ${pipelineStatusId},
-           '; Deadline proximity=', ${deadlineProximity}, '; From=', '${startDate}', '; To=', '${endDate}') AS `Filters`
+    pipeline.eligibility_deadline AS `Second-Tranche Deadline Date`,
+    pipeline.manual_review AS `Manual Review?`,
+    pipeline.manual_action AS `Manual Action`,
+    pipeline.manual_review_approver AS `Manual review Approver`,
+    pipeline.second_tranche_actual_date AS `Actual Second-Tranche Disbursement Date`
 FROM pipeline
 WHERE (${pipelineStatusId} = -1 OR pipeline.pipeline_status_id = ${pipelineStatusId})
   AND (
@@ -416,7 +421,7 @@ ORDER BY pipeline.loan_account_number
         </insert>
         <insert tableName="stretchy_report_parameter">
             <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Multi-tranche pipeline Report')"/>
-            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'trancheLoanStatusSelectAll')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'LoanAccountStatus')"/>
             <column name="report_parameter_name" value="loanStatusId"/>
         </insert>
         <insert tableName="stretchy_report_parameter">
@@ -426,12 +431,12 @@ ORDER BY pipeline.loan_account_number
         </insert>
         <insert tableName="stretchy_report_parameter">
             <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Multi-tranche pipeline Report')"/>
-            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'tranchePipelineStartDate')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'startDateSelect')"/>
             <column name="report_parameter_name" value="startDate"/>
         </insert>
         <insert tableName="stretchy_report_parameter">
             <column name="report_id" valueComputed="(SELECT sr.id FROM stretchy_report sr WHERE sr.report_name = 'Multi-tranche pipeline Report')"/>
-            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'tranchePipelineEndDate')"/>
+            <column name="parameter_id" valueComputed="(SELECT sp.id FROM stretchy_parameter sp WHERE sp.parameter_name = 'endDateSelect')"/>
             <column name="report_parameter_name" value="endDate"/>
         </insert>
     </changeSet>
@@ -493,7 +498,7 @@ WITH scoped_loan AS (
         SELECT loan_id, id, principal, expected_disburse_date
         FROM (
             SELECT d.loan_id, d.id, d.principal, d.expected_disburse_date,
-                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.id) AS rn
+                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.expected_disburse_date IS NULL, d.expected_disburse_date, d.id) AS rn
             FROM m_loan_disbursement_detail d
             JOIN scoped_loan s ON s.loan_id = d.loan_id
         ) ranked WHERE rn = 2
@@ -523,6 +528,31 @@ WITH scoped_loan AS (
                END AS survey_answer
         FROM m_loan_tranche_milestone m
         JOIN scoped_loan s ON s.loan_id = m.loan_id
+    ),
+    chosen AS (
+        SELECT loan_id, disbursement_detail_id, survey_answer
+        FROM (
+            SELECT srv.loan_id, srv.disbursement_detail_id, srv.survey_answer,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY srv.loan_id
+                       ORDER BY
+                           CASE
+                               WHEN sp.id IS NOT NULL AND srv.disbursement_detail_id = sp.id
+                                    AND COALESCE(TRIM(m.submission_id), '') <> '' THEN 0
+                               WHEN COALESCE(TRIM(m.submission_id), '') <> '' THEN 1
+                               WHEN sp.id IS NOT NULL AND srv.disbursement_detail_id = sp.id THEN 2
+                               WHEN m.review_decision IS NOT NULL AND TRIM(m.review_decision) <> '' THEN 3
+                               ELSE 4
+                           END,
+                           m.submitted_on DESC,
+                           m.id DESC
+                   ) AS rn
+            FROM survey srv
+            JOIN m_loan_tranche_milestone m
+                ON m.loan_id = srv.loan_id AND m.disbursement_detail_id = srv.disbursement_detail_id
+            LEFT JOIN second_plan sp ON sp.loan_id = srv.loan_id
+        ) ranked
+        WHERE rn = 1
     ),
     review AS (
         SELECT m.loan_id,
@@ -563,10 +593,9 @@ WITH scoped_loan AS (
             WHEN 700 THEN 'Overpaid'
             ELSE CAST(ml.loan_status_id AS CHAR)
         END AS loan_status,
-        CASE WHEN mc.id IS NULL THEN 'No client'
-             ELSE CONCAT(mc.id, ' - ', COALESCE(mc.display_name, '')) END AS client_id_and_name,
+        mc.id AS client_id,
+        COALESCE(mc.display_name, 'No client') AS client_name,
         branch.name AS office_name,
-        COALESCE(parent_office.name, branch.name) AS entity_name,
         COALESCE(ms.display_name, 'Unassigned') AS loan_officer,
         lp.name AS product_name,
         COALESCE(ml.approved_principal, 0) AS approved_principal,
@@ -584,21 +613,12 @@ WITH scoped_loan AS (
         END AS pipeline_status_id,
         COALESCE(ml.principal_outstanding_derived, 0) AS outstanding_principal,
         COALESCE(ml.total_outstanding_derived, 0) AS total_loan_balance,
-        CONCAT(
-            CASE WHEN first_disb.disbursedon_date IS NULL THEN 'Not disbursed'
-                 ELSE DATE_FORMAT(first_disb.disbursedon_date, '%Y-%m-%d') END,
-            ' & ', FORMAT(COALESCE(first_disb.principal, 0), 2)
-        ) AS first_tranche_amount_and_date,
-        CONCAT(
-            CASE WHEN first_due.duedate IS NULL THEN 'Not scheduled'
-                 ELSE DATE_FORMAT(first_due.duedate, '%Y-%m-%d') END,
-            ' & ', FORMAT(COALESCE(first_due.due_amount, 0), 2)
-        ) AS first_due_date_and_amount,
-        CONCAT(
-            CASE WHEN first_due.received_on IS NULL THEN 'Not received'
-                 ELSE DATE_FORMAT(first_due.received_on, '%Y-%m-%d') END,
-            ' & ', FORMAT(COALESCE(first_due.paid_amount, 0), 2)
-        ) AS first_received_date_and_amount,
+        first_disb.disbursedon_date AS first_tranche_date,
+        first_disb.principal AS first_tranche_amount,
+        first_due.duedate AS first_repayment_due_date,
+        first_due.due_amount AS first_repayment_amount,
+        first_due.received_on AS first_repayment_received_date,
+        first_due.paid_amount AS first_repayment_received_amount,
         CASE WHEN COALESCE(lp.require_milestone_survey, 0) = 0 THEN 'Not required'
              WHEN mile.loan_id IS NULL THEN 'Not captured'
              ELSE CONCAT(
@@ -633,32 +653,42 @@ WITH scoped_loan AS (
                      ELSE 'Awaiting first repayment'
                 END
             WHEN first_due.duedate IS NOT NULL AND first_due.paid_amount >= first_due.due_amount THEN
-                CASE srv.survey_answer
+                CASE chosen.survey_answer
                     WHEN 'POSITIVE' THEN 'Eligible'
                     WHEN 'NEGATIVE' THEN 'Not eligible'
                     WHEN 'INCOMPLETE' THEN 'Survey incomplete'
                     ELSE 'Awaiting BGS survey'
                 END
-            WHEN srv.survey_answer = 'POSITIVE' THEN 'Eligible pending first repayment'
-            WHEN srv.survey_answer = 'NEGATIVE' THEN 'Not eligible'
-            WHEN srv.survey_answer = 'INCOMPLETE' THEN 'Survey incomplete'
+            WHEN chosen.survey_answer = 'POSITIVE' THEN 'Eligible pending first repayment'
+            WHEN chosen.survey_answer = 'NEGATIVE' THEN 'Not eligible'
+            WHEN chosen.survey_answer = 'INCOMPLETE' THEN 'Survey incomplete'
             ELSE 'Awaiting BGS survey'
         END AS second_tranche_eligibility_status,
         CASE WHEN second_disb.loan_id IS NOT NULL THEN second_disb.principal
              WHEN ml.loan_sub_status_id = 430 THEN second_plan.principal
              ELSE NULL END AS second_tranche_approved_amount,
-        second_plan.expected_disburse_date AS second_tranche_planned_date,
         second_disb.disbursedon_date AS second_tranche_actual_date,
         COALESCE(mile.eligibility_deadline_override, first_due.duedate) AS eligibility_deadline,
-        second_disb.payment_reference AS payment_reference,
-        review.cancellation_reason AS cancellation_reason,
-        review.approver AS approver
+        CASE
+            WHEN mile.review_decision IN ('EXTEND', 'CANCEL', 'RESCHEDULE') THEN 'Yes'
+            ELSE 'No'
+        END AS manual_review,
+        CASE mile.review_decision
+            WHEN 'EXTEND' THEN 'Extend'
+            WHEN 'CANCEL' THEN 'Cancel'
+            WHEN 'RESCHEDULE' THEN 'Reschedule'
+            ELSE NULL
+        END AS manual_action,
+        CASE
+            WHEN mile.review_decision IN ('EXTEND', 'CANCEL', 'RESCHEDULE')
+                THEN COALESCE(mile.deadline_exception_by, mile.cancelled_by)
+            ELSE NULL
+        END AS manual_review_approver
     FROM scoped_loan s
     JOIN m_loan ml ON ml.id = s.loan_id
     JOIN m_product_loan lp ON lp.id = ml.product_id
     LEFT JOIN m_client mc ON mc.id = ml.client_id
     JOIN m_office branch ON branch.id = COALESCE(ml.office_id, mc.office_id)
-    LEFT JOIN m_office parent_office ON parent_office.id = branch.parent_id
     LEFT JOIN m_staff ms ON ms.id = ml.loan_officer_id
     LEFT JOIN review ON review.loan_id = ml.id
     LEFT JOIN tranche_total ON tranche_total.loan_id = ml.id
@@ -666,21 +696,23 @@ WITH scoped_loan AS (
     LEFT JOIN second_disb ON second_disb.loan_id = ml.id
     LEFT JOIN second_plan ON second_plan.loan_id = ml.id
     LEFT JOIN first_due ON first_due.loan_id = ml.id
-    LEFT JOIN survey srv ON srv.loan_id = ml.id AND srv.disbursement_detail_id = second_plan.id
+    LEFT JOIN chosen ON chosen.loan_id = ml.id
     LEFT JOIN m_loan_tranche_milestone mile ON mile.loan_id = ml.id
-        AND mile.disbursement_detail_id = second_plan.id
+        AND mile.disbursement_detail_id = chosen.disbursement_detail_id
 )
 SELECT
     pipeline.loan_id AS `Loan ID`,
     pipeline.loan_account_number AS `Loan Account Number`,
     pipeline.loan_status AS `Loan Status`,
-    pipeline.client_id_and_name AS `Client ID & Client Name`,
-    pipeline.entity_name AS `Country/Entity`,
+    pipeline.client_id AS `Client ID`,
+    pipeline.client_name AS `Client Name`,
     pipeline.office_name AS `Office`,
     pipeline.loan_officer AS `Loan Officer`,
     pipeline.product_name AS `Product Name`,
     pipeline.approved_principal AS `Approved Principal Amount`,
-    pipeline.tranche_count AS `Total number of tranches`,
+    pipeline.outstanding_principal AS `Outstanding Principal`,
+    pipeline.total_loan_balance AS `Total Loan Balance`,
+    pipeline.tranche_count AS `Total number of Tranches`,
     CASE pipeline.pipeline_status_id
         WHEN 1 THEN 'Awaiting second-tranche verification'
         WHEN 2 THEN 'Eligible awaiting approval'
@@ -691,28 +723,22 @@ SELECT
         WHEN 8 THEN 'Cancelled'
         WHEN 9 THEN 'Rescheduled'
         ELSE 'Approved'
-    END AS `Tranche Pipeline Status`,
-    pipeline.outstanding_principal AS `Outstanding Principal`,
-    pipeline.total_loan_balance AS `Total Loan Balance`,
-    pipeline.first_tranche_amount_and_date AS `First-Tranche Disbursed Amount & Date`,
-    pipeline.first_due_date_and_amount AS `First Repayment Due Date & Amount`,
-    pipeline.first_received_date_and_amount AS `First Repayment Received Date & Amount`,
+    END AS `Tranche Status`,
+    pipeline.first_tranche_date AS `First-Tranche Date`,
+    pipeline.first_tranche_amount AS `First-Tranche Disbursed Amount`,
+    pipeline.first_repayment_due_date AS `First Repayment Due Date`,
+    pipeline.first_repayment_amount AS `First Repayment Amount`,
+    pipeline.first_repayment_received_date AS `First Repayment Received Date`,
+    pipeline.first_repayment_received_amount AS `First Repayment Received Amount`,
     pipeline.bgs_verification_status AS `BGS Verification Status (Operational & Funding Need)`,
     pipeline.investment_verification_status AS `Investment Verification Status (Operational & Funding Need)`,
     pipeline.second_tranche_eligibility_status AS `Second-Tranche Eligibility Status`,
     pipeline.second_tranche_approved_amount AS `Second-Tranche Approved Amount`,
-    pipeline.second_tranche_planned_date AS `Second-Tranche Planned Disbursement Date`,
-    pipeline.second_tranche_actual_date AS `Actual Second-Tranche Disbursement Date`,
-    pipeline.eligibility_deadline AS `Eligibility Deadline`,
-    pipeline.payment_reference AS `Payment Reference`,
-    pipeline.cancellation_reason AS `Cancellation Reason`,
-    pipeline.approver AS `Approver`,
-    ${currentDate} AS `As-of Date`,
-    NOW() AS `Generated On`,
-    (SELECT username FROM m_appuser WHERE id = ${currentUserId}) AS `Generated By`,
-    CONCAT('Office=', ${officeId}, '; Officer=', ${loanOfficerId}, '; Product=', ${loanProductId},
-           '; Loan status=', ${loanStatusId}, '; Pipeline status=', ${pipelineStatusId},
-           '; Deadline proximity=', ${deadlineProximity}, '; From=', '${startDate}', '; To=', '${endDate}') AS `Filters`
+    pipeline.eligibility_deadline AS `Second-Tranche Deadline Date`,
+    pipeline.manual_review AS `Manual Review?`,
+    pipeline.manual_action AS `Manual Action`,
+    pipeline.manual_review_approver AS `Manual review Approver`,
+    pipeline.second_tranche_actual_date AS `Actual Second-Tranche Disbursement Date`
 FROM pipeline
 WHERE (${pipelineStatusId} = -1 OR pipeline.pipeline_status_id = ${pipelineStatusId})
   AND (
@@ -733,6 +759,649 @@ ORDER BY pipeline.loan_account_number
         <update tableName="stretchy_parameter">
             <column name="parameter_sql"><![CDATA[(select -1 as id, 'All' as name) union all (select 1, 'Awaiting second-tranche verification') union all (select 2, 'Eligible awaiting approval') union all (select 3, 'Approved awaiting disbursement') union all (select 4, 'Disbursed') union all (select 5, 'Expired') union all (select 6, 'Manual review') union all (select 7, 'Approved') union all (select 8, 'Cancelled') union all (select 9, 'Rescheduled')]]></column>
             <where>parameter_name = 'tranchePipelineStatusSelectAll'</where>
+        </update>
+    </changeSet>
+
+
+    <changeSet author="inkomoko" id="CGLT-832-pipeline-report-columns">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report
+                WHERE report_name = 'Multi-tranche pipeline Report'
+                  AND report_sql LIKE '%Client ID &amp; Client Name%'
+            </sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql">
+                <![CDATA[
+WITH scoped_loan AS (
+        SELECT ml.id AS loan_id
+        FROM m_loan ml
+        JOIN m_product_loan lp ON lp.id = ml.product_id AND lp.allow_multiple_disbursals = 1
+        LEFT JOIN m_client mc ON mc.id = ml.client_id
+        JOIN m_office branch ON branch.id = COALESCE(ml.office_id, mc.office_id)
+        JOIN m_office scope_office ON branch.hierarchy LIKE CONCAT(scope_office.hierarchy, '%')
+        WHERE (scope_office.id = ${officeId} OR (${officeId} IN (-1, 0) AND scope_office.hierarchy = '${currentUserHierarchy}'))
+          AND (ml.loan_officer_id = ${loanOfficerId} OR ${loanOfficerId} IN (-1, -10, 0))
+          AND (ml.product_id = ${loanProductId} OR ${loanProductId} IN (-1, 0))
+          AND (ml.loan_status_id = ${loanStatusId} OR ${loanStatusId} = -1)
+          AND (COALESCE(ml.disbursedon_date, ml.approvedon_date, ml.submittedon_date) BETWEEN DATE('${startDate}') AND DATE('${endDate}'))
+    ),
+    first_disb AS (
+        SELECT loan_id, principal, disbursedon_date
+        FROM (
+            SELECT d.loan_id, d.principal, d.disbursedon_date,
+                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.disbursedon_date, d.id) AS rn
+            FROM m_loan_disbursement_detail d
+            JOIN scoped_loan s ON s.loan_id = d.loan_id
+            WHERE d.disbursedon_date IS NOT NULL
+        ) ranked WHERE rn = 1
+    ),
+    second_disb AS (
+        SELECT loan_id, principal, disbursedon_date,
+               COALESCE(NULLIF(receipt_number, ''), NULLIF(check_number, '')) AS payment_reference
+        FROM (
+            SELECT d.loan_id, d.principal, d.disbursedon_date, d.receipt_number, d.check_number,
+                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.disbursedon_date, d.id) AS rn
+            FROM m_loan_disbursement_detail d
+            JOIN scoped_loan s ON s.loan_id = d.loan_id
+            WHERE d.disbursedon_date IS NOT NULL
+        ) ranked WHERE rn = 2
+    ),
+    second_plan AS (
+        SELECT loan_id, id, principal, expected_disburse_date
+        FROM (
+            SELECT d.loan_id, d.id, d.principal, d.expected_disburse_date,
+                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.expected_disburse_date IS NULL, d.expected_disburse_date, d.id) AS rn
+            FROM m_loan_disbursement_detail d
+            JOIN scoped_loan s ON s.loan_id = d.loan_id
+        ) ranked WHERE rn = 2
+    ),
+    tranche_total AS (
+        SELECT d.loan_id, COUNT(*) AS tranche_count
+        FROM m_loan_disbursement_detail d
+        JOIN scoped_loan s ON s.loan_id = d.loan_id
+        GROUP BY d.loan_id
+    ),
+    survey AS (
+        SELECT m.loan_id, m.disbursement_detail_id,
+               CASE
+                   WHEN COALESCE(TRIM(m.operational_status), '') = '' AND COALESCE(TRIM(m.additional_funding), '') = '' THEN 'NONE'
+                   WHEN COALESCE(TRIM(m.operational_status), '') = '' OR COALESCE(TRIM(m.additional_funding), '') = '' THEN 'INCOMPLETE'
+                   WHEN m.operational_status NOT IN ('OPERATIONAL', 'NOT_OPERATIONAL')
+                        OR m.additional_funding NOT IN ('NEEDS_FUNDS', 'DOES_NOT_NEED_FUNDS') THEN 'INCOMPLETE'
+                   WHEN m.operational_status = 'NOT_OPERATIONAL' THEN
+                        CASE WHEN m.operational_verified_by_bgs = 1 AND m.operational_verified_by_investment = 1
+                             THEN 'NEGATIVE' ELSE 'INCOMPLETE' END
+                   WHEN m.additional_funding = 'DOES_NOT_NEED_FUNDS' THEN
+                        CASE WHEN m.funding_verified_by_bgs = 1 AND m.funding_verified_by_investment = 1
+                             THEN 'NEGATIVE' ELSE 'INCOMPLETE' END
+                   WHEN m.operational_verified_by_bgs = 1 AND m.operational_verified_by_investment = 1
+                        AND m.funding_verified_by_bgs = 1 AND m.funding_verified_by_investment = 1 THEN 'POSITIVE'
+                   ELSE 'INCOMPLETE'
+               END AS survey_answer
+        FROM m_loan_tranche_milestone m
+        JOIN scoped_loan s ON s.loan_id = m.loan_id
+    ),
+    chosen AS (
+        SELECT loan_id, disbursement_detail_id, survey_answer
+        FROM (
+            SELECT srv.loan_id, srv.disbursement_detail_id, srv.survey_answer,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY srv.loan_id
+                       ORDER BY
+                           CASE
+                               WHEN sp.id IS NOT NULL AND srv.disbursement_detail_id = sp.id
+                                    AND COALESCE(TRIM(m.submission_id), '') <> '' THEN 0
+                               WHEN COALESCE(TRIM(m.submission_id), '') <> '' THEN 1
+                               WHEN sp.id IS NOT NULL AND srv.disbursement_detail_id = sp.id THEN 2
+                               WHEN m.review_decision IS NOT NULL AND TRIM(m.review_decision) <> '' THEN 3
+                               ELSE 4
+                           END,
+                           m.submitted_on DESC,
+                           m.id DESC
+                   ) AS rn
+            FROM survey srv
+            JOIN m_loan_tranche_milestone m
+                ON m.loan_id = srv.loan_id AND m.disbursement_detail_id = srv.disbursement_detail_id
+            LEFT JOIN second_plan sp ON sp.loan_id = srv.loan_id
+        ) ranked
+        WHERE rn = 1
+    ),
+    review AS (
+        SELECT m.loan_id,
+               MAX(CASE WHEN m.review_decision = 'CANCEL' THEN m.cancellation_reason END) AS cancellation_reason,
+               MAX(CASE WHEN m.review_decision = 'CANCEL' THEN 1 ELSE 0 END) AS cancelled,
+               MAX(COALESCE(m.deadline_exception_by, m.cancelled_by)) AS approver
+        FROM m_loan_tranche_milestone m
+        JOIN scoped_loan s ON s.loan_id = m.loan_id
+        GROUP BY m.loan_id
+    ),
+    first_due AS (
+        SELECT rs.loan_id, rs.duedate,
+               COALESCE(rs.principal_amount, 0) + COALESCE(rs.interest_amount, 0)
+                   + COALESCE(rs.fee_charges_amount, 0) + COALESCE(rs.penalty_charges_amount, 0) AS due_amount,
+               COALESCE(rs.principal_completed_derived, 0) + COALESCE(rs.interest_completed_derived, 0)
+                   + COALESCE(rs.fee_charges_completed_derived, 0) + COALESCE(rs.penalty_charges_completed_derived, 0) AS paid_amount,
+               rs.obligations_met_on_date AS received_on
+        FROM m_loan_repayment_schedule rs
+        JOIN m_loan l ON l.id = rs.loan_id
+        JOIN scoped_loan s ON s.loan_id = l.id
+        WHERE rs.installment = COALESCE(l.grace_on_principal_periods, 0) + 1
+    ),
+    pipeline AS (
+    SELECT
+        ml.id AS loan_id,
+        ml.account_no AS loan_account_number,
+        CASE ml.loan_status_id
+            WHEN 100 THEN 'Submitted and pending approval'
+            WHEN 200 THEN 'Approved'
+            WHEN 300 THEN 'Active'
+            WHEN 303 THEN 'Transfer in progress'
+            WHEN 304 THEN 'Transfer on hold'
+            WHEN 400 THEN 'Withdrawn by client'
+            WHEN 500 THEN 'Rejected'
+            WHEN 600 THEN 'Closed'
+            WHEN 601 THEN 'Written off'
+            WHEN 602 THEN 'Rescheduled'
+            WHEN 700 THEN 'Overpaid'
+            ELSE CAST(ml.loan_status_id AS CHAR)
+        END AS loan_status,
+        mc.id AS client_id,
+        COALESCE(mc.display_name, 'No client') AS client_name,
+        branch.name AS office_name,
+        COALESCE(ms.display_name, 'Unassigned') AS loan_officer,
+        lp.name AS product_name,
+        COALESCE(ml.approved_principal, 0) AS approved_principal,
+        COALESCE(tranche_total.tranche_count, 0) AS tranche_count,
+        CASE
+            WHEN review.cancelled = 1 OR ml.loan_sub_status_id = 460 THEN 8
+            WHEN ml.loan_sub_status_id = 470 THEN 9
+            WHEN second_disb.loan_id IS NOT NULL THEN 4
+            WHEN ml.loan_sub_status_id = 440 THEN 5
+            WHEN ml.loan_sub_status_id = 450 THEN 6
+            WHEN ml.loan_sub_status_id = 430 AND second_plan.id IS NOT NULL THEN 3
+            WHEN ml.loan_sub_status_id = 420 AND second_plan.id IS NOT NULL THEN 1
+            WHEN first_disb.loan_id IS NOT NULL AND second_plan.id IS NOT NULL THEN 1
+            ELSE 7
+        END AS pipeline_status_id,
+        COALESCE(ml.principal_outstanding_derived, 0) AS outstanding_principal,
+        COALESCE(ml.total_outstanding_derived, 0) AS total_loan_balance,
+        first_disb.disbursedon_date AS first_tranche_date,
+        first_disb.principal AS first_tranche_amount,
+        first_due.duedate AS first_repayment_due_date,
+        first_due.due_amount AS first_repayment_amount,
+        first_due.received_on AS first_repayment_received_date,
+        first_due.paid_amount AS first_repayment_received_amount,
+        CASE WHEN COALESCE(lp.require_milestone_survey, 0) = 0 THEN 'Not required'
+             WHEN mile.loan_id IS NULL THEN 'Not captured'
+             ELSE CONCAT(
+                 CASE mile.operational_status WHEN 'OPERATIONAL' THEN 'Operational'
+                      WHEN 'NOT_OPERATIONAL' THEN 'Not operational'
+                      ELSE 'Operational: not captured' END,
+                 ' (', CASE WHEN mile.operational_verified_by_bgs = 1 THEN 'BGS verified' ELSE 'BGS pending' END, ')',
+                 ' | Funding: ',
+                 CASE mile.additional_funding WHEN 'NEEDS_FUNDS' THEN 'Needs funds'
+                      WHEN 'DOES_NOT_NEED_FUNDS' THEN 'Does not need funds'
+                      ELSE 'not captured' END,
+                 ' (', CASE WHEN mile.funding_verified_by_bgs = 1 THEN 'BGS verified' ELSE 'BGS pending' END, ')'
+             ) END AS bgs_verification_status,
+        CASE WHEN COALESCE(lp.require_milestone_survey, 0) = 0 THEN 'Not required'
+             WHEN mile.loan_id IS NULL THEN 'Not captured'
+             ELSE CONCAT(
+                 CASE mile.operational_status WHEN 'OPERATIONAL' THEN 'Operational'
+                      WHEN 'NOT_OPERATIONAL' THEN 'Not operational'
+                      ELSE 'Operational: not captured' END,
+                 ' (', CASE WHEN mile.operational_verified_by_investment = 1 THEN 'Investment verified' ELSE 'Investment pending' END, ')',
+                 ' | Funding: ',
+                 CASE mile.additional_funding WHEN 'NEEDS_FUNDS' THEN 'Needs funds'
+                      WHEN 'DOES_NOT_NEED_FUNDS' THEN 'Does not need funds'
+                      ELSE 'not captured' END,
+                 ' (', CASE WHEN mile.funding_verified_by_investment = 1 THEN 'Investment verified' ELSE 'Investment pending' END, ')'
+             ) END AS investment_verification_status,
+        CASE
+            WHEN second_disb.loan_id IS NOT NULL THEN 'Already disbursed'
+            WHEN second_plan.id IS NULL THEN 'No second tranche planned'
+            WHEN COALESCE(lp.require_milestone_survey, 0) = 0 THEN
+                CASE WHEN first_due.duedate IS NOT NULL AND first_due.paid_amount >= first_due.due_amount THEN 'Eligible'
+                     ELSE 'Awaiting first repayment'
+                END
+            WHEN first_due.duedate IS NOT NULL AND first_due.paid_amount >= first_due.due_amount THEN
+                CASE chosen.survey_answer
+                    WHEN 'POSITIVE' THEN 'Eligible'
+                    WHEN 'NEGATIVE' THEN 'Not eligible'
+                    WHEN 'INCOMPLETE' THEN 'Survey incomplete'
+                    ELSE 'Awaiting BGS survey'
+                END
+            WHEN chosen.survey_answer = 'POSITIVE' THEN 'Eligible pending first repayment'
+            WHEN chosen.survey_answer = 'NEGATIVE' THEN 'Not eligible'
+            WHEN chosen.survey_answer = 'INCOMPLETE' THEN 'Survey incomplete'
+            ELSE 'Awaiting BGS survey'
+        END AS second_tranche_eligibility_status,
+        CASE WHEN second_disb.loan_id IS NOT NULL THEN second_disb.principal
+             WHEN ml.loan_sub_status_id = 430 THEN second_plan.principal
+             ELSE NULL END AS second_tranche_approved_amount,
+        second_disb.disbursedon_date AS second_tranche_actual_date,
+        COALESCE(mile.eligibility_deadline_override, first_due.duedate) AS eligibility_deadline,
+        CASE
+            WHEN mile.review_decision IN ('EXTEND', 'CANCEL', 'RESCHEDULE') THEN 'Yes'
+            ELSE 'No'
+        END AS manual_review,
+        CASE mile.review_decision
+            WHEN 'EXTEND' THEN 'Extend'
+            WHEN 'CANCEL' THEN 'Cancel'
+            WHEN 'RESCHEDULE' THEN 'Reschedule'
+            ELSE NULL
+        END AS manual_action,
+        CASE
+            WHEN mile.review_decision IN ('EXTEND', 'CANCEL', 'RESCHEDULE')
+                THEN COALESCE(mile.deadline_exception_by, mile.cancelled_by)
+            ELSE NULL
+        END AS manual_review_approver
+    FROM scoped_loan s
+    JOIN m_loan ml ON ml.id = s.loan_id
+    JOIN m_product_loan lp ON lp.id = ml.product_id
+    LEFT JOIN m_client mc ON mc.id = ml.client_id
+    JOIN m_office branch ON branch.id = COALESCE(ml.office_id, mc.office_id)
+    LEFT JOIN m_staff ms ON ms.id = ml.loan_officer_id
+    LEFT JOIN review ON review.loan_id = ml.id
+    LEFT JOIN tranche_total ON tranche_total.loan_id = ml.id
+    LEFT JOIN first_disb ON first_disb.loan_id = ml.id
+    LEFT JOIN second_disb ON second_disb.loan_id = ml.id
+    LEFT JOIN second_plan ON second_plan.loan_id = ml.id
+    LEFT JOIN first_due ON first_due.loan_id = ml.id
+    LEFT JOIN chosen ON chosen.loan_id = ml.id
+    LEFT JOIN m_loan_tranche_milestone mile ON mile.loan_id = ml.id
+        AND mile.disbursement_detail_id = chosen.disbursement_detail_id
+)
+SELECT
+    pipeline.loan_id AS `Loan ID`,
+    pipeline.loan_account_number AS `Loan Account Number`,
+    pipeline.loan_status AS `Loan Status`,
+    pipeline.client_id AS `Client ID`,
+    pipeline.client_name AS `Client Name`,
+    pipeline.office_name AS `Office`,
+    pipeline.loan_officer AS `Loan Officer`,
+    pipeline.product_name AS `Product Name`,
+    pipeline.approved_principal AS `Approved Principal Amount`,
+    pipeline.outstanding_principal AS `Outstanding Principal`,
+    pipeline.total_loan_balance AS `Total Loan Balance`,
+    pipeline.tranche_count AS `Total number of Tranches`,
+    CASE pipeline.pipeline_status_id
+        WHEN 1 THEN 'Awaiting second-tranche verification'
+        WHEN 2 THEN 'Eligible awaiting approval'
+        WHEN 3 THEN 'Approved awaiting disbursement'
+        WHEN 4 THEN 'Disbursed'
+        WHEN 5 THEN 'Expired'
+        WHEN 6 THEN 'Manual review'
+        WHEN 8 THEN 'Cancelled'
+        WHEN 9 THEN 'Rescheduled'
+        ELSE 'Approved'
+    END AS `Tranche Status`,
+    pipeline.first_tranche_date AS `First-Tranche Date`,
+    pipeline.first_tranche_amount AS `First-Tranche Disbursed Amount`,
+    pipeline.first_repayment_due_date AS `First Repayment Due Date`,
+    pipeline.first_repayment_amount AS `First Repayment Amount`,
+    pipeline.first_repayment_received_date AS `First Repayment Received Date`,
+    pipeline.first_repayment_received_amount AS `First Repayment Received Amount`,
+    pipeline.bgs_verification_status AS `BGS Verification Status (Operational & Funding Need)`,
+    pipeline.investment_verification_status AS `Investment Verification Status (Operational & Funding Need)`,
+    pipeline.second_tranche_eligibility_status AS `Second-Tranche Eligibility Status`,
+    pipeline.second_tranche_approved_amount AS `Second-Tranche Approved Amount`,
+    pipeline.eligibility_deadline AS `Second-Tranche Deadline Date`,
+    pipeline.manual_review AS `Manual Review?`,
+    pipeline.manual_action AS `Manual Action`,
+    pipeline.manual_review_approver AS `Manual review Approver`,
+    pipeline.second_tranche_actual_date AS `Actual Second-Tranche Disbursement Date`
+FROM pipeline
+WHERE (${pipelineStatusId} = -1 OR pipeline.pipeline_status_id = ${pipelineStatusId})
+  AND (
+        ${deadlineProximity} = -1
+        OR (${deadlineProximity} = 7 AND pipeline.eligibility_deadline BETWEEN ${currentDate} AND DATE_ADD(${currentDate}, INTERVAL 7 DAY))
+        OR (${deadlineProximity} = 14 AND pipeline.eligibility_deadline BETWEEN ${currentDate} AND DATE_ADD(${currentDate}, INTERVAL 14 DAY))
+        OR (${deadlineProximity} = 1 AND pipeline.eligibility_deadline < ${currentDate})
+      )
+ORDER BY pipeline.loan_account_number
+]]>
+            </column>
+            <where>report_name = 'Multi-tranche pipeline Report' AND report_sql LIKE '%Client ID &amp; Client Name%'</where>
+        </update>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="CGLT-832-pipeline-report-reuse-filters">
+        <sql>
+            UPDATE stretchy_report_parameter srp
+            JOIN stretchy_report sr ON sr.id = srp.report_id
+            JOIN stretchy_parameter oldp ON oldp.id = srp.parameter_id
+            JOIN stretchy_parameter newp ON newp.parameter_name = 'startDateSelect'
+            SET srp.parameter_id = newp.id
+            WHERE sr.report_name = 'Multi-tranche pipeline Report'
+              AND srp.report_parameter_name = 'startDate'
+              AND oldp.parameter_name = 'tranchePipelineStartDate';
+
+            UPDATE stretchy_report_parameter srp
+            JOIN stretchy_report sr ON sr.id = srp.report_id
+            JOIN stretchy_parameter oldp ON oldp.id = srp.parameter_id
+            JOIN stretchy_parameter newp ON newp.parameter_name = 'endDateSelect'
+            SET srp.parameter_id = newp.id
+            WHERE sr.report_name = 'Multi-tranche pipeline Report'
+              AND srp.report_parameter_name = 'endDate'
+              AND oldp.parameter_name = 'tranchePipelineEndDate';
+
+            UPDATE stretchy_report_parameter srp
+            JOIN stretchy_report sr ON sr.id = srp.report_id
+            JOIN stretchy_parameter oldp ON oldp.id = srp.parameter_id
+            JOIN stretchy_parameter newp ON newp.parameter_name = 'LoanAccountStatus'
+            SET srp.parameter_id = newp.id
+            WHERE sr.report_name = 'Multi-tranche pipeline Report'
+              AND srp.report_parameter_name = 'loanStatusId'
+              AND oldp.parameter_name = 'trancheLoanStatusSelectAll';
+        </sql>
+    </changeSet>
+
+
+    <changeSet author="inkomoko" id="CGLT-832-pipeline-report-manual-review">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report
+                WHERE report_name = 'Multi-tranche pipeline Report'
+                  AND report_sql LIKE '%Approval Status%'
+            </sqlCheck>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql">
+                <![CDATA[
+WITH scoped_loan AS (
+        SELECT ml.id AS loan_id
+        FROM m_loan ml
+        JOIN m_product_loan lp ON lp.id = ml.product_id AND lp.allow_multiple_disbursals = 1
+        LEFT JOIN m_client mc ON mc.id = ml.client_id
+        JOIN m_office branch ON branch.id = COALESCE(ml.office_id, mc.office_id)
+        JOIN m_office scope_office ON branch.hierarchy LIKE CONCAT(scope_office.hierarchy, '%')
+        WHERE (scope_office.id = ${officeId} OR (${officeId} IN (-1, 0) AND scope_office.hierarchy = '${currentUserHierarchy}'))
+          AND (ml.loan_officer_id = ${loanOfficerId} OR ${loanOfficerId} IN (-1, -10, 0))
+          AND (ml.product_id = ${loanProductId} OR ${loanProductId} IN (-1, 0))
+          AND (ml.loan_status_id = ${loanStatusId} OR ${loanStatusId} = -1)
+          AND (COALESCE(ml.disbursedon_date, ml.approvedon_date, ml.submittedon_date) BETWEEN DATE('${startDate}') AND DATE('${endDate}'))
+    ),
+    first_disb AS (
+        SELECT loan_id, principal, disbursedon_date
+        FROM (
+            SELECT d.loan_id, d.principal, d.disbursedon_date,
+                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.disbursedon_date, d.id) AS rn
+            FROM m_loan_disbursement_detail d
+            JOIN scoped_loan s ON s.loan_id = d.loan_id
+            WHERE d.disbursedon_date IS NOT NULL
+        ) ranked WHERE rn = 1
+    ),
+    second_disb AS (
+        SELECT loan_id, principal, disbursedon_date,
+               COALESCE(NULLIF(receipt_number, ''), NULLIF(check_number, '')) AS payment_reference
+        FROM (
+            SELECT d.loan_id, d.principal, d.disbursedon_date, d.receipt_number, d.check_number,
+                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.disbursedon_date, d.id) AS rn
+            FROM m_loan_disbursement_detail d
+            JOIN scoped_loan s ON s.loan_id = d.loan_id
+            WHERE d.disbursedon_date IS NOT NULL
+        ) ranked WHERE rn = 2
+    ),
+    second_plan AS (
+        SELECT loan_id, id, principal, expected_disburse_date
+        FROM (
+            SELECT d.loan_id, d.id, d.principal, d.expected_disburse_date,
+                   ROW_NUMBER() OVER (PARTITION BY d.loan_id ORDER BY d.expected_disburse_date IS NULL, d.expected_disburse_date, d.id) AS rn
+            FROM m_loan_disbursement_detail d
+            JOIN scoped_loan s ON s.loan_id = d.loan_id
+        ) ranked WHERE rn = 2
+    ),
+    tranche_total AS (
+        SELECT d.loan_id, COUNT(*) AS tranche_count
+        FROM m_loan_disbursement_detail d
+        JOIN scoped_loan s ON s.loan_id = d.loan_id
+        GROUP BY d.loan_id
+    ),
+    survey AS (
+        SELECT m.loan_id, m.disbursement_detail_id,
+               CASE
+                   WHEN COALESCE(TRIM(m.operational_status), '') = '' AND COALESCE(TRIM(m.additional_funding), '') = '' THEN 'NONE'
+                   WHEN COALESCE(TRIM(m.operational_status), '') = '' OR COALESCE(TRIM(m.additional_funding), '') = '' THEN 'INCOMPLETE'
+                   WHEN m.operational_status NOT IN ('OPERATIONAL', 'NOT_OPERATIONAL')
+                        OR m.additional_funding NOT IN ('NEEDS_FUNDS', 'DOES_NOT_NEED_FUNDS') THEN 'INCOMPLETE'
+                   WHEN m.operational_status = 'NOT_OPERATIONAL' THEN
+                        CASE WHEN m.operational_verified_by_bgs = 1 AND m.operational_verified_by_investment = 1
+                             THEN 'NEGATIVE' ELSE 'INCOMPLETE' END
+                   WHEN m.additional_funding = 'DOES_NOT_NEED_FUNDS' THEN
+                        CASE WHEN m.funding_verified_by_bgs = 1 AND m.funding_verified_by_investment = 1
+                             THEN 'NEGATIVE' ELSE 'INCOMPLETE' END
+                   WHEN m.operational_verified_by_bgs = 1 AND m.operational_verified_by_investment = 1
+                        AND m.funding_verified_by_bgs = 1 AND m.funding_verified_by_investment = 1 THEN 'POSITIVE'
+                   ELSE 'INCOMPLETE'
+               END AS survey_answer
+        FROM m_loan_tranche_milestone m
+        JOIN scoped_loan s ON s.loan_id = m.loan_id
+    ),
+    chosen AS (
+        SELECT loan_id, disbursement_detail_id, survey_answer
+        FROM (
+            SELECT srv.loan_id, srv.disbursement_detail_id, srv.survey_answer,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY srv.loan_id
+                       ORDER BY
+                           CASE
+                               WHEN sp.id IS NOT NULL AND srv.disbursement_detail_id = sp.id
+                                    AND COALESCE(TRIM(m.submission_id), '') <> '' THEN 0
+                               WHEN COALESCE(TRIM(m.submission_id), '') <> '' THEN 1
+                               WHEN sp.id IS NOT NULL AND srv.disbursement_detail_id = sp.id THEN 2
+                               WHEN m.review_decision IS NOT NULL AND TRIM(m.review_decision) <> '' THEN 3
+                               ELSE 4
+                           END,
+                           m.submitted_on DESC,
+                           m.id DESC
+                   ) AS rn
+            FROM survey srv
+            JOIN m_loan_tranche_milestone m
+                ON m.loan_id = srv.loan_id AND m.disbursement_detail_id = srv.disbursement_detail_id
+            LEFT JOIN second_plan sp ON sp.loan_id = srv.loan_id
+        ) ranked
+        WHERE rn = 1
+    ),
+    review AS (
+        SELECT m.loan_id,
+               MAX(CASE WHEN m.review_decision = 'CANCEL' THEN m.cancellation_reason END) AS cancellation_reason,
+               MAX(CASE WHEN m.review_decision = 'CANCEL' THEN 1 ELSE 0 END) AS cancelled,
+               MAX(COALESCE(m.deadline_exception_by, m.cancelled_by)) AS approver
+        FROM m_loan_tranche_milestone m
+        JOIN scoped_loan s ON s.loan_id = m.loan_id
+        GROUP BY m.loan_id
+    ),
+    first_due AS (
+        SELECT rs.loan_id, rs.duedate,
+               COALESCE(rs.principal_amount, 0) + COALESCE(rs.interest_amount, 0)
+                   + COALESCE(rs.fee_charges_amount, 0) + COALESCE(rs.penalty_charges_amount, 0) AS due_amount,
+               COALESCE(rs.principal_completed_derived, 0) + COALESCE(rs.interest_completed_derived, 0)
+                   + COALESCE(rs.fee_charges_completed_derived, 0) + COALESCE(rs.penalty_charges_completed_derived, 0) AS paid_amount,
+               rs.obligations_met_on_date AS received_on
+        FROM m_loan_repayment_schedule rs
+        JOIN m_loan l ON l.id = rs.loan_id
+        JOIN scoped_loan s ON s.loan_id = l.id
+        WHERE rs.installment = COALESCE(l.grace_on_principal_periods, 0) + 1
+    ),
+    pipeline AS (
+    SELECT
+        ml.id AS loan_id,
+        ml.account_no AS loan_account_number,
+        CASE ml.loan_status_id
+            WHEN 100 THEN 'Submitted and pending approval'
+            WHEN 200 THEN 'Approved'
+            WHEN 300 THEN 'Active'
+            WHEN 303 THEN 'Transfer in progress'
+            WHEN 304 THEN 'Transfer on hold'
+            WHEN 400 THEN 'Withdrawn by client'
+            WHEN 500 THEN 'Rejected'
+            WHEN 600 THEN 'Closed'
+            WHEN 601 THEN 'Written off'
+            WHEN 602 THEN 'Rescheduled'
+            WHEN 700 THEN 'Overpaid'
+            ELSE CAST(ml.loan_status_id AS CHAR)
+        END AS loan_status,
+        mc.id AS client_id,
+        COALESCE(mc.display_name, 'No client') AS client_name,
+        branch.name AS office_name,
+        COALESCE(ms.display_name, 'Unassigned') AS loan_officer,
+        lp.name AS product_name,
+        COALESCE(ml.approved_principal, 0) AS approved_principal,
+        COALESCE(tranche_total.tranche_count, 0) AS tranche_count,
+        CASE
+            WHEN review.cancelled = 1 OR ml.loan_sub_status_id = 460 THEN 8
+            WHEN ml.loan_sub_status_id = 470 THEN 9
+            WHEN second_disb.loan_id IS NOT NULL THEN 4
+            WHEN ml.loan_sub_status_id = 440 THEN 5
+            WHEN ml.loan_sub_status_id = 450 THEN 6
+            WHEN ml.loan_sub_status_id = 430 AND second_plan.id IS NOT NULL THEN 3
+            WHEN ml.loan_sub_status_id = 420 AND second_plan.id IS NOT NULL THEN 1
+            WHEN first_disb.loan_id IS NOT NULL AND second_plan.id IS NOT NULL THEN 1
+            ELSE 7
+        END AS pipeline_status_id,
+        COALESCE(ml.principal_outstanding_derived, 0) AS outstanding_principal,
+        COALESCE(ml.total_outstanding_derived, 0) AS total_loan_balance,
+        first_disb.disbursedon_date AS first_tranche_date,
+        first_disb.principal AS first_tranche_amount,
+        first_due.duedate AS first_repayment_due_date,
+        first_due.due_amount AS first_repayment_amount,
+        first_due.received_on AS first_repayment_received_date,
+        first_due.paid_amount AS first_repayment_received_amount,
+        CASE WHEN COALESCE(lp.require_milestone_survey, 0) = 0 THEN 'Not required'
+             WHEN mile.loan_id IS NULL THEN 'Not captured'
+             ELSE CONCAT(
+                 CASE mile.operational_status WHEN 'OPERATIONAL' THEN 'Operational'
+                      WHEN 'NOT_OPERATIONAL' THEN 'Not operational'
+                      ELSE 'Operational: not captured' END,
+                 ' (', CASE WHEN mile.operational_verified_by_bgs = 1 THEN 'BGS verified' ELSE 'BGS pending' END, ')',
+                 ' | Funding: ',
+                 CASE mile.additional_funding WHEN 'NEEDS_FUNDS' THEN 'Needs funds'
+                      WHEN 'DOES_NOT_NEED_FUNDS' THEN 'Does not need funds'
+                      ELSE 'not captured' END,
+                 ' (', CASE WHEN mile.funding_verified_by_bgs = 1 THEN 'BGS verified' ELSE 'BGS pending' END, ')'
+             ) END AS bgs_verification_status,
+        CASE WHEN COALESCE(lp.require_milestone_survey, 0) = 0 THEN 'Not required'
+             WHEN mile.loan_id IS NULL THEN 'Not captured'
+             ELSE CONCAT(
+                 CASE mile.operational_status WHEN 'OPERATIONAL' THEN 'Operational'
+                      WHEN 'NOT_OPERATIONAL' THEN 'Not operational'
+                      ELSE 'Operational: not captured' END,
+                 ' (', CASE WHEN mile.operational_verified_by_investment = 1 THEN 'Investment verified' ELSE 'Investment pending' END, ')',
+                 ' | Funding: ',
+                 CASE mile.additional_funding WHEN 'NEEDS_FUNDS' THEN 'Needs funds'
+                      WHEN 'DOES_NOT_NEED_FUNDS' THEN 'Does not need funds'
+                      ELSE 'not captured' END,
+                 ' (', CASE WHEN mile.funding_verified_by_investment = 1 THEN 'Investment verified' ELSE 'Investment pending' END, ')'
+             ) END AS investment_verification_status,
+        CASE
+            WHEN second_disb.loan_id IS NOT NULL THEN 'Already disbursed'
+            WHEN second_plan.id IS NULL THEN 'No second tranche planned'
+            WHEN COALESCE(lp.require_milestone_survey, 0) = 0 THEN
+                CASE WHEN first_due.duedate IS NOT NULL AND first_due.paid_amount >= first_due.due_amount THEN 'Eligible'
+                     ELSE 'Awaiting first repayment'
+                END
+            WHEN first_due.duedate IS NOT NULL AND first_due.paid_amount >= first_due.due_amount THEN
+                CASE chosen.survey_answer
+                    WHEN 'POSITIVE' THEN 'Eligible'
+                    WHEN 'NEGATIVE' THEN 'Not eligible'
+                    WHEN 'INCOMPLETE' THEN 'Survey incomplete'
+                    ELSE 'Awaiting BGS survey'
+                END
+            WHEN chosen.survey_answer = 'POSITIVE' THEN 'Eligible pending first repayment'
+            WHEN chosen.survey_answer = 'NEGATIVE' THEN 'Not eligible'
+            WHEN chosen.survey_answer = 'INCOMPLETE' THEN 'Survey incomplete'
+            ELSE 'Awaiting BGS survey'
+        END AS second_tranche_eligibility_status,
+        CASE WHEN second_disb.loan_id IS NOT NULL THEN second_disb.principal
+             WHEN ml.loan_sub_status_id = 430 THEN second_plan.principal
+             ELSE NULL END AS second_tranche_approved_amount,
+        second_disb.disbursedon_date AS second_tranche_actual_date,
+        COALESCE(mile.eligibility_deadline_override, first_due.duedate) AS eligibility_deadline,
+        CASE
+            WHEN mile.review_decision IN ('EXTEND', 'CANCEL', 'RESCHEDULE') THEN 'Yes'
+            ELSE 'No'
+        END AS manual_review,
+        CASE mile.review_decision
+            WHEN 'EXTEND' THEN 'Extend'
+            WHEN 'CANCEL' THEN 'Cancel'
+            WHEN 'RESCHEDULE' THEN 'Reschedule'
+            ELSE NULL
+        END AS manual_action,
+        CASE
+            WHEN mile.review_decision IN ('EXTEND', 'CANCEL', 'RESCHEDULE')
+                THEN COALESCE(mile.deadline_exception_by, mile.cancelled_by)
+            ELSE NULL
+        END AS manual_review_approver
+    FROM scoped_loan s
+    JOIN m_loan ml ON ml.id = s.loan_id
+    JOIN m_product_loan lp ON lp.id = ml.product_id
+    LEFT JOIN m_client mc ON mc.id = ml.client_id
+    JOIN m_office branch ON branch.id = COALESCE(ml.office_id, mc.office_id)
+    LEFT JOIN m_staff ms ON ms.id = ml.loan_officer_id
+    LEFT JOIN review ON review.loan_id = ml.id
+    LEFT JOIN tranche_total ON tranche_total.loan_id = ml.id
+    LEFT JOIN first_disb ON first_disb.loan_id = ml.id
+    LEFT JOIN second_disb ON second_disb.loan_id = ml.id
+    LEFT JOIN second_plan ON second_plan.loan_id = ml.id
+    LEFT JOIN first_due ON first_due.loan_id = ml.id
+    LEFT JOIN chosen ON chosen.loan_id = ml.id
+    LEFT JOIN m_loan_tranche_milestone mile ON mile.loan_id = ml.id
+        AND mile.disbursement_detail_id = chosen.disbursement_detail_id
+)
+SELECT
+    pipeline.loan_id AS `Loan ID`,
+    pipeline.loan_account_number AS `Loan Account Number`,
+    pipeline.loan_status AS `Loan Status`,
+    pipeline.client_id AS `Client ID`,
+    pipeline.client_name AS `Client Name`,
+    pipeline.office_name AS `Office`,
+    pipeline.loan_officer AS `Loan Officer`,
+    pipeline.product_name AS `Product Name`,
+    pipeline.approved_principal AS `Approved Principal Amount`,
+    pipeline.outstanding_principal AS `Outstanding Principal`,
+    pipeline.total_loan_balance AS `Total Loan Balance`,
+    pipeline.tranche_count AS `Total number of Tranches`,
+    CASE pipeline.pipeline_status_id
+        WHEN 1 THEN 'Awaiting second-tranche verification'
+        WHEN 2 THEN 'Eligible awaiting approval'
+        WHEN 3 THEN 'Approved awaiting disbursement'
+        WHEN 4 THEN 'Disbursed'
+        WHEN 5 THEN 'Expired'
+        WHEN 6 THEN 'Manual review'
+        WHEN 8 THEN 'Cancelled'
+        WHEN 9 THEN 'Rescheduled'
+        ELSE 'Approved'
+    END AS `Tranche Status`,
+    pipeline.first_tranche_date AS `First-Tranche Date`,
+    pipeline.first_tranche_amount AS `First-Tranche Disbursed Amount`,
+    pipeline.first_repayment_due_date AS `First Repayment Due Date`,
+    pipeline.first_repayment_amount AS `First Repayment Amount`,
+    pipeline.first_repayment_received_date AS `First Repayment Received Date`,
+    pipeline.first_repayment_received_amount AS `First Repayment Received Amount`,
+    pipeline.bgs_verification_status AS `BGS Verification Status (Operational & Funding Need)`,
+    pipeline.investment_verification_status AS `Investment Verification Status (Operational & Funding Need)`,
+    pipeline.second_tranche_eligibility_status AS `Second-Tranche Eligibility Status`,
+    pipeline.second_tranche_approved_amount AS `Second-Tranche Approved Amount`,
+    pipeline.eligibility_deadline AS `Second-Tranche Deadline Date`,
+    pipeline.manual_review AS `Manual Review?`,
+    pipeline.manual_action AS `Manual Action`,
+    pipeline.manual_review_approver AS `Manual review Approver`,
+    pipeline.second_tranche_actual_date AS `Actual Second-Tranche Disbursement Date`
+FROM pipeline
+WHERE (${pipelineStatusId} = -1 OR pipeline.pipeline_status_id = ${pipelineStatusId})
+  AND (
+        ${deadlineProximity} = -1
+        OR (${deadlineProximity} = 7 AND pipeline.eligibility_deadline BETWEEN ${currentDate} AND DATE_ADD(${currentDate}, INTERVAL 7 DAY))
+        OR (${deadlineProximity} = 14 AND pipeline.eligibility_deadline BETWEEN ${currentDate} AND DATE_ADD(${currentDate}, INTERVAL 14 DAY))
+        OR (${deadlineProximity} = 1 AND pipeline.eligibility_deadline < ${currentDate})
+      )
+ORDER BY pipeline.loan_account_number
+]]>
+            </column>
+            <where>report_name = 'Multi-tranche pipeline Report' AND report_sql LIKE '%Approval Status%'</where>
         </update>
     </changeSet>
 
