@@ -64,7 +64,7 @@ public class VoiceCallLogReadPlatformService {
         sql.append("select ").append(listMapper.schema()).append(scope.whereClause);
         final List<Object> args = new ArrayList<>(scope.args);
         if (status != null && !status.isBlank()) {
-            sql.append(" and vcl.status = ?");
+            sql.append(scope.whereClause.isBlank() ? " where vcl.status = ?" : " and vcl.status = ?");
             args.add(status);
         }
         sql.append(" order by vcl.created_date desc limit ? offset ?");

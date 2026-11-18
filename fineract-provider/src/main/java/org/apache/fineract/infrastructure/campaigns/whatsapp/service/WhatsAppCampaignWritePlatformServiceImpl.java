@@ -301,7 +301,7 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             int skipped = 0;
             if (runReportObject != null) {
                 for (final HashMap<String, Object> row : runReportObject) {
-                    if (isEnqueueablePreviewRow(row, bodyVariableMappingJson)) {
+                    if (isEnqueueablePreviewRow(row, bodyVariableMappingJson, isFreeform, freeformMessage)) {
                         enqueueable++;
                     } else {
                         skipped++;
@@ -312,15 +312,12 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             if (runReportObject != null && !runReportObject.isEmpty()) {
                 final HashMap<String, Object> entry = runReportObject.get(0);
                 final List<String> bodyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, entry);
-                final String previewMessage = isFreeform
-                        ? WhatsAppFreeformMessageResolver.resolveStrict(freeformMessage, entry).getResolvedMessage()
+                final String previewMessage = isFreeform ? previewFreeformMessage(freeformMessage, entry)
                         : buildPreviewMessage(atTemplateNameValue, languageCodeValue, bodyValues);
                 return new WhatsAppPreviewData(bodyValues, previewMessage, enqueueable, skipped);
             }
             final List<String> emptyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, Map.of());
-            final String fallback = isFreeform
-                    ? WhatsAppFreeformMessageResolver.resolveStrict(StringUtils.defaultString(freeformMessage), Map.of())
-                            .getResolvedMessage()
+            final String fallback = isFreeform ? previewFreeformMessage(StringUtils.defaultString(freeformMessage), Map.of())
                     : "Report preview requires valid parameters. Template: " + atTemplateNameValue + " (" + languageCodeValue + ")";
             return new WhatsAppPreviewData(emptyValues, fallback, enqueueable, skipped);
         } catch (final IOException e) {
@@ -330,15 +327,23 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         }
     }
 
-    private boolean isEnqueueablePreviewRow(final HashMap<String, Object> entry, final String bodyVariableMappingJson) {
+    private boolean isEnqueueablePreviewRow(final HashMap<String, Object> entry, final String bodyVariableMappingJson,
+            final boolean isFreeform, final String freeformMessage) {
         final Object mobileNo = entry.get("mobileNo");
         final String phoneNumber = mobileNo == null ? null : this.phoneNumberNormalizer.normalize(mobileNo.toString());
         if (StringUtils.isBlank(phoneNumber)) {
             return false;
         }
-        final WhatsAppTemplateVariableMapper.MappingResult mapping = WhatsAppTemplateVariableMapper.toBodyValuesStrict(bodyVariableMappingJson,
-                entry);
-        return mapping.isComplete();
+        if (isFreeform) {
+            return WhatsAppFreeformMessageResolver.resolveStrict(freeformMessage, entry).isComplete();
+        }
+        return WhatsAppTemplateVariableMapper.toBodyValuesStrict(bodyVariableMappingJson, entry).isComplete();
+    }
+
+    static String previewFreeformMessage(final String message, final Map<String, Object> entry) {
+        final WhatsAppFreeformMessageResolver.ResolveResult result = WhatsAppFreeformMessageResolver.resolveStrict(message, entry);
+        return result.isComplete() ? result.getResolvedMessage()
+                : "Freeform preview unavailable: unresolved values: " + String.join(", ", result.getUnresolvedKeys());
     }
 
     private String buildPreviewMessage(final String atTemplateName, final String languageCode, final List<String> bodyValues) {

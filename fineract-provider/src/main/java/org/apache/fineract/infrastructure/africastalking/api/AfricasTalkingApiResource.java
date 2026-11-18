@@ -36,7 +36,6 @@ import org.apache.fineract.infrastructure.africastalking.AfricasTalkingConstants
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
 import org.apache.fineract.infrastructure.africastalking.data.CommunicationMessageData;
 import org.apache.fineract.infrastructure.africastalking.data.ConnectivityTestResultData;
-import org.apache.fineract.infrastructure.africastalking.data.VoiceCallLogData;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingConnectivityService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingClient;
@@ -49,7 +48,6 @@ import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingW
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppTemplatePayloadNormalizer;
 import org.apache.fineract.infrastructure.africastalking.service.CommunicationLogSanitizer;
 import org.apache.fineract.infrastructure.africastalking.service.CommunicationMessageReadPlatformService;
-import org.apache.fineract.infrastructure.africastalking.service.VoiceCallLogReadPlatformService;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppAtTemplate;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.service.WhatsAppAtTemplateCatalogService;
@@ -80,11 +78,9 @@ public class AfricasTalkingApiResource {
     private final AfricasTalkingWhatsAppService whatsAppService;
     private final AfricasTalkingVoiceService voiceService;
     private final CommunicationMessageReadPlatformService communicationMessageReadPlatformService;
-    private final VoiceCallLogReadPlatformService voiceCallLogReadPlatformService;
     private final AfricasTalkingProperties properties;
     private final DefaultToApiJsonSerializer<ConnectivityTestResultData> connectivitySerializer;
     private final DefaultToApiJsonSerializer<CommunicationMessageData> messageSerializer;
-    private final DefaultToApiJsonSerializer<VoiceCallLogData> voiceCallLogSerializer;
     private final DefaultToApiJsonSerializer<CommandProcessingResult> commandProcessingResultSerializer;
     private final ApiRequestParameterHelper apiRequestParameterHelper;
     private final WhatsAppAtTemplateCatalogService whatsAppAtTemplateCatalogService;
@@ -94,10 +90,9 @@ public class AfricasTalkingApiResource {
             final AfricasTalkingWebhookService webhookService,
             final AfricasTalkingWhatsAppService whatsAppService, final AfricasTalkingVoiceService voiceService,
             final CommunicationMessageReadPlatformService communicationMessageReadPlatformService,
-            final VoiceCallLogReadPlatformService voiceCallLogReadPlatformService, final AfricasTalkingProperties properties,
+            final AfricasTalkingProperties properties,
             final DefaultToApiJsonSerializer<ConnectivityTestResultData> connectivitySerializer,
             final DefaultToApiJsonSerializer<CommunicationMessageData> messageSerializer,
-            final DefaultToApiJsonSerializer<VoiceCallLogData> voiceCallLogSerializer,
             final DefaultToApiJsonSerializer<CommandProcessingResult> commandProcessingResultSerializer,
             final ApiRequestParameterHelper apiRequestParameterHelper,
             final WhatsAppAtTemplateCatalogService whatsAppAtTemplateCatalogService) {
@@ -108,11 +103,9 @@ public class AfricasTalkingApiResource {
         this.whatsAppService = whatsAppService;
         this.voiceService = voiceService;
         this.communicationMessageReadPlatformService = communicationMessageReadPlatformService;
-        this.voiceCallLogReadPlatformService = voiceCallLogReadPlatformService;
         this.properties = properties;
         this.connectivitySerializer = connectivitySerializer;
         this.messageSerializer = messageSerializer;
-        this.voiceCallLogSerializer = voiceCallLogSerializer;
         this.commandProcessingResultSerializer = commandProcessingResultSerializer;
         this.apiRequestParameterHelper = apiRequestParameterHelper;
         this.whatsAppAtTemplateCatalogService = whatsAppAtTemplateCatalogService;
@@ -190,48 +183,6 @@ public class AfricasTalkingApiResource {
         final WhatsAppAtTemplate catalogued = this.whatsAppAtTemplateCatalogService.upsertFromCreateRequest(apiRequestBodyAsJson);
         final CommandProcessingResult result = new CommandProcessingResult(catalogued.getId());
         return this.commandProcessingResultSerializer.serializeResult(result);
-    }
-
-    @POST
-    @Path("voice/calls")
-    @Consumes({ MediaType.APPLICATION_JSON })
-    @Produces({ MediaType.APPLICATION_JSON })
-    public String initiateVoiceCall(final String apiRequestBodyAsJson) {
-        this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
-        final CommandProcessingResult result = this.voiceService.initiateOutboundCall(apiRequestBodyAsJson);
-        return this.commandProcessingResultSerializer.serializeResult(result);
-    }
-
-    @GET
-    @Path("voice/calls")
-    @Consumes({ MediaType.APPLICATION_JSON })
-    @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveVoiceCalls(@Context final UriInfo uriInfo,
-                                     @QueryParam("status") final String statusParam) {
-        this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
-        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
-        return this.voiceCallLogSerializer.serialize(settings,
-                this.voiceCallLogReadPlatformService.retrieveCallLogs(statusParam));
-    }
-
-    @GET
-    @Path("voice/calls/{callId}")
-    @Consumes({ MediaType.APPLICATION_JSON })
-    @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveVoiceCall(@PathParam("callId") final Long callId, @Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
-        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
-        return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveOne(callId));
-    }
-
-    @GET
-    @Path("voice/calls/{callId}/recording")
-    @Consumes({ MediaType.APPLICATION_JSON })
-    @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveVoiceCallRecording(@PathParam("callId") final Long callId, @Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasPermissionTo(AfricasTalkingConstants.PERMISSION_READ_VOICE_RECORDING);
-        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
-        return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveRecording(callId));
     }
 
     @POST
