@@ -20,6 +20,7 @@ package org.apache.fineract.infrastructure.africastalking.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.io.IOException;
+import java.util.List;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -52,8 +53,10 @@ import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppC
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppAtTemplate;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.service.WhatsAppAtTemplateCatalogService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -128,10 +131,21 @@ public class AfricasTalkingApiResource {
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveMessages(@Context final UriInfo uriInfo, @QueryParam("status") final String statusParam) {
         this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
-        final CommunicationMessageStatus status = StringUtils.isBlank(statusParam) ? null
-                : CommunicationMessageStatus.valueOf(statusParam.trim().toUpperCase(java.util.Locale.ROOT));
+        final CommunicationMessageStatus status = parseMessageStatus(statusParam);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.messageSerializer.serialize(settings, this.communicationMessageReadPlatformService.retrieveWhatsAppMessages(status));
+    }
+
+    static CommunicationMessageStatus parseMessageStatus(final String statusParam) {
+        if (StringUtils.isBlank(statusParam)) {
+            return null;
+        }
+        try {
+            return CommunicationMessageStatus.valueOf(statusParam.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (final IllegalArgumentException exception) {
+            throw new PlatformApiDataValidationException(List.of(ApiParameterError.parameterError(
+                    "error.msg.africastalking.whatsapp.status.invalid", "Invalid WhatsApp message status", "status", statusParam)), exception);
+        }
     }
 
     @GET
