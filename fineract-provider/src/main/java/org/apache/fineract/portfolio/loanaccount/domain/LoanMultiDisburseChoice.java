@@ -23,18 +23,16 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 
 /**
- * A product that allows multiple tranches does not force every loan to use them. A missing choice keeps the product
- * setting so existing loans stay multi-tranche. An explicit false makes that loan a single disbursement.
+ * A product that allows multiple tranches does not make a loan multi-tranche. The loan is multi-tranche only when the
+ * request explicitly asks for it. A missing choice, and an explicit false, stay a single disbursement. This applies to
+ * loans already active and to loans still before approval.
  */
 public final class LoanMultiDisburseChoice {
 
     private LoanMultiDisburseChoice() {}
 
     public static boolean selected(final boolean productAllowsMultipleDisbursals, final Boolean requested) {
-        if (!productAllowsMultipleDisbursals) {
-            return false;
-        }
-        return requested == null || requested;
+        return productAllowsMultipleDisbursals && Boolean.TRUE.equals(requested);
     }
 
     public static Boolean requested(final FromJsonHelper helper, final JsonElement element) {

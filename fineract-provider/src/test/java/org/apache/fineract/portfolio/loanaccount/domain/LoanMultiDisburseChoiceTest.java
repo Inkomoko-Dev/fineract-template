@@ -32,8 +32,9 @@ public class LoanMultiDisburseChoiceTest {
     }
 
     @Test
-    public void missingChoiceOnAMultiProductKeepsTheProductSetting() {
-        assertTrue(LoanMultiDisburseChoice.selected(true, null));
+    public void missingChoiceOnAMultiProductStaysASingleDisbursement() {
+        assertFalse(LoanMultiDisburseChoice.selected(true, null));
+        assertFalse(LoanMultiDisburseChoice.selected(true, false));
     }
 
     @Test

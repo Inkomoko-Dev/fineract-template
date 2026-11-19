@@ -599,6 +599,7 @@ public class LoanTest {
         when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
 
         ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.TRUE);
         ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
         ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("10000000.00"));
         ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(List.of(firstTranche, secondTranche)));
@@ -624,6 +625,7 @@ public class LoanTest {
 
         when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
         ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.TRUE);
         ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
         ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("7000000.00"));
         ReflectionTestUtils.setField(loan, "disbursementDetails", new ArrayList<>(Collections.singletonList(futureTranche)));
@@ -653,6 +655,7 @@ public class LoanTest {
         when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
         ReflectionTestUtils.setField(summary, "totalPrincipalRepaid", new BigDecimal("500000.00"));
         ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.TRUE);
         ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
         ReflectionTestUtils.setField(loan, "summary", summary);
         ReflectionTestUtils.setField(loan, "repaymentScheduleInstallments", new ArrayList<>(List.of(inflatedInstallment)));
@@ -688,6 +691,7 @@ public class LoanTest {
 
         when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
         ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.TRUE);
         ReflectionTestUtils.setField(loan, "loanStatus", LoanStatus.ACTIVE.getValue());
         ReflectionTestUtils.setField(loan, "expectedDisbursementDate", disbursementDate);
         ReflectionTestUtils.setField(loan, "actualDisbursementDate", disbursementDate);
@@ -714,6 +718,7 @@ public class LoanTest {
         final LoanProduct loanProduct = mock(LoanProduct.class);
         when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
         ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.TRUE);
         ReflectionTestUtils.setField(loan, "expectedMaturityDate", LocalDate.of(2027, 2, 28));
 
         assertThrows(TrancheDisbursementAfterMaturityException.class,
@@ -726,6 +731,7 @@ public class LoanTest {
         final LoanProduct loanProduct = mock(LoanProduct.class);
         when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
         ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.TRUE);
         ReflectionTestUtils.setField(loan, "expectedMaturityDate", LocalDate.of(2027, 2, 28));
 
         loan.validateTrancheDisbursementDateIsNotAfterMaturity(LocalDate.of(2027, 2, 28));
@@ -824,6 +830,9 @@ public class LoanTest {
     @Test
     public void remainingApprovedCapsStaleLastTrancheAfterPartialDisbursement() {
         final Loan loan = newLoanForIcReview(new BigDecimal("300000"));
+        final LoanProduct loanProduct = (LoanProduct) ReflectionTestUtils.getField(loan, "loanProduct");
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.TRUE);
         ReflectionTestUtils.setField(loan, "approvedPrincipal", new BigDecimal("250000"));
         ReflectionTestUtils.setField(loan, "approvedICReview", new BigDecimal("250000"));
         final LoanDisbursementDetails paid = new LoanDisbursementDetails(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1),
@@ -879,6 +888,7 @@ public class LoanTest {
 
         final Loan loan = new Loan();
         ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.TRUE);
         ReflectionTestUtils.setField(loan, "loanRepaymentScheduleDetail", scheduleDetail);
         ReflectionTestUtils.setField(loan, "transactionProcessingStrategy", strategy);
         ReflectionTestUtils.setField(loan, "proposedPrincipal", new BigDecimal("1000000.00"));
@@ -1094,6 +1104,22 @@ public class LoanTest {
         when(scheduleDetail.getRepayEvery()).thenReturn(repayEvery);
         when(scheduleDetail.getRepaymentPeriodFrequencyType()).thenReturn(PeriodFrequencyType.MONTHS);
         return scheduleDetail;
+    }
+
+    @Test
+    public void loanIsMultiTrancheOnlyWhenTheLoanItselfIsMarked() {
+        final Loan loan = new Loan();
+        final LoanProduct loanProduct = mock(LoanProduct.class);
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(true);
+        ReflectionTestUtils.setField(loan, "loanProduct", loanProduct);
+
+        assertFalse(loan.isMultiDisburmentLoan());
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.FALSE);
+        assertFalse(loan.isMultiDisburmentLoan());
+        ReflectionTestUtils.setField(loan, "multiDisburseLoan", Boolean.TRUE);
+        assertTrue(loan.isMultiDisburmentLoan());
+        when(loanProduct.isMultiDisburseLoan()).thenReturn(false);
+        assertFalse(loan.isMultiDisburmentLoan());
     }
 
     private Loan newLoanForIcReview(final BigDecimal appliedAmount) {

@@ -33,4 +33,27 @@
             <column name="multi_disburse_loan" type="BOOLEAN"/>
         </addColumn>
     </changeSet>
+
+    <changeSet author="inkomoko" id="loan-multi-disburse-explicit-choice">
+        <comment>A blank loan flag is a single disbursement, for active loans and for loans still before approval. Loans that already have more than one tranche keep the multi-tranche mark. A product that does not allow multiple disbursals cannot leave a loan marked multi-tranche.</comment>
+        <sql><![CDATA[
+            UPDATE m_loan ml
+            JOIN m_product_loan lp ON lp.id = ml.product_id
+            LEFT JOIN (
+                SELECT d.loan_id, COUNT(*) AS tranche_count
+                FROM m_loan_disbursement_detail d
+                GROUP BY d.loan_id
+            ) tranche_count ON tranche_count.loan_id = ml.id
+            SET ml.multi_disburse_loan = CASE
+                WHEN lp.allow_multiple_disbursals = 1
+                     AND ml.multi_disburse_loan IS NULL
+                     AND COALESCE(tranche_count.tranche_count, 0) > 1 THEN 1
+                WHEN lp.allow_multiple_disbursals = 0 THEN 0
+                WHEN ml.multi_disburse_loan IS NULL THEN 0
+                ELSE ml.multi_disburse_loan
+            END
+            WHERE ml.multi_disburse_loan IS NULL
+               OR (lp.allow_multiple_disbursals = 0 AND ml.multi_disburse_loan = 1);
+        ]]></sql>
+    </changeSet>
 </databaseChangeLog>
