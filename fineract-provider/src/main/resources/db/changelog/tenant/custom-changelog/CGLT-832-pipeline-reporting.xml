@@ -458,6 +458,7 @@ ORDER BY pipeline.loan_account_number
 
 
     <changeSet author="inkomoko" id="CGLT-832-correct-pipeline-report">
+        <validCheckSum>8:a61e073babb8ac401b11ac2caf1961a1</validCheckSum>
         <update tableName="stretchy_report">
             <column name="report_name" value="Multi-tranche pipeline Report"/>
             <column name="report_sql"><![CDATA[
