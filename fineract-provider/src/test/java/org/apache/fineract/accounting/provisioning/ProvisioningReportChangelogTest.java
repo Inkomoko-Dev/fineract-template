@@ -19,6 +19,7 @@
 package org.apache.fineract.accounting.provisioning;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -85,15 +86,46 @@ class ProvisioningReportChangelogTest {
     void totalAmountOverdueCountsOnlyInstalmentsPastDueAtTheCutOff() {
         assertTrue(reportSql.contains("SUM(IF(rs.duedate < DATE('${endDate}'),"));
         assertTrue(reportSql.contains("t.transaction_date <= DATE('${endDate}')"));
-        assertTrue(reportSql.contains("ROUND(COALESCE(od.total_amount_overdue, 0), 2) AS `Total Amount Overdue`"));
+    }
+
+    @Test
+    void totalAmountOverdueIsRoundedToTheLoanCurrencyDigits() {
+        assertTrue(reportSql.contains(
+                "CAST(ROUND(COALESCE(od.total_amount_overdue, 0), l.currency_digits) AS DECIMAL(19, 2)) AS `Total Amount Overdue`"));
+        assertFalse(reportSql.contains("ROUND(COALESCE(od.total_amount_overdue, 0), 2)"));
     }
 
     @Test
     void totalAmountOverdueExcludesPaidWaivedAndWrittenOffAmounts() {
         assertTrue(reportSql.contains("JOIN m_loan_transaction_repayment_schedule_mapping mp ON mp.loan_transaction_id = live.id"));
         assertTrue(reportSql.contains("WHERE live.type = 9"));
-        assertTrue(reportSql.contains("WHERE type = 6"));
         assertTrue(reportSql.contains("t.is_reversed = 0"));
+    }
+
+    @Test
+    void writeOffsCountOnlyWhenPostedOnOrBeforeTheCutOff() {
+        final String writtenOff = cte("written_off");
+        assertTrue(writtenOff.contains("FROM live"));
+        assertTrue(writtenOff.contains("WHERE type IN (6, 31, 32)"));
+        assertFalse(reportSql.contains("_writtenoff_derived"));
+    }
+
+    @Test
+    void fullWriteOffAndResidualBalanceAdjustmentLeaveNothingOverdue() {
+        assertTrue(cte("written_off").contains("MAX(type IN (6, 32)) AS fully_written_off"));
+        assertTrue(cte("overdue").contains("IF(COALESCE(wo.fully_written_off, 0) = 1, 0,"));
+    }
+
+    @Test
+    void partialWriteOffIsCappedAtWhatWasOverdueForEachComponent() {
+        final String writtenOff = cte("written_off");
+        final String overdue = cte("overdue");
+        for (final String component : List.of("p", "i", "f", "pen")) {
+            assertTrue(writtenOff.contains("SUM(IF(type = 31, COALESCE(" + component + ", 0), 0)) AS " + component),
+                    "partial write-off must sum the " + component + " portion");
+            assertTrue(overdue.contains("d." + component + " - LEAST(COALESCE(wo." + component + ", 0), GREATEST(d." + component + ", 0))"),
+                    "partial write-off must be capped at the overdue " + component);
+        }
     }
 
     @Test
@@ -101,6 +133,13 @@ class ProvisioningReportChangelogTest {
         assertTrue(reportCountSql.contains("SELECT MAX(id)\n        FROM m_provisioning_history"));
         assertTrue(reportCountSql.contains("${officeId} IS NULL"));
         assertTrue(reportSql.contains("${officeId} IS NULL"));
+    }
+
+    private static String cte(final String name) {
+        final int start = reportSql.indexOf("\n" + name + " AS (");
+        assertTrue(start >= 0, "Missing CTE " + name);
+        final int end = reportSql.indexOf("\n)", start);
+        return reportSql.substring(start, end);
     }
 
     private static Path resolveSource(final String relativeToProvider) {

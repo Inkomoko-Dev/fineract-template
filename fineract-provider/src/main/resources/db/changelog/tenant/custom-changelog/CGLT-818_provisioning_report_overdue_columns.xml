@@ -43,7 +43,14 @@ run_loans AS (
     JOIN m_loanproduct_provisioning_entry_loans lpl ON lpl.loanproduct_provision_entry_id = m.id
 ),
 live AS (
-    SELECT t.id, t.loan_id, t.transaction_type_enum AS type
+    SELECT
+        t.id,
+        t.loan_id,
+        t.transaction_type_enum AS type,
+        t.principal_portion_derived AS p,
+        t.interest_portion_derived AS i,
+        t.fee_charges_portion_derived AS f,
+        t.penalty_charges_portion_derived AS pen
     FROM m_loan_transaction t
     JOIN run_loans rl ON rl.loan_id = t.loan_id
     WHERE t.is_reversed = 0
@@ -75,31 +82,47 @@ charge_waived AS (
     GROUP BY rs.id
 ),
 written_off AS (
-    SELECT DISTINCT loan_id
+    SELECT
+        loan_id,
+        MAX(type IN (6, 32)) AS fully_written_off,
+        SUM(IF(type = 31, COALESCE(p, 0), 0)) AS p,
+        SUM(IF(type = 31, COALESCE(i, 0), 0)) AS i,
+        SUM(IF(type = 31, COALESCE(f, 0), 0)) AS f,
+        SUM(IF(type = 31, COALESCE(pen, 0), 0)) AS pen
     FROM live
-    WHERE type = 6
+    WHERE type IN (6, 31, 32)
+    GROUP BY loan_id
 ),
-overdue AS (
+due AS (
     SELECT
         rs.loan_id,
         MAX(rs.duedate) AS last_expected_repayment_date,
         SUM(IF(rs.duedate < DATE('${endDate}'),
-            COALESCE(rs.principal_amount, 0) - COALESCE(a.p, 0)
-                - IF(wo.loan_id IS NULL, 0, COALESCE(rs.principal_writtenoff_derived, 0))
-            + COALESCE(rs.interest_amount, 0) - COALESCE(a.i, 0)
-                - IF(wo.loan_id IS NULL, 0, COALESCE(rs.interest_writtenoff_derived, 0))
-            + COALESCE(rs.fee_charges_amount, 0) - COALESCE(a.f, 0) - COALESCE(w.f, 0)
-                - IF(wo.loan_id IS NULL, 0, COALESCE(rs.fee_charges_writtenoff_derived, 0))
-            + COALESCE(rs.penalty_charges_amount, 0) - COALESCE(a.pen, 0) - COALESCE(w.pen, 0)
-                - IF(wo.loan_id IS NULL, 0, COALESCE(rs.penalty_charges_writtenoff_derived, 0)),
-            0)) AS total_amount_overdue
+            COALESCE(rs.principal_amount, 0) - COALESCE(a.p, 0), 0)) AS p,
+        SUM(IF(rs.duedate < DATE('${endDate}'),
+            COALESCE(rs.interest_amount, 0) - COALESCE(a.i, 0), 0)) AS i,
+        SUM(IF(rs.duedate < DATE('${endDate}'),
+            COALESCE(rs.fee_charges_amount, 0) - COALESCE(a.f, 0) - COALESCE(w.f, 0), 0)) AS f,
+        SUM(IF(rs.duedate < DATE('${endDate}'),
+            COALESCE(rs.penalty_charges_amount, 0) - COALESCE(a.pen, 0) - COALESCE(w.pen, 0), 0)) AS pen
     FROM m_loan_repayment_schedule rs
     JOIN run_loans rl ON rl.loan_id = rs.loan_id
     LEFT JOIN alloc a ON a.sid = rs.id
     LEFT JOIN charge_waived w ON w.sid = rs.id
-    LEFT JOIN written_off wo ON wo.loan_id = rs.loan_id
     WHERE rs.duedate <= DATE('${endDate}')
     GROUP BY rs.loan_id
+),
+overdue AS (
+    SELECT
+        d.loan_id,
+        d.last_expected_repayment_date,
+        IF(COALESCE(wo.fully_written_off, 0) = 1, 0,
+            d.p - LEAST(COALESCE(wo.p, 0), GREATEST(d.p, 0))
+            + d.i - LEAST(COALESCE(wo.i, 0), GREATEST(d.i, 0))
+            + d.f - LEAST(COALESCE(wo.f, 0), GREATEST(d.f, 0))
+            + d.pen - LEAST(COALESCE(wo.pen, 0), GREATEST(d.pen, 0))) AS total_amount_overdue
+    FROM due d
+    LEFT JOIN written_off wo ON wo.loan_id = d.loan_id
 )
 SELECT
     o.name AS `Office Name`,
@@ -114,7 +137,7 @@ SELECT
     od.last_expected_repayment_date AS `Last Expected Repayment Date`,
 
     COALESCE(d.provision_percentage, 0) AS `Provisioning Percentage`,
-    ROUND(COALESCE(od.total_amount_overdue, 0), 2) AS `Total Amount Overdue`,
+    CAST(ROUND(COALESCE(od.total_amount_overdue, 0), l.currency_digits) AS DECIMAL(19, 2)) AS `Total Amount Overdue`,
     (m.reseve_amount / COUNT(lpl.loan_id)
         OVER (PARTITION BY m.id)) AS `Provisioning Amount`,
     CONCAT('P', m.history_id) AS `Transaction ID`,
