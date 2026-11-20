@@ -54,6 +54,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
 import org.apache.fineract.infrastructure.dataqueries.data.GenericResultsetData;
@@ -92,6 +93,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
     private static final String REPORT_TYPE = "report";
     private static final String PARAMETER_TYPE = "parameter";
     private static final int UNPAGED_LIMIT = Integer.MAX_VALUE;
+    private static final String TODAY = "today";
     private static final int DEFAULT_QUERY_TIMEOUT_SECONDS = 300;
     private static final int DEFAULT_EXPORT_FETCH_SIZE = 1000;
     private static final int ROW_BY_ROW_FETCH_SIZE = Integer.MIN_VALUE;
@@ -325,8 +327,8 @@ public class ReadReportingServiceImpl implements ReadReportingService {
 
     private Integer countRows(final String name, final String type, final String reportSql, final Map<String, String> queryParams,
             final boolean isSelfServiceUserReport) {
-        final Integer count = reportJdbcTemplate
-                .queryForObject(buildCountSql(name, type, reportSql, queryParams, isSelfServiceUserReport), Integer.class);
+        final Integer count = reportJdbcTemplate.queryForObject(buildCountSql(name, type, reportSql, queryParams, isSelfServiceUserReport),
+                Integer.class);
         return count != null ? count : 0;
     }
 
@@ -351,12 +353,12 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         return sql;
     }
 
-    String applyReportParameters(final String reportSql, final Map<String, String> queryParams,
-            final boolean isSelfServiceUserReport, final Integer limit, final Integer offset) {
+    String applyReportParameters(final String reportSql, final Map<String, String> queryParams, final boolean isSelfServiceUserReport,
+            final Integer limit, final Integer offset) {
 
         String sql = reportSql;
         for (final String key : queryParams.keySet()) {
-            final String value = queryParams.get(key);
+            final String value = resolveToday(queryParams.get(key));
             SQLInjectionValidator.validateReportParameter(key, value);
             sql = this.genericDataService.replace(sql, key, value);
         }
@@ -379,6 +381,10 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         sql = StringUtils.replaceIgnoreCase(sql, "curdate()", sqlGenerator.currentBusinessDate());
         sql = StringUtils.replaceIgnoreCase(sql, "CURRENT_DATE", sqlGenerator.currentBusinessDate());
         return sql;
+    }
+
+    private static String resolveToday(final String value) {
+        return TODAY.equalsIgnoreCase(value) ? DateUtils.getBusinessLocalDate().format(DateUtils.DEFAULT_DATE_FORMATER) : value;
     }
 
     private void applyExportFetchSize(final Connection connection, final PreparedStatement statement) throws SQLException {
@@ -446,8 +452,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             return null;
         }
 
-        final String sql = this.genericDataService
-                .wrapSQL("select report_count_sql as the_sql from stretchy_report where report_name = ?");
+        final String sql = this.genericDataService.wrapSQL("select report_count_sql as the_sql from stretchy_report where report_name = ?");
         final SqlRowSet rs = this.jdbcTemplate.queryForRowSet(sql, sqlInjectionPreventerService.encodeSql(name));
 
         return rs.next() ? rs.getString("the_sql") : null;

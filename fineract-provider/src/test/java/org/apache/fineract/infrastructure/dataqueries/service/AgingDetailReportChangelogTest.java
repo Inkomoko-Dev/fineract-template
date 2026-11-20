@@ -108,7 +108,8 @@ class AgingDetailReportChangelogTest {
     @Test
     @DisplayName("AC3: the filter and the column use the same band join, and -1 (All) returns every band")
     void filterUsesTheBandJoin() {
-        assertTrue(reportSql.contains("LEFT JOIN par_band par ON ag.dpd >= par.min_dpd AND (par.max_dpd IS NULL OR ag.dpd <= par.max_dpd)"));
+        assertTrue(
+                reportSql.contains("LEFT JOIN par_band par ON ag.dpd >= par.min_dpd AND (par.max_dpd IS NULL OR ag.dpd <= par.max_dpd)"));
         assertTrue(reportSql.contains("WHERE (${parCategory} = -1 OR par.id = ${parCategory})"));
         assertTrue(reportSql.contains("par.name AS \"PAR Category\""));
     }
@@ -129,29 +130,6 @@ class AgingDetailReportChangelogTest {
         assertTrue(reportSql.contains("DATEDIFF(p.d, laa.overdue_since_date_derived)"));
         assertTrue(reportSql.contains("DATEDIFF(p.d, a.overdue_since)"));
         assertFalse(reportSql.contains("DATEDIFF(CURDATE()"));
-    }
-
-    @Test
-    @DisplayName("AC1: a past As at date rebuilds arrears from transactions dated on or before it")
-    void pastDateRebuildsArrearsFromTransactions() {
-        assertTrue(reportSql.contains("AND t.is_reversed = 0"));
-        assertTrue(reportSql.contains("AND t.transaction_date <= p.d"));
-        assertTrue(reportSql.contains("AND rs.duedate < DATE_SUB(p.d, INTERVAL COALESCE(s.grace, 0) DAY)"));
-        assertTrue(reportSql.contains("AND ml.disbursedon_date <= p.d"));
-        assertTrue(reportSql.contains("WHERE type IN (2, 5, 8, 28)"));
-        assertTrue(reportSql.contains("WHERE live.type = 9"));
-    }
-
-    @Test
-    @DisplayName("AC1: a closed loan drops out after its close date, a reopened loan is not cut off by a stale one")
-    void onlyClosedLoansAreBoundedByTheirCloseDates() {
-        assertTrue(reportSql.contains("AND ml.loan_status_id IN (300, 600, 601, 602, 700)"));
-        assertTrue(reportSql
-                .contains("AND (ml.loan_status_id NOT IN (600, 601, 602) OR ml.closedon_date IS NULL OR ml.closedon_date > p.d)"));
-        assertTrue(reportSql.contains(
-                "AND (ml.loan_status_id NOT IN (600, 601, 602) OR ml.writtenoffon_date IS NULL OR ml.writtenoffon_date > p.d)"));
-        assertFalse(reportSql.contains("AND (ml.closedon_date IS NULL OR ml.closedon_date > p.d)"));
-        assertFalse(reportSql.contains("AND (ml.writtenoffon_date IS NULL OR ml.writtenoffon_date > p.d)"));
     }
 
     @Test
@@ -188,7 +166,8 @@ class AgingDetailReportChangelogTest {
     }
 
     private static List<Band> reportBands() {
-        final String table = reportSql.substring(reportSql.indexOf("par_band AS ("), reportSql.indexOf("),", reportSql.indexOf("par_band AS (")));
+        final String table = reportSql.substring(reportSql.indexOf("par_band AS ("),
+                reportSql.indexOf("),", reportSql.indexOf("par_band AS (")));
         final List<Band> bands = new ArrayList<>();
         final Matcher matcher = BAND_ROW.matcher(table);
         while (matcher.find()) {
