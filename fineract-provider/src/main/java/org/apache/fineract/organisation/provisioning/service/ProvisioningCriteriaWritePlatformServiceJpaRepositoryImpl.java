@@ -19,12 +19,14 @@
 package org.apache.fineract.organisation.provisioning.service;
 
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.persistence.PersistenceException;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.fineract.accounting.provisioning.service.ProvisioningEntriesReadPlatformService;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.audit.AuditChangeRecorder;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
@@ -78,8 +80,10 @@ public class ProvisioningCriteriaWritePlatformServiceJpaRepositoryImpl implement
             this.fromApiJsonDeserializer.validateForCreate(command.json());
             ProvisioningCriteria provisioningCriteria = provisioningCriteriaAssembler.fromParsedJson(command.parsedJson());
             this.provisioningCriteriaRepository.saveAndFlush(provisioningCriteria);
+            final Map<String, Object> changes = new LinkedHashMap<>();
+            AuditChangeRecorder.recordChange(changes, "criteria", null, provisioningCriteria.auditSnapshot());
             return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(provisioningCriteria.getId())
-                    .build();
+                    .with(changes).build();
         } catch (final JpaSystemException | DataIntegrityViolationException dve) {
             handleDataIntegrityIssues(command, dve.getMostSpecificCause(), dve);
             return CommandProcessingResult.empty();
@@ -92,12 +96,15 @@ public class ProvisioningCriteriaWritePlatformServiceJpaRepositoryImpl implement
 
     @Override
     public CommandProcessingResult deleteProvisioningCriteria(Long criteriaId) {
-        this.provisioningCriteriaRepository.findById(criteriaId).orElseThrow(() -> new ProvisioningCriteriaNotFoundException(criteriaId));
+        final ProvisioningCriteria provisioningCriteria = this.provisioningCriteriaRepository.findById(criteriaId)
+                .orElseThrow(() -> new ProvisioningCriteriaNotFoundException(criteriaId));
         if (this.provisioningEntriesReadPlatformService.retrieveProvisioningEntryDataByCriteriaId(criteriaId) != null) {
             throw new ProvisioningCriteriaCannotBeDeletedException(criteriaId);
         }
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        AuditChangeRecorder.recordChange(changes, "criteria", provisioningCriteria.auditSnapshot(), null);
         this.provisioningCriteriaRepository.deleteById(criteriaId);
-        return new CommandProcessingResultBuilder().withEntityId(criteriaId).build();
+        return new CommandProcessingResultBuilder().withEntityId(criteriaId).with(changes).build();
     }
 
     @Override
@@ -117,13 +124,29 @@ public class ProvisioningCriteriaWritePlatformServiceJpaRepositoryImpl implement
                         "effectiveFrom is required when provisioning bucket definitions are updated");
             }
             if (definitionsPresent) {
+                final List<Map<String, Object>> beforeDefinitions = provisioningCriteria.snapshotLatestDefinitions();
+                final ProvisioningCriteriaVersion beforeVersion = provisioningCriteria.getLatestVersion();
+                final LocalDate beforeEffectiveFrom = beforeVersion == null ? null : beforeVersion.getEffectiveFrom();
+                final Integer beforeVersionNo = beforeVersion == null ? null : beforeVersion.getVersionNo();
+                final String beforeReason = beforeVersion == null ? null : beforeVersion.getPolicyChangeReason();
+
                 createNextCriteriaVersion(provisioningCriteria, command);
+
+                final ProvisioningCriteriaVersion afterVersion = provisioningCriteria.getLatestVersion();
+                AuditChangeRecorder.recordChange(changes, ProvisioningCriteriaConstants.JSON_PROVISIONING_DEFINITIONS_PARAM,
+                        beforeDefinitions, provisioningCriteria.snapshotLatestDefinitions());
+                AuditChangeRecorder.recordChange(changes, ProvisioningCriteriaConstants.VERSION_NO_PARAM, beforeVersionNo,
+                        afterVersion == null ? null : afterVersion.getVersionNo());
+                AuditChangeRecorder.recordChange(changes, ProvisioningCriteriaConstants.JSON_EFFECTIVE_FROM_PARAM, beforeEffectiveFrom,
+                        afterVersion == null ? null : afterVersion.getEffectiveFrom());
+                AuditChangeRecorder.recordChange(changes, ProvisioningCriteriaConstants.JSON_POLICY_CHANGE_REASON_PARAM, beforeReason,
+                        afterVersion == null ? null : afterVersion.getPolicyChangeReason());
             }
             if (!changes.isEmpty() || definitionsPresent) {
                 provisioningCriteriaRepository.saveAndFlush(provisioningCriteria);
             }
             return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(provisioningCriteria.getId())
-                    .build();
+                    .with(changes).build();
         } catch (final JpaSystemException | DataIntegrityViolationException dve) {
             handleDataIntegrityIssues(command, dve.getMostSpecificCause(), dve);
             return CommandProcessingResult.empty();
