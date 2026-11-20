@@ -1259,6 +1259,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    /** Makes a credit decision policy version the live one. A checker has to approve it. */
+    public CommandWrapperBuilder activateCreditDecisionVersion(final Long profileId) {
+        this.actionName = "ACTIVATE";
+        this.entityName = "CREDITDECISION";
+        this.entityId = profileId;
+        this.href = "/creditdecision/profiles/" + profileId;
+        return this;
+    }
+
     public CommandWrapperBuilder approveLoanApplication(final Long loanId) {
         this.actionName = "APPROVE";
         this.entityName = "LOAN";
@@ -4387,6 +4396,34 @@ public class CommandWrapperBuilder {
         this.entityName = "LOANCLASSIFICATIONCONFIG";
         this.entityId = configId;
         this.href = "/loanclassification/countries/" + configId;
+        return this;
+    }
+
+    public CommandWrapperBuilder createTrancheMilestone(final String loanKey) {
+        this.actionName = "CREATE";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones";
+        return this;
+    }
+
+    public CommandWrapperBuilder approveTrancheMilestone(final String loanKey) {
+        this.actionName = "APPROVE";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones/deadline-exception";
+        return this;
+    }
+
+    public CommandWrapperBuilder cancelTrancheMilestone(final String loanKey) {
+        this.actionName = "CANCEL";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones/cancel-undisbursed";
+        return this;
+    }
+
+    public CommandWrapperBuilder rescheduleTrancheMilestone(final String loanKey) {
+        this.actionName = "RESCHEDULE";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones/reschedule";
         return this;
     }
 

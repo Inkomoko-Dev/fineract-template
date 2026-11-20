@@ -45,6 +45,7 @@ import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollatera
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagementRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanMultiDisburseChoice;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.TrancheReleaseRules;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidAmountOfCollateralQuantity;
@@ -102,6 +103,7 @@ public final class LoanApplicationCommandFromApiJsonHelper {
             LoanApiConstants.daysInYearTypeParameterName, LoanApiConstants.fixedPrincipalPercentagePerInstallmentParamName,
             LoanApiConstants.LOAN_TERM_INCLUDES_TOPPED_UP_LOAN_TERM, LoanApiConstants.NUMBER_OF_REPAYMENT_TO_CARRY_FORWARD,
             LoanApiConstants.linkVendorAccountIdParamName, LoanApiConstants.LOAN_TERM_TO_TOP_UP, LoanApiConstants.isBnplLoanParamName,
+            LoanApiConstants.multiDisburseLoanParameterName,
             LoanApiConstants.requiresEquityContributionParamName, LoanApiConstants.equityContributionLoanPercentageParamName,
             LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL, LoanProductConstants.FIRST_INSTALLMENT_AS_PERCENTAGE,
             LoanProductConstants.TRANCHE_PRINCIPAL_PERCENTAGES,
@@ -1466,9 +1468,13 @@ public final class LoanApplicationCommandFromApiJsonHelper {
                 locale);
     }
 
+    private Boolean requestedMultiDisburse(final JsonElement element) {
+        return LoanMultiDisburseChoice.requested(this.fromApiJsonHelper, element);
+    }
+
     private void validateTrancheSettingOverrides(final DataValidatorBuilder baseDataValidator, final JsonElement element,
             final LoanProduct loanProduct) {
-        if (loanProduct == null || !loanProduct.isMultiDisburseLoan()) {
+        if (loanProduct == null || !LoanMultiDisburseChoice.selected(loanProduct.isMultiDisburseLoan(), requestedMultiDisburse(element))) {
             return;
         }
         final Boolean firstInstallmentAsPercentage = this.fromApiJsonHelper
@@ -1513,6 +1519,10 @@ public final class LoanApplicationCommandFromApiJsonHelper {
 
     public void validateLoanMultiDisbursementDate(final JsonElement element, final DataValidatorBuilder baseDataValidator,
             LocalDate expectedDisbursement, BigDecimal totalPrincipal, final LoanProduct loanProduct) {
+
+        if (loanProduct != null && loanProduct.isMultiDisburseLoan() && Boolean.FALSE.equals(requestedMultiDisburse(element))) {
+            return;
+        }
 
         this.validateDisbursementsAreDatewiseOrdered(element, baseDataValidator);
 
@@ -1777,7 +1787,7 @@ public final class LoanApplicationCommandFromApiJsonHelper {
                             .failWithCode("not.supported.for.selected.interest.calcualtion.type");
                 }
 
-                if (loanProduct.isMultiDisburseLoan()) {
+                if (LoanMultiDisburseChoice.selected(loanProduct.isMultiDisburseLoan(), requestedMultiDisburse(element))) {
                     baseDataValidator.reset().parameter(LoanProductConstants.MULTI_DISBURSE_LOAN_PARAMETER_NAME)
                             .failWithCode("not.supported.for.selected.interest.calcualtion.type");
                 }

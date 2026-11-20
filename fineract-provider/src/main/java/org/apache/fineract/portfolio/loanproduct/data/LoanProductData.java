@@ -238,6 +238,7 @@ public class LoanProductData implements Serializable {
 
     private Boolean firstTrancheAsPercentage;
     private Boolean requireMilestoneSurvey;
+    private Boolean blockApplicationWhileUnsettled;
 
     private BigDecimal firstTrancheAmount;
     private String thirdPartyDisbursementProvider;
@@ -1041,6 +1042,7 @@ public class LoanProductData implements Serializable {
         this.firstTrancheAsPercentage = productData.firstTrancheAsPercentage;
         this.firstTrancheAmount = productData.firstTrancheAmount;
         this.requireMilestoneSurvey = productData.requireMilestoneSurvey;
+        this.blockApplicationWhileUnsettled = productData.blockApplicationWhileUnsettled;
     }
 
     private Collection<ChargeData> nullIfEmpty(final Collection<ChargeData> charges) {
@@ -1576,6 +1578,14 @@ public class LoanProductData implements Serializable {
 
     public void setRequireMilestoneSurvey(final Boolean requireMilestoneSurvey) {
         this.requireMilestoneSurvey = requireMilestoneSurvey;
+    }
+
+    public Boolean getBlockApplicationWhileUnsettled() {
+        return this.blockApplicationWhileUnsettled;
+    }
+
+    public void setBlockApplicationWhileUnsettled(final Boolean blockApplicationWhileUnsettled) {
+        this.blockApplicationWhileUnsettled = blockApplicationWhileUnsettled;
     }
 
     public BigDecimal getFirstInstallmentPrincipal() {

@@ -60,6 +60,9 @@ public class BulkRescheduleLoanWorker {
 
     private static final Logger LOG = LoggerFactory.getLogger(BulkRescheduleLoanWorker.class);
 
+    static final String BULK_EXECUTION_MARKER_PREFIX = "bulkExecutionId=";
+    static final String ROLLBACK_REASON_PREFIX = "ROLLBACK_REASON: ";
+
     private final Gson gson = GoogleGsonSerializerHelper.createGsonBuilder().create();
 
     private final BulkRescheduleExecutionRepository executionRepository;
@@ -104,6 +107,7 @@ public class BulkRescheduleLoanWorker {
             throw new IllegalArgumentException(String.join("; ", errors));
         }
         validationService.validateRescheduleParameters(loanDetails, loan);
+        stampBulkExecutionMarker(loanDetails, executionId);
         final Long requestId = rescheduleEngine.performReschedule(loan, loanDetails);
         rescheduleEngine.approveReschedule(requestId);
         // Persist request id before note/snapshot so crash recovery can attribute this execution's request.
@@ -141,6 +145,9 @@ public class BulkRescheduleLoanWorker {
      */
     CrashRecoveryResolution resolveCrashRecoveryRequestId(final Long loanId, final BulkRescheduleResult result,
             final BulkRescheduleExecution execution, final BigDecimal targetInterestRate) {
+        if (result != null && result.getRescheduleRequestId() != null) {
+            return CrashRecoveryResolution.succeeded(result.getRescheduleRequestId());
+        }
         if (targetInterestRate == null) {
             return CrashRecoveryResolution.failed("Crash recovery failed: target interest rate is missing");
         }
@@ -158,6 +165,9 @@ public class BulkRescheduleLoanWorker {
                 continue;
             }
             if (!matchesTargetInterestRate(request, targetInterestRate)) {
+                continue;
+            }
+            if (!matchesBulkExecutionMarker(request, execution)) {
                 continue;
             }
             if (!isUnclaimedOrOwnedByResult(request.getId(), result)) {
@@ -231,6 +241,32 @@ public class BulkRescheduleLoanWorker {
         return false;
     }
 
+    static void stampBulkExecutionMarker(final ReschedulingDetailsDto details, final Long executionId) {
+        if (details == null || executionId == null) {
+            return;
+        }
+        final String marker = BULK_EXECUTION_MARKER_PREFIX + executionId;
+        final String existing = details.getRescheduleReasonComment();
+        if (existing == null || existing.isBlank()) {
+            details.setRescheduleReasonComment(marker);
+            return;
+        }
+        if (!existing.contains(marker)) {
+            details.setRescheduleReasonComment(existing.trim() + " " + marker);
+        }
+    }
+
+    static boolean matchesBulkExecutionMarker(final LoanRescheduleRequest request, final BulkRescheduleExecution execution) {
+        if (request == null || execution == null || execution.getId() == null) {
+            return false;
+        }
+        final String comment = request.getRescheduleReasonComment();
+        if (comment == null || comment.isBlank()) {
+            return false;
+        }
+        return comment.contains(BULK_EXECUTION_MARKER_PREFIX + execution.getId());
+    }
+
     private void markSucceeded(final BulkRescheduleResult result, final Loan loan, final Long requestId) {
         final Loan refreshed = loanRepository.findById(loan.getId()).orElse(loan);
         try {
@@ -277,10 +313,11 @@ public class BulkRescheduleLoanWorker {
         final Loan loan = loanRepository.findById(result.getLoanId()).orElse(null);
         rescheduleEngine.undoApprovedReschedule(requestId, null, result.getOriginalInterestRate());
         if (loan != null && execution != null) {
-            noteService.addRollbackNoteToLoan(loan, execution, rollbackReason);
+            noteService.addRollbackNoteToLoan(loan, execution, result.getId(), rollbackReason);
         }
         result.setStatus(BulkRescheduleResultStatus.ROLLED_BACK);
-        result.setErrorMessage(null);
+        final String reason = rollbackReason == null || rollbackReason.isBlank() ? "-" : rollbackReason.trim();
+        result.setErrorMessage(ROLLBACK_REASON_PREFIX + reason);
         resultRepository.save(result);
     }
 

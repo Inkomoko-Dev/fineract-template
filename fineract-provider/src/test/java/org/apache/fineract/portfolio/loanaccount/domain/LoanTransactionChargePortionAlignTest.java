@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -28,6 +29,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
@@ -69,38 +71,55 @@ class LoanTransactionChargePortionAlignTest {
     }
 
     @Test
-    void alignsFeePortionToZeroWhenChargePaymentLinesEmpty() {
+    void rebuildsChargeLinesKeepingFeePortionWhenLinesEmpty() {
         final LoanTransaction transaction = bareRepayment();
         ReflectionTestUtils.setField(transaction, "feeChargesPortion", new BigDecimal("1333.330000"));
         ReflectionTestUtils.setField(transaction, "loanChargesPaid", new HashSet<>());
-
-        final boolean adjusted = transaction.alignChargePortionsToPaidCharges(SSP);
-
-        assertThat(adjusted).isTrue();
-        assertThat(transaction.getFeeChargesPortion(SSP).getAmount()).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(transaction.getOverPaymentPortion(SSP).getAmount()).isEqualByComparingTo(new BigDecimal("1333.330000"));
-    }
-
-    @Test
-    void alignsFeePortionToSumOfNonPenaltyChargePayments() {
-        final LoanTransaction transaction = bareRepayment();
-        ReflectionTestUtils.setField(transaction, "feeChargesPortion", new BigDecimal("500"));
+        ReflectionTestUtils.setField(transaction, "overPaymentPortion", null);
 
         final LoanCharge feeCharge = mock(LoanCharge.class);
         when(feeCharge.isPenaltyCharge()).thenReturn(false);
-        final HashSet<LoanChargePaidBy> paid = new HashSet<>();
-        paid.add(new LoanChargePaidBy(transaction, feeCharge, new BigDecimal("200"), 1));
-        ReflectionTestUtils.setField(transaction, "loanChargesPaid", paid);
+        when(feeCharge.isOverdueInstallmentCharge()).thenReturn(true);
+        when(feeCharge.getDueLocalDate()).thenReturn(BUSINESS_DATE.minusDays(10));
+        when(feeCharge.getOverdueInstallmentCharge()).thenReturn(null);
 
-        final boolean adjusted = transaction.alignChargePortionsToPaidCharges(SSP);
+        final boolean changed = transaction.rebuildMissingChargePaymentLines(SSP, List.of(feeCharge));
 
-        assertThat(adjusted).isTrue();
-        assertThat(transaction.getFeeChargesPortion(SSP).getAmount()).isEqualByComparingTo(new BigDecimal("200"));
-        assertThat(transaction.getOverPaymentPortion(SSP).getAmount()).isEqualByComparingTo(new BigDecimal("300"));
+        assertThat(changed).isTrue();
+        assertThat(transaction.getFeeChargesPortion(SSP).getAmount()).isEqualByComparingTo(new BigDecimal("1333.330000"));
+        assertThat(transaction.getOverPaymentPortion(SSP).isZero()).isTrue();
+        assertThat(transaction.getLoanChargesPaid()).hasSize(1);
+        assertThat(transaction.getLoanChargesPaid().iterator().next().getAmount()).isEqualByComparingTo(new BigDecimal("1333.330000"));
     }
 
     @Test
-    void doesNotAdjustWhenPortionsAlreadyMatchChargeLines() {
+    void rebuildsResidualFeeOntoEligibleChargeWithoutChangingPortion() {
+        final LoanTransaction transaction = bareRepayment();
+        ReflectionTestUtils.setField(transaction, "feeChargesPortion", new BigDecimal("500"));
+
+        final LoanCharge existing = mock(LoanCharge.class);
+        when(existing.isPenaltyCharge()).thenReturn(false);
+        final HashSet<LoanChargePaidBy> paid = new HashSet<>();
+        paid.add(new LoanChargePaidBy(transaction, existing, new BigDecimal("200"), 1));
+        ReflectionTestUtils.setField(transaction, "loanChargesPaid", paid);
+
+        final LoanCharge additional = mock(LoanCharge.class);
+        when(additional.isPenaltyCharge()).thenReturn(false);
+        when(additional.isOverdueInstallmentCharge()).thenReturn(false);
+        when(additional.getDueLocalDate()).thenReturn(BUSINESS_DATE);
+        when(additional.getOverdueInstallmentCharge()).thenReturn(null);
+
+        final boolean changed = transaction.rebuildMissingChargePaymentLines(SSP, List.of(existing, additional));
+
+        assertThat(changed).isTrue();
+        assertThat(transaction.getFeeChargesPortion(SSP).getAmount()).isEqualByComparingTo(new BigDecimal("500"));
+        BigDecimal lineSum = transaction.getLoanChargesPaid().stream().map(LoanChargePaidBy::getAmount).reduce(BigDecimal.ZERO,
+                BigDecimal::add);
+        assertThat(lineSum).isEqualByComparingTo(new BigDecimal("500"));
+    }
+
+    @Test
+    void doesNotChangeWhenPortionsAlreadyMatchChargeLines() {
         final LoanTransaction transaction = bareRepayment();
         ReflectionTestUtils.setField(transaction, "feeChargesPortion", new BigDecimal("100"));
 
@@ -110,10 +129,21 @@ class LoanTransactionChargePortionAlignTest {
         paid.add(new LoanChargePaidBy(transaction, feeCharge, new BigDecimal("100"), 1));
         ReflectionTestUtils.setField(transaction, "loanChargesPaid", paid);
 
-        final boolean adjusted = transaction.alignChargePortionsToPaidCharges(SSP);
+        final boolean changed = transaction.rebuildMissingChargePaymentLines(SSP, List.of(feeCharge));
 
-        assertThat(adjusted).isFalse();
+        assertThat(changed).isFalse();
         assertThat(transaction.getFeeChargesPortion(SSP).getAmount()).isEqualByComparingTo(new BigDecimal("100"));
+    }
+
+    @Test
+    void failsWhenNoEligibleChargeCanAbsorbResidual() {
+        final LoanTransaction transaction = bareRepayment();
+        ReflectionTestUtils.setField(transaction, "feeChargesPortion", new BigDecimal("1333.330000"));
+        ReflectionTestUtils.setField(transaction, "loanChargesPaid", new HashSet<>());
+
+        assertThatThrownBy(() -> transaction.rebuildMissingChargePaymentLines(SSP, List.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Unable to rebuild charge payment lines");
     }
 
     private static LoanTransaction bareRepayment() {

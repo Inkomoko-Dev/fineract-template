@@ -96,7 +96,7 @@ class RecipientResolutionServiceTest {
     }
 
     @Test
-    void returnsMultiClientWhenPhoneMatchesMultipleClients() {
+    void resolvesMultiClientWhenMultipleClientsShareNumber() {
         final Client clientA = mock(Client.class);
         final Client clientB = mock(Client.class);
         when(clientA.getId()).thenReturn(10L);
@@ -112,10 +112,10 @@ class RecipientResolutionServiceTest {
     }
 
     @Test
-    void returnsClientAndStaffWhenPhoneMatchesBoth() {
+    void resolvesClientAndStaffWhenBothMatch() {
         final Client client = mock(Client.class);
-        when(client.getId()).thenReturn(10L);
         final Staff staff = mock(Staff.class);
+        when(client.getId()).thenReturn(10L);
         when(staff.getId()).thenReturn(20L);
         when(clientRepository.findByMobileNumbers(anyList())).thenReturn(List.of(client));
         when(staffRepository.findByMobileNumbers(anyList())).thenReturn(List.of(staff));

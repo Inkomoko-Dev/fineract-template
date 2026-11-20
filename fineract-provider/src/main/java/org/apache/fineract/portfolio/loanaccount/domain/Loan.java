@@ -67,6 +67,7 @@ import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.JsonParserHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -404,6 +405,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     @Column(name = "is_topup", nullable = false)
     private boolean isTopup = false;
+
+    /**
+     * Null follows the product. False means this loan is a single disbursement even when the product allows tranches.
+     */
+    @Column(name = "multi_disburse_loan")
+    private Boolean multiDisburseLoan;
 
     @OneToOne(cascade = CascadeType.ALL, mappedBy = "loan", optional = true, orphanRemoval = true, fetch = FetchType.LAZY)
     private LoanTopupDetails loanTopupDetails;
@@ -1382,7 +1389,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             if (loanCharge.getId() == null) {
                 LoanTrancheDisbursementCharge loanTrancheDisbursementCharge = null;
                 loanCharge.update(this);
-                if (this.loanProduct.isMultiDisburseLoan() && loanCharge.isTrancheDisbursementCharge()) {
+                if (this.isMultiDisburmentLoan() && loanCharge.isTrancheDisbursementCharge()) {
                     loanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails().updateLoan(this);
                     for (final LoanDisbursementDetails loanDisbursementDetails : this.disbursementDetails) {
                         if (loanCharge.getTrancheDisbursementCharge().getloanDisbursementDetails().getId() == null) {
@@ -1986,7 +1993,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             this.proposedPrincipal = newValue;
         }
 
-        if (loanProduct.isMultiDisburseLoan()) {
+        applyMultiDisburseChoice(command, loanProduct, actualChanges);
+
+        if (this.isMultiDisburmentLoan()) {
             updateTrancheSettingOverrides(command, actualChanges);
             updateDisbursementDetails(command, actualChanges);
             if (command.isChangeInBigDecimalParameterNamed(LoanApiConstants.maxOutstandingBalanceParameterName,
@@ -2012,10 +2021,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                         loanProduct.maxTrancheCount());
             }
         } else {
-            this.disbursementDetails.clear();
+            clearSingleDisbursementTrancheSettings();
         }
 
-        if (loanProduct.isMultiDisburseLoan() || loanProduct.canDefineInstallmentAmount()) {
+        if (this.isMultiDisburmentLoan() || loanProduct.canDefineInstallmentAmount()) {
             if (command.isChangeInBigDecimalParameterNamed(LoanApiConstants.emiAmountParameterName, this.fixedEmiAmount)) {
                 this.fixedEmiAmount = command.bigDecimalValueOfParameterNamed(LoanApiConstants.emiAmountParameterName);
                 actualChanges.put(LoanApiConstants.emiAmountParameterName, this.fixedEmiAmount);
@@ -2098,7 +2107,66 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public boolean isMultiDisburmentLoan() {
-        return this.loanProduct.isMultiDisburseLoan();
+        return this.loanProduct != null && this.loanProduct.isMultiDisburseLoan() && Boolean.TRUE.equals(this.multiDisburseLoan);
+    }
+
+    public void setMultiDisburseLoan(final Boolean multiDisburseLoan) {
+        if (this.loanProduct == null || !this.loanProduct.isMultiDisburseLoan()) {
+            this.multiDisburseLoan = Boolean.FALSE;
+            return;
+        }
+        this.multiDisburseLoan = multiDisburseLoan;
+    }
+
+    private void applyMultiDisburseChoice(final JsonCommand command, final LoanProduct loanProduct,
+            final Map<String, Object> actualChanges) {
+        if (command == null || !command.parameterExists(LoanApiConstants.multiDisburseLoanParameterName)) {
+            return;
+        }
+        final Boolean requested = command.booleanObjectValueOfParameterNamed(LoanApiConstants.multiDisburseLoanParameterName);
+        final boolean productAllows = loanProduct != null && loanProduct.isMultiDisburseLoan();
+        final boolean nextMulti = LoanMultiDisburseChoice.selected(productAllows, requested);
+        if (isMultiDisburmentLoan() == nextMulti) {
+            if (!java.util.Objects.equals(this.multiDisburseLoan, nextMulti)) {
+                this.multiDisburseLoan = nextMulti;
+                actualChanges.put(LoanApiConstants.multiDisburseLoanParameterName, nextMulti);
+            }
+            return;
+        }
+        if (!nextMulti && hasDisbursedTranche()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.multi.disburse.cannot.change.after.disbursement",
+                    "A loan that already has a disbursement cannot be changed to a single tranche.");
+        }
+        this.multiDisburseLoan = nextMulti;
+        actualChanges.put(LoanApiConstants.multiDisburseLoanParameterName, nextMulti);
+        actualChanges.put("recalculateLoanSchedule", true);
+    }
+
+    private boolean hasDisbursedTranche() {
+        if (isDisbursed()) {
+            return true;
+        }
+        if (this.disbursementDetails == null) {
+            return false;
+        }
+        for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+            if (detail.actualDisbursementDate() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void clearSingleDisbursementTrancheSettings() {
+        if (this.disbursementDetails != null) {
+            this.disbursementDetails.clear();
+        }
+        this.maxOutstandingLoanBalance = null;
+        this.firstInstallmentPrincipal = null;
+        this.firstInstallmentAsPercentage = null;
+        this.tranchePrincipalPercentages = null;
+        this.previousTrancheRepaidPercentage = null;
+        this.previousTrancheThresholdAsPercentage = null;
     }
 
     /**
@@ -2486,7 +2554,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         // For single disbursement loans, use approved principal instead of submitted principal
         // (which might be net amount after disbursement charge deductions)
         BigDecimal disbursementPrincipal = principal;
-        if (!this.loanProduct().isMultiDisburseLoan()) {
+        if (!this.isMultiDisburmentLoan()) {
             disbursementPrincipal = this.approvedPrincipal;
         }
 
@@ -2889,7 +2957,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
             recalculateAllCharges();
 
-            if (loanProduct.isMultiDisburseLoan()) {
+            if (this.isMultiDisburmentLoan()) {
                 if (loanProduct.isDisallowExpectedDisbursements()) {
                     if (!disbursementDetails.isEmpty()) {
                         final String errorMessage = "For this loan product, disbursement details are not allowed";
@@ -3126,9 +3194,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             final LocalDate actualDisbursementDate, BigDecimal emiAmount, LocalDate nextPossibleRepaymentDate,
             LocalDate rescheduledRepaymentDate) {
         boolean isEmiAmountChanged = false;
-        if ((this.loanProduct.isMultiDisburseLoan() || this.loanProduct.canDefineInstallmentAmount()) && emiAmount != null
+        if ((this.isMultiDisburmentLoan() || this.loanProduct.canDefineInstallmentAmount()) && emiAmount != null
                 && emiAmount.compareTo(retriveLastEmiAmount()) != 0) {
-            if (this.loanProduct.isMultiDisburseLoan()) {
+            if (this.isMultiDisburmentLoan()) {
                 final LocalDate dateValue = null;
                 final boolean isSpecificToInstallment = false;
                 final Boolean isChangeEmiIfRepaymentDateSameAsDisbursementDateEnabled = scheduleGeneratorDTO
@@ -3145,7 +3213,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
             isEmiAmountChanged = true;
         }
-        if (rescheduledRepaymentDate != null && this.loanProduct.isMultiDisburseLoan()) {
+        if (rescheduledRepaymentDate != null && this.isMultiDisburmentLoan()) {
             final boolean isSpecificToInstallment = false;
             LoanTermVariations loanVariationTerms = new LoanTermVariations(LoanTermVariationType.DUE_DATE.getValue(),
                     nextPossibleRepaymentDate, emiAmount, rescheduledRepaymentDate, isSpecificToInstallment, this,
@@ -3196,7 +3264,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
         BigDecimal diff = BigDecimal.ZERO;
         Collection<LoanDisbursementDetails> details = fetchUndisbursedDetail();
-        if (this.loanProduct().isMultiDisburseLoan()) {
+        if (this.isMultiDisburmentLoan()) {
             final LoanDisbursementDetails nextDisbursementDetail = getNextUndisbursedDisbursementDetail();
             if (nextDisbursementDetail != null) {
                 if (nextDisbursementDetail.expectedDisbursementDate() != null
@@ -3214,7 +3282,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         }
         if (principalDisbursed == null) {
             // For single disbursement loans, ensure repayment schedule principal is approved principal
-            if (!this.loanProduct().isMultiDisburseLoan()) {
+            if (!this.isMultiDisburmentLoan()) {
                 this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
             }
             disburseAmount = this.loanRepaymentScheduleDetail.getPrincipal();
@@ -3226,7 +3294,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 }
             }
         } else {
-            if (this.loanProduct.isMultiDisburseLoan()) {
+            if (this.isMultiDisburmentLoan()) {
                 disburseAmount = Money.of(getCurrency(), principalDisbursed);
             } else {
                 // For single disbursement loans, always use approved principal to ensure journal entries
@@ -3240,14 +3308,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             } else {
                 for (LoanDisbursementDetails disbursementDetails : details) {
                     disbursementDetails.updateActualDisbursementDate(actualDisbursementDate);
-                    if (this.loanProduct().isMultiDisburseLoan()) {
+                    if (this.isMultiDisburmentLoan()) {
                         disbursementDetails.updatePrincipal(principalDisbursed);
                     } else {
                         disbursementDetails.updatePrincipal(this.approvedPrincipal);
                     }
                 }
             }
-            if (this.loanProduct().isMultiDisburseLoan()) {
+            if (this.isMultiDisburmentLoan()) {
                 Collection<LoanDisbursementDetails> loanDisburseDetails = this.getDisbursementDetails();
                 BigDecimal setPrincipalAmount = BigDecimal.ZERO;
                 BigDecimal totalAmount = BigDecimal.ZERO;
@@ -3264,7 +3332,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 // is based on full approved amount, not the net disbursed amount after disbursement charge deductions
                 this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
             }
-            if (!this.loanProduct().isMultiDisburseLoan() && diff.compareTo(BigDecimal.ZERO) < 0) {
+            if (!this.isMultiDisburmentLoan() && diff.compareTo(BigDecimal.ZERO) < 0) {
                 final String errorMsg = "Loan can't be disbursed,disburse amount is exceeding approved amount ";
                 throw new LoanDisbursalException(errorMsg, "disburse.amount.must.be.less.than.approved.amount", principalDisbursed,
                         this.loanRepaymentScheduleDetail.getPrincipal().getAmount());
@@ -3274,7 +3342,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     private boolean shouldTreatSubmittedAmountAsNetDisbursal(final JsonCommand command, final BigDecimal principalDisbursed) {
-        if (principalDisbursed == null || this.loanProduct().isMultiDisburseLoan()) {
+        if (principalDisbursed == null || this.isMultiDisburmentLoan()) {
             return false;
         }
 
@@ -3314,7 +3382,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     private ChangedTransactionDetail reprocessTransactionForDisbursement() {
         ChangedTransactionDetail changedTransactionDetail = null;
-        if (this.loanProduct.isMultiDisburseLoan()) {
+        if (this.isMultiDisburmentLoan()) {
             final List<LoanTransaction> allNonContraTransactionsPostDisbursement = retreiveListOfTransactionsPostDisbursement();
             if (!allNonContraTransactionsPostDisbursement.isEmpty()) {
                 final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.transactionProcessorFactory
@@ -3647,7 +3715,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 }
             }
 
-            if (this.isTopup) {
+            if (this.isTopup && this.loanTopupDetails != null) {
+                // the transfer (and the amount it settled on the topped-up loan) is reversed by undo-disbursal, so the
+                // top-up can be disbursed again from scratch
                 this.loanTopupDetails.setAccountTransferDetails(null);
                 this.loanTopupDetails.setTopupAmount(null);
             }
@@ -3939,7 +4009,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             }
         }
 
-        if (this.loanProduct.isMultiDisburseLoan() && adjustedTransaction == null) {
+        if (this.isMultiDisburmentLoan() && adjustedTransaction == null) {
             BigDecimal totalDisbursed = getDisbursedAmount();
             if (totalDisbursed.compareTo(this.summary.getTotalPrincipalRepaid()) < 0) {
                 final String errorMessage = "The transaction cannot be done before the loan disbursement: "
@@ -4004,7 +4074,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             doPostLoanTransactionChecks(loanTransaction.getTransactionDate(), loanLifecycleStateMachine);
         }
 
-        if (this.loanProduct.isMultiDisburseLoan()) {
+        if (this.isMultiDisburmentLoan()) {
             BigDecimal totalDisbursed = getDisbursedAmount();
             if (totalDisbursed.compareTo(this.summary.getTotalPrincipalRepaid()) < 0
                     && this.repaymentScheduleDetail().getPrincipal().minus(totalDisbursed).isGreaterThanZero()) {
@@ -4645,7 +4715,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         if (isDisbursementAllowed() && atleastOnceDisbursed()) {
             // For multi-disbursement loans, use sum of disbursed amounts
             // For single disbursement loans, use approved principal
-            if (this.loanProduct().isMultiDisburseLoan()) {
+            if (this.isMultiDisburmentLoan()) {
                 this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount());
             } else {
                 this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
@@ -4826,7 +4896,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     public boolean isChargesAdditionAllowed() {
         boolean isDisbursed = false;
-        if (this.loanProduct.isMultiDisburseLoan()) {
+        if (this.isMultiDisburmentLoan()) {
             isDisbursed = !isDisbursementAllowed();
         } else {
             isDisbursed = hasDisbursementTransaction();
@@ -4871,7 +4941,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     private boolean isAllTranchesNotDisbursed() {
-        return this.loanProduct.isMultiDisburseLoan()
+        return this.isMultiDisburmentLoan()
                 && (LoanStatus.fromInt(this.loanStatus).isActive() || LoanStatus.fromInt(this.loanStatus).isApproved())
                 && isDisbursementAllowed();
     }
@@ -4982,7 +5052,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public boolean hasPendingApprovedDisbursement() {
-        return this.loanProduct != null && this.loanProduct.isMultiDisburseLoan() && getNextUndisbursedDisbursementDetail() != null;
+        return this.loanProduct != null && this.isMultiDisburmentLoan() && getNextUndisbursedDisbursementDetail() != null;
     }
 
     public int getDisbursementTrancheNumber(final LoanDisbursementDetails selectedDetail) {
@@ -5013,6 +5083,47 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return remaining.signum() < 0 ? BigDecimal.ZERO : remaining;
     }
 
+    /**
+     * Removes every undisbursed tranche, lowers the approved commitment to what has already been
+     * disbursed, and leaves the first-tranche transactions untouched. Returns the new approved principal.
+     */
+    public BigDecimal cancelUndisbursedCommitment() {
+        if (this.disbursementDetails == null || this.disbursementDetails.isEmpty()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.tranche.cancel.no.disbursements",
+                    "This loan has no tranche disbursement rows to cancel.");
+        }
+        final List<LoanDisbursementDetails> keep = new ArrayList<>();
+        BigDecimal disbursed = BigDecimal.ZERO;
+        boolean removed = false;
+        for (final LoanDisbursementDetails detail : this.disbursementDetails) {
+            if (detail.actualDisbursementDate() != null) {
+                keep.add(detail);
+                if (detail.principal() != null) {
+                    disbursed = disbursed.add(detail.principal());
+                }
+            } else {
+                removed = true;
+                if (detail.getId() != null) {
+                    removeChargesByDisbursementID(detail.getId());
+                }
+            }
+        }
+        if (!removed) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.tranche.cancel.nothing.pending",
+                    "There is no undisbursed tranche commitment to cancel.");
+        }
+        if (keep.isEmpty()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.tranche.cancel.no.disbursed.tranche",
+                    "At least one tranche must already be disbursed before the remaining commitment can be cancelled.");
+        }
+        this.disbursementDetails.clear();
+        this.disbursementDetails.addAll(keep);
+        this.approvedPrincipal = disbursed;
+        this.loanRepaymentScheduleDetail.setPrincipal(disbursed);
+        adjustNetDisbursalAmount(disbursed);
+        return disbursed;
+    }
+
     public void alignUndisbursedTranchesToApprovedPrincipal() {
         if (this.approvedPrincipal == null || this.disbursementDetails == null || this.disbursementDetails.isEmpty()) {
             return;
@@ -5037,6 +5148,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             applyApprovedPrincipalToTranche(undisbursed.get(0), remainingApproved);
             return;
         }
+        if (!this.isMultiDisburmentLoan()) {
+            return;
+        }
         for (final LoanDisbursementDetails detail : undisbursed) {
             if (detail.principal() != null && detail.principal().compareTo(remainingApproved) > 0) {
                 applyApprovedPrincipalToTranche(detail, remainingApproved);
@@ -5057,7 +5171,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     private boolean isActualDisbursedOnDateEarlierOrLaterThanExpected(final LocalDate actualDisbursedOnDate) {
         boolean isRegenerationRequired = false;
-        if (this.loanProduct.isMultiDisburseLoan()) {
+        if (this.isMultiDisburmentLoan()) {
             LoanDisbursementDetails details = fetchLastDisburseDetail();
             if (details != null && details.expectedDisbursementDate().compareTo(details.actualDisbursementDate()) == 0 ? Boolean.FALSE
                     : Boolean.TRUE) {
@@ -6080,8 +6194,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                 }
             break;
             case LOAN_DISBURSED:
-                if ((!(isApproved() && isNotDisbursed()) && !this.loanProduct.isMultiDisburseLoan())
-                        || (this.loanProduct.isMultiDisburseLoan() && !isAllTranchesNotDisbursed())) {
+                if ((!(isApproved() && isNotDisbursed()) && !this.isMultiDisburmentLoan())
+                        || (this.isMultiDisburmentLoan() && !isAllTranchesNotDisbursed())) {
                     final String defaultUserMessage = "Loan Disbursal is not allowed. Loan Account is not in approved and not disbursed state.";
                     final ApiParameterError error = ApiParameterError
                             .generalError("error.msg.loan.disbursal.account.is.not.approve.not.disbursed.state", defaultUserMessage);
@@ -6095,12 +6209,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
                             defaultUserMessage);
                     dataValidationErrors.add(error);
                 }
-                if (isOpen() && this.isTopup()) {
-                    final String defaultUserMessage = "Loan Undo disbursal is not allowed on Topup Loans";
-                    final ApiParameterError error = ApiParameterError
-                            .generalError("error.msg.loan.undo.disbursal.not.allowed.on.topup.loan", defaultUserMessage);
-                    dataValidationErrors.add(error);
-                }
+                // Top-up loans can be undisbursed as well: undoing the disbursal also reverses the loan-to-loan transfer
+                // that settled the topped-up loan, so the previous loan is reopened by the write platform service.
             break;
             case LOAN_REPAYMENT_OR_WAIVER:
                 if (!isOpen()) {
@@ -6268,7 +6378,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
         // For multi-disbursement loans, sum the actual disbursed amounts
         // For single disbursement loans, use approved principal
-        if (this.loanProduct().isMultiDisburseLoan()) {
+        if (this.isMultiDisburmentLoan()) {
             this.loanRepaymentScheduleDetail.setPrincipal(setPrincipalAmount);
         } else {
             this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
@@ -6294,7 +6404,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public void validateTrancheDisbursementDatesAreNotAfterMaturity() {
-        if (!this.loanProduct.isMultiDisburseLoan()) {
+        if (!this.isMultiDisburmentLoan()) {
             return;
         }
         for (final LoanDisbursementDetails detail : this.disbursementDetails) {
@@ -6303,7 +6413,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public void validateTrancheDisbursementDateIsNotAfterMaturity(final LocalDate disbursementDate) {
-        if (!this.loanProduct.isMultiDisburseLoan() || disbursementDate == null) {
+        if (!this.isMultiDisburmentLoan() || disbursementDate == null) {
             return;
         }
         final LocalDate maturityDate = this.actualMaturityDate != null ? this.actualMaturityDate : this.expectedMaturityDate;
@@ -6814,7 +6924,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         final LoanApplicationTerms loanApplicationTerms = LoanApplicationTerms.assembleFrom(scheduleGeneratorDTO.getApplicationCurrency(),
                 loanTermFrequency, loanTermPeriodFrequencyType, nthDayType, dayOfWeekType, getDisbursementDate(),
                 getExpectedFirstRepaymentOnDate(), scheduleGeneratorDTO.getCalculatedRepaymentsStartingFromDate(), getInArrearsTolerance(),
-                this.loanRepaymentScheduleDetail, this.loanProduct.isMultiDisburseLoan(), this.fixedEmiAmount, disbursementData,
+                this.loanRepaymentScheduleDetail, this.isMultiDisburmentLoan(), this.fixedEmiAmount, disbursementData,
                 this.maxOutstandingLoanBalance, interestChargedFromDate, this.loanProduct.getPrincipalThresholdForLastInstallment(),
                 this.loanProduct.getInstallmentAmountInMultiplesOf(), recalculationFrequencyType, restCalendarInstance, compoundingMethod,
                 compoundingCalendarInstance, compoundingFrequencyType, this.loanProduct.preCloseInterestCalculationStrategy(),
@@ -6917,7 +7027,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         // approved
         // facility amount. A client can only prepay principal that has actually been disbursed, less principal already
         // settled.
-        if (this.loanProduct.isMultiDisburseLoan()) {
+        if (this.isMultiDisburmentLoan()) {
             BigDecimal principalSettled = BigDecimal.ZERO;
             if (this.summary != null) {
                 principalSettled = defaultToZero(this.summary.getTotalPrincipalRepaid())
@@ -7195,7 +7305,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
         return LoanApplicationTerms.assembleFrom(applicationCurrency, loanTermFrequency, loanTermPeriodFrequencyType, nthDayType,
                 dayOfWeekType, expectedDisbursementDate, repaymentsStartingFromDate, calculatedRepaymentsStartingFromDate,
-                inArrearsToleranceMoney, this.loanRepaymentScheduleDetail, loanProduct.isMultiDisburseLoan(), emiAmount, disbursementData,
+                inArrearsToleranceMoney, this.loanRepaymentScheduleDetail, this.isMultiDisburmentLoan(), emiAmount, disbursementData,
                 maxOutstandingBalance, interestChargedFromDate, this.loanProduct.getPrincipalThresholdForLastInstallment(),
                 this.loanProduct.getInstallmentAmountInMultiplesOf(), recalculationFrequencyType, restCalendarInstance, compoundingMethod,
                 compoundingCalendarInstance, compoundingFrequencyType, this.loanProduct.preCloseInterestCalculationStrategy(),
@@ -7394,7 +7504,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             throw new InvalidLoanStateTransitionException("transaction", "cannot.be.a.future.date", errorMessage, loanTransactionDate);
         }
 
-        if (this.loanProduct.isMultiDisburseLoan() && adjustedTransaction == null) {
+        if (this.isMultiDisburmentLoan() && adjustedTransaction == null) {
             BigDecimal totalDisbursed = getDisbursedAmount();
             if (totalDisbursed.compareTo(this.summary.getTotalPrincipalRepaid()) < 0) {
                 final String errorMessage = "The transaction cannot be done before the loan disbursement: "
@@ -7542,7 +7652,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
             if (actualDisbursementDate.equals(details.actualDisbursementDate())) {
                 // For multi-disbursement loans, subtract the disbursed amount
                 // For single disbursement loans, use approved principal
-                if (this.loanProduct().isMultiDisburseLoan()) {
+                if (this.isMultiDisburmentLoan()) {
                     this.loanRepaymentScheduleDetail.setPrincipal(getDisbursedAmount().subtract(details.principal()));
                 } else {
                     this.loanRepaymentScheduleDetail.setPrincipal(this.approvedPrincipal);
@@ -8003,11 +8113,28 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
     }
 
     public void restoreLoanScheduleAndTransactions() {
+        restoreLoanScheduleAndTransactions(true);
+    }
+
+    /**
+     * Same repair as {@link #restoreLoanScheduleAndTransactions()}, but keeps the accrual transactions on the loan.
+     * <p>
+     * {@code acc_gl_journal_entry.loan_transaction_id} references {@code m_loan_transaction}, so dropping an accrual
+     * transaction from the (orphan removing) transaction collection makes Hibernate delete a row that the ledger still
+     * points at, and the database rejects it. Accruals take no part in the repayment replay, so the rebuild produces
+     * the same installments, summary and status either way. Used when a closed loan is reopened after the transaction
+     * that settled it has been reversed.
+     */
+    public void restoreLoanScheduleAndTransactionsPreservingAccruals() {
+        restoreLoanScheduleAndTransactions(false);
+    }
+
+    private void restoreLoanScheduleAndTransactions(final boolean removeAccrualTransactions) {
 
         Collection<LoanTransaction> retainTransactions = new ArrayList<>();
         for (final LoanTransaction transaction : this.loanTransactions) {
             transaction.getLoanTransactionToRepaymentScheduleMappings().clear();
-            if (!transaction.isAccrualTransaction()) {
+            if (!removeAccrualTransactions || !transaction.isAccrualTransaction()) {
                 retainTransactions.add(transaction);
             }
 
@@ -8270,7 +8397,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
      * Values entered on the loan replace the product. A blank loan value keeps the product setting.
      */
     public void updateTrancheSettingOverrides(final JsonCommand command, final Map<String, Object> actualChanges) {
-        if (this.loanProduct == null || !this.loanProduct.isMultiDisburseLoan() || command == null) {
+        if (this.loanProduct == null || !this.isMultiDisburmentLoan() || command == null) {
             return;
         }
         if (command.parameterExists(LoanProductConstants.FIRST_INSTALLMENT_PRINCIPAL)) {

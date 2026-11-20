@@ -84,8 +84,9 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 
 /**
- * REST API Resource for bulk loan reschedule operations. Provides endpoints for template data retrieval,
- * dry run execution, approval workflow, and query operations.
+ * REST API for bulk loan reschedule (interest-rate change) operations. Consumed by the Community App maker-checker UI
+ * under {@code /bulk-reschedule}; not a backend CLI. Provides template data, dry-run/preview, approval, execute,
+ * rollback, and query endpoints.
  */
 @Slf4j
 @Path("/bulk-reschedule")
