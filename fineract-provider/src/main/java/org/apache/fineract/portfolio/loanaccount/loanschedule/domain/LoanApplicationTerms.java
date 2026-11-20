@@ -1878,8 +1878,8 @@ public final class LoanApplicationTerms {
     /**
      * Calculates the number of repayments when changing repayment frequency while preserving loan term duration.
      *
-     * <p>Uses calendar-accurate arithmetic (via {@link java.time.temporal.ChronoUnit}) anchored to a fixed reference
-     * date so that real-world month and year lengths are respected, avoiding rounding discrepancies (NFR3).</p>
+     * <p>Counts calendar periods of the new frequency from a fixed anchor until the original term end date. Day-ratio
+     * division is avoided because month lengths vary (e.g. 6 years / January-days wrongly yields 70 instead of 72).</p>
      *
      * @param originalRepaymentEvery the original repayment every value
      * @param originalRepaymentFrequencyType the original repayment frequency type
@@ -1901,29 +1901,47 @@ public final class LoanApplicationTerms {
             return null;
         }
 
-        // Use a fixed reference anchor date for calendar-accurate arithmetic.
         // Anchoring to the first of a month avoids month-boundary edge cases.
         final java.time.LocalDate anchor = java.time.LocalDate.of(2000, 1, 1);
-
-        // Calculate the end of the original loan term relative to the anchor
         final java.time.LocalDate originalEnd = addPeriods(anchor, originalRepaymentEvery, originalRepaymentFrequencyType,
                 originalNumberOfRepayments);
+        return countRepaymentPeriodsBetween(anchor, originalEnd, newRepaymentEvery, newRepaymentFrequencyType);
+    }
 
-        // Calculate the end of one new period relative to the anchor
-        final java.time.LocalDate onePeriodEnd = addPeriods(anchor, newRepaymentEvery, newRepaymentFrequencyType, 1);
-
-        // Total days in original term and days in one new period
-        long totalDays = java.time.temporal.ChronoUnit.DAYS.between(anchor, originalEnd);
-        long onePeriodDays = java.time.temporal.ChronoUnit.DAYS.between(anchor, onePeriodEnd);
-
-        if (onePeriodDays == 0) {
+    /**
+     * Counts how many repayment periods of the given cadence fit from {@code startInclusive} until {@code endInclusive}.
+     * Uses {@link java.time.temporal.ChronoUnit} for months/years so day-of-month drift does not overshoot maturity.
+     *
+     * @return period count, or {@code null} when inputs are invalid; 0 when end is not after start
+     */
+    public static Integer countRepaymentPeriodsBetween(final java.time.LocalDate startInclusive,
+            final java.time.LocalDate endInclusive, final Integer repaymentEvery, final PeriodFrequencyType frequencyType) {
+        if (startInclusive == null || endInclusive == null || repaymentEvery == null || frequencyType == null
+                || repaymentEvery <= 0) {
             return null;
         }
-
-        int newNumberOfRepayments = (int) (totalDays / onePeriodDays);
-
-        // Ensure at least 1 repayment
-        return Math.max(1, newNumberOfRepayments);
+        if (!endInclusive.isAfter(startInclusive)) {
+            return 0;
+        }
+        final long units;
+        switch (frequencyType) {
+            case DAYS:
+                units = java.time.temporal.ChronoUnit.DAYS.between(startInclusive, endInclusive);
+                break;
+            case WEEKS:
+                units = java.time.temporal.ChronoUnit.WEEKS.between(startInclusive, endInclusive);
+                break;
+            case MONTHS:
+                units = java.time.temporal.ChronoUnit.MONTHS.between(startInclusive, endInclusive);
+                break;
+            case YEARS:
+                units = java.time.temporal.ChronoUnit.YEARS.between(startInclusive, endInclusive);
+                break;
+            default:
+                return null;
+        }
+        final int periods = (int) (units / repaymentEvery);
+        return Math.max(1, periods);
     }
 
     /**
@@ -1935,7 +1953,7 @@ public final class LoanApplicationTerms {
      * @param count the number of periods to add
      * @return the resulting date after adding the periods
      */
-    private static java.time.LocalDate addPeriods(final java.time.LocalDate anchor, final Integer frequency,
+    static java.time.LocalDate addPeriods(final java.time.LocalDate anchor, final Integer frequency,
             final PeriodFrequencyType frequencyType, final Integer count) {
         if (anchor == null || frequency == null || frequencyType == null || count == null) {
             return anchor;

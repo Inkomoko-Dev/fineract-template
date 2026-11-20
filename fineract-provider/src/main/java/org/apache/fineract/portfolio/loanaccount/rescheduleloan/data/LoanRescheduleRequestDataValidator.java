@@ -43,8 +43,10 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.RescheduleLoansApiConstants;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
+import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequestRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -52,6 +54,7 @@ import org.springframework.stereotype.Component;
 public class LoanRescheduleRequestDataValidator {
 
     private final FromJsonHelper fromJsonHelper;
+    private final LoanRescheduleRequestRepository loanRescheduleRequestRepository;
     private static final Set<String> CREATE_REQUEST_DATA_PARAMETERS = new HashSet<>(Arrays.asList(
             RescheduleLoansApiConstants.localeParamName, RescheduleLoansApiConstants.dateFormatParamName,
             RescheduleLoansApiConstants.graceOnPrincipalParamName,
@@ -81,8 +84,10 @@ public class LoanRescheduleRequestDataValidator {
     public static final Set<String> UNDO_REQUEST_DATA_PARAMETERS = new HashSet<>(Arrays.asList(RescheduleLoansApiConstants.notesParamName));
 
     @Autowired
-    public LoanRescheduleRequestDataValidator(FromJsonHelper fromJsonHelper) {
+    public LoanRescheduleRequestDataValidator(FromJsonHelper fromJsonHelper,
+            LoanRescheduleRequestRepository loanRescheduleRequestRepository) {
         this.fromJsonHelper = fromJsonHelper;
+        this.loanRescheduleRequestRepository = loanRescheduleRequestRepository;
     }
 
     /**
@@ -113,6 +118,15 @@ public class LoanRescheduleRequestDataValidator {
 
         if (!loan.status().isActive()) {
             dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode("loan.is.not.active", "Loan is not active");
+        }
+
+        if (loan.getId() != null && this.loanRescheduleRequestRepository != null) {
+            final List<LoanRescheduleRequest> pending = this.loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(loan.getId(),
+                    LoanStatus.SUBMITTED_AND_PENDING_APPROVAL.getValue());
+            if (pending != null && !pending.isEmpty()) {
+                dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.loanIdParamName).failWithCode(
+                        "loan.already.has.pending.reschedule.request", "Loan already has a pending reschedule request");
+            }
         }
 
         final Long loanId = this.fromJsonHelper.extractLongNamed(RescheduleLoansApiConstants.loanIdParamName, jsonElement);

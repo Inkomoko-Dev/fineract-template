@@ -39,11 +39,14 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
+import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequestRepository;
 import org.junit.jupiter.api.Test;
 
 class MultiTrancheRescheduleRulesTest {
 
-    private final LoanRescheduleRequestDataValidator validator = new LoanRescheduleRequestDataValidator(new FromJsonHelper());
+    private final LoanRescheduleRequestRepository loanRescheduleRequestRepository = mock(LoanRescheduleRequestRepository.class);
+    private final LoanRescheduleRequestDataValidator validator = new LoanRescheduleRequestDataValidator(new FromJsonHelper(),
+            loanRescheduleRequestRepository);
 
     @Test
     void singleDisbursementLoanDoesNotNeedTheTrancheConfirmation() {
@@ -106,12 +109,14 @@ class MultiTrancheRescheduleRulesTest {
         return new LoanDisbursementDetails(LocalDate.of(2026, 6, 1), null, new BigDecimal(principal), null);
     }
 
-    private static Loan loan(boolean multiDisburse, List<LoanDisbursementDetails> tranches) {
+    private Loan loan(boolean multiDisburse, List<LoanDisbursementDetails> tranches) {
         Loan loan = mock(Loan.class);
         when(loan.status()).thenReturn(LoanStatus.ACTIVE);
+        when(loan.getId()).thenReturn(422415L);
         when(loan.isMultiDisburmentLoan()).thenReturn(multiDisburse);
         when(loan.getDisbursementDetails()).thenReturn(tranches);
         when(loan.getDisbursementDate()).thenReturn(LocalDate.of(2025, 12, 1));
+        when(loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(any(Long.class), any(Integer.class))).thenReturn(List.of());
         LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 7, LocalDate.of(2026, 6, 1),
                 LocalDate.of(2026, 7, 1), new BigDecimal("70000"), new BigDecimal("5833.33"), BigDecimal.ZERO, BigDecimal.ZERO, false,
                 new HashSet<>());

@@ -38,11 +38,14 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
+import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequestRepository;
 import org.junit.jupiter.api.Test;
 
 class LoanRescheduleRequestFixedPrincipalValidationTest {
 
-    private final LoanRescheduleRequestDataValidator validator = new LoanRescheduleRequestDataValidator(new FromJsonHelper());
+    private final LoanRescheduleRequestRepository loanRescheduleRequestRepository = mock(LoanRescheduleRequestRepository.class);
+    private final LoanRescheduleRequestDataValidator validator = new LoanRescheduleRequestDataValidator(new FromJsonHelper(),
+            loanRescheduleRequestRepository);
 
     @Test
     void acceptsPositiveFixedPrincipalAmount() {
@@ -118,10 +121,12 @@ class LoanRescheduleRequestFixedPrincipalValidationTest {
         this.validator.validateForCreateAction(command, loan(obligationsMet));
     }
 
-    private static Loan loan(boolean obligationsMet) {
+    private Loan loan(boolean obligationsMet) {
         Loan loan = mock(Loan.class);
         when(loan.status()).thenReturn(LoanStatus.ACTIVE);
+        when(loan.getId()).thenReturn(422415L);
         when(loan.getDisbursementDate()).thenReturn(LocalDate.of(2025, 12, 1));
+        when(loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(any(Long.class), any(Integer.class))).thenReturn(List.of());
         LoanRepaymentScheduleInstallment installment = new LoanRepaymentScheduleInstallment(loan, 7, LocalDate.of(2026, 6, 1),
                 LocalDate.of(2026, 7, 1), new BigDecimal("70000"), new BigDecimal("5833.33"), BigDecimal.ZERO, BigDecimal.ZERO, false, new HashSet<>());
         installment.updateObligationMet(obligationsMet);
