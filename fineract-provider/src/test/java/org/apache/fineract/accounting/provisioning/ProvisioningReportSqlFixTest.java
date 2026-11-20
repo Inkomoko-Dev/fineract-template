@@ -33,6 +33,7 @@ import liquibase.change.CheckSum;
 import liquibase.changelog.ChangeLogParameters;
 import liquibase.database.core.MySQLDatabase;
 import liquibase.parser.ChangeLogParserFactory;
+import liquibase.precondition.core.PreconditionContainer;
 import liquibase.resource.FileSystemResourceAccessor;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -140,7 +141,8 @@ class ProvisioningReportSqlFixTest {
             assertEquals("db/changelog/tenant/custom-changelog/" + name, moved.getDocumentElement().getAttribute("logicalFilePath"));
             final NodeList conditions = moved.getElementsByTagName("preConditions");
             for (int i = 0; i < conditions.getLength(); i++) {
-                assertEquals("HALT", ((Element) conditions.item(i)).getAttribute("onFail"));
+                assertEquals(name.startsWith("CGLT-818") ? "CONTINUE" : "HALT",
+                        ((Element) conditions.item(i)).getAttribute("onFail"));
             }
         }
     }
@@ -154,6 +156,19 @@ class ProvisioningReportSqlFixTest {
         assertTrue(source.contains("COALESCE(lpl.provisioning_amount, 0) AS `Provisioning Amount`"));
         assertFalse(source.contains("m.overdue_in_days BETWEEN"));
         assertFalse(source.contains("OVER (PARTITION BY m.id)"));
+    }
+
+    @Test
+    void optionalLoanReportUpdateRetriesFailedPreconditionsButHaltsOnErrors() throws Exception {
+        final Path report = resolveSource("src/main/resources/db/changelog/tenant/parts/CGLT-818_provisioning_report_overdue_columns.xml");
+        final FileSystemResourceAccessor resources = new FileSystemResourceAccessor(report.getParent().toFile());
+        final String name = report.getFileName().toString();
+        final var log = ChangeLogParserFactory.getInstance().getParser(name, resources).parse(name,
+                new ChangeLogParameters(new MySQLDatabase()), resources);
+        final var changeSet = log.getChangeSets().get(0);
+        assertEquals(PreconditionContainer.FailOption.CONTINUE, changeSet.getPreconditions().getOnFail());
+        assertEquals(PreconditionContainer.ErrorOption.HALT, changeSet.getPreconditions().getOnError());
+        assertTrue(changeSet.isRunOnChange());
     }
 
     @Test
