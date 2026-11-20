@@ -45,6 +45,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleIns
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.RescheduleLoansApiConstants;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
+import org.apache.fineract.portfolio.loanaccount.rescheduleloan.service.RescheduleFromInstallmentResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -240,20 +241,41 @@ public class LoanRescheduleRequestDataValidator {
                 && !hasRepaymentFrequencyType) {
             dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.graceOnPrincipalParamName).notNull();
         }
+        if (rescheduleFromDate != null && loan.getDisbursementDate() != null
+                && rescheduleFromDate.isBefore(loan.getDisbursementDate())) {
+            dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.rescheduleFromDateParamName)
+                    .failWithCode("before.loan.disbursement.date",
+                            "Reschedule from date cannot be before the loan disbursement date");
+        }
+
         LoanRepaymentScheduleInstallment installment = null;
         if (rescheduleFromDate != null) {
 
             installment = loan.getRepaymentScheduleInstallment(rescheduleFromDate);
 
             if (installment == null) {
+                // CGLT-857: exact due-date miss is allowed only when a later/equal due date exists
+                // (date before first installment → installment 1; between dues → next installment).
+                final var resolvedInstallmentNumber = RescheduleFromInstallmentResolver
+                        .resolveInstallmentNumber(loan.getRepaymentScheduleInstallments(), rescheduleFromDate);
+                if (resolvedInstallmentNumber.isEmpty()) {
+                    dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.rescheduleFromDateParamName)
+                            .failWithCode("repayment.schedule.installment.does.not.exist",
+                                    "Repayment schedule installment does not exist");
+                } else {
+                    final LoanRepaymentScheduleInstallment resolvedInstallment = loan
+                            .fetchRepaymentScheduleInstallment(resolvedInstallmentNumber.get());
+                    if (resolvedInstallment != null && resolvedInstallment.isObligationsMet()
+                            && !isRecalculateEvenIfObligationsMet(jsonElement)) {
+                        dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.rescheduleFromDateParamName)
+                                .failWithCode("repayment.schedule.installment.obligation.met",
+                                        "Repayment schedule installment obligation met");
+                    }
+                }
+            } else if (installment.isObligationsMet() && !isRecalculateEvenIfObligationsMet(jsonElement)) {
                 dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.rescheduleFromDateParamName)
-                        .failWithCode("repayment.schedule.installment.does.not.exist", "Repayment schedule installment does not exist");
-            }
-
-            if (installment != null && installment.isObligationsMet()
-                    && !isRecalculateEvenIfObligationsMet(jsonElement)) {
-                dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.rescheduleFromDateParamName)
-                        .failWithCode("repayment.schedule.installment.obligation.met", "Repayment schedule installment obligation met");
+                        .failWithCode("repayment.schedule.installment.obligation.met",
+                                "Repayment schedule installment obligation met");
             }
 
         }
@@ -268,7 +290,7 @@ public class LoanRescheduleRequestDataValidator {
             }
         }
 
-        validateForOverdueCharges(dataValidatorBuilder, loan, installment, jsonCommand);
+        validateForOverdueCharges(dataValidatorBuilder, loan, rescheduleFromDate, jsonCommand);
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
@@ -340,48 +362,48 @@ public class LoanRescheduleRequestDataValidator {
 //    }
 
     private void validateForOverdueCharges(DataValidatorBuilder dataValidatorBuilder, final Loan loan,
-            final LoanRepaymentScheduleInstallment installment, final JsonCommand command) {
-        if (installment != null) {
-            LocalDate rescheduleFromDate = installment.getFromDate();
-            Collection<LoanCharge> charges = loan.getLoanCharges();
+            final LocalDate rescheduleFromDate, final JsonCommand command) {
+        if (rescheduleFromDate == null) {
+            return;
+        }
+        // Prefer installment.fromDate when exact match exists; otherwise use request date (CGLT-857).
+        LocalDate threshold = rescheduleFromDate;
+        LoanRepaymentScheduleInstallment matched = loan.getRepaymentScheduleInstallment(rescheduleFromDate);
+        if (matched != null && matched.getFromDate() != null) {
+            threshold = matched.getFromDate();
+        }
 
-            // read optional parameter from request
-            final JsonElement chargeHandlingObject = command.jsonElement("overdueChargeHandling");
+        Collection<LoanCharge> charges = loan.getLoanCharges();
+        final JsonElement chargeHandlingObject = command.jsonElement("overdueChargeHandling");
 
-            if (chargeHandlingObject == null){
+        boolean hasOverdueCharges = false;
+        for (LoanCharge loanCharge : charges) {
+            if (loanCharge.isOverdueInstallmentCharge() && loanCharge.getDueLocalDate().isAfter(threshold)
+                    && !loanCharge.isWaived() && !loanCharge.isPaid()) {
+                hasOverdueCharges = true;
+                break;
+            }
+        }
+
+        if (chargeHandlingObject == null) {
+            dataValidatorBuilder.failWithCodeNoParameterAddedToErrorCode(
+                    "not.allowed.due.to.overdue.charges.must.choose.option");
+            return;
+        }
+
+        final JsonObject chargeHandlingjson = chargeHandlingObject.getAsJsonObject();
+        String chargeHandling = chargeHandlingjson.get("name").getAsString();
+
+        if (hasOverdueCharges) {
+            if (!RescheduleLoansApiConstants.IGNORE_CHARGES.equalsIgnoreCase(chargeHandling)
+                    && !RescheduleLoansApiConstants.CARRY_CHARGES_FORWARD.equalsIgnoreCase(chargeHandling)) {
                 dataValidatorBuilder.failWithCodeNoParameterAddedToErrorCode(
                         "not.allowed.due.to.overdue.charges.must.choose.option");
-                return;
-            }
-
-            final JsonObject chargeHandlingjson = chargeHandlingObject.getAsJsonObject();
-
-            String chargeHandling = chargeHandlingjson.get("name").getAsString();
-            // expected values: "WAIVE" or "CARRY_FORWARD"
-
-            boolean hasOverdueCharges = false;
-
-            for (LoanCharge loanCharge : charges) {
-                if (loanCharge.isOverdueInstallmentCharge() && loanCharge.getDueLocalDate().isAfter(rescheduleFromDate)
-                        && !loanCharge.isWaived() && !loanCharge.isPaid()) {
-                    hasOverdueCharges = true;
-                    break;
-                }
-            }
-
-            if (hasOverdueCharges) {
-                if (!RescheduleLoansApiConstants.IGNORE_CHARGES.equalsIgnoreCase(chargeHandling) &&
-                        !RescheduleLoansApiConstants.CARRY_CHARGES_FORWARD.equalsIgnoreCase(chargeHandling)) {
-                    // force user to choose
+            } else if (RescheduleLoansApiConstants.CARRY_CHARGES_FORWARD.equalsIgnoreCase(chargeHandling)) {
+                Long carryForwardChargeDefId = command.longValueOfParameterNamed("carryForwardChargeId");
+                if (carryForwardChargeDefId == null) {
                     dataValidatorBuilder.failWithCodeNoParameterAddedToErrorCode(
-                            "not.allowed.due.to.overdue.charges.must.choose.option");
-                } else if (RescheduleLoansApiConstants.CARRY_CHARGES_FORWARD.equalsIgnoreCase(chargeHandling)) {
-                    Long carryForwardChargeDefId = command.longValueOfParameterNamed("carryForwardChargeId");
-                    if (carryForwardChargeDefId == null)
-                        dataValidatorBuilder.failWithCodeNoParameterAddedToErrorCode(
-                                "not.allowed.due.to.overdue.charges.must.choose.charge");
-                } {
-
+                            "not.allowed.due.to.overdue.charges.must.choose.charge");
                 }
             }
         }
@@ -446,14 +468,25 @@ public class LoanRescheduleRequestDataValidator {
                 installment = loan.getRepaymentScheduleInstallment(rescheduleFromDate);
 
                 if (installment == null) {
-                    dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode(
-                            "loan.repayment.schedule.installment.does.not.exist", "Repayment schedule installment does not exist");
-                }
-
-                if (installment != null && installment.isObligationsMet()
-                        && !loanRescheduleRequest.isRecalculateEvenIfObligationsMet()) {
-                    dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode(
-                            "loan.repayment.schedule.installment." + "obligation.met", "Repayment schedule installment obligation met");
+                    final var resolvedInstallmentNumber = RescheduleFromInstallmentResolver
+                            .resolveInstallmentNumber(loan.getRepaymentScheduleInstallments(), rescheduleFromDate);
+                    if (resolvedInstallmentNumber.isEmpty()) {
+                        dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode(
+                                "repayment.schedule.installment.does.not.exist",
+                                "Repayment schedule installment does not exist");
+                    } else {
+                        final LoanRepaymentScheduleInstallment resolvedInstallment = loan
+                                .fetchRepaymentScheduleInstallment(resolvedInstallmentNumber.get());
+                        if (resolvedInstallment != null && resolvedInstallment.isObligationsMet()
+                                && !loanRescheduleRequest.isRecalculateEvenIfObligationsMet()) {
+                            dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode(
+                                    "repayment.schedule.installment.obligation.met",
+                                    "Repayment schedule installment obligation met");
+                        }
+                    }
+                } else if (installment.isObligationsMet() && !loanRescheduleRequest.isRecalculateEvenIfObligationsMet()) {
+                    dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode("repayment.schedule.installment.obligation.met",
+                            "Repayment schedule installment obligation met");
                 }
             }
         }
