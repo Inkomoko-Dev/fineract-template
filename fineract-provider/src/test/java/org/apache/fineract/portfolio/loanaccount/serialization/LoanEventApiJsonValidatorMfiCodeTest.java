@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.serialization;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.exception.UnsupportedParameterException;
@@ -110,5 +111,30 @@ public class LoanEventApiJsonValidatorMfiCodeTest {
         final String json = "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"transactionDate\":\"01 February 2026\","
                 + "\"transactionAmount\":5000,\"notAField\":\"x\"}";
         assertThrows(UnsupportedParameterException.class, () -> this.validator.validateNewRepaymentTransaction(json));
+    }
+
+    private String disbursePayload(final String mfiCode) {
+        return "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"actualDisbursementDate\":\"01 February 2026\","
+                + "\"paymentTypeId\":1,\"mfiCode\":\"" + mfiCode + "\"}";
+    }
+
+    @Test
+    public void aDisbursementCarryingAnMfiCodeIsAccepted() {
+        assertDoesNotThrow(() -> this.validator.validateDisbursement(disbursePayload("ET-MFI-02"), false));
+    }
+
+    @Test
+    public void aDisbursementWithoutMfiCodeIsAccepted() {
+        final String json = "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"actualDisbursementDate\":\"01 February 2026\","
+                + "\"paymentTypeId\":1}";
+        assertDoesNotThrow(() -> this.validator.validateDisbursement(json, false));
+    }
+
+    @Test
+    public void aRepaymentWithInvalidMfiCodeShowsFriendlyMessage() {
+        final PlatformApiDataValidationException ex = assertThrows(PlatformApiDataValidationException.class,
+                () -> this.validator.validateNewRepaymentTransaction(repaymentPayload("MFI@01")));
+        assertTrue(ex.getErrors().stream().anyMatch(
+                e -> e.getDefaultUserMessage() != null && e.getDefaultUserMessage().contains("MFI Code can only contain letters")));
     }
 }
