@@ -42,6 +42,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -54,6 +55,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
 import org.apache.fineract.infrastructure.dataqueries.data.GenericResultsetData;
@@ -92,6 +94,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
     private static final String REPORT_TYPE = "report";
     private static final String PARAMETER_TYPE = "parameter";
     private static final int UNPAGED_LIMIT = Integer.MAX_VALUE;
+    private static final String TODAY = "today";
     private static final int DEFAULT_QUERY_TIMEOUT_SECONDS = 300;
     private static final int DEFAULT_EXPORT_FETCH_SIZE = 1000;
     private static final int ROW_BY_ROW_FETCH_SIZE = Integer.MIN_VALUE;
@@ -334,7 +337,8 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             final boolean isSelfServiceUserReport) {
         final String reportCountSql = getReportCountSql(name, type);
         if (StringUtils.isNotBlank(reportCountSql)) {
-            return this.genericDataService.wrapSQL(applyReportParameters(reportCountSql, queryParams, isSelfServiceUserReport, null, null));
+            return this.genericDataService
+                    .wrapSQL(applyReportParameters(reportCountSql, resolveToday(queryParams), isSelfServiceUserReport, null, null));
         }
         return "SELECT COUNT(*) FROM (" + buildReportSql(reportSql, queryParams, isSelfServiceUserReport, null, null) + ") AS temp";
     }
@@ -343,7 +347,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             final Integer limit, final Integer offset) {
         final boolean pagedByReport = reportSql.contains(LIMIT_PLACEHOLDER);
         final String sql = this.genericDataService
-                .wrapSQL(applyReportParameters(reportSql, queryParams, isSelfServiceUserReport, limit, offset));
+                .wrapSQL(applyReportParameters(reportSql, resolveToday(queryParams), isSelfServiceUserReport, limit, offset));
 
         if (!pagedByReport && limit != null) {
             return sql + " LIMIT " + limit + " OFFSET " + (offset != null ? offset : 0);
@@ -382,6 +386,16 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         sql = StringUtils.replaceIgnoreCase(sql, "curdate()", sqlGenerator.currentBusinessDate());
         sql = StringUtils.replaceIgnoreCase(sql, "CURRENT_DATE", sqlGenerator.currentBusinessDate());
         return sql;
+    }
+
+    private static Map<String, String> resolveToday(final Map<String, String> queryParams) {
+        if (!queryParams.containsValue(TODAY)) {
+            return queryParams;
+        }
+        final String businessDate = DateUtils.getBusinessLocalDate().format(DateUtils.DEFAULT_DATE_FORMATER);
+        final Map<String, String> resolved = new LinkedHashMap<>();
+        queryParams.forEach((key, value) -> resolved.put(key, TODAY.equals(value) ? businessDate : value));
+        return resolved;
     }
 
     private void applyExportFetchSize(final Connection connection, final PreparedStatement statement) throws SQLException {
