@@ -146,6 +146,39 @@ class LoanTransactionChargePortionAlignTest {
                 .hasMessageContaining("Unable to rebuild charge payment lines");
     }
 
+    @Test
+    void restoresChargeLinesOnReversedTxnFromPreReplaySnapshot() {
+        final LoanTransaction transaction = bareRepayment();
+        ReflectionTestUtils.setField(transaction, "id", 2792190L);
+        ReflectionTestUtils.setField(transaction, "reversed", true);
+        ReflectionTestUtils.setField(transaction, "feeChargesPortion", new BigDecimal("1333.330000"));
+        ReflectionTestUtils.setField(transaction, "loanChargesPaid", new HashSet<>());
+
+        final LoanCharge feeCharge = mock(LoanCharge.class);
+        when(feeCharge.getId()).thenReturn(55L);
+        when(feeCharge.isPenaltyCharge()).thenReturn(false);
+
+        final boolean restored = transaction.restoreChargePaymentLinesFromSnapshot(List.of(feeCharge),
+                List.of(new LoanTransaction.ChargePaymentLineSnapshot(55L, new BigDecimal("1333.330000"), 1, false)));
+
+        assertThat(restored).isTrue();
+        assertThat(transaction.getFeeChargesPortion(SSP).getAmount()).isEqualByComparingTo(new BigDecimal("1333.330000"));
+        assertThat(transaction.getLoanChargesPaid()).hasSize(1);
+        assertThat(transaction.getLoanChargesPaid().iterator().next().getAmount()).isEqualByComparingTo(new BigDecimal("1333.330000"));
+    }
+
+    @Test
+    void reduceExcessDoesNotDrivePenaltyPortionNegative() {
+        final LoanTransaction transaction = bareRepayment();
+        ReflectionTestUtils.setField(transaction, "penaltyChargesPortion", new BigDecimal("100"));
+        ReflectionTestUtils.setField(transaction, "overPaymentPortion", null);
+
+        transaction.reduceExcessChargePortionToOverpayment(SSP, Money.of(SSP, new BigDecimal("500")), true);
+
+        assertThat(transaction.getPenaltyChargesPortion(SSP).isZero()).isTrue();
+        assertThat(transaction.getOverPaymentPortion(SSP).getAmount()).isEqualByComparingTo(new BigDecimal("100"));
+    }
+
     private static LoanTransaction bareRepayment() {
         return LoanTransaction.repayment(mock(Office.class), Money.of(SSP, new BigDecimal("1333.33")), null, BUSINESS_DATE, null);
     }

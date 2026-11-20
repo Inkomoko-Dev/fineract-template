@@ -23,6 +23,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -496,13 +497,59 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
         if (!excess.isGreaterThanZero()) {
             return;
         }
-        if (isPenaltyPortion) {
-            this.penaltyChargesPortion = defaultToNullIfZero(getPenaltyChargesPortion(currency).minus(excess).getAmount());
-        } else {
-            this.feeChargesPortion = defaultToNullIfZero(getFeeChargesPortion(currency).minus(excess).getAmount());
+        final Money currentPortion = isPenaltyPortion ? getPenaltyChargesPortion(currency) : getFeeChargesPortion(currency);
+        // Never drive fee/penalty portions negative — move at most the current portion to overpayment.
+        final Money movable = excess.isGreaterThan(currentPortion) ? currentPortion : excess;
+        if (!movable.isGreaterThanZero()) {
+            return;
         }
-        this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(excess).getAmount());
+        if (isPenaltyPortion) {
+            this.penaltyChargesPortion = defaultToNullIfZero(getPenaltyChargesPortion(currency).minus(movable).getAmount());
+        } else {
+            this.feeChargesPortion = defaultToNullIfZero(getFeeChargesPortion(currency).minus(movable).getAmount());
+        }
+        this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(movable).getAmount());
     }
+
+    /**
+     * Restore {@link LoanChargePaidBy} rows for a transaction that was reversed during replay, using a pre-replay
+     * snapshot so reversal journals keep fee/penalty charge lines matching the posted portions.
+     *
+     * @return true when lines were restored
+     */
+    public boolean restoreChargePaymentLinesFromSnapshot(final Collection<LoanCharge> loanCharges,
+            final Collection<ChargePaymentLineSnapshot> snapshots) {
+        if (snapshots == null || snapshots.isEmpty()) {
+            return false;
+        }
+        final Map<Long, LoanCharge> chargesById = new HashMap<>();
+        if (loanCharges != null) {
+            for (final LoanCharge charge : loanCharges) {
+                if (charge != null && charge.getId() != null) {
+                    chargesById.put(charge.getId(), charge);
+                }
+            }
+        }
+        final Set<LoanChargePaidBy> restored = new HashSet<>();
+        for (final ChargePaymentLineSnapshot snapshot : snapshots) {
+            if (snapshot == null || snapshot.chargeId() == null || snapshot.amount() == null) {
+                continue;
+            }
+            final LoanCharge charge = chargesById.get(snapshot.chargeId());
+            if (charge == null) {
+                continue;
+            }
+            restored.add(new LoanChargePaidBy(this, charge, snapshot.amount(), snapshot.installmentNumber()));
+        }
+        if (restored.isEmpty()) {
+            return false;
+        }
+        updateLoanChargesPaid(restored);
+        return true;
+    }
+
+    /** Immutable pre-replay charge-payment line used to journal newly reversed transactions. */
+    public record ChargePaymentLineSnapshot(Long chargeId, BigDecimal amount, Integer installmentNumber, boolean penalty) {}
 
     /**
      * Rebuild {@link LoanChargePaidBy} rows so fee/penalty line sums match the posted portions. Portions are never
