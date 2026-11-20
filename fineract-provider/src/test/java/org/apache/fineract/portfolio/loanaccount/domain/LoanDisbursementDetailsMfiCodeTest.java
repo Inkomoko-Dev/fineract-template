@@ -23,6 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
+import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
+import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
 import org.junit.jupiter.api.Test;
 
 public class LoanDisbursementDetailsMfiCodeTest {
@@ -78,5 +81,36 @@ public class LoanDisbursementDetailsMfiCodeTest {
         detail.applyMfiCodeIfProvided(null);
 
         assertNull(detail.getMfiCode());
+    }
+
+    @Test
+    public void firstNonBlankMfiCodeReturnsTrimmedValueFromFirstDetail() {
+        final LoanDisbursementDetails blank = disbursementDetail();
+        blank.applyMfiCodeIfProvided("   ");
+        final LoanDisbursementDetails withCode = disbursementDetail();
+        withCode.applyMfiCodeIfProvided("  ET-MFI-02  ");
+        assertEquals("ET-MFI-02", LoanDisbursementDetails.firstNonBlankMfiCode(List.of(blank, withCode)));
+    }
+
+    @Test
+    public void firstNonBlankMfiCodeReturnsNullWhenNonePresent() {
+        final LoanDisbursementDetails blank = disbursementDetail();
+        blank.applyMfiCodeIfProvided("  ");
+        assertNull(LoanDisbursementDetails.firstNonBlankMfiCode(List.of(blank)));
+        assertNull(LoanDisbursementDetails.firstNonBlankMfiCode(null));
+        assertNull(LoanDisbursementDetails.firstNonBlankMfiCode(List.of()));
+    }
+
+    @Test
+    public void paymentDetailInheritsMfiWhenCommandLeftBlank() {
+        final PaymentType paymentType = PaymentType.create("Cash", "Cash", true, false, 1L);
+        final PaymentDetail paymentDetail = PaymentDetail.instance(paymentType, null, null, null, null, null, null);
+        final LoanDisbursementDetails detail = disbursementDetail();
+        detail.applyMfiCodeIfProvided("ET-MFI-02");
+        final String inherited = LoanDisbursementDetails.firstNonBlankMfiCode(List.of(detail));
+        if (paymentDetail.getMfiCode() == null || paymentDetail.getMfiCode().isBlank()) {
+            paymentDetail.setMfiCode(inherited);
+        }
+        assertEquals("ET-MFI-02", paymentDetail.getMfiCode());
     }
 }

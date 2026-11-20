@@ -96,13 +96,13 @@ public final class LoanEventApiJsonValidator {
         } else {
             disbursementParameters = new HashSet<>(Arrays.asList("actualDisbursementDate", "externalId", "note", "locale", "dateFormat",
                     "resultCode", "paymentTypeId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
-                    "adjustRepaymentDate", LoanApiConstants.principalDisbursedParameterName, LoanApiConstants.emiAmountParameterName,
-                    LoanApiConstants.postDatedChecks, LoanApiConstants.disbursementNetDisbursalAmountParameterName,
-                    LoanApiConstants.disbursementTypeParameterName, LoanApiConstants.fxRateParameterName,
-                    LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName,
-                    LoanApiConstants.disbursementDataParameterName, LoanApiConstants.disbursementDateParameterName,
-                    LoanApiConstants.approvedLoanAmountParameterName, LoanApiConstants.BUDGET_LOCATION_PARAM,
-                    LoanApiConstants.BUDGET_REVIEW_REQUIRED_PARAM));
+                    LoanApiConstants.mfiCodeParameterName, "adjustRepaymentDate", LoanApiConstants.principalDisbursedParameterName,
+                    LoanApiConstants.emiAmountParameterName, LoanApiConstants.postDatedChecks,
+                    LoanApiConstants.disbursementNetDisbursalAmountParameterName, LoanApiConstants.disbursementTypeParameterName,
+                    LoanApiConstants.fxRateParameterName, LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName,
+                    LoanApiConstants.fxTimestampParameterName, LoanApiConstants.disbursementDataParameterName,
+                    LoanApiConstants.disbursementDateParameterName, LoanApiConstants.approvedLoanAmountParameterName,
+                    LoanApiConstants.BUDGET_LOCATION_PARAM, LoanApiConstants.BUDGET_REVIEW_REQUIRED_PARAM));
         }
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
@@ -346,8 +346,8 @@ public final class LoanEventApiJsonValidator {
 
         // MFI code must be alphanumeric (letters, numbers, hyphens, underscores, spaces, slashes only)
         final String mfiCode = this.fromApiJsonHelper.extractStringNamed("mfiCode", element);
-        baseDataValidator.reset().parameter("mfiCode").value(mfiCode).ignoreIfNull()
-                .matchesRegularExpression("^[A-Za-z0-9 _/-]*$");
+        baseDataValidator.reset().parameter("mfiCode").value(mfiCode).ignoreIfNull().matchesRegularExpression("^[A-Za-z0-9 _/-]*$",
+                "MFI Code can only contain letters, numbers, spaces, - _ /");
     }
 
     public void validateTransactionWithNoAmount(final String json) {
