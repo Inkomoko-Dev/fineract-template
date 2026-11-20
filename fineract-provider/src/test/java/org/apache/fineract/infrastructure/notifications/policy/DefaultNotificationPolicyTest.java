@@ -47,20 +47,21 @@ class DefaultNotificationPolicyTest {
     private DefaultNotificationPolicy policy;
 
     @Test
-    void campaignRequiresExplicitConsent() {
+    void campaignAllowsWhenConsentHasNotBeenRecorded() {
         when(whatsAppOptOutService.isOptedOut("+254700000001")).thenReturn(false);
-        when(whatsAppConsentService.hasActiveConsent("+254700000001")).thenReturn(false);
+        when(whatsAppConsentService.hasActiveConsentOrNotRecorded("+254700000001")).thenReturn(true);
 
-        assertFalse(policy.isAllowed(NotificationChannel.WHATSAPP, "+254700000001", NotificationPurpose.CAMPAIGN));
-        assertEquals("CONSENT_REQUIRED", policy.denialCode(NotificationChannel.WHATSAPP, "+254700000001", NotificationPurpose.CAMPAIGN));
+        assertTrue(policy.isAllowed(NotificationChannel.WHATSAPP, "+254700000001", NotificationPurpose.CAMPAIGN));
+        assertNull(policy.denialCode(NotificationChannel.WHATSAPP, "+254700000001", NotificationPurpose.CAMPAIGN));
     }
 
     @Test
-    void campaignAllowsWithActiveConsent() {
+    void campaignRejectsExplicitConsentDenial() {
         when(whatsAppOptOutService.isOptedOut("+254700000005")).thenReturn(false);
-        when(whatsAppConsentService.hasActiveConsent("+254700000005")).thenReturn(true);
+        when(whatsAppConsentService.hasActiveConsentOrNotRecorded("+254700000005")).thenReturn(false);
 
-        assertTrue(policy.isAllowed(NotificationChannel.WHATSAPP, "+254700000005", NotificationPurpose.CAMPAIGN));
+        assertFalse(policy.isAllowed(NotificationChannel.WHATSAPP, "+254700000005", NotificationPurpose.CAMPAIGN));
+        assertEquals("CONSENT_REQUIRED", policy.denialCode(NotificationChannel.WHATSAPP, "+254700000005", NotificationPurpose.CAMPAIGN));
     }
 
     @Test

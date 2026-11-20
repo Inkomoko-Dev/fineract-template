@@ -20,6 +20,7 @@ package org.apache.fineract.infrastructure.africastalking.service;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.africastalking.data.CommunicationMessageData;
@@ -40,8 +41,20 @@ public class CommunicationMessageReadPlatformService {
     private final CommunicationMessageMapper mapper = new CommunicationMessageMapper();
 
     public List<CommunicationMessageData> retrieveWhatsAppMessages() {
-        final String sql = "select " + mapper.schema() + " where cm.channel = ? order by cm.created_date desc";
-        return this.jdbcTemplate.query(sql, this.mapper, CommunicationChannel.WHATSAPP.name());
+        return retrieveWhatsAppMessages(null);
+    }
+
+    public List<CommunicationMessageData> retrieveWhatsAppMessages(final CommunicationMessageStatus status) {
+        final StringBuilder sql = new StringBuilder(200);
+        sql.append("select ").append(mapper.schema()).append(" where cm.channel = ?");
+        final List<Object> params = new ArrayList<>();
+        params.add(CommunicationChannel.WHATSAPP.name());
+        if (status != null) {
+            sql.append(" and cm.status = ?");
+            params.add(status.name());
+        }
+        sql.append(" order by cm.created_date desc");
+        return this.jdbcTemplate.query(sql.toString(), this.mapper, params.toArray());
     }
 
     public CommunicationMessageData retrieveOne(final Long messageId) {

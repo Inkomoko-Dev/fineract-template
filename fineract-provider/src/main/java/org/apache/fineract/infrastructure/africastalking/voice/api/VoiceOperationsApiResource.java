@@ -25,11 +25,15 @@ import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.UriInfo;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.africastalking.AfricasTalkingConstants;
+import org.apache.fineract.infrastructure.africastalking.data.VoiceCallLogData;
+import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingVoiceService;
+import org.apache.fineract.infrastructure.africastalking.service.VoiceCallLogReadPlatformService;
 import org.apache.fineract.infrastructure.africastalking.voice.data.VoiceCallQueueEntryData;
 import org.apache.fineract.infrastructure.africastalking.voice.data.VoiceCallbackRequestData;
 import org.apache.fineract.infrastructure.africastalking.voice.data.VoiceOperationsDashboardData;
@@ -60,10 +64,13 @@ public class VoiceOperationsApiResource {
     private final VoiceVoicemailReadPlatformService voicemailReadPlatformService;
     private final VoiceCallQueueReadPlatformService queueReadPlatformService;
     private final VoiceCallbackDispatchService callbackDispatchService;
+    private final AfricasTalkingVoiceService voiceService;
+    private final VoiceCallLogReadPlatformService voiceCallLogReadPlatformService;
     private final DefaultToApiJsonSerializer<VoiceOperationsDashboardData> dashboardSerializer;
     private final DefaultToApiJsonSerializer<VoiceCallbackRequestData> callbackSerializer;
     private final DefaultToApiJsonSerializer<VoiceVoicemailData> voicemailSerializer;
     private final DefaultToApiJsonSerializer<VoiceCallQueueEntryData> queueSerializer;
+    private final DefaultToApiJsonSerializer<VoiceCallLogData> voiceCallLogSerializer;
     private final DefaultToApiJsonSerializer<CommandProcessingResult> commandProcessingResultSerializer;
     private final ApiRequestParameterHelper apiRequestParameterHelper;
 
@@ -75,6 +82,45 @@ public class VoiceOperationsApiResource {
         context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
         final ApiRequestJsonSerializationSettings settings = apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return dashboardSerializer.serialize(settings, dashboardService.retrieveDashboard());
+    }
+
+    @POST
+    @Path("calls")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String initiateVoiceCall(final String apiRequestBodyAsJson) {
+        context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
+        return commandProcessingResultSerializer.serializeResult(voiceService.initiateOutboundCall(apiRequestBodyAsJson));
+    }
+
+    @GET
+    @Path("calls")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveVoiceCalls(@Context final UriInfo uriInfo, @QueryParam("status") final String statusParam) {
+        context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
+        final ApiRequestJsonSerializationSettings settings = apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return voiceCallLogSerializer.serialize(settings, voiceCallLogReadPlatformService.retrieveCallLogs(statusParam));
+    }
+
+    @GET
+    @Path("calls/{callId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveVoiceCall(@PathParam("callId") final Long callId, @Context final UriInfo uriInfo) {
+        context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
+        final ApiRequestJsonSerializationSettings settings = apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return voiceCallLogSerializer.serialize(settings, voiceCallLogReadPlatformService.retrieveOne(callId));
+    }
+
+    @GET
+    @Path("calls/{callId}/recording")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    public String retrieveVoiceCallRecording(@PathParam("callId") final Long callId, @Context final UriInfo uriInfo) {
+        context.authenticatedUser().validateHasPermissionTo(AfricasTalkingConstants.PERMISSION_READ_VOICE_RECORDING);
+        final ApiRequestJsonSerializationSettings settings = apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return voiceCallLogSerializer.serialize(settings, voiceCallLogReadPlatformService.retrieveRecording(callId));
     }
 
     @GET
