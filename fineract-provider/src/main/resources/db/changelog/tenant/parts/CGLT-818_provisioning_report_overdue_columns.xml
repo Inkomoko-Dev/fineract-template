@@ -24,7 +24,8 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
 
     <changeSet id="CGLT-818-1-provisioning-report-overdue-columns" author="willy" runOnChange="true">
-        <preConditions onFail="HALT">
+        <!-- The report is tenant-configured; retry the update once it is installed. -->
+        <preConditions onFail="CONTINUE">
             <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Provisioning Report'</sqlCheck>
             <columnExists tableName="stretchy_report" columnName="report_count_sql"/>
         </preConditions>
