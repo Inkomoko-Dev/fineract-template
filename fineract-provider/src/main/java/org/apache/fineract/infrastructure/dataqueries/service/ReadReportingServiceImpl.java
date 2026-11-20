@@ -42,6 +42,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -327,8 +328,8 @@ public class ReadReportingServiceImpl implements ReadReportingService {
 
     private Integer countRows(final String name, final String type, final String reportSql, final Map<String, String> queryParams,
             final boolean isSelfServiceUserReport) {
-        final Integer count = reportJdbcTemplate.queryForObject(buildCountSql(name, type, reportSql, queryParams, isSelfServiceUserReport),
-                Integer.class);
+        final Integer count = reportJdbcTemplate
+                .queryForObject(buildCountSql(name, type, reportSql, queryParams, isSelfServiceUserReport), Integer.class);
         return count != null ? count : 0;
     }
 
@@ -336,7 +337,8 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             final boolean isSelfServiceUserReport) {
         final String reportCountSql = getReportCountSql(name, type);
         if (StringUtils.isNotBlank(reportCountSql)) {
-            return this.genericDataService.wrapSQL(applyReportParameters(reportCountSql, queryParams, isSelfServiceUserReport, null, null));
+            return this.genericDataService
+                    .wrapSQL(applyReportParameters(reportCountSql, resolveToday(queryParams), isSelfServiceUserReport, null, null));
         }
         return "SELECT COUNT(*) FROM (" + buildReportSql(reportSql, queryParams, isSelfServiceUserReport, null, null) + ") AS temp";
     }
@@ -345,7 +347,7 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             final Integer limit, final Integer offset) {
         final boolean pagedByReport = reportSql.contains(LIMIT_PLACEHOLDER);
         final String sql = this.genericDataService
-                .wrapSQL(applyReportParameters(reportSql, queryParams, isSelfServiceUserReport, limit, offset));
+                .wrapSQL(applyReportParameters(reportSql, resolveToday(queryParams), isSelfServiceUserReport, limit, offset));
 
         if (!pagedByReport && limit != null) {
             return sql + " LIMIT " + limit + " OFFSET " + (offset != null ? offset : 0);
@@ -353,12 +355,12 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         return sql;
     }
 
-    String applyReportParameters(final String reportSql, final Map<String, String> queryParams, final boolean isSelfServiceUserReport,
-            final Integer limit, final Integer offset) {
+    String applyReportParameters(final String reportSql, final Map<String, String> queryParams,
+            final boolean isSelfServiceUserReport, final Integer limit, final Integer offset) {
 
         String sql = reportSql;
         for (final String key : queryParams.keySet()) {
-            final String value = resolveToday(queryParams.get(key));
+            final String value = queryParams.get(key);
             SQLInjectionValidator.validateReportParameter(key, value);
             sql = this.genericDataService.replace(sql, key, value);
         }
@@ -383,8 +385,14 @@ public class ReadReportingServiceImpl implements ReadReportingService {
         return sql;
     }
 
-    private static String resolveToday(final String value) {
-        return TODAY.equalsIgnoreCase(value) ? DateUtils.getBusinessLocalDate().format(DateUtils.DEFAULT_DATE_FORMATER) : value;
+    private static Map<String, String> resolveToday(final Map<String, String> queryParams) {
+        if (!queryParams.containsValue(TODAY)) {
+            return queryParams;
+        }
+        final String businessDate = DateUtils.getBusinessLocalDate().format(DateUtils.DEFAULT_DATE_FORMATER);
+        final Map<String, String> resolved = new LinkedHashMap<>();
+        queryParams.forEach((key, value) -> resolved.put(key, TODAY.equals(value) ? businessDate : value));
+        return resolved;
     }
 
     private void applyExportFetchSize(final Connection connection, final PreparedStatement statement) throws SQLException {
@@ -452,7 +460,8 @@ public class ReadReportingServiceImpl implements ReadReportingService {
             return null;
         }
 
-        final String sql = this.genericDataService.wrapSQL("select report_count_sql as the_sql from stretchy_report where report_name = ?");
+        final String sql = this.genericDataService
+                .wrapSQL("select report_count_sql as the_sql from stretchy_report where report_name = ?");
         final SqlRowSet rs = this.jdbcTemplate.queryForRowSet(sql, sqlInjectionPreventerService.encodeSql(name));
 
         return rs.next() ? rs.getString("the_sql") : null;
