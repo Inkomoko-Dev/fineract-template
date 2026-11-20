@@ -49,10 +49,10 @@ class LoanReschedulePreserveTermAndCadenceTest {
         final LoanRepaymentScheduleInstallment from = installment(loan, 2, LocalDate.of(2027, 9, 30));
         when(loan.getRepaymentScheduleInstallments()).thenReturn(List.of(kept, from));
 
-        // 1 kept + 60 future monthly − 6 current = 55
+        // 1 kept + 61 inclusive monthly dues (Sep 2027..Sep 2032) − 6 current = 56
         final Integer delta = service.calculatePreserveTermExtendPeriods(loan, LocalDate.of(2027, 9, 30), 1,
                 PeriodFrequencyType.MONTHS.getValue());
-        assertEquals(55, delta);
+        assertEquals(56, delta);
     }
 
     @Test

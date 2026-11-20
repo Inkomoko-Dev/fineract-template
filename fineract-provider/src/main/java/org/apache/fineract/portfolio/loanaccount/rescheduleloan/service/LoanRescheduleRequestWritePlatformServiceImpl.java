@@ -453,11 +453,15 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             return null;
         }
         final var newFrequency = org.apache.fineract.portfolio.common.domain.PeriodFrequencyType.fromInt(repaymentFrequencyType);
-        final Integer futurePeriods = LoanApplicationTerms.countRepaymentPeriodsBetween(rescheduleFromDate, maturity, repaymentEvery,
+        // countRepaymentPeriodsBetween returns calendar intervals between the two dates (exclusive of an
+        // installment on maturity). Schedule generation places the first rewritten due on rescheduleFromDate
+        // and the last on maturity, so inclusive installment count is intervals + 1.
+        final Integer intervals = LoanApplicationTerms.countRepaymentPeriodsBetween(rescheduleFromDate, maturity, repaymentEvery,
                 newFrequency);
-        if (futurePeriods == null) {
+        if (intervals == null) {
             return null;
         }
+        final int futurePeriods = maturity.isEqual(rescheduleFromDate) ? 1 : intervals + 1;
         int keptBeforeFromDate = 0;
         final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
         if (installments != null) {

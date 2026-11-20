@@ -35,12 +35,13 @@ class LoanApplicationTermsPreserveTermTest {
 
     @Test
     void remainingTermFromMidLoanDoesNotOvershootMaturity() {
-        // Yearly loan: due dates 30 Sep 2026..2031 (6 periods), reschedule from 30 Sep 2027 to maturity 30 Sep 2032.
-        // Remaining under monthly cadence should be 60 periods (Sep 2027 → Sep 2032), not a full-term 70/72.
+        // Yearly loan reschedule from 30 Sep 2027 to maturity 30 Sep 2032 under monthly cadence.
+        // Calendar intervals = 60; inclusive dues on both from and maturity = 61 (first due = from, last = maturity).
         final LocalDate from = LocalDate.of(2027, 9, 30);
         final LocalDate maturity = LocalDate.of(2032, 9, 30);
-        final Integer future = LoanApplicationTerms.countRepaymentPeriodsBetween(from, maturity, 1, PeriodFrequencyType.MONTHS);
-        assertEquals(60, future);
+        final Integer intervals = LoanApplicationTerms.countRepaymentPeriodsBetween(from, maturity, 1, PeriodFrequencyType.MONTHS);
+        assertEquals(60, intervals);
+        assertEquals(61, intervals + 1);
     }
 
     @Test
