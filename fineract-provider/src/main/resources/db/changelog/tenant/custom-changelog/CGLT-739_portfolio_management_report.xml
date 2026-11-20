@@ -82,12 +82,23 @@ tx_asat AS (
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.fee_charges_portion_derived,0) ELSE 0 END) AS f_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.penalty_charges_portion_derived,0) ELSE 0 END) AS pen_adj,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
-          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_adj
+          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_adj,
+        SUM(CASE WHEN t.transaction_type_enum IN (26,27) THEN IFNULL(t.amount,0) ELSE 0 END) AS rd_adj
     FROM m_loan_transaction t
     JOIN base_all b ON b.id = t.loan_id
     WHERE t.is_reversed = 0
         AND t.transaction_date >= DATE('${asOn}') + INTERVAL 1 DAY
         AND ${loanStatusId} <> -1
+    GROUP BY t.loan_id
+),
+ovp_pre_c AS (
+    SELECT t.loan_id,
+        SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
+          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_pre
+    FROM m_loan_transaction t
+    WHERE t.is_reversed = 0
+        AND t.transaction_date < DATE('${asOn}') + INTERVAL 1 DAY
+        AND t.loan_id IN (SELECT loan_id FROM tx_asat WHERE rd_adj > 0)
     GROUP BY t.loan_id
 ),
 cand AS (
@@ -107,11 +118,12 @@ cand AS (
                + GREATEST(IFNULL(b.interest_outstanding_derived,0) + IFNULL(pc.i_adj,0), 0)
                + GREATEST(IFNULL(b.fee_charges_outstanding_derived,0) + IFNULL(pc.f_adj,0), 0)
                + GREATEST(IFNULL(b.penalty_charges_outstanding_derived,0) + IFNULL(pc.pen_adj,0), 0) > 0.005 THEN 300
-            WHEN GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0) > 0.005 THEN 700
+            WHEN CASE WHEN IFNULL(pc.rd_adj,0) > 0 THEN LEAST(GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0) + pc.rd_adj, 0), GREATEST(IFNULL(op.ovp_pre,0), 0)) ELSE GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0) END > 0.005 THEN 700
             WHEN b.loan_status_id = 602 THEN 602
             ELSE 600
         END AS st_id
     FROM base_all b LEFT JOIN tx_asat pc ON pc.loan_id = b.id
+    LEFT JOIN ovp_pre_c op ON op.loan_id = b.id
     WHERE ${loanStatusId} <> -1
 ),
 base AS (
@@ -131,6 +143,7 @@ txa AS (
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.penalty_charges_portion_derived,0) ELSE 0 END) AS pen_adj,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
           - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_adj,
+        SUM(CASE WHEN t.transaction_type_enum IN (26,27) THEN IFNULL(t.amount,0) ELSE 0 END) AS rd_adj,
         SUM(CASE WHEN t.transaction_type_enum = 2 THEN IFNULL(t.principal_portion_derived,0) ELSE 0 END) AS p_paid_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5) THEN IFNULL(t.interest_portion_derived,0) ELSE 0 END) AS i_paid_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5) THEN IFNULL(t.fee_charges_portion_derived,0) ELSE 0 END) AS f_paid_adj,
@@ -186,6 +199,7 @@ tx AS (
         SUM(u.f_adj) AS f_adj,
         SUM(u.pen_adj) AS pen_adj,
         SUM(u.ovp_adj) AS ovp_adj,
+        SUM(u.rd_adj) AS rd_adj,
         SUM(u.p_paid_adj) AS p_paid_adj,
         SUM(u.i_paid_adj) AS i_paid_adj,
         SUM(u.f_paid_adj) AS f_paid_adj,
@@ -205,21 +219,31 @@ tx AS (
         SUM(u.accrued_int) AS accrued_int,
         MAX(u.lp_key) AS lp_key
     FROM (
-        SELECT loan_id, p_adj, i_adj, f_adj, pen_adj, ovp_adj, p_paid_adj, i_paid_adj, f_paid_adj, pen_paid_adj, actual_paid_adj, i_waived_adj, f_waived_adj, pen_waived_adj, recovered_adj, writtenoff_adj, disb_adj,
+        SELECT loan_id, p_adj, i_adj, f_adj, pen_adj, ovp_adj, rd_adj, p_paid_adj, i_paid_adj, f_paid_adj, pen_paid_adj, actual_paid_adj, i_waived_adj, f_waived_adj, pen_waived_adj, recovered_adj, writtenoff_adj, disb_adj,
                CAST(NULL AS DATE) AS cancelled_on, CAST(NULL AS DATE) AS settled_on,
                0 AS excess_paid, 0 AS wo_excess, CAST(NULL AS DATE) AS last_excess_date, 0 AS accrued_int,
                CAST(NULL AS CHAR(27)) AS lp_key
         FROM txa
         UNION ALL
-        SELECT loan_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        SELECT loan_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                cancelled_on, settled_on, excess_paid, wo_excess, last_excess_date, accrued_int, lp_key
         FROM txb
         UNION ALL
-        SELECT loan_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        SELECT loan_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                cancelled_on, settled_on, 0, 0, CAST(NULL AS DATE), 0, CAST(NULL AS CHAR(27))
         FROM txc
     ) u
     GROUP BY u.loan_id
+),
+ovp_pre AS (
+    SELECT t.loan_id,
+        SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
+          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_pre
+    FROM m_loan_transaction t
+    WHERE t.is_reversed = 0
+        AND t.transaction_date < DATE('${asOn}') + INTERVAL 1 DAY
+        AND t.loan_id IN (SELECT loan_id FROM txa WHERE rd_adj > 0)
+    GROUP BY t.loan_id
 ),
 lp AS (
     SELECT tx.loan_id,
@@ -478,7 +502,7 @@ asat AS (
         GREATEST(IFNULL(b.interest_outstanding_derived,0) + IFNULL(pc.i_adj,0), 0) AS i_bal,
         GREATEST(IFNULL(b.fee_charges_outstanding_derived,0) + IFNULL(pc.f_adj,0), 0) AS f_bal,
         GREATEST(IFNULL(b.penalty_charges_outstanding_derived,0) + IFNULL(pc.pen_adj,0), 0) AS pen_bal,
-        GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0) AS ovp_bal,
+        CASE WHEN IFNULL(pc.rd_adj,0) > 0 THEN LEAST(GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0) + pc.rd_adj, 0), GREATEST(IFNULL(op.ovp_pre,0), 0)) ELSE GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0) END AS ovp_bal,
         GREATEST(IFNULL(b.principal_repaid_derived,0) - IFNULL(pc.p_paid_adj,0), 0) AS p_paid,
         GREATEST(IFNULL(b.interest_repaid_derived,0) - IFNULL(pc.i_paid_adj,0), 0) AS i_paid,
         GREATEST(IFNULL(b.fee_charges_repaid_derived,0) - IFNULL(pc.f_paid_adj,0), 0) AS f_paid,
@@ -510,13 +534,14 @@ asat AS (
                + GREATEST(IFNULL(b.interest_outstanding_derived,0) + IFNULL(pc.i_adj,0), 0)
                + GREATEST(IFNULL(b.fee_charges_outstanding_derived,0) + IFNULL(pc.f_adj,0), 0)
                + GREATEST(IFNULL(b.penalty_charges_outstanding_derived,0) + IFNULL(pc.pen_adj,0), 0) > 0.005 THEN 300
-            WHEN GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0) > 0.005 THEN 700
+            WHEN CASE WHEN IFNULL(pc.rd_adj,0) > 0 THEN LEAST(GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0) + pc.rd_adj, 0), GREATEST(IFNULL(op.ovp_pre,0), 0)) ELSE GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0) END > 0.005 THEN 700
             WHEN b.loan_status_id = 602 THEN 602
             ELSE 600
         END AS st_id,
-        LEAST(GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0),
+        LEAST(CASE WHEN IFNULL(pc.rd_adj,0) > 0 THEN LEAST(GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0) + pc.rd_adj, 0), GREATEST(IFNULL(op.ovp_pre,0), 0)) ELSE GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0) END,
               GREATEST(IFNULL(pc.wo_excess,0), 0)) AS wo_ovp_bal
     FROM base b LEFT JOIN tx pc ON pc.loan_id = b.id
+    LEFT JOIN ovp_pre op ON op.loan_id = b.id
 )
 SELECT
     DATE('${asOn}') AS 'As of Date',
@@ -761,12 +786,23 @@ tx_asat AS (
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.fee_charges_portion_derived,0) ELSE 0 END) AS f_adj,
         SUM(CASE WHEN t.transaction_type_enum IN (2,5,6,9,28) THEN IFNULL(t.penalty_charges_portion_derived,0) ELSE 0 END) AS pen_adj,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
-          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_adj
+          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_adj,
+        SUM(CASE WHEN t.transaction_type_enum IN (26,27) THEN IFNULL(t.amount,0) ELSE 0 END) AS rd_adj
     FROM m_loan_transaction t
     JOIN base_all b ON b.id = t.loan_id
     WHERE t.is_reversed = 0
         AND t.transaction_date >= DATE('${asOn}') + INTERVAL 1 DAY
         AND ${loanStatusId} <> -1
+    GROUP BY t.loan_id
+),
+ovp_pre_c AS (
+    SELECT t.loan_id,
+        SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
+          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_pre
+    FROM m_loan_transaction t
+    WHERE t.is_reversed = 0
+        AND t.transaction_date < DATE('${asOn}') + INTERVAL 1 DAY
+        AND t.loan_id IN (SELECT loan_id FROM tx_asat WHERE rd_adj > 0)
     GROUP BY t.loan_id
 ),
 cand AS (
@@ -786,11 +822,12 @@ cand AS (
                + GREATEST(IFNULL(b.interest_outstanding_derived,0) + IFNULL(pc.i_adj,0), 0)
                + GREATEST(IFNULL(b.fee_charges_outstanding_derived,0) + IFNULL(pc.f_adj,0), 0)
                + GREATEST(IFNULL(b.penalty_charges_outstanding_derived,0) + IFNULL(pc.pen_adj,0), 0) > 0.005 THEN 300
-            WHEN GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0) > 0.005 THEN 700
+            WHEN CASE WHEN IFNULL(pc.rd_adj,0) > 0 THEN LEAST(GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0) + pc.rd_adj, 0), GREATEST(IFNULL(op.ovp_pre,0), 0)) ELSE GREATEST(IFNULL(b.total_overpaid_derived,0) - IFNULL(pc.ovp_adj,0), 0) END > 0.005 THEN 700
             WHEN b.loan_status_id = 602 THEN 602
             ELSE 600
         END AS st_id
     FROM base_all b LEFT JOIN tx_asat pc ON pc.loan_id = b.id
+    LEFT JOIN ovp_pre_c op ON op.loan_id = b.id
     WHERE ${loanStatusId} <> -1
 )
 SELECT COUNT(*) AS 'Total Records'
