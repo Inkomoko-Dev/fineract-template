@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -51,6 +52,8 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionData.Save
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.FlagRequest;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionPolicy;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.VerifyRequest;
+import org.apache.fineract.portfolio.creditdecision.data.DelegatedAuthorityData.RuleRequest;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionDelegatedAuthority;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLogReader;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionPolicyWorkflow;
@@ -77,6 +80,7 @@ public class CreditDecisionApiResource {
     private final CreditDecisionPolicyWorkflow workflow;
     private final CreditDecisionLogReader logReader;
     private final CreditDecisionLoanService loanService;
+    private final CreditDecisionDelegatedAuthority delegatedAuthority;
     private final DefaultToApiJsonSerializer<Object> toApiJsonSerializer;
     private final FromJsonHelper fromJsonHelper;
 
@@ -257,6 +261,45 @@ public class CreditDecisionApiResource {
     public String loanDecision(@PathParam("loanId") final Long loanId) {
         context.authenticatedUser().validateHasReadPermission(LOAN_RESOURCE);
         return toApiJsonSerializer.serialize(loanService.status(loanId));
+    }
+
+    @GET
+    @Path("delegatedauthority")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "The rules that choose the IC level an application needing IC review enters")
+    public String delegatedAuthorityRules() {
+        context.authenticatedUser().validateHasReadPermission(LOAN_RESOURCE);
+        return toApiJsonSerializer.serialize(delegatedAuthority.rules());
+    }
+
+    @POST
+    @Path("delegatedauthority")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Add a delegated authority rule")
+    public String createDelegatedAuthority(final String body) {
+        context.authenticatedUser().validateHasPermissionTo("CREATE_ICDELEGATEDAUTHORITY");
+        return toApiJsonSerializer.serialize(delegatedAuthority.create(parse(body, RuleRequest.class)));
+    }
+
+    @PUT
+    @Path("delegatedauthority/{ruleId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Change a delegated authority rule")
+    public String updateDelegatedAuthority(@PathParam("ruleId") final Long ruleId, final String body) {
+        context.authenticatedUser().validateHasPermissionTo("UPDATE_ICDELEGATEDAUTHORITY");
+        return toApiJsonSerializer.serialize(delegatedAuthority.update(ruleId, parse(body, RuleRequest.class)));
+    }
+
+    @DELETE
+    @Path("delegatedauthority/{ruleId}")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Remove a delegated authority rule")
+    public String deleteDelegatedAuthority(@PathParam("ruleId") final Long ruleId) {
+        context.authenticatedUser().validateHasPermissionTo("DELETE_ICDELEGATEDAUTHORITY");
+        delegatedAuthority.delete(ruleId);
+        return toApiJsonSerializer.serialize(java.util.Map.of("id", ruleId));
     }
 
     @GET

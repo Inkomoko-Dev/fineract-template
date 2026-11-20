@@ -55,6 +55,7 @@ public final class CreditDecisionLoanData {
     public static final String EVENT_FAILED = "FAILED";
     public static final String EVENT_HELD = "HELD";
     public static final String EVENT_REJECTED = "REJECTED";
+    public static final String EVENT_ROUTED = "ROUTED";
     public static final String BLOCKER_PENDING_VERIFICATION = "PENDING_VERIFICATION";
     public static final String BLOCKER_PROFILE_OFF = "PROFILE_OFF";
     public static final String BLOCKER_NO_ACTIVE_VERSION = "NO_ACTIVE_VERSION";
