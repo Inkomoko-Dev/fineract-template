@@ -58,6 +58,7 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+import org.apache.fineract.portfolio.loanaccount.excessrefund.service.ExcessRefundDirectCbrGuard;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargePaidByReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
@@ -85,6 +86,7 @@ public class LoanTransactionsApiResource {
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
     private final LoanChargePaidByReadPlatformService loanChargePaidByReadPlatformService;
     private final ConfigurationReadPlatformService configurationReadPlatformService;
+    private final ExcessRefundDirectCbrGuard excessRefundDirectCbrGuard;
 
     @Autowired
     public LoanTransactionsApiResource(final PlatformSecurityContext context, final LoanReadPlatformService loanReadPlatformService,
@@ -93,7 +95,8 @@ public class LoanTransactionsApiResource {
             final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService,
             PaymentTypeReadPlatformService paymentTypeReadPlatformService,
             LoanChargePaidByReadPlatformService loanChargePaidByReadPlatformService,
-            ConfigurationReadPlatformService configurationReadPlatformService) {
+            ConfigurationReadPlatformService configurationReadPlatformService,
+            final ExcessRefundDirectCbrGuard excessRefundDirectCbrGuard) {
         this.context = context;
         this.loanReadPlatformService = loanReadPlatformService;
         this.apiRequestParameterHelper = apiRequestParameterHelper;
@@ -102,6 +105,7 @@ public class LoanTransactionsApiResource {
         this.paymentTypeReadPlatformService = paymentTypeReadPlatformService;
         this.loanChargePaidByReadPlatformService = loanChargePaidByReadPlatformService;
         this.configurationReadPlatformService = configurationReadPlatformService;
+        this.excessRefundDirectCbrGuard = excessRefundDirectCbrGuard;
     }
 
     private boolean is(final String commandParam, final String commandValue) {
@@ -294,6 +298,7 @@ public class LoanTransactionsApiResource {
             final CommandWrapper commandRequest = builder.loanForeclosure(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else if (is(commandParam, "creditBalanceRefund")) {
+            this.excessRefundDirectCbrGuard.assertDirectCbrAllowed(loanId);
             final CommandWrapper commandRequest = builder.creditBalanceRefund(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         }
@@ -313,8 +318,10 @@ public class LoanTransactionsApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Adjust or Reverse a Transaction", description = "Use the default request to adjust a transaction. "
-            + "Use `command=reverseRecoveryPayment` to reverse a recovery payment on a written-off loan.\n\n"
-            + "Adjust mandatory fields: transactionDate, transactionAmount")
+            + "Use `command=reverseRecoveryPayment` to reverse a recovery payment on a written-off loan.\n"
+            + "Use `command=reverseaccrual` to reverse an accrual (posts reversing journal entries for Odoo).\n\n"
+            + "Adjust mandatory fields: transactionDate, transactionAmount. "
+            + "reverseaccrual mandatory fields: transactionDate, locale, dateFormat")
     @RequestBody(required = true, content = @Content(schema = @Schema(implementation = LoanTransactionsApiResourceSwagger.PostLoansLoanIdTransactionsTransactionIdRequest.class)))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanTransactionsApiResourceSwagger.PostLoansLoanIdTransactionsTransactionIdResponse.class))) })
@@ -327,6 +334,8 @@ public class LoanTransactionsApiResource {
         final CommandWrapper commandRequest;
         if (is(commandParam, "reverseRecoveryPayment")) {
             commandRequest = builder.reverseRecoveryPaymentTransaction(loanId, transactionId).build();
+        } else if (is(commandParam, "reverseaccrual") || is(commandParam, "reverseAccrual")) {
+            commandRequest = builder.reverseAccrualTransaction(loanId, transactionId).build();
         } else if (is(commandParam, "editDisbursementCharge")) {
             commandRequest = builder.editDisbursementChargeTransaction(loanId, transactionId).build();
         } else {

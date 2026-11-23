@@ -86,4 +86,26 @@ class VoiceIvrLoanSelfServiceGateTest {
 
         assertThat(xml).contains("outstanding balance");
     }
+
+    @Test
+    void speaksExceptionalLoanStatusesWhenNoActiveLoans() {
+        final VoiceIvrSession session = new VoiceIvrSession();
+        session.setLanguageCode("en");
+        final Loan closed = org.mockito.Mockito.mock(Loan.class);
+        when(loanSelfService.findSelfServiceLoans(10L)).thenReturn(List.of());
+        when(loanSelfService.findExceptionalLoans(10L)).thenReturn(List.of(closed));
+        when(loanSelfService.buildExceptionalLoansResponse(List.of(closed), "en"))
+                .thenReturn("No active loans. Other loan statuses on your account: Loan ****0001 status: loanStatusType.closed.obligations.met.");
+
+        final WhatsAppSessionContextSerializer serializer = new WhatsAppSessionContextSerializer();
+        final org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext context =
+                org.apache.fineract.infrastructure.whatsapp.interactive.data.WhatsAppSessionContext.empty();
+        context.setCandidateClientId(10L);
+        session.setSessionContext(serializer.toJson(context));
+
+        final String xml = loanGate.continueAfterAuthentication(session, "LOAN_BALANCE", "en");
+
+        assertThat(xml).contains("Other loan statuses");
+        assertThat(xml).contains("closed.obligations.met");
+    }
 }

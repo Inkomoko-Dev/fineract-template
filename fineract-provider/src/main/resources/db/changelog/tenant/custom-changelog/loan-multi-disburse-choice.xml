@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet author="inkomoko" id="loan-multi-disburse-choice">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan" columnName="multi_disburse_loan"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_loan">
+            <column name="multi_disburse_loan" type="BOOLEAN"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet author="inkomoko" id="loan-multi-disburse-explicit-choice">
+        <comment>A blank loan flag is a single disbursement, for active loans and for loans still before approval. Loans that already have more than one tranche keep the multi-tranche mark. A product that does not allow multiple disbursals cannot leave a loan marked multi-tranche.</comment>
+        <sql><![CDATA[
+            UPDATE m_loan ml
+            JOIN m_product_loan lp ON lp.id = ml.product_id
+            LEFT JOIN (
+                SELECT d.loan_id, COUNT(*) AS tranche_count
+                FROM m_loan_disbursement_detail d
+                GROUP BY d.loan_id
+            ) tranche_count ON tranche_count.loan_id = ml.id
+            SET ml.multi_disburse_loan = CASE
+                WHEN lp.allow_multiple_disbursals = 1
+                     AND ml.multi_disburse_loan IS NULL
+                     AND COALESCE(tranche_count.tranche_count, 0) > 1 THEN 1
+                WHEN lp.allow_multiple_disbursals = 0 THEN 0
+                WHEN ml.multi_disburse_loan IS NULL THEN 0
+                ELSE ml.multi_disburse_loan
+            END
+            WHERE ml.multi_disburse_loan IS NULL
+               OR (lp.allow_multiple_disbursals = 0 AND ml.multi_disburse_loan = 1);
+        ]]></sql>
+    </changeSet>
+</databaseChangeLog>

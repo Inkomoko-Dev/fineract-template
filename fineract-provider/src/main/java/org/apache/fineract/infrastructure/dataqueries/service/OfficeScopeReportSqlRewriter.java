@@ -29,7 +29,7 @@ public final class OfficeScopeReportSqlRewriter {
     private static final String PLACEHOLDER = "\\$\\{currentUserHierarchy\\}";
 
     private static final Pattern CONCAT_FORM = Pattern
-            .compile(COLUMN + "\\s+like\\s+concat\\(\\s*'" + PLACEHOLDER + "'\\s*,\\s*'%'\\s*\\)", Pattern.CASE_INSENSITIVE);
+            .compile(COLUMN + "\\s+like\\s+concat\\s*\\(\\s*'" + PLACEHOLDER + "'\\s*,\\s*'%'\\s*\\)", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern INLINE_FORM = Pattern.compile(COLUMN + "\\s+like\\s+'" + PLACEHOLDER + "%'",
             Pattern.CASE_INSENSITIVE);

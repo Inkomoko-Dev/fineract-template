@@ -19,12 +19,13 @@
 package org.apache.fineract.portfolio.loanaccount.bulkreschedule.service;
 
 import com.google.gson.Gson;
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.serialization.GoogleGsonSerializerHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.BulkRescheduleFilterDto;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.data.ReschedulingDetailsDto;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleResult;
 import org.apache.fineract.portfolio.loanaccount.bulkreschedule.domain.BulkRescheduleResult.BulkRescheduleResultStatus;
@@ -33,6 +34,7 @@ import org.apache.fineract.portfolio.loanaccount.bulkreschedule.repository.BulkR
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
+import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,7 @@ public class BulkReschedulePreviewWorker {
     private final BulkRescheduleResultRepository resultRepository;
     private final LoanRepository loanRepository;
     private final BulkRescheduleValidationService validationService;
+    private final BulkRescheduleLoanSnapshotService snapshotService;
     private final Gson gson = GoogleGsonSerializerHelper.createGsonBuilder().create();
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -63,12 +66,20 @@ public class BulkReschedulePreviewWorker {
             return;
         }
         final ReschedulingDetailsDto loanDetails = gson.fromJson(gson.toJson(details), ReschedulingDetailsDto.class);
-        result.setOriginalInterestRate(currentInterestRate(loan));
+        result.setOriginalInterestRate(snapshotService.currentNominalInterestRate(loan));
         result.setNewInterestRate(loanDetails.getNewInterestRate());
         populateSnapshot(result, loan, loanDetails);
+        final InterestMethod interestMethod = resolveInterestMethod(result);
+        final Optional<String> skipReason = validationService.findAlreadyAtTargetSkipReason(loan, loanDetails.getNewInterestRate(),
+                interestMethod);
+        if (skipReason.isPresent()) {
+            result.setStatus(BulkRescheduleResultStatus.SKIPPED);
+            result.setExcludeReason(skipReason.get());
+            resultRepository.save(result);
+            return;
+        }
         try {
-            final Long executionId = result.getExecution() == null ? null : result.getExecution().getId();
-            final List<String> eligibilityErrors = validationService.validateLoanEligibilityForReschedule(loan, executionId);
+            final List<String> eligibilityErrors = validationService.validateLoanEligibilityForReschedule(loan);
             if (!eligibilityErrors.isEmpty()) {
                 throw new IllegalArgumentException(String.join("; ", eligibilityErrors));
             }
@@ -101,6 +112,17 @@ public class BulkReschedulePreviewWorker {
         });
     }
 
+    private InterestMethod resolveInterestMethod(final BulkRescheduleResult result) {
+        if (result.getExecution() == null || result.getExecution().getFiltersJson() == null) {
+            return null;
+        }
+        final BulkRescheduleFilterDto filters = gson.fromJson(result.getExecution().getFiltersJson(), BulkRescheduleFilterDto.class);
+        if (filters == null) {
+            return null;
+        }
+        return LoanBulkRescheduleSpecification.parseInterestMethod(filters.getInterestMethod());
+    }
+
     private LocalDate resolveRescheduleFromDate(final Loan loan, final RescheduleFromDateStrategy strategy) {
         final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
         if (installments == null || installments.isEmpty()) {
@@ -113,13 +135,6 @@ public class BulkReschedulePreviewWorker {
         return installments.get(0).getDueDate();
     }
 
-    private BigDecimal currentInterestRate(final Loan loan) {
-        if (loan.getLoanProductRelatedDetail() == null) {
-            return null;
-        }
-        return loan.getLoanProductRelatedDetail().getNominalInterestRatePerPeriod();
-    }
-
     private void populateSnapshot(final BulkRescheduleResult result, final Loan loan, final ReschedulingDetailsDto details) {
         result.setLoanAccountNumber(loan.getAccountNumber());
         result.setAccountNumber(loan.getAccountNumber());
@@ -130,9 +145,9 @@ public class BulkReschedulePreviewWorker {
         result.setLoanOfficerId(loan.getLoanOfficer() == null ? null : loan.getLoanOfficer().getId());
         result.setLoanOfficerName(loan.getLoanOfficer() == null ? null : loan.getLoanOfficer().displayName());
         result.setLoanStatus(loan.status() == null ? null : loan.status().toString());
-        result.setInterestRateMethod(loan.getLoanProductRelatedDetail() == null
-                || loan.getLoanProductRelatedDetail().getInterestMethod() == null ? null
-                        : loan.getLoanProductRelatedDetail().getInterestMethod().name());
+        result.setInterestRateMethod(loan.getLoanRepaymentScheduleDetail() == null
+                || loan.getLoanRepaymentScheduleDetail().getInterestMethod() == null ? null
+                        : loan.getLoanRepaymentScheduleDetail().getInterestMethod().name());
         result.setTotalOutstanding(loan.getSummary() == null ? null : loan.getSummary().getTotalOutstanding());
         result.setCurrentTerm(loan.getRepaymentScheduleInstallments() == null ? 0
                 : (int) loan.getRepaymentScheduleInstallments().stream().filter(i -> !i.isObligationsMet()).count());

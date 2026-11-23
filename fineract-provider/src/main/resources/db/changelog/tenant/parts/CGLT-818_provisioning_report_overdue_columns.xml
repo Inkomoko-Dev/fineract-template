@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog logicalFilePath="db/changelog/tenant/custom-changelog/CGLT-818_provisioning_report_overdue_columns.xml" xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet id="CGLT-818-1-provisioning-report-overdue-columns" author="willy" runOnChange="true">
+        <!-- The report is tenant-configured; retry the update once it is installed. -->
+        <preConditions onFail="CONTINUE">
+            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Provisioning Report'</sqlCheck>
+            <columnExists tableName="stretchy_report" columnName="report_count_sql"/>
+        </preConditions>
+        <update tableName="stretchy_report">
+            <column name="report_sql"><![CDATA[WITH run AS (
+    SELECT MAX(id) AS history_id
+    FROM m_provisioning_history
+    WHERE
+        YEAR(created_date) = YEAR(STR_TO_DATE('${endDate}', '%Y-%m-%d'))
+        AND MONTH(created_date) = MONTH(STR_TO_DATE('${endDate}', '%Y-%m-%d'))
+),
+run_loans AS (
+    SELECT DISTINCT lpl.loan_id
+    FROM m_loanproduct_provisioning_entry m
+    JOIN run ON run.history_id = m.history_id
+    JOIN m_loanproduct_provisioning_entry_loans lpl ON lpl.loanproduct_provision_entry_id = m.id
+),
+live AS (
+    SELECT
+        t.id,
+        t.loan_id,
+        t.transaction_type_enum AS type,
+        t.principal_portion_derived AS p,
+        t.interest_portion_derived AS i,
+        t.fee_charges_portion_derived AS f,
+        t.penalty_charges_portion_derived AS pen
+    FROM m_loan_transaction t
+    JOIN run_loans rl ON rl.loan_id = t.loan_id
+    WHERE t.is_reversed = 0
+      AND t.transaction_date <= DATE('${endDate}')
+),
+alloc AS (
+    SELECT
+        mp.loan_repayment_schedule_id AS sid,
+        SUM(COALESCE(mp.principal_portion_derived, 0)) AS p,
+        SUM(COALESCE(mp.interest_portion_derived, 0)) AS i,
+        SUM(COALESCE(mp.fee_charges_portion_derived, 0)) AS f,
+        SUM(COALESCE(mp.penalty_charges_portion_derived, 0)) AS pen
+    FROM live
+    JOIN m_loan_transaction_repayment_schedule_mapping mp ON mp.loan_transaction_id = live.id
+    GROUP BY mp.loan_repayment_schedule_id
+),
+charge_waived AS (
+    SELECT
+        rs.id AS sid,
+        SUM(IF(c.is_penalty = 0, pb.amount, 0)) AS f,
+        SUM(IF(c.is_penalty = 1, pb.amount, 0)) AS pen
+    FROM live
+    JOIN m_loan_charge_paid_by pb ON pb.loan_transaction_id = live.id
+    JOIN m_loan_charge c ON c.id = pb.loan_charge_id AND c.is_active = 1
+    JOIN m_loan_repayment_schedule rs ON rs.loan_id = c.loan_id
+        AND c.due_for_collection_as_of_date > rs.fromdate
+        AND c.due_for_collection_as_of_date <= rs.duedate
+    WHERE live.type = 9
+    GROUP BY rs.id
+),
+written_off AS (
+    SELECT
+        loan_id,
+        MAX(type IN (6, 32)) AS fully_written_off,
+        SUM(IF(type = 31, COALESCE(p, 0), 0)) AS p,
+        SUM(IF(type = 31, COALESCE(i, 0), 0)) AS i,
+        SUM(IF(type = 31, COALESCE(f, 0), 0)) AS f,
+        SUM(IF(type = 31, COALESCE(pen, 0), 0)) AS pen
+    FROM live
+    WHERE type IN (6, 31, 32)
+    GROUP BY loan_id
+),
+due AS (
+    SELECT
+        rs.loan_id,
+        MAX(rs.duedate) AS last_expected_repayment_date,
+        SUM(IF(rs.duedate < DATE('${endDate}'),
+            COALESCE(rs.principal_amount, 0) - COALESCE(a.p, 0), 0)) AS p,
+        SUM(IF(rs.duedate < DATE('${endDate}'),
+            COALESCE(rs.interest_amount, 0) - COALESCE(a.i, 0), 0)) AS i,
+        SUM(IF(rs.duedate < DATE('${endDate}'),
+            COALESCE(rs.fee_charges_amount, 0) - COALESCE(a.f, 0) - COALESCE(w.f, 0), 0)) AS f,
+        SUM(IF(rs.duedate < DATE('${endDate}'),
+            COALESCE(rs.penalty_charges_amount, 0) - COALESCE(a.pen, 0) - COALESCE(w.pen, 0), 0)) AS pen
+    FROM m_loan_repayment_schedule rs
+    JOIN run_loans rl ON rl.loan_id = rs.loan_id
+    LEFT JOIN alloc a ON a.sid = rs.id
+    LEFT JOIN charge_waived w ON w.sid = rs.id
+    WHERE rs.duedate <= DATE('${endDate}')
+    GROUP BY rs.loan_id
+),
+overdue AS (
+    SELECT
+        d.loan_id,
+        d.last_expected_repayment_date,
+        IF(COALESCE(wo.fully_written_off, 0) = 1, 0,
+            d.p - LEAST(COALESCE(wo.p, 0), GREATEST(d.p, 0))
+            + d.i - LEAST(COALESCE(wo.i, 0), GREATEST(d.i, 0))
+            + d.f - LEAST(COALESCE(wo.f, 0), GREATEST(d.f, 0))
+            + d.pen - LEAST(COALESCE(wo.pen, 0), GREATEST(d.pen, 0))) AS total_amount_overdue
+    FROM due d
+    LEFT JOIN written_off wo ON wo.loan_id = d.loan_id
+)
+SELECT
+    o.name AS `Office Name`,
+    p.name AS `Product Name`,
+    COALESCE(d.category_name, pc.category_name) AS `Category`,
+    c.display_name AS `Client Name`,
+
+    l.id AS `Loan ID`,
+    l.account_no AS `Account No.`,
+    m.currency_code AS `Currency Code`,
+    m.overdue_in_days AS `Days In Arrears`,
+    od.last_expected_repayment_date AS `Last Expected Repayment Date`,
+
+    COALESCE(d.provision_percentage, 0) AS `Provisioning Percentage`,
+    CAST(ROUND(COALESCE(od.total_amount_overdue, 0), l.currency_digits) AS DECIMAL(19, 2)) AS `Total Amount Overdue`,
+    COALESCE(lpl.provisioning_amount, 0) AS `Provisioning Amount`,
+    CONCAT('P', m.history_id) AS `Transaction ID`,
+    la.name AS `Liability Account`,
+    ea.name AS `Expense Account`
+
+FROM m_loanproduct_provisioning_entry m
+
+INNER JOIN m_loanproduct_provisioning_entry_loans lpl
+    ON lpl.loanproduct_provision_entry_id = m.id
+
+INNER JOIN m_loan l
+    ON l.id = lpl.loan_id
+
+LEFT JOIN overdue od
+    ON od.loan_id = l.id
+
+LEFT JOIN m_client c
+    ON c.id = l.client_id
+
+LEFT JOIN m_office o
+    ON o.id = m.office_id
+
+LEFT JOIN m_product_loan p
+    ON p.id = m.product_id
+
+LEFT JOIN m_provision_category pc
+    ON pc.id = m.category_id
+
+LEFT JOIN m_provisioning_criteria_definition d
+    ON d.id = m.criteria_definition_id
+
+LEFT JOIN acc_gl_account la
+    ON la.id = m.liability_account
+
+LEFT JOIN acc_gl_account ea
+    ON ea.id = m.expense_account
+
+WHERE
+    m.history_id = (SELECT history_id FROM run)
+
+    AND (
+        ${officeId} IS NULL
+        OR m.office_id IN (
+            SELECT o2.id
+            FROM m_office o1
+            JOIN m_office o2
+                ON o2.hierarchy LIKE CONCAT(o1.hierarchy, '%')
+            WHERE o1.id = ${officeId}
+        )
+    )
+
+ORDER BY
+    o.name ASC,
+    pc.category_name ASC,
+    m.overdue_in_days DESC,
+    l.id ASC]]></column>
+            <column name="report_count_sql"><![CDATA[SELECT COUNT(*)
+FROM m_loanproduct_provisioning_entry m
+INNER JOIN m_loanproduct_provisioning_entry_loans lpl
+    ON lpl.loanproduct_provision_entry_id = m.id
+INNER JOIN m_loan l
+    ON l.id = lpl.loan_id
+WHERE
+    m.history_id = (
+        SELECT MAX(id)
+        FROM m_provisioning_history
+        WHERE
+            YEAR(created_date) = YEAR(STR_TO_DATE('${endDate}', '%Y-%m-%d'))
+            AND MONTH(created_date) = MONTH(STR_TO_DATE('${endDate}', '%Y-%m-%d'))
+    )
+    AND (
+        ${officeId} IS NULL
+        OR m.office_id IN (
+            SELECT o2.id
+            FROM m_office o1
+            JOIN m_office o2
+                ON o2.hierarchy LIKE CONCAT(o1.hierarchy, '%')
+            WHERE o1.id = ${officeId}
+        )
+    )]]></column>
+            <where>report_name = 'Provisioning Report'</where>
+        </update>
+    </changeSet>
+</databaseChangeLog>

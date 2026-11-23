@@ -377,8 +377,20 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     // current installment?
                     if (isTransactionInAdvanceOfInstallment(installmentIndex, installments, transactionDate,
                             transactionAmountUnprocessed)) {
-                        transactionAmountUnprocessed = handleTransactionThatIsPaymentInAdvanceOfInstallment(currentInstallment,
-                                installments, loanTransaction, transactionDate, transactionAmountUnprocessed, transactionMappings);
+                        // A repayment dated before the due date is an installment payment unless it actually closes
+                        // the remaining principal (early settlement). Installment payments must clear this
+                        // installment's contractual interest and principal before any amount is carried onto a later
+                        // installment. Pro-rata interest and future-interest cancellation apply only to that
+                        // settlement, so a few days' unearned interest is not pushed forward as a false advance.
+                        if (loanTransaction.isWaiver() || currentInstallment.isLoanPastMaturity()
+                                || !isEarlySettlementOfRemainingPrincipal(currentInstallment, installments, transactionDate,
+                                        transactionAmountUnprocessed)) {
+                            transactionAmountUnprocessed = handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment,
+                                    loanTransaction, transactionAmountUnprocessed, transactionMappings);
+                        } else {
+                            transactionAmountUnprocessed = handleTransactionThatIsPaymentInAdvanceOfInstallment(currentInstallment,
+                                    installments, loanTransaction, transactionDate, transactionAmountUnprocessed, transactionMappings);
+                        }
                     } else if (isTransactionALateRepaymentOnInstallment(installmentIndex, installments,
                             loanTransaction.getTransactionDate())) {
                         // does this result in a late payment of existing
@@ -397,6 +409,26 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         }
         loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
         return transactionAmountUnprocessed;
+    }
+
+    /**
+     * True when {@code payment} covers the principal still outstanding from this installment onward, plus interest
+     * already earned and any fees or penalties still due. That is an early settlement of the loan, not a payment of
+     * the current contractual installment.
+     */
+    private boolean isEarlySettlementOfRemainingPrincipal(final LoanRepaymentScheduleInstallment currentInstallment,
+            final List<LoanRepaymentScheduleInstallment> installments, final LocalDate transactionDate, final Money payment) {
+        final MonetaryCurrency currency = payment.getCurrency();
+        Money amountToSettle = Money.zero(currency);
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            if (installment.getInstallmentNumber() < currentInstallment.getInstallmentNumber() || installment.isObligationsMet()) {
+                continue;
+            }
+            amountToSettle = amountToSettle.plus(installment.getPrincipalOutstanding(currency))
+                    .plus(installment.getInterestPayableOnEarlySettlement(currency, transactionDate))
+                    .plus(installment.getFeeChargesOutstanding(currency)).plus(installment.getPenaltyChargesOutstanding(currency));
+        }
+        return payment.isGreaterThanOrEqualTo(amountToSettle) && amountToSettle.isGreaterThanZero();
     }
 
     private Set<LoanCharge> extractFeeCharges(final Set<LoanCharge> loanCharges) {

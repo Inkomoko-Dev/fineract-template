@@ -179,6 +179,8 @@ public final class LoanAccountData {
     private final Collection<PortfolioAccountData> accountLinkingOptions;
 
     private final Boolean multiDisburseLoan;
+    private Boolean multiDisburseLoanListing;
+    private Integer nextTrancheNumber;
 
     private final Boolean canDefineInstallmentAmount;
 
@@ -263,6 +265,13 @@ public final class LoanAccountData {
     private String thirdPartyDisbursementProvider;
     private Collection<String> thirdPartyDisbursementProviderOptions;
     private BigDecimal equityContributionLoanPercentage;
+    private BigDecimal firstInstallmentPrincipal;
+
+    private Boolean firstInstallmentAsPercentage;
+    private String tranchePrincipalPercentages;
+    private BigDecimal previousTrancheRepaidPercentage;
+
+    private Boolean previousTrancheThresholdAsPercentage;
     private PortfolioAccountData linkedVendorAccount;
     private CodeValueData department;
     private Long departmentId;
@@ -848,6 +857,7 @@ public final class LoanAccountData {
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
+        copyTrancheOverrides(loanAccountData, acc);
         loanAccountData.setVendorClientOptions(clientAcc.vendorClientOptions);
         loanAccountData.setDepartment(acc.department);
         loanAccountData.setDepartmentOptions(acc.departmentOptions);
@@ -1450,6 +1460,7 @@ public final class LoanAccountData {
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
+        copyTrancheOverrides(loanAccountData, acc);
         loanAccountData.setDepartment(acc.department);
         loanAccountData.setDepartmentOptions(acc.departmentOptions);
         loanAccountData.setLoanDecisionState(acc.loanDecisionState);
@@ -1489,6 +1500,7 @@ public final class LoanAccountData {
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
+        copyTrancheOverrides(loanAccountData, acc);
         loanAccountData.setVendorClientOptions(acc.vendorClientOptions);
         loanAccountData.setVendorSavingsAccountOptions(acc.vendorSavingsAccountOptions);
         loanAccountData.setDepartment(acc.department);
@@ -1545,6 +1557,7 @@ public final class LoanAccountData {
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
+        copyTrancheOverrides(loanAccountData, acc);
         loanAccountData.setVendorClientOptions(acc.vendorClientOptions);
         loanAccountData.setVendorSavingsAccountOptions(acc.vendorSavingsAccountOptions);
         loanAccountData.setDepartment(acc.department);
@@ -1675,6 +1688,7 @@ public final class LoanAccountData {
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
+        copyTrancheOverrides(loanAccountData, acc);
         loanAccountData.setDepartment(acc.department);
         loanAccountData.setDepartmentOptions(acc.departmentOptions);
         loanAccountData.setLoanDecisionState(acc.loanDecisionState);
@@ -1728,6 +1742,7 @@ public final class LoanAccountData {
         loanAccountData.setThirdPartyDisbursementProvider(acc.thirdPartyDisbursementProvider);
         loanAccountData.setRequiresEquityContribution(acc.requiresEquityContribution);
         loanAccountData.setEquityContributionLoanPercentage(acc.equityContributionLoanPercentage);
+        copyTrancheOverrides(loanAccountData, acc);
         loanAccountData.setDepartment(acc.department);
         loanAccountData.setDepartmentOptions(acc.departmentOptions);
         loanAccountData.setLoanDecisionState(acc.loanDecisionState);
@@ -2137,6 +2152,19 @@ public final class LoanAccountData {
         return multiDisburseLoan;
     }
 
+    public void setTrancheListing(final Boolean multiDisburseLoanListing, final Integer nextTrancheNumber) {
+        this.multiDisburseLoanListing = multiDisburseLoanListing;
+        this.nextTrancheNumber = nextTrancheNumber;
+    }
+
+    public Boolean getMultiDisburseLoanListing() {
+        return this.multiDisburseLoanListing;
+    }
+
+    public Integer getNextTrancheNumber() {
+        return this.nextTrancheNumber;
+    }
+
     public BigDecimal getTotalPaidFeeCharges() {
         if (this.summary != null) {
             return this.summary.getTotalPaidFeeCharges();
@@ -2300,6 +2328,54 @@ public final class LoanAccountData {
 
     public void setEquityContributionLoanPercentage(BigDecimal equityContributionLoanPercentage) {
         this.equityContributionLoanPercentage = equityContributionLoanPercentage;
+    }
+
+    public BigDecimal getFirstInstallmentPrincipal() {
+        return this.firstInstallmentPrincipal;
+    }
+
+    public void setFirstInstallmentPrincipal(final BigDecimal firstInstallmentPrincipal) {
+        this.firstInstallmentPrincipal = firstInstallmentPrincipal;
+    }
+
+    public Boolean getFirstInstallmentAsPercentage() {
+        return this.firstInstallmentAsPercentage;
+    }
+
+    public void setFirstInstallmentAsPercentage(final Boolean firstInstallmentAsPercentage) {
+        this.firstInstallmentAsPercentage = firstInstallmentAsPercentage;
+    }
+
+    public String getTranchePrincipalPercentages() {
+        return this.tranchePrincipalPercentages;
+    }
+
+    public void setTranchePrincipalPercentages(final String tranchePrincipalPercentages) {
+        this.tranchePrincipalPercentages = tranchePrincipalPercentages;
+    }
+
+    public BigDecimal getPreviousTrancheRepaidPercentage() {
+        return this.previousTrancheRepaidPercentage;
+    }
+
+    public void setPreviousTrancheRepaidPercentage(final BigDecimal previousTrancheRepaidPercentage) {
+        this.previousTrancheRepaidPercentage = previousTrancheRepaidPercentage;
+    }
+
+    public Boolean getPreviousTrancheThresholdAsPercentage() {
+        return this.previousTrancheThresholdAsPercentage;
+    }
+
+    public void setPreviousTrancheThresholdAsPercentage(final Boolean previousTrancheThresholdAsPercentage) {
+        this.previousTrancheThresholdAsPercentage = previousTrancheThresholdAsPercentage;
+    }
+
+    private static void copyTrancheOverrides(final LoanAccountData target, final LoanAccountData source) {
+        target.setFirstInstallmentPrincipal(source.firstInstallmentPrincipal);
+        target.setFirstInstallmentAsPercentage(source.firstInstallmentAsPercentage);
+        target.setTranchePrincipalPercentages(source.tranchePrincipalPercentages);
+        target.setPreviousTrancheRepaidPercentage(source.previousTrancheRepaidPercentage);
+        target.setPreviousTrancheThresholdAsPercentage(source.previousTrancheThresholdAsPercentage);
     }
 
     public PortfolioAccountData getLinkedVendorAccount() {

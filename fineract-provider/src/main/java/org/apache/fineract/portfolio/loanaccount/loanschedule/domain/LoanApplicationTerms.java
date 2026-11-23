@@ -1498,6 +1498,9 @@ public final class LoanApplicationTerms {
     }
 
     public Money getMaxOutstandingBalance() {
+        if (this.maxOutstandingBalance == null || this.maxOutstandingBalance.signum() == 0) {
+            return null;
+        }
         return Money.of(getCurrency(), this.maxOutstandingBalance);
     }
 

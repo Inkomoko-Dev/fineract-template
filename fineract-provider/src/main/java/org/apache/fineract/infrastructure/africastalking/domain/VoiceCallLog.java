@@ -119,7 +119,7 @@ public class VoiceCallLog extends AbstractPersistableCustom {
     }
 
     public void applyEventUpdate(final String status, final Integer durationSeconds, final String recordingUrl, final String dtmfDigits) {
-        if (status != null) {
+        if (status != null && isForwardStatusTransition(this.status, status)) {
             this.status = status;
         }
         if (durationSeconds != null) {
@@ -131,5 +131,46 @@ public class VoiceCallLog extends AbstractPersistableCustom {
         if (dtmfDigits != null) {
             this.dtmfDigits = dtmfDigits;
         }
+    }
+
+    /**
+     * Ignore out-of-order webhooks that would rewind a call to an earlier lifecycle state.
+     */
+    static boolean isForwardStatusTransition(final String currentStatus, final String newStatus) {
+        if (newStatus == null) {
+            return false;
+        }
+        if (currentStatus == null || currentStatus.isBlank()) {
+            return true;
+        }
+        if (currentStatus.equalsIgnoreCase(newStatus)) {
+            return true;
+        }
+        // Terminal statuses share the same rank and must not overwrite each other.
+        return statusRank(newStatus) > statusRank(currentStatus);
+    }
+
+    private static int statusRank(final String status) {
+        return switch (status.toUpperCase()) {
+            case "INITIATED" -> 10;
+            case "RINGING" -> 20;
+            case "ANSWERED" -> 30;
+            // All terminal outcomes share rank 40 so they replace non-terminals but not each other.
+            case "BUSY", "REJECTED", "NO_ANSWER", "FAILED", "COMPLETED" -> 40;
+            default -> 0;
+        };
+    }
+
+    /**
+     * Unanswered terminal outcomes that should create a missed-call callback for inbound calls.
+     */
+    public static boolean isUnansweredTerminal(final String status) {
+        if (status == null) {
+            return false;
+        }
+        return switch (status.toUpperCase()) {
+            case "BUSY", "REJECTED", "NO_ANSWER", "FAILED" -> true;
+            default -> false;
+        };
     }
 }

@@ -331,8 +331,29 @@ public class LoanUtilService {
                                 .getAsBigDecimal();
                     }
 
-                    disbursementDatas.add(
-                            new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate, principal, netDisbursalAmount));
+                    final LoanDisbursementDetails detail = new LoanDisbursementDetails(expectedDisbursementDate, actualDisbursementDate,
+                            principal, netDisbursalAmount);
+                    if (jsonObject.has(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM)
+                            && jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM).isJsonPrimitive()
+                            && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM).getAsString())) {
+                        detail.setPreviousTrancheRepaidMinimum(
+                                jsonObject.getAsJsonPrimitive(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_MINIMUM).getAsBigDecimal());
+                    }
+                    if (jsonObject.has(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE)
+                            && jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE).isJsonPrimitive()) {
+                        detail.setPreviousTrancheRepaidAsPercentage(
+                                jsonObject.get(LoanApiConstants.PREVIOUS_TRANCHE_REPAID_AS_PERCENTAGE).getAsBoolean());
+                    }
+                    if (jsonObject.has(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE)
+                            && jsonObject.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE).isJsonPrimitive()) {
+                        detail.setPrincipalAsPercentage(jsonObject.get(LoanApiConstants.PRINCIPAL_AS_PERCENTAGE).getAsBoolean());
+                    }
+                    if (jsonObject.has(LoanApiConstants.PRINCIPAL_PERCENTAGE)
+                            && jsonObject.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).isJsonPrimitive()
+                            && StringUtils.isNotBlank(jsonObject.get(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsString())) {
+                        detail.setPrincipalPercentage(jsonObject.getAsJsonPrimitive(LoanApiConstants.PRINCIPAL_PERCENTAGE).getAsBigDecimal());
+                    }
+                    disbursementDatas.add(detail);
                     i++;
                 } while (i < disbursementDataArray.size());
             }

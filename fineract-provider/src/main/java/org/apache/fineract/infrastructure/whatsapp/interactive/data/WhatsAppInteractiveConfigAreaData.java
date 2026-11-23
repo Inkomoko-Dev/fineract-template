@@ -34,5 +34,7 @@ public class WhatsAppInteractiveConfigAreaData {
     private String label;
     private boolean managedExternally;
     private String externalEndpoint;
+    /** Documents deferred/external config areas (menus, business hours, advisor inbox). */
+    private String deferredNote;
     private Map<String, Object> settings = new LinkedHashMap<>();
 }

@@ -36,8 +36,9 @@ public class NotificationCommandService {
     private final VoiceNotificationChannel voiceNotificationChannel;
 
     public NotificationResult send(final NotificationCommand command) {
-        if (!notificationPolicy.isAllowed(command)) {
-            return NotificationResult.rejected("Outbound notification blocked by policy (consent/opt-out).");
+        final String denialCode = notificationPolicy.denialCode(command);
+        if (denialCode != null) {
+            return NotificationResult.rejected(denialCode);
         }
         if (command.getChannel() == NotificationChannel.WHATSAPP) {
             return whatsAppNotificationChannel.send(command);

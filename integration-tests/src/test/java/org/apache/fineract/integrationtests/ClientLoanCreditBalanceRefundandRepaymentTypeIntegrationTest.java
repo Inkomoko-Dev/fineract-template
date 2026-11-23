@@ -306,9 +306,10 @@ public class ClientLoanCreditBalanceRefundandRepaymentTypeIntegrationTest {
                 disbursedLoanID, "resourceId");
         Assertions.assertNotNull(resourceId);
 
-        this.journalEntryHelper.checkJournalEntryForAssetAccount(assetAccount, creditBalanceRefundDate,
-                new JournalEntry(refund, JournalEntry.TransactionType.DEBIT));
+        // CGLT-394: Dr overpayment liability, Cr fund source (asset)
         this.journalEntryHelper.checkJournalEntryForLiabilityAccount(overpaymentAccount, creditBalanceRefundDate,
+                new JournalEntry(refund, JournalEntry.TransactionType.DEBIT));
+        this.journalEntryHelper.checkJournalEntryForAssetAccount(assetAccount, creditBalanceRefundDate,
                 new JournalEntry(refund, JournalEntry.TransactionType.CREDIT));
 
     }
@@ -327,9 +328,10 @@ public class ClientLoanCreditBalanceRefundandRepaymentTypeIntegrationTest {
                 disbursedLoanID, "resourceId");
         Assertions.assertNotNull(resourceId);
 
-        this.journalEntryHelper.checkJournalEntryForAssetAccount(assetAccount, creditBalanceRefundDate,
-                new JournalEntry(refund, JournalEntry.TransactionType.DEBIT));
+        // CGLT-394: Dr overpayment liability, Cr fund source (asset)
         this.journalEntryHelper.checkJournalEntryForLiabilityAccount(overpaymentAccount, creditBalanceRefundDate,
+                new JournalEntry(refund, JournalEntry.TransactionType.DEBIT));
+        this.journalEntryHelper.checkJournalEntryForAssetAccount(assetAccount, creditBalanceRefundDate,
                 new JournalEntry(refund, JournalEntry.TransactionType.CREDIT));
 
     }

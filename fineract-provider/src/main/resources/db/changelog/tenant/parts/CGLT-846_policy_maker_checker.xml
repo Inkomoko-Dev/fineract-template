@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- Activating a policy version goes through the Maker-Checker workflow of the platform (the Checker Inbox): the
+         person who submits a version is the maker, and a checker approves the task. The version keeps the id of its
+         task, so it can be followed from the profile page and settled when the task is rejected in the inbox. -->
+
+    <changeSet id="CGLT-846-version-maker-checker-task" author="omoi">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_credit_decision_profile_version" columnName="maker_checker_id"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="m_credit_decision_profile_version">
+            <column name="maker_checker_id" type="BIGINT"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="CGLT-846-activate-credit-decision-permissions" author="omoi">
+        <sql>
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('portfolio', 'ACTIVATE_CREDITDECISION', 'CREDITDECISION', 'ACTIVATE', 1)
+            ON DUPLICATE KEY UPDATE can_maker_checker = 1;
+            INSERT INTO m_permission (`grouping`, code, entity_name, action_name, can_maker_checker)
+            VALUES ('portfolio', 'ACTIVATE_CREDITDECISION_CHECKER', 'CREDITDECISION', 'ACTIVATE_CHECKER', 0)
+            ON DUPLICATE KEY UPDATE entity_name = VALUES(entity_name);
+        </sql>
+    </changeSet>
+
+    <!-- Whoever could approve a version before can be its checker now, and the super user can do everything. -->
+    <changeSet id="CGLT-846-grant-activate-credit-decision" author="omoi">
+        <sql splitStatements="true">
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT rp.role_id, c.id
+            FROM (SELECT DISTINCT role_id FROM m_role_permission) rp
+            INNER JOIN m_role_permission existing
+                ON existing.role_id = rp.role_id
+            INNER JOIN m_permission a
+                ON a.id = existing.permission_id AND a.code = 'APPROVE_CREDITDECISION'
+            INNER JOIN m_permission c
+                ON c.code = 'ACTIVATE_CREDITDECISION_CHECKER'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM m_role_permission x WHERE x.role_id = rp.role_id AND x.permission_id = c.id
+            );
+        </sql>
+        <sql splitStatements="true">
+            INSERT INTO m_role_permission (role_id, permission_id)
+            SELECT r.id, p.id
+            FROM m_role r
+            INNER JOIN m_permission p ON p.code IN ('ACTIVATE_CREDITDECISION', 'ACTIVATE_CREDITDECISION_CHECKER')
+            WHERE r.name = 'Super user'
+              AND NOT EXISTS (
+                  SELECT 1 FROM m_role_permission x WHERE x.role_id = r.id AND x.permission_id = p.id
+              );
+        </sql>
+    </changeSet>
+</databaseChangeLog>

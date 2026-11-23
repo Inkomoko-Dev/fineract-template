@@ -64,16 +64,18 @@ public class BulkRescheduleNoteService {
 
     /** Records that an approved bulk reschedule was rolled back on this loan. */
     @Transactional
-    public void addRollbackNoteToLoan(final Loan loan, final BulkRescheduleExecution execution, final String rollbackReason) {
+    public void addRollbackNoteToLoan(final Loan loan, final BulkRescheduleExecution execution, final Long resultId,
+            final String rollbackReason) {
         final String marker = "[Bulk reschedule rollback #" + execution.getId() + "]";
         if (noteRepository.existsLoanNoteContaining(loan.getId(), "%" + marker + "%")) {
             return;
         }
         final AppUser currentUser = securityContext.getAuthenticatedUserIfPresent();
         final String rolledBackBy = currentUser == null ? "unknown" : currentUser.getUsername();
-        final String noteText = marker + " Rolled back by: " + rolledBackBy + "; reason: " + valueOrDash(rollbackReason) + ".";
+        final String noteText = marker + " resultId=" + valueOrDash(resultId) + "; rolled back by: " + rolledBackBy + "; reason: "
+                + valueOrDash(rollbackReason) + ".";
         noteRepository.save(Note.loanNote(loan, noteText));
-        log.info("Added bulk reschedule rollback note to loan {} for execution {}", loan.getId(), execution.getId());
+        log.info("Added bulk reschedule rollback note to loan {} for execution {} result {}", loan.getId(), execution.getId(), resultId);
     }
 
     private String valueOrDash(final Object value) {

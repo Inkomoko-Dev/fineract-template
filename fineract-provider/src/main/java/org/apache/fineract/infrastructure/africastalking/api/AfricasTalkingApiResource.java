@@ -19,6 +19,8 @@
 package org.apache.fineract.infrastructure.africastalking.api;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.io.IOException;
+import java.util.List;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -35,20 +37,32 @@ import org.apache.fineract.infrastructure.africastalking.AfricasTalkingConstants
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
 import org.apache.fineract.infrastructure.africastalking.data.CommunicationMessageData;
 import org.apache.fineract.infrastructure.africastalking.data.ConnectivityTestResultData;
-import org.apache.fineract.infrastructure.africastalking.data.VoiceCallLogData;
+import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingConnectivityService;
+import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingClient;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingVoiceService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookAuthenticationException;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService.WebhookProcessingResult;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppService;
+import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppTemplateCreateOutcome;
+import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppTemplatePayloadNormalizer;
+import org.apache.fineract.infrastructure.africastalking.service.CommunicationLogSanitizer;
 import org.apache.fineract.infrastructure.africastalking.service.CommunicationMessageReadPlatformService;
-import org.apache.fineract.infrastructure.africastalking.service.VoiceCallLogReadPlatformService;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppAtTemplate;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.service.WhatsAppAtTemplateCatalogService;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
@@ -58,43 +72,46 @@ import org.springframework.stereotype.Component;
 @Tag(name = "AfricasTalking", description = "AfricasTalking WhatsApp and Voice integration")
 public class AfricasTalkingApiResource {
 
+    private static final Logger LOG = LoggerFactory.getLogger(AfricasTalkingApiResource.class);
+
     private final PlatformSecurityContext context;
     private final AfricasTalkingConnectivityService connectivityService;
+    private final AfricasTalkingClient africastalkingClient;
     private final AfricasTalkingWebhookService webhookService;
     private final AfricasTalkingWhatsAppService whatsAppService;
     private final AfricasTalkingVoiceService voiceService;
     private final CommunicationMessageReadPlatformService communicationMessageReadPlatformService;
-    private final VoiceCallLogReadPlatformService voiceCallLogReadPlatformService;
     private final AfricasTalkingProperties properties;
     private final DefaultToApiJsonSerializer<ConnectivityTestResultData> connectivitySerializer;
     private final DefaultToApiJsonSerializer<CommunicationMessageData> messageSerializer;
-    private final DefaultToApiJsonSerializer<VoiceCallLogData> voiceCallLogSerializer;
     private final DefaultToApiJsonSerializer<CommandProcessingResult> commandProcessingResultSerializer;
     private final ApiRequestParameterHelper apiRequestParameterHelper;
+    private final WhatsAppAtTemplateCatalogService whatsAppAtTemplateCatalogService;
 
     public AfricasTalkingApiResource(final PlatformSecurityContext context,
-            final AfricasTalkingConnectivityService connectivityService, final AfricasTalkingWebhookService webhookService,
+            final AfricasTalkingConnectivityService connectivityService, final AfricasTalkingClient africastalkingClient,
+            final AfricasTalkingWebhookService webhookService,
             final AfricasTalkingWhatsAppService whatsAppService, final AfricasTalkingVoiceService voiceService,
             final CommunicationMessageReadPlatformService communicationMessageReadPlatformService,
-            final VoiceCallLogReadPlatformService voiceCallLogReadPlatformService, final AfricasTalkingProperties properties,
+            final AfricasTalkingProperties properties,
             final DefaultToApiJsonSerializer<ConnectivityTestResultData> connectivitySerializer,
             final DefaultToApiJsonSerializer<CommunicationMessageData> messageSerializer,
-            final DefaultToApiJsonSerializer<VoiceCallLogData> voiceCallLogSerializer,
             final DefaultToApiJsonSerializer<CommandProcessingResult> commandProcessingResultSerializer,
-            final ApiRequestParameterHelper apiRequestParameterHelper) {
+            final ApiRequestParameterHelper apiRequestParameterHelper,
+            final WhatsAppAtTemplateCatalogService whatsAppAtTemplateCatalogService) {
         this.context = context;
         this.connectivityService = connectivityService;
+        this.africastalkingClient = africastalkingClient;
         this.webhookService = webhookService;
         this.whatsAppService = whatsAppService;
         this.voiceService = voiceService;
         this.communicationMessageReadPlatformService = communicationMessageReadPlatformService;
-        this.voiceCallLogReadPlatformService = voiceCallLogReadPlatformService;
         this.properties = properties;
         this.connectivitySerializer = connectivitySerializer;
         this.messageSerializer = messageSerializer;
-        this.voiceCallLogSerializer = voiceCallLogSerializer;
         this.commandProcessingResultSerializer = commandProcessingResultSerializer;
         this.apiRequestParameterHelper = apiRequestParameterHelper;
+        this.whatsAppAtTemplateCatalogService = whatsAppAtTemplateCatalogService;
     }
 
     @GET
@@ -112,10 +129,23 @@ public class AfricasTalkingApiResource {
     @Path("messages")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveMessages(@Context final UriInfo uriInfo) {
+    public String retrieveMessages(@Context final UriInfo uriInfo, @QueryParam("status") final String statusParam) {
         this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
+        final CommunicationMessageStatus status = parseMessageStatus(statusParam);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
-        return this.messageSerializer.serialize(settings, this.communicationMessageReadPlatformService.retrieveWhatsAppMessages());
+        return this.messageSerializer.serialize(settings, this.communicationMessageReadPlatformService.retrieveWhatsAppMessages(status));
+    }
+
+    static CommunicationMessageStatus parseMessageStatus(final String statusParam) {
+        if (StringUtils.isBlank(statusParam)) {
+            return null;
+        }
+        try {
+            return CommunicationMessageStatus.valueOf(statusParam.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (final IllegalArgumentException exception) {
+            throw new PlatformApiDataValidationException(List.of(ApiParameterError.parameterError(
+                    "error.msg.africastalking.whatsapp.status.invalid", "Invalid WhatsApp message status", "status", statusParam)), exception);
+        }
     }
 
     @GET
@@ -139,33 +169,34 @@ public class AfricasTalkingApiResource {
     }
 
     @POST
-    @Path("voice/calls")
+    @Path("template/send")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String initiateVoiceCall(final String apiRequestBodyAsJson) {
-        this.context.authenticatedUser().validateHasCreatePermission(AfricasTalkingConstants.RESOURCE_NAME);
-        final CommandProcessingResult result = this.voiceService.initiateOutboundCall(apiRequestBodyAsJson);
+    public String createTemplate(final String apiRequestBodyAsJson) throws IOException {
+        // Align with campaign UI Create Template button (CREATE_WHATSAPPCAMPAIGN).
+        this.context.authenticatedUser().validateHasCreatePermission(WhatsAppCampaignConstants.RESOURCE_NAME);
+        final String stripped = this.whatsAppAtTemplateCatalogService.stripCatalogOnlyFields(apiRequestBodyAsJson);
+        // AT docs require example.body_text length == number of {{n}} placeholders.
+        final String atPayload = AfricasTalkingWhatsAppTemplatePayloadNormalizer.normalize(stripped);
+        var response = this.africastalkingClient.createWhatsAppTemplateFromJson(atPayload);
+        // AT may return HTTP 5xx + status=Failure while still allocating templateId with Pending.
+        if (!AfricasTalkingWhatsAppTemplateCreateOutcome.isAccepted(response.statusCode(), response.body())) {
+            final String safeDetail = CommunicationLogSanitizer
+                    .truncateDetail(StringUtils.defaultIfBlank(response.body(), "HTTP " + response.statusCode()));
+            throw new GeneralPlatformDomainRuleException("error.msg.africastalking.whatsapp.template.create.failed",
+                    "Africa's Talking rejected the WhatsApp template (HTTP " + response.statusCode() + "): " + safeDetail);
+        }
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            LOG.info(
+                    "Africa's Talking template create returned HTTP {} but templateId={} templateStatus={} — catalogued as submitted.",
+                    response.statusCode(),
+                    CommunicationLogSanitizer.truncateDetail(AfricasTalkingWhatsAppTemplateCreateOutcome.templateId(response.body())),
+                    AfricasTalkingWhatsAppTemplateCreateOutcome.templateStatus(response.body()));
+        }
+        // Catalog from original JSON so markAsApproved is available; never persist on AT failure.
+        final WhatsAppAtTemplate catalogued = this.whatsAppAtTemplateCatalogService.upsertFromCreateRequest(apiRequestBodyAsJson);
+        final CommandProcessingResult result = new CommandProcessingResult(catalogued.getId());
         return this.commandProcessingResultSerializer.serializeResult(result);
-    }
-
-    @GET
-    @Path("voice/calls")
-    @Consumes({ MediaType.APPLICATION_JSON })
-    @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveVoiceCalls(@Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
-        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
-        return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveCallLogs());
-    }
-
-    @GET
-    @Path("voice/calls/{callId}")
-    @Consumes({ MediaType.APPLICATION_JSON })
-    @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveVoiceCall(@PathParam("callId") final Long callId, @Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasReadPermission(AfricasTalkingConstants.RESOURCE_NAME);
-        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
-        return this.voiceCallLogSerializer.serialize(settings, this.voiceCallLogReadPlatformService.retrieveOne(callId));
     }
 
     @POST
@@ -202,9 +233,12 @@ public class AfricasTalkingApiResource {
             final String userAgent = headers.getHeaderString(HttpHeaders.USER_AGENT);
             final WebhookProcessingResult result = webhookService.processWebhook("VOICE_CALLBACK", payload == null ? "" : payload, signature,
                     userAgent);
-            if (!result.duplicate()) {
-                voiceService.processInboundCallback(payload);
+            if (result.duplicate()) {
+                // Do not re-enter IVR (would re-issue OTP / create duplicate callbacks).
+                // Replay last XML so AT retries keep the caller on the same prompt.
+                return Response.ok(voiceService.resolveDuplicateIvrResponse(payload), MediaType.APPLICATION_XML).build();
             }
+            voiceService.processInboundCallback(payload);
             return Response.ok(voiceService.buildIvrResponse(payload), MediaType.APPLICATION_XML).build();
         } catch (AfricasTalkingWebhookAuthenticationException e) {
             return Response.status(Response.Status.UNAUTHORIZED).entity("UNAUTHORIZED").type(MediaType.TEXT_PLAIN).build();

@@ -35,7 +35,7 @@ public final class SQLInjectionValidator {
 
     private static final String[] COMMENTS = { "--", "({", "/*", "#" };
 
-    private static final String SQL_PATTERN = "[a-zA-Z_=,\\-'!><.?\"`% ()0-9*\n\r]*";
+    private static final String SQL_PATTERN = "[a-zA-Z_=,'!><.?\"`% ()0-9*\n\r\\-]*";
 
     private static final String REPORT_PARAMETER_PATTERN = "[a-zA-Z0-9_\\-.]*";
 
@@ -61,13 +61,13 @@ public final class SQLInjectionValidator {
         }
         String lowerCaseSQL = sqlSearch.toLowerCase();
         for (String ddl : DDL_COMMANDS) {
-            if (lowerCaseSQL.contains(ddl)) {
+            if (containsCommand(lowerCaseSQL, ddl)) {
                 throw new SQLInjectionException();
             }
         }
 
         for (String dml : DML_COMMANDS) {
-            if (lowerCaseSQL.contains(dml)) {
+            if (containsCommand(lowerCaseSQL, dml)) {
                 throw new SQLInjectionException();
             }
         }
@@ -223,5 +223,16 @@ public final class SQLInjectionValidator {
         if (!matcher.matches()) {
             throw new SQLInjectionException();
         }
+    }
+
+    /**
+     * Returns true if {@code command} appears as a whole word in {@code sql} (case-insensitive input already lowercased).
+     * <p>
+     * Uses word-boundary matching so that legitimate values containing command substrings (e.g. "callback" contains
+     * "call", "selected" contains "select", "updates" contains "update") are not falsely rejected as SQL injection.
+     */
+    private static boolean containsCommand(final String sql, final String command) {
+        final Pattern commandPattern = Pattern.compile("\\b" + Pattern.quote(command) + "\\b");
+        return commandPattern.matcher(sql).find();
     }
 }

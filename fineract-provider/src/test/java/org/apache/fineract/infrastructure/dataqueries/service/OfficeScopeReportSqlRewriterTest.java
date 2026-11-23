@@ -56,6 +56,19 @@ public class OfficeScopeReportSqlRewriterTest {
     }
 
     @Test
+    @DisplayName("The report office dropdown lists every assigned office")
+    public void rewritesTheOfficeDropdownParameter() {
+        final String sql = "select id, \r\nconcat(substring(\"........................................\", 1, \r\n   \n\n"
+                + "((LENGTH(`hierarchy`) - LENGTH(REPLACE(`hierarchy`, '.', '')) - 1) * 4)), \r\n   `name`) as tc\r\n"
+                + "from m_office\r\nwhere hierarchy like concat\n\n('${currentUserHierarchy}', '%')\r\norder by hierarchy";
+
+        final String rewritten = OfficeScopeReportSqlRewriter.rewrite(sql, TWO_OFFICES);
+
+        assertTrue(rewritten.contains("where (hierarchy like '.1.2.5.%' or hierarchy like '.1.2.6.%')\r\norder by hierarchy"));
+        assertFalse(rewritten.contains("currentUserHierarchy"));
+    }
+
+    @Test
     @DisplayName("The inline LIKE form of the restriction is widened too")
     public void rewritesTheInlineLikeIdiom() {
         final String sql = "where o.hierarchy like '${currentUserHierarchy}%'";

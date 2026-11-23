@@ -42,11 +42,12 @@ public final class NotificationCommand {
     private final boolean sendImmediately;
     private final String callPurpose;
     private final boolean recordingConsentRequired;
+    private final String idempotencyKey;
 
     private NotificationCommand(final NotificationChannel channel, final NotificationIntent intent, final NotificationPurpose purpose,
             final String phoneNumber, final RecipientType recipientType, final Client client, final Staff staff, final String messageBody,
             final String templateName, final String templateLanguage, final String templateBodyValuesJson, final Long campaignId,
-            final boolean sendImmediately, final String callPurpose, final boolean recordingConsentRequired) {
+            final boolean sendImmediately, final String callPurpose, final boolean recordingConsentRequired, final String idempotencyKey) {
         this.channel = channel;
         this.intent = intent;
         this.purpose = purpose;
@@ -62,20 +63,29 @@ public final class NotificationCommand {
         this.sendImmediately = sendImmediately;
         this.callPurpose = callPurpose;
         this.recordingConsentRequired = recordingConsentRequired;
+        this.idempotencyKey = idempotencyKey;
     }
 
     public static NotificationCommand freeformWhatsApp(final NotificationPurpose purpose, final String phoneNumber,
             final RecipientType recipientType, final Client client, final Staff staff, final String messageBody,
             final boolean sendImmediately) {
         return new NotificationCommand(NotificationChannel.WHATSAPP, NotificationIntent.FREEFORM, purpose, phoneNumber, recipientType,
-                client, staff, messageBody, null, null, null, null, sendImmediately, null, false);
+                client, staff, messageBody, null, null, null, null, sendImmediately, null, false, null);
+    }
+
+    public static NotificationCommand freeformWhatsApp(final NotificationPurpose purpose, final String phoneNumber,
+            final RecipientType recipientType, final Client client, final Staff staff, final String messageBody, final Long campaignId,
+            final boolean sendImmediately, final String idempotencyKey) {
+        return new NotificationCommand(NotificationChannel.WHATSAPP, NotificationIntent.FREEFORM, purpose, phoneNumber, recipientType,
+                client, staff, messageBody, null, null, null, campaignId, sendImmediately, null, false, idempotencyKey);
     }
 
     public static NotificationCommand templateWhatsApp(final NotificationPurpose purpose, final String phoneNumber,
             final RecipientType recipientType, final Client client, final Staff staff, final String templateName,
             final String templateLanguage, final String templateBodyValuesJson, final String auditMessageBody, final Long campaignId) {
         return new NotificationCommand(NotificationChannel.WHATSAPP, NotificationIntent.TEMPLATE, purpose, phoneNumber, recipientType,
-                client, staff, auditMessageBody, templateName, templateLanguage, templateBodyValuesJson, campaignId, false, null, false);
+                client, staff, auditMessageBody, templateName, templateLanguage, templateBodyValuesJson, campaignId, false, null, false,
+                null);
     }
 
     public static NotificationCommand templateWhatsApp(final NotificationPurpose purpose, final String phoneNumber,
@@ -84,14 +94,23 @@ public final class NotificationCommand {
             final boolean sendImmediately) {
         return new NotificationCommand(NotificationChannel.WHATSAPP, NotificationIntent.TEMPLATE, purpose, phoneNumber, recipientType,
                 client, staff, auditMessageBody, templateName, templateLanguage, templateBodyValuesJson, campaignId, sendImmediately, null,
-                false);
+                false, null);
+    }
+
+    public static NotificationCommand templateWhatsApp(final NotificationPurpose purpose, final String phoneNumber,
+            final RecipientType recipientType, final Client client, final Staff staff, final String templateName,
+            final String templateLanguage, final String templateBodyValuesJson, final String auditMessageBody, final Long campaignId,
+            final boolean sendImmediately, final String idempotencyKey) {
+        return new NotificationCommand(NotificationChannel.WHATSAPP, NotificationIntent.TEMPLATE, purpose, phoneNumber, recipientType,
+                client, staff, auditMessageBody, templateName, templateLanguage, templateBodyValuesJson, campaignId, sendImmediately, null,
+                false, idempotencyKey);
     }
 
     public static NotificationCommand outboundVoice(final NotificationPurpose purpose, final String phoneNumber,
             final RecipientType recipientType, final Client client, final Staff staff, final String callPurpose,
             final boolean recordingConsentRequired) {
         return new NotificationCommand(NotificationChannel.VOICE, NotificationIntent.FREEFORM, purpose, phoneNumber, recipientType, client,
-                staff, null, null, null, null, null, true, callPurpose, recordingConsentRequired);
+                staff, null, null, null, null, null, true, callPurpose, recordingConsentRequired, null);
     }
 
     public NotificationChannel getChannel() {
@@ -152,5 +171,9 @@ public final class NotificationCommand {
 
     public boolean isRecordingConsentRequired() {
         return recordingConsentRequired;
+    }
+
+    public String getIdempotencyKey() {
+        return idempotencyKey;
     }
 }

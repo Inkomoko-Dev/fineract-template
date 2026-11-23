@@ -66,8 +66,9 @@ public class VoiceBusinessHoursService {
             final LocalTime end = LocalTime.parse(voice.getBusinessHoursEnd());
             return !now.isBefore(start) && now.isBefore(end);
         } catch (final Exception e) {
-            log.warn("Unable to evaluate configured voice business hours; defaulting to open", e);
-            return true;
+            // Fail closed so callbacks / outbound dials are not placed overnight on bad config.
+            log.warn("Unable to evaluate configured voice business hours; defaulting to closed", e);
+            return false;
         }
     }
 }

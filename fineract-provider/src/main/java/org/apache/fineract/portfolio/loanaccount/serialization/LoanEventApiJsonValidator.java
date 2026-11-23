@@ -293,6 +293,30 @@ public final class LoanEventApiJsonValidator {
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
 
+    public void validateAccrualReversal(final String json) {
+
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> transactionParameters = new HashSet<>(Arrays.asList("transactionDate", "note", "locale", "dateFormat"));
+
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, transactionParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
+
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed("transactionDate", element);
+        baseDataValidator.reset().parameter("transactionDate").value(transactionDate).notNull();
+
+        final String note = this.fromApiJsonHelper.extractStringNamed("note", element);
+        baseDataValidator.reset().parameter("note").value(note).notExceedingLengthOf(1000);
+
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
     public void validateRepaymentDateWithMeetingDate(final LocalDate repaymentDate, final CalendarInstance calendarInstance) {
         if (null != calendarInstance) {
             final Calendar calendar = calendarInstance.getCalendar();
@@ -313,12 +337,17 @@ public final class LoanEventApiJsonValidator {
         final Integer paymentTypeId = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("paymentTypeId", element);
         baseDataValidator.reset().parameter("paymentTypeId").value(paymentTypeId).ignoreIfNull().integerGreaterThanZero();
         final Set<String> paymentDetailParameters = new HashSet<>(
-                Arrays.asList("accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber"));
+                Arrays.asList("accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber", "mfiCode"));
         for (final String paymentDetailParameterName : paymentDetailParameters) {
             final String paymentDetailParameterValue = this.fromApiJsonHelper.extractStringNamed(paymentDetailParameterName, element);
             baseDataValidator.reset().parameter(paymentDetailParameterName).value(paymentDetailParameterValue).ignoreIfNull()
                     .notExceedingLengthOf(50);
         }
+
+        // MFI code must be alphanumeric (letters, numbers, hyphens, underscores, spaces, slashes only)
+        final String mfiCode = this.fromApiJsonHelper.extractStringNamed("mfiCode", element);
+        baseDataValidator.reset().parameter("mfiCode").value(mfiCode).ignoreIfNull()
+                .matchesRegularExpression("^[A-Za-z0-9 _/-]*$");
     }
 
     public void validateTransactionWithNoAmount(final String json) {

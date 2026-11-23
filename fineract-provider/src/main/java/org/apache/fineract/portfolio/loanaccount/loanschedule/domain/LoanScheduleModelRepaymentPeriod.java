@@ -160,6 +160,12 @@ public final class LoanScheduleModelRepaymentPeriod implements LoanScheduleModel
         this.totalDue = this.totalDue.plus(principalDue);
     }
 
+    public void replacePrincipalAndOutstanding(final BigDecimal principal, final BigDecimal outstanding) {
+        final Money replacement = Money.of(this.principalDue.getCurrency(), principal);
+        addPrincipalAmount(replacement.minus(this.principalDue));
+        this.outstandingLoanBalance = Money.of(this.principalDue.getCurrency(), outstanding);
+    }
+
     @Override
     public boolean isRecalculatedInterestComponent() {
         return this.recalculatedInterestComponent;

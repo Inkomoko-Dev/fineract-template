@@ -60,11 +60,16 @@ public enum LoanTransactionType {
     BNPL_VENDOR_TRANSFER(24, "loanTransactionType.bnplVendorTransfer"), WITHDRAWAL_REDRAW(26, "loanTransactionType.withdrawalRedraw"),
 
     DEPOSIT_REDRAW(27, "loanTransactionType.depositRedraw"), PAY_OFF(28, "loanTransactionType.payOff"), DISBURSEMENT_CHARGE_ADJUSTMENT(29,
-            "loanTransactionType.disbursementChargeAdjustment"), FUTURE_INTEREST_CANCELLATION(30,
-                    "loanTransactionType.futureInterestCancellation"), PARTIAL_WRITEOFF(31,
-                            "loanTransactionType.partialWriteOff"), RESIDUAL_BALANCE_ADJUSTMENT(32,
-                                    "loanTransactionType.residualBalanceAdjustment"), WRITEOFF_REVERSAL(33,
-                                            "loanTransactionType.writeOffReversal");
+            "loanTransactionType.disbursementChargeAdjustment"),
+    /**
+     * Production already uses id 30 for insurance charge adjustments (CGLT-532). Future interest cancellation must not
+     * reuse that id or those rows render as Invalid / the wrong label when branches diverge.
+     */
+    INSURANCE_CHARGE_ADJUSTMENT(30, "loanTransactionType.insuranceChargeAdjustment"), //
+    PARTIAL_WRITEOFF(31, "loanTransactionType.partialWriteOff"), //
+    RESIDUAL_BALANCE_ADJUSTMENT(32, "loanTransactionType.residualBalanceAdjustment"), //
+    WRITEOFF_REVERSAL(33, "loanTransactionType.writeOffReversal"), //
+    FUTURE_INTEREST_CANCELLATION(34, "loanTransactionType.futureInterestCancellation");
 
     private final Integer value;
     private final String code;
@@ -175,7 +180,7 @@ public enum LoanTransactionType {
                 loanTransactionType = LoanTransactionType.DISBURSEMENT_CHARGE_ADJUSTMENT;
             break;
             case 30:
-                loanTransactionType = LoanTransactionType.FUTURE_INTEREST_CANCELLATION;
+                loanTransactionType = LoanTransactionType.INSURANCE_CHARGE_ADJUSTMENT;
             break;
             case 31:
                 loanTransactionType = LoanTransactionType.PARTIAL_WRITEOFF;
@@ -185,6 +190,9 @@ public enum LoanTransactionType {
             break;
             case 33:
                 loanTransactionType = LoanTransactionType.WRITEOFF_REVERSAL;
+            break;
+            case 34:
+                loanTransactionType = LoanTransactionType.FUTURE_INTEREST_CANCELLATION;
             break;
             default:
                 loanTransactionType = LoanTransactionType.INVALID;
@@ -279,6 +287,10 @@ public enum LoanTransactionType {
 
     public boolean isDisbursementChargeAdjustment() {
         return this.value.equals(DISBURSEMENT_CHARGE_ADJUSTMENT.getValue());
+    }
+
+    public boolean isInsuranceChargeAdjustment() {
+        return this.value.equals(INSURANCE_CHARGE_ADJUSTMENT.getValue());
     }
 
     public boolean isDepositRedraw() {

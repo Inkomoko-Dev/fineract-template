@@ -51,7 +51,7 @@ import org.springframework.stereotype.Component;
 @Tag(name = "Historical Penalty Waivers", description = "Approve or reject a controlled historical penalty waiver")
 public class HistoricalPenaltyWaiverApiResource {
 
-    public static final String READ_PERMISSION = "READ_HISTORICALPENALTYWAIVER";
+    public static final String RESOURCE_NAME_FOR_PERMISSIONS = "HISTORICALPENALTYWAIVER";
 
     private final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService;
     private final DefaultToApiJsonSerializer<CommandProcessingResult> toApiJsonSerializer;
@@ -64,7 +64,7 @@ public class HistoricalPenaltyWaiverApiResource {
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "List historical penalty waivers awaiting approval")
     public String retrievePendingApprovalQueue() {
-        this.context.authenticatedUser().validateHasPermissionTo(READ_PERMISSION);
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
         return this.waiverSerializer.serialize(this.readPlatformService.retrievePendingApprovalQueue());
     }
 
@@ -74,7 +74,7 @@ public class HistoricalPenaltyWaiverApiResource {
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Retrieve one historical penalty waiver with the transactions it touched")
     public String retrieveOne(@PathParam("waiverId") @Parameter(description = "waiverId") final Long waiverId) {
-        this.context.authenticatedUser().validateHasPermissionTo(READ_PERMISSION);
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
         return this.waiverSerializer.serialize(this.readPlatformService.retrieveOne(waiverId));
     }
 
@@ -84,7 +84,7 @@ public class HistoricalPenaltyWaiverApiResource {
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Correction history for a loan")
     public String retrieveByLoan(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId) {
-        this.context.authenticatedUser().validateHasPermissionTo(READ_PERMISSION);
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
         return this.waiverSerializer.serialize(this.readPlatformService.retrieveByLoanId(loanId));
     }
 

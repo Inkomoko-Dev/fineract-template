@@ -54,6 +54,7 @@ import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDoma
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.persistence.AfterCommitExecutor;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.ingestion.LogReporter;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.portfolio.businessevent.BusinessEventListener;
 import org.apache.fineract.portfolio.businessevent.domain.loan.transaction.LoanJournalEntryCreatedBusinessEvent;
@@ -103,7 +104,11 @@ public class OdooServiceImplTest {
         // genericExecutorService is populated by @PostConstruct in real use, which @InjectMocks never
         // runs — wire the mock in directly rather than relying on Mockito's field-injection heuristics
         ReflectionTestUtils.setField(odooService, "genericExecutorService", genericExecutorService);
+        ReflectionTestUtils.setField(odooService, "logReporter", logReporter);
     }
+
+    @Mock
+    private LogReporter logReporter;
 
     @AfterEach
     void tearDownTenantContext() {

@@ -801,7 +801,7 @@ public class LoansApiResource {
 
             fundOptions = this.fundReadPlatformService.retrieveAllFunds();
             repaymentStrategyOptions = this.dropdownReadPlatformService.retreiveTransactionProcessingStrategies();
-            if (product.getMultiDisburseLoan()) {
+            if (loanBasicDetails.isMultiDisburseLoan()) {
                 chargeOptions = this.chargeReadPlatformService.retrieveLoanAccountApplicableCharges(loanId,
                         new ChargeTimeType[] { ChargeTimeType.OVERDUE_INSTALLMENT });
             } else {
@@ -1074,6 +1074,9 @@ public class LoansApiResource {
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else if (is(commandParam, "runCloneJobForLoanPenalty")) {
             final CommandWrapper commandRequest = builder.runCloneJobForLoanPenalty(loanId).build();
+            result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        } else if (is(commandParam, "rectifyLateFees")) {
+            final CommandWrapper commandRequest = builder.rectifyLateFees(loanId).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         }
 

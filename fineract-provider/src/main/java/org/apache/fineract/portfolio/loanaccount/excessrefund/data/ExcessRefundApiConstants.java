@@ -45,6 +45,7 @@ public final class ExcessRefundApiConstants {
     public static final String EXTERNAL_ID_PARAM = "externalId";
     public static final String ITEMS_PARAM = "items";
     public static final String OFFICE_ID_PARAM = "officeId";
+    public static final String REFUND_IDS_PARAM = "refundIds";
 
     public static final String CHANNEL_BANK = "BANK_TRANSFER";
     public static final String CHANNEL_MOBILE = "MOBILE_MONEY";

@@ -56,6 +56,9 @@ public class BulkRescheduleResponseDto implements Serializable {
     /** Number of loans excluded from reschedule */
     private Integer totalExcluded;
 
+    /** Number of loans skipped (already at target rate or already processed in this run) */
+    private Integer totalSkipped;
+
     /** List of successfully rescheduled loans */
     private List<BulkRescheduleSuccessDto> succeeded;
 

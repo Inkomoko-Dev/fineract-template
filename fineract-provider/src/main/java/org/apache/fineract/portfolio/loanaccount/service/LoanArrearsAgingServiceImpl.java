@@ -102,7 +102,7 @@ public class LoanArrearsAgingServiceImpl implements LoanArrearsAgingService {
         final StringBuilder updateSqlBuilder = new StringBuilder(900);
         final String principalOverdueCalculationSql = "SUM(COALESCE(mr.principal_amount, 0) - coalesce(mr.principal_completed_derived, 0) - coalesce(mr.principal_writtenoff_derived, 0))";
         final String interestOverdueCalculationSql = "SUM(COALESCE(mr.interest_amount, 0) - coalesce(mr.interest_writtenoff_derived, 0) - coalesce(mr.interest_waived_derived, 0) - "
-                + "coalesce(mr.interest_completed_derived, 0))";
+                + "coalesce(mr.interest_completed_derived, 0) - coalesce(mr.interest_cancelled_derived, 0))";
         final String feeChargesOverdueCalculationSql = "SUM(COALESCE(mr.fee_charges_amount, 0) - coalesce(mr.fee_charges_writtenoff_derived, 0) - "
                 + "coalesce(mr.fee_charges_waived_derived, 0) - coalesce(mr.fee_charges_completed_derived, 0))";
         final String penaltyChargesOverdueCalculationSql = "SUM(COALESCE(mr.penalty_charges_amount, 0) - coalesce(mr.penalty_charges_writtenoff_derived, 0) - "
@@ -128,6 +128,13 @@ public class LoanArrearsAgingServiceImpl implements LoanArrearsAgingService {
                 .append(" ");
         updateSqlBuilder.append(" and (prd.arrears_based_on_original_schedule = false or prd.arrears_based_on_original_schedule is null) ");
         updateSqlBuilder.append(" GROUP BY ml.id");
+        // A later installment's in-advance balance is cash already received. Do not age the loan when that cash
+        // covers the overdue installments (false arrears from an allocation that ran ahead of the due installment).
+        updateSqlBuilder.append(" HAVING (").append(principalOverdueCalculationSql).append("+").append(interestOverdueCalculationSql)
+                .append("+").append(feeChargesOverdueCalculationSql).append("+").append(penaltyChargesOverdueCalculationSql).append(") > ");
+        updateSqlBuilder.append(
+                "(SELECT COALESCE(SUM(COALESCE(adv.total_paid_in_advance_derived, 0)), 0) FROM m_loan_repayment_schedule adv ");
+        updateSqlBuilder.append(" WHERE adv.loan_id = ml.id AND adv.duedate >= ").append(sqlGenerator.currentBusinessDate()).append(") ");
 
         // Add ON DUPLICATE KEY UPDATE clause
         updateSqlBuilder.append(" ON DUPLICATE KEY UPDATE ");

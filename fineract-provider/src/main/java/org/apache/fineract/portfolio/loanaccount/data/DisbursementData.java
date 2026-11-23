@@ -48,6 +48,10 @@ public class DisbursementData implements Comparable<DisbursementData> {
     private final String supplierExternalId;
     private final String supplierName;
     private final String supplierSourceSystem;
+    private BigDecimal previousTrancheRepaidMinimum;
+    private Boolean previousTrancheRepaidAsPercentage;
+    private Boolean principalAsPercentage;
+    private BigDecimal principalPercentage;
 
     // import fields
     private transient Integer rowIndex;
@@ -138,6 +142,38 @@ public class DisbursementData implements Comparable<DisbursementData> {
 
     public BigDecimal amount() {
         return this.principal;
+    }
+
+    public BigDecimal getPreviousTrancheRepaidMinimum() {
+        return this.previousTrancheRepaidMinimum;
+    }
+
+    public void setPreviousTrancheRepaidMinimum(final BigDecimal previousTrancheRepaidMinimum) {
+        this.previousTrancheRepaidMinimum = previousTrancheRepaidMinimum;
+    }
+
+    public Boolean getPreviousTrancheRepaidAsPercentage() {
+        return this.previousTrancheRepaidAsPercentage;
+    }
+
+    public void setPreviousTrancheRepaidAsPercentage(final Boolean previousTrancheRepaidAsPercentage) {
+        this.previousTrancheRepaidAsPercentage = previousTrancheRepaidAsPercentage;
+    }
+
+    public Boolean getPrincipalAsPercentage() {
+        return this.principalAsPercentage;
+    }
+
+    public void setPrincipalAsPercentage(final Boolean principalAsPercentage) {
+        this.principalAsPercentage = principalAsPercentage;
+    }
+
+    public BigDecimal getPrincipalPercentage() {
+        return this.principalPercentage;
+    }
+
+    public void setPrincipalPercentage(final BigDecimal principalPercentage) {
+        this.principalPercentage = principalPercentage;
     }
 
     public BigDecimal getChargeAmount() {

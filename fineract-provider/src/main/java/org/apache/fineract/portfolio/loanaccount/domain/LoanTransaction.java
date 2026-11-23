@@ -107,7 +107,9 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
     @Column(name = "external_id", length = 100, nullable = true, unique = true)
     private String externalId;
 
-    @OneToMany(cascade = CascadeType.ALL, mappedBy = "loanTransaction", orphanRemoval = true, fetch = FetchType.EAGER)
+    // LAZY: EAGER with LoanCharge.loanChargePaidBySet formed a bidirectional cycle that StackOverflows EclipseLink
+    // when many charge-applied / waiver transactions exist on one loan.
+    @OneToMany(cascade = CascadeType.ALL, mappedBy = "loanTransaction", orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<LoanChargePaidBy> loanChargesPaid = new HashSet<>();
 
     @Column(name = "outstanding_loan_balance_derived", scale = 6, precision = 19, nullable = true)
@@ -324,7 +326,11 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
 
     public static LoanTransaction creditBalanceRefund(final Loan loan, final Office office, final Money amount, final LocalDate paymentDate,
             final String externalId) {
-        final PaymentDetail paymentDetail = null;
+        return creditBalanceRefund(loan, office, amount, paymentDate, externalId, null);
+    }
+
+    public static LoanTransaction creditBalanceRefund(final Loan loan, final Office office, final Money amount, final LocalDate paymentDate,
+            final String externalId, final PaymentDetail paymentDetail) {
         return new LoanTransaction(loan, office, LoanTransactionType.CREDIT_BALANCE_REFUND, paymentDetail, amount.getAmount(), paymentDate,
                 externalId);
     }
@@ -496,6 +502,141 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom {
             this.feeChargesPortion = defaultToNullIfZero(getFeeChargesPortion(currency).minus(excess).getAmount());
         }
         this.overPaymentPortion = defaultToNullIfZero(getOverPaymentPortion(currency).plus(excess).getAmount());
+    }
+
+    /**
+     * Rebuild {@link LoanChargePaidBy} rows so fee/penalty line sums match the posted portions. Portions are never
+     * reclassified into overpayment — required for reschedule approve/undo journal integrity.
+     *
+     * @return true when charge-payment lines were changed
+     * @throws IllegalStateException when residual cannot be allocated to any eligible loan charge
+     */
+    public boolean rebuildMissingChargePaymentLines(final MonetaryCurrency currency, final Collection<LoanCharge> loanCharges) {
+        final Money feePortion = getFeeChargesPortion(currency);
+        final Money penaltyPortion = getPenaltyChargesPortion(currency);
+        if (!feePortion.isGreaterThanZero() && !penaltyPortion.isGreaterThanZero()) {
+            return false;
+        }
+
+        final Set<LoanChargePaidBy> rebuilt = new HashSet<>();
+        BigDecimal feeAllocated = BigDecimal.ZERO;
+        BigDecimal penaltyAllocated = BigDecimal.ZERO;
+        if (this.loanChargesPaid != null) {
+            for (final LoanChargePaidBy paidBy : this.loanChargesPaid) {
+                if (paidBy == null || paidBy.getLoanCharge() == null || paidBy.getAmount() == null) {
+                    continue;
+                }
+                rebuilt.add(new LoanChargePaidBy(this, paidBy.getLoanCharge(), paidBy.getAmount(), paidBy.getInstallmentNumber()));
+                if (paidBy.getLoanCharge().isPenaltyCharge()) {
+                    penaltyAllocated = penaltyAllocated.add(paidBy.getAmount());
+                } else {
+                    feeAllocated = feeAllocated.add(paidBy.getAmount());
+                }
+            }
+        }
+
+        boolean changed = false;
+        final BigDecimal feeTarget = feePortion.getAmount() == null ? BigDecimal.ZERO : feePortion.getAmount();
+        final BigDecimal penaltyTarget = penaltyPortion.getAmount() == null ? BigDecimal.ZERO : penaltyPortion.getAmount();
+
+        if (feeAllocated.compareTo(feeTarget) > 0) {
+            feeAllocated = trimChargePaymentLines(rebuilt, false, feeTarget);
+            changed = true;
+        }
+        if (penaltyAllocated.compareTo(penaltyTarget) > 0) {
+            penaltyAllocated = trimChargePaymentLines(rebuilt, true, penaltyTarget);
+            changed = true;
+        }
+
+        BigDecimal feeResidual = feeTarget.subtract(feeAllocated);
+        BigDecimal penaltyResidual = penaltyTarget.subtract(penaltyAllocated);
+        if (feeResidual.compareTo(BigDecimal.ZERO) > 0) {
+            feeResidual = allocateResidualToCharges(rebuilt, loanCharges, feeResidual, false);
+            changed = true;
+        }
+        if (penaltyResidual.compareTo(BigDecimal.ZERO) > 0) {
+            penaltyResidual = allocateResidualToCharges(rebuilt, loanCharges, penaltyResidual, true);
+            changed = true;
+        }
+
+        if (feeResidual.compareTo(BigDecimal.ZERO) > 0 || penaltyResidual.compareTo(BigDecimal.ZERO) > 0) {
+            throw new IllegalStateException("Unable to rebuild charge payment lines for transaction " + getId()
+                    + ": fee residual " + feeResidual + ", penalty residual " + penaltyResidual);
+        }
+
+        if (changed) {
+            updateLoanChargesPaid(rebuilt);
+        }
+        return changed;
+    }
+
+    private BigDecimal trimChargePaymentLines(final Set<LoanChargePaidBy> rebuilt, final boolean penalty, final BigDecimal target) {
+        BigDecimal allocated = BigDecimal.ZERO;
+        final Set<LoanChargePaidBy> keep = new HashSet<>();
+        for (final LoanChargePaidBy paidBy : rebuilt) {
+            if (paidBy.getLoanCharge().isPenaltyCharge() != penalty) {
+                keep.add(paidBy);
+                continue;
+            }
+            if (allocated.compareTo(target) >= 0) {
+                continue;
+            }
+            final BigDecimal room = target.subtract(allocated);
+            final BigDecimal amount = paidBy.getAmount().min(room);
+            if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                keep.add(new LoanChargePaidBy(this, paidBy.getLoanCharge(), amount, paidBy.getInstallmentNumber()));
+                allocated = allocated.add(amount);
+            }
+        }
+        rebuilt.clear();
+        rebuilt.addAll(keep);
+        return allocated;
+    }
+
+    private BigDecimal allocateResidualToCharges(final Set<LoanChargePaidBy> rebuilt, final Collection<LoanCharge> loanCharges,
+            final BigDecimal residual, final boolean penalty) {
+        if (loanCharges == null || loanCharges.isEmpty() || residual.compareTo(BigDecimal.ZERO) <= 0) {
+            return residual;
+        }
+        BigDecimal remaining = residual;
+        final List<LoanCharge> eligible = new ArrayList<>();
+        for (final LoanCharge charge : loanCharges) {
+            if (charge == null || charge.isPenaltyCharge() != penalty) {
+                continue;
+            }
+            eligible.add(charge);
+        }
+        eligible.sort((left, right) -> {
+            final int overdueCompare = Boolean.compare(right.isOverdueInstallmentCharge(), left.isOverdueInstallmentCharge());
+            if (overdueCompare != 0) {
+                return overdueCompare;
+            }
+            final LocalDate leftDue = left.getDueLocalDate();
+            final LocalDate rightDue = right.getDueLocalDate();
+            if (leftDue == null && rightDue == null) {
+                return 0;
+            }
+            if (leftDue == null) {
+                return 1;
+            }
+            if (rightDue == null) {
+                return -1;
+            }
+            return leftDue.compareTo(rightDue);
+        });
+
+        for (final LoanCharge charge : eligible) {
+            if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
+                break;
+            }
+            Integer installmentNumber = null;
+            if (charge.getOverdueInstallmentCharge() != null && charge.getOverdueInstallmentCharge().getInstallment() != null) {
+                installmentNumber = charge.getOverdueInstallmentCharge().getInstallment().getInstallmentNumber();
+            }
+            rebuilt.add(new LoanChargePaidBy(this, charge, remaining, installmentNumber));
+            remaining = BigDecimal.ZERO;
+        }
+        return remaining;
     }
 
     private void updateChargesComponents(final Money feeCharges, final Money penaltyCharges, final Money unrecognizedCharges) {

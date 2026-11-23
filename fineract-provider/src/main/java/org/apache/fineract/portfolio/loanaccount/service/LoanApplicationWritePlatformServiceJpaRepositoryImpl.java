@@ -107,6 +107,7 @@ import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
 import org.apache.fineract.portfolio.collateralmanagement.service.LoanCollateralAssembler;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.fund.data.FundData;
 import org.apache.fineract.portfolio.fund.domain.Fund;
 import org.apache.fineract.portfolio.fund.service.FundReadPlatformService;
@@ -260,6 +261,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final PaymentTypeRepositoryWrapper paymentTypeRepository;
     private final ThirdPartySupplierDisbursementGuard thirdPartySupplierDisbursementGuard;
     private final SupplierDisbursementAuditService supplierDisbursementAuditService;
+    private final CreditDecisionLoanService creditDecisionLoanService;
     private final DynamicIcReviewLevelHelper dynamicIcReviewLevelHelper;
     private final IcReviewLevelConfigRepository icReviewLevelConfigRepository;
     private final LoanDecisionLevelRepository loanDecisionLevelRepository;
@@ -292,6 +294,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 Client client = this.clientRepository.findOneWithNotFoundDetection(clientId);
                 officeSpecificLoanProductValidation(productId, client.getOffice().getId());
                 this.clientAddressLocationValidator.validateClientHasLocation(clientId);
+                validateNoUnsettledMilestoneLoan(loanProduct, clientId);
             }
             final Long groupId = this.fromJsonHelper.extractLongNamed("groupId", command.parsedJson());
             if (groupId != null) {
@@ -1477,14 +1480,16 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 .build();
     }
 
-    public void validateMultiDisbursementData(final JsonCommand command, LocalDate expectedDisbursementDate) {
+    public void validateMultiDisbursementData(final JsonCommand command, LocalDate expectedDisbursementDate,
+            final LoanProduct loanProduct) {
         final String json = command.json();
         final JsonElement element = this.fromJsonHelper.parse(json);
 
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
         final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan");
         final BigDecimal principal = this.fromJsonHelper.extractBigDecimalWithLocaleNamed("approvedLoanAmount", element);
-        fromApiJsonDeserializer.validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal);
+        fromApiJsonDeserializer.validateLoanMultiDisbursementDate(element, baseDataValidator, expectedDisbursementDate, principal,
+                loanProduct);
         if (!dataValidationErrors.isEmpty()) {
             throw new PlatformApiDataValidationException(dataValidationErrors);
         }
@@ -1568,22 +1573,23 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         LocalDate expectedDisbursementDate = null;
 
         final Loan loan = retrieveLoanBy(loanId);
+        this.creditDecisionLoanService.assertOutcomeReceived(loanId);
         if (loan.getClient() != null) {
             this.clientAddressLocationValidator.validateClientHasLocation(loan.getClient().getId());
         }
         final JsonArray disbursementDataArray = command.arrayOfParameterNamed(LoanApiConstants.disbursementDataParameterName);
-        if (!loan.loanProduct().isMultiDisburseLoan() && disbursementDataArray != null && disbursementDataArray.size() > 1) {
+        if (!loan.isMultiDisburmentLoan() && disbursementDataArray != null && disbursementDataArray.size() > 1) {
             throw new PlatformApiDataValidationException("validation.msg.loanapproval.single.disbursement.detail.only",
                     "A loan product that does not allow multiple disbursements can have only one disbursement detail.",
                     List.of(ApiParameterError.parameterError("validation.msg.loanapproval.single.disbursement.detail.only",
                             "Only one disbursement detail is allowed for this loan product.",
                             LoanApiConstants.disbursementDataParameterName, disbursementDataArray.size())));
         }
-        final boolean paymentTypeProvidedBySingleDetail = !loan.loanProduct().isMultiDisburseLoan()
+        final boolean paymentTypeProvidedBySingleDetail = !loan.isMultiDisburmentLoan()
                 && disbursementDataArray != null && disbursementDataArray.size() == 1
                 && disbursementDataArray.get(0).isJsonObject()
                 && disbursementDataArray.get(0).getAsJsonObject().has("paymentTypeId");
-        final boolean requirePaymentTypeId = !loan.loanProduct().isMultiDisburseLoan() && !paymentTypeProvidedBySingleDetail
+        final boolean requirePaymentTypeId = !loan.isMultiDisburmentLoan() && !paymentTypeProvidedBySingleDetail
                 && !this.thirdPartySupplierDisbursementGuard.isThirdPartyDisbursementProduct(loan);
         this.loanApplicationTransitionApiJsonValidator.validateApproval(command.json(), requirePaymentTypeId);
 
@@ -1613,8 +1619,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         if (expectedDisbursementDate == null) {
             expectedDisbursementDate = loan.getExpectedDisbursedOnLocalDate();
         }
-        if (loan.loanProduct().isMultiDisburseLoan()) {
-            this.validateMultiDisbursementData(command, expectedDisbursementDate);
+        if (loan.isMultiDisburmentLoan()) {
+            this.validateMultiDisbursementData(command, expectedDisbursementDate, loan.loanProduct());
         }
 
         checkClientOrGroupActive(loan);
@@ -1726,7 +1732,7 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 loan.adjustNetDisbursalAmount(netDisbursalAmount);
             }
 
-            if (!loan.loanProduct().isMultiDisburseLoan()) {
+            if (!loan.isMultiDisburmentLoan()) {
                 if (this.thirdPartySupplierDisbursementGuard.allowsManualRecipientEdit(loan, currentUser)) {
 
                 final String mfiCode = command.stringValueOfParameterNamed(LoanApiConstants.mfiCodeParameterName);
@@ -2093,6 +2099,20 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                         dataValidationErrors);
             }
         }
+    }
+
+    private void validateNoUnsettledMilestoneLoan(final LoanProduct loanProduct, final Long clientId) {
+        if (loanProduct == null || clientId == null || !loanProduct.isBlockApplicationWhileUnsettled()) {
+            return;
+        }
+        if (!this.loanRepository.existsActiveUnsettledMilestoneLoanForClient(clientId)) {
+            return;
+        }
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loanapplication");
+        baseDataValidator.reset().parameter("clientId").value(clientId).failWithCode("client.has.an.unsettled.active.loan.account");
+        throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist",
+                "Client has an unsettled active loan account", dataValidationErrors);
     }
 
     @Transactional

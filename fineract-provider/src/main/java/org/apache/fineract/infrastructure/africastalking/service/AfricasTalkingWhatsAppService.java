@@ -28,19 +28,22 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.data.ResolvedRecipientData;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessage;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageRepository;
-import org.apache.fineract.infrastructure.africastalking.domain.CommunicationMessageStatus;
+import org.apache.fineract.infrastructure.africastalking.domain.RecipientType;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
-import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.notifications.constants.NotificationPurpose;
 import org.apache.fineract.infrastructure.notifications.data.NotificationCommand;
 import org.apache.fineract.infrastructure.notifications.data.NotificationResult;
+import org.apache.fineract.infrastructure.notifications.policy.WhatsAppOutboundPolicyExceptionFactory;
 import org.apache.fineract.infrastructure.notifications.service.NotificationCommandService;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.organisation.staff.domain.StaffRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInboundConversationService;
+import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppSharedNumberDisambiguationService;
+import org.apache.fineract.infrastructure.whatsapp.provider.CommunicationMessageStatusUpdater;
+import org.apache.fineract.infrastructure.whatsapp.provider.WhatsAppProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,6 +60,8 @@ public class AfricasTalkingWhatsAppService {
     private final FromJsonHelper fromJsonHelper;
     private final NotificationCommandService notificationCommandService;
     private final WhatsAppInboundConversationService inboundConversationService;
+    private final WhatsAppSharedNumberDisambiguationService sharedNumberDisambiguationService;
+    private final CommunicationMessageStatusUpdater statusUpdater;
 
     @Transactional
     public CommandProcessingResult queueOutboundMessage(final String json) {
@@ -87,7 +92,7 @@ public class AfricasTalkingWhatsAppService {
 
         final NotificationResult result = notificationCommandService.send(command);
         if (!result.isAccepted()) {
-            throw new IllegalStateException(result.getRejectionReason());
+            throw WhatsAppOutboundPolicyExceptionFactory.create(phoneNumber, result.getRejectionReason());
         }
         return CommandProcessingResult.resourceResult(result.getResourceId(), null);
     }
@@ -123,7 +128,12 @@ public class AfricasTalkingWhatsAppService {
         }
         final CommunicationMessage message = CommunicationMessage.inboundWhatsApp(recipient.getNormalizedPhoneNumber(),
                 recipient.getRecipientType(), client, staff, messageBody, externalId);
+        message.setProvider(WhatsAppProvider.AFRICASTALKING.name());
         communicationMessageRepository.save(message);
+        if (recipient.getRecipientType() == RecipientType.MULTI_CLIENT || recipient.getRecipientType() == RecipientType.CLIENT_AND_STAFF) {
+            sharedNumberDisambiguationService.handleAmbiguousInbound(recipient.getNormalizedPhoneNumber(), messageBody, recipient);
+            return;
+        }
         inboundConversationService.handleInbound(recipient.getNormalizedPhoneNumber(), messageBody, recipient.getRecipientType(), client,
                 staff);
     }
@@ -137,30 +147,8 @@ public class AfricasTalkingWhatsAppService {
             log.warn("Ignoring incomplete WhatsApp status payload");
             return;
         }
-        communicationMessageRepository.findByExternalId(externalId).ifPresentOrElse(message -> applyStatus(message, status, values),
-                () -> log.debug("No communication message found for external id {}", externalId));
-    }
-
-    private void applyStatus(final CommunicationMessage message, final String status, final Map<String, String> values) {
-        final String normalizedStatus = status.trim().toUpperCase();
-        switch (normalizedStatus) {
-            case "SENT", "QUEUED" -> message.setStatus(CommunicationMessageStatus.SENT);
-            case "DELIVERED", "SUCCESS" -> {
-                message.setStatus(CommunicationMessageStatus.DELIVERED);
-                message.setDeliveredDate(DateUtils.getLocalDateTimeOfTenant());
-            }
-            case "READ" -> {
-                message.setStatus(CommunicationMessageStatus.READ);
-                message.setReadDate(DateUtils.getLocalDateTimeOfTenant());
-            }
-            case "FAILED", "REJECTED" -> {
-                message.setStatus(CommunicationMessageStatus.FAILED);
-                message.setStatusDetail(CommunicationLogSanitizer.truncateDetail(
-                        AfricasTalkingPayloadParser.firstNonBlank(values, "failureReason", "reason")));
-            }
-            default -> log.debug("Unhandled WhatsApp status {} for message {}", normalizedStatus, message.getId());
-        }
-        communicationMessageRepository.save(message);
+        statusUpdater.applyProviderStatus(externalId, status,
+                AfricasTalkingPayloadParser.firstNonBlank(values, "failureReason", "reason"));
     }
 
     private String resolveOutboundPhoneNumber(final JsonObject element) {

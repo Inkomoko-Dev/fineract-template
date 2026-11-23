@@ -44,6 +44,7 @@ import org.apache.fineract.infrastructure.notifications.service.NotificationComm
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignStatus;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignTriggerType;
+import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppMessageType;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.data.WhatsAppPreviewData;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaign;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppCampaignRepository;
@@ -98,13 +99,15 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final StaffRepositoryWrapper staffRepositoryWrapper;
     private final PhoneNumberNormalizer phoneNumberNormalizer;
+    private final WhatsAppCampaignSendRateLimiter sendRateLimiter;
 
     @Autowired
     public WhatsAppCampaignWritePlatformServiceImpl(final PlatformSecurityContext context,
             final WhatsAppCampaignRepository whatsAppCampaignRepository, final WhatsAppCampaignValidator whatsAppCampaignValidator,
             final ReportRepository reportRepository, final FromJsonHelper fromJsonHelper, final ReadReportingService readReportingService,
             final NotificationCommandService notificationCommandService, final ClientRepositoryWrapper clientRepositoryWrapper,
-            final StaffRepositoryWrapper staffRepositoryWrapper, final PhoneNumberNormalizer phoneNumberNormalizer) {
+            final StaffRepositoryWrapper staffRepositoryWrapper, final PhoneNumberNormalizer phoneNumberNormalizer,
+            final WhatsAppCampaignSendRateLimiter sendRateLimiter) {
         this.context = context;
         this.whatsAppCampaignRepository = whatsAppCampaignRepository;
         this.whatsAppCampaignValidator = whatsAppCampaignValidator;
@@ -115,6 +118,7 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         this.clientRepositoryWrapper = clientRepositoryWrapper;
         this.staffRepositoryWrapper = staffRepositoryWrapper;
         this.phoneNumberNormalizer = phoneNumberNormalizer;
+        this.sendRateLimiter = sendRateLimiter;
     }
 
     @Transactional
@@ -126,19 +130,26 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
     @Transactional
     @Override
     public CommandProcessingResult create(final String json) {
-        final AppUser currentUser = this.context.authenticatedUser();
         final String normalizedJson = ensureMessageDefault(json);
+        this.context.authenticatedUser();
         this.whatsAppCampaignValidator.validateCreate(normalizedJson);
         final JsonCommand command = parseCommand(normalizedJson, null);
-        final Long runReportId = command.longValueOfParameterNamed(WhatsAppCampaignValidator.runReportId);
-        final Report report = this.reportRepository.findById(runReportId).orElseThrow(() -> new ReportNotFoundException(runReportId));
-        final WhatsAppCampaign campaign = WhatsAppCampaign.createNew(currentUser, report, command);
-        if (campaign.getRecurrenceStartDate() != null && campaign.getRecurrenceStartDate().isBefore(DateUtils.getLocalDateTimeOfTenant())) {
-            throw new GeneralPlatformDomainRuleException("error.msg.campaign.recurrenceStartDate.in.the.past",
-                    "Recurrence start date cannot be the past date.", campaign.getRecurrenceStartDate());
+        try {
+            final AppUser currentUser = this.context.authenticatedUser();
+            final Long runReportId = command.longValueOfParameterNamed(WhatsAppCampaignValidator.runReportId);
+            final Report report = this.reportRepository.findById(runReportId).orElseThrow(() -> new ReportNotFoundException(runReportId));
+            final WhatsAppCampaign campaign = WhatsAppCampaign.createNew(currentUser, report, command);
+            if (campaign.getRecurrenceStartDate() != null
+                    && campaign.getRecurrenceStartDate().isBefore(DateUtils.getLocalDateTimeOfTenant())) {
+                throw new GeneralPlatformDomainRuleException("error.msg.campaign.recurrenceStartDate.in.the.past",
+                        "Recurrence start date cannot be the past date.", campaign.getRecurrenceStartDate());
+            }
+            this.whatsAppCampaignRepository.saveAndFlush(campaign);
+            return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(campaign.getId()).build();
+        } catch (final JpaSystemException | DataIntegrityViolationException dve) {
+            handleDataIntegrityIssues(command, dve.getMostSpecificCause(), dve);
+            return CommandProcessingResult.empty();
         }
-        this.whatsAppCampaignRepository.saveAndFlush(campaign);
-        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(campaign.getId()).build();
     }
 
     @Transactional
@@ -147,9 +158,9 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         try {
             this.context.authenticatedUser();
             final String normalizedJson = ensureMessageDefault(json);
-            this.whatsAppCampaignValidator.validateForUpdate(normalizedJson);
             final WhatsAppCampaign campaign = this.whatsAppCampaignRepository.findById(resourceId)
                     .orElseThrow(() -> new WhatsAppCampaignNotFoundException(resourceId));
+            this.whatsAppCampaignValidator.validateForUpdate(normalizedJson, campaign.getMessageType());
             if (campaign.isActive()) {
                 throw new GeneralPlatformDomainRuleException("error.msg.whatsapp.campaign.cannot.be.updated",
                         "Campaign with identifier " + resourceId + " cannot be updated as it is not in `Closed` state.", resourceId);
@@ -166,7 +177,8 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             }
             return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(resourceId).with(changes).build();
         } catch (final JpaSystemException | DataIntegrityViolationException dve) {
-            handleDataIntegrityIssues(dve.getMostSpecificCause());
+            final JsonCommand command = parseCommand(ensureMessageDefault(json), resourceId);
+            handleDataIntegrityIssues(command, dve.getMostSpecificCause(), dve);
             return CommandProcessingResult.empty();
         }
     }
@@ -271,6 +283,11 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         final String bodyVariableMappingJson = mappingArray != null ? mappingArray.toString() : "[]";
         final String atTemplateNameValue = this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.atTemplateName, element);
         final String languageCodeValue = this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.languageCode, element);
+        final String messageTypeValue = this.fromJsonHelper.parameterExists(WhatsAppCampaignValidator.messageType, element)
+                ? this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.messageType, element)
+                : WhatsAppMessageType.TEMPLATE.name();
+        final boolean isFreeform = WhatsAppMessageType.FREEFORM.name().equalsIgnoreCase(messageTypeValue);
+        final String freeformMessage = this.fromJsonHelper.extractStringNamed(WhatsAppCampaignValidator.message, element);
 
         try {
             final HashMap<String, String> campaignParams = new ObjectMapper().readValue(paramValueJson,
@@ -284,7 +301,7 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             int skipped = 0;
             if (runReportObject != null) {
                 for (final HashMap<String, Object> row : runReportObject) {
-                    if (isEnqueueablePreviewRow(row, bodyVariableMappingJson)) {
+                    if (isEnqueueablePreviewRow(row, bodyVariableMappingJson, isFreeform, freeformMessage)) {
                         enqueueable++;
                     } else {
                         skipped++;
@@ -295,13 +312,14 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             if (runReportObject != null && !runReportObject.isEmpty()) {
                 final HashMap<String, Object> entry = runReportObject.get(0);
                 final List<String> bodyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, entry);
-                final String previewMessage = buildPreviewMessage(atTemplateNameValue, languageCodeValue, bodyValues);
+                final String previewMessage = isFreeform ? previewFreeformMessage(freeformMessage, entry)
+                        : buildPreviewMessage(atTemplateNameValue, languageCodeValue, bodyValues);
                 return new WhatsAppPreviewData(bodyValues, previewMessage, enqueueable, skipped);
             }
             final List<String> emptyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, Map.of());
-            return new WhatsAppPreviewData(emptyValues,
-                    "Report preview requires valid parameters. Template: " + atTemplateNameValue + " (" + languageCodeValue + ")",
-                    enqueueable, skipped);
+            final String fallback = isFreeform ? previewFreeformMessage(StringUtils.defaultString(freeformMessage), Map.of())
+                    : "Report preview requires valid parameters. Template: " + atTemplateNameValue + " (" + languageCodeValue + ")";
+            return new WhatsAppPreviewData(emptyValues, fallback, enqueueable, skipped);
         } catch (final IOException e) {
             LOG.error("Error generating WhatsApp campaign preview.", e);
             final List<String> emptyValues = WhatsAppTemplateVariableMapper.toBodyValues(bodyVariableMappingJson, Map.of());
@@ -309,15 +327,23 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         }
     }
 
-    private boolean isEnqueueablePreviewRow(final HashMap<String, Object> entry, final String bodyVariableMappingJson) {
+    private boolean isEnqueueablePreviewRow(final HashMap<String, Object> entry, final String bodyVariableMappingJson,
+            final boolean isFreeform, final String freeformMessage) {
         final Object mobileNo = entry.get("mobileNo");
         final String phoneNumber = mobileNo == null ? null : this.phoneNumberNormalizer.normalize(mobileNo.toString());
         if (StringUtils.isBlank(phoneNumber)) {
             return false;
         }
-        final WhatsAppTemplateVariableMapper.MappingResult mapping = WhatsAppTemplateVariableMapper.toBodyValuesStrict(bodyVariableMappingJson,
-                entry);
-        return mapping.isComplete();
+        if (isFreeform) {
+            return WhatsAppFreeformMessageResolver.resolveStrict(freeformMessage, entry).isComplete();
+        }
+        return WhatsAppTemplateVariableMapper.toBodyValuesStrict(bodyVariableMappingJson, entry).isComplete();
+    }
+
+    static String previewFreeformMessage(final String message, final Map<String, Object> entry) {
+        final WhatsAppFreeformMessageResolver.ResolveResult result = WhatsAppFreeformMessageResolver.resolveStrict(message, entry);
+        return result.isComplete() ? result.getResolvedMessage()
+                : "Freeform preview unavailable: unresolved values: " + String.join(", ", result.getUnresolvedKeys());
     }
 
     private String buildPreviewMessage(final String atTemplateName, final String languageCode, final List<String> bodyValues) {
@@ -416,34 +442,66 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
             return false;
         }
 
-        final WhatsAppTemplateVariableMapper.MappingResult mapping = WhatsAppTemplateVariableMapper
-                .toBodyValuesStrict(campaign.getBodyVariableMapping(), entry);
-        if (!mapping.isComplete()) {
-            LOG.warn("Skipping recipient for WhatsApp campaign {}: template {} has unresolved variable(s) {}.", campaign.getId(),
-                    campaign.getAtTemplateName(), mapping.getUnresolvedKeys());
-            return false;
-        }
+        final String triggerInstant = campaign.getNextTriggerDate() != null ? campaign.getNextTriggerDate().toString()
+                : DateUtils.getLocalDateTimeOfTenant().toString();
+        final String idempotencyKey = buildCampaignIdempotencyKey(campaign.getId(), phoneNumber, triggerInstant);
 
-        final List<String> bodyValues = mapping.getBodyValues();
-        final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
-        final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
-
-        Client client = null;
-        Staff staff = null;
-        final Long recipientId = extractRecipientId(entry.get("id"));
-        if (recipientId != null) {
-            if (campaign.isStaffCampaign()) {
-                staff = this.staffRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
-            } else {
-                client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+        final NotificationCommand command;
+        if (campaign.getMessageType() == WhatsAppMessageType.FREEFORM) {
+            final WhatsAppFreeformMessageResolver.ResolveResult freeform = WhatsAppFreeformMessageResolver
+                    .resolveStrict(campaign.getMessage(), entry);
+            if (!freeform.isComplete()) {
+                LOG.warn("Skipping recipient for WhatsApp campaign {}: unresolved FREEFORM placeholders {}", campaign.getId(),
+                        freeform.getUnresolvedKeys());
+                return false;
             }
+            Client client = null;
+            Staff staff = null;
+            final Long recipientId = extractRecipientId(entry.get("id"));
+            if (recipientId != null) {
+                if (campaign.isStaffCampaign()) {
+                    staff = this.staffRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+                } else {
+                    client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+                }
+            }
+            this.sendRateLimiter.acquire();
+            // Queue PENDING only — dispatch job sends to AT once; deterministic key prevents double-send on job retry.
+            command = NotificationCommand.freeformWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber, campaign.getRecipientType(), client,
+                    staff, freeform.getResolvedMessage(), campaign.getId(), false, idempotencyKey);
+        } else {
+            final WhatsAppTemplateVariableMapper.MappingResult mapping = WhatsAppTemplateVariableMapper
+                    .toBodyValuesStrict(campaign.getBodyVariableMapping(), entry);
+            if (!mapping.isComplete()) {
+                LOG.warn("Skipping recipient for WhatsApp campaign {}: incomplete TEMPLATE bodyValues {}", campaign.getId(),
+                        mapping.getUnresolvedKeys());
+                return false;
+            }
+            final List<String> bodyValues = mapping.getBodyValues();
+            final String templateBodyValuesJson = new ObjectMapper().writeValueAsString(bodyValues);
+            final String auditMessageBody = bodyValues.isEmpty() ? campaign.getMessage() : String.join("|", bodyValues);
+            Client client = null;
+            Staff staff = null;
+            final Long recipientId = extractRecipientId(entry.get("id"));
+            if (recipientId != null) {
+                if (campaign.isStaffCampaign()) {
+                    staff = this.staffRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+                } else {
+                    client = this.clientRepositoryWrapper.findOneWithNotFoundDetection(recipientId);
+                }
+            }
+            this.sendRateLimiter.acquire();
+            command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber, campaign.getRecipientType(), client,
+                    staff, campaign.getAtTemplateName(), campaign.getLanguageCode(), templateBodyValuesJson, auditMessageBody,
+                    campaign.getId(), false, idempotencyKey);
         }
-
-        final NotificationCommand command = NotificationCommand.templateWhatsApp(NotificationPurpose.CAMPAIGN, phoneNumber,
-                campaign.getRecipientType(), client, staff, campaign.getAtTemplateName(), campaign.getLanguageCode(),
-                templateBodyValuesJson, auditMessageBody, campaign.getId());
         final NotificationResult result = notificationCommandService.send(command);
         return result.isAccepted();
+    }
+
+    static String buildCampaignIdempotencyKey(final Long campaignId, final String phoneNumber, final String triggerInstant) {
+        final String raw = campaignId + "|" + phoneNumber + "|" + triggerInstant;
+        return StringUtils.left(raw, 100);
     }
 
     private static Long extractRecipientId(final Object rawId) {
@@ -458,8 +516,16 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
 
     private List<HashMap<String, Object>> getRunReportByServiceImpl(final String reportName, final Map<String, String> queryParams) {
         final String reportType = "report";
+        // Strip "R_" prefix from parameter keys so they match ${officeId} style placeholders in report SQL,
+        // aligning with SMS campaign behavior where plain keys are used (no R_ prefix).
+        final Map<String, String> normalizedParams = new HashMap<>();
+        for (final Map.Entry<String, String> entry : queryParams.entrySet()) {
+            final String key = entry.getKey();
+            final String normalizedKey = key.startsWith("R_") ? key.substring(2) : key;
+            normalizedParams.put(normalizedKey, entry.getValue());
+        }
         final GenericResultsetData results = this.readReportingService.retrieveGenericResultSetForSmsEmailCampaign(reportName, reportType,
-                queryParams);
+                normalizedParams);
         // Map rows directly — avoid generateJsonFromGenericResultsetData + Jackson parse, which breaks on
         // unescaped control characters (tabs/newlines) common in stretchy-report string columns.
         final List<ResultsetColumnHeaderData> columnHeaders = results.getColumnHeaders();
@@ -495,8 +561,15 @@ public class WhatsAppCampaignWritePlatformServiceImpl implements WhatsAppCampaig
         return jsonObject.toString();
     }
 
-    private void handleDataIntegrityIssues(final Throwable realCause) {
+    private void handleDataIntegrityIssues(final JsonCommand command, final Throwable realCause, final Exception dve) {
+        final String message = realCause == null ? "" : StringUtils.defaultString(realCause.getMessage());
+        if (StringUtils.containsIgnoreCase(message, "campaign_name")) {
+            final String campaignName = command.stringValueOfParameterNamed(WhatsAppCampaignValidator.campaignName);
+            throw new PlatformDataIntegrityException("error.msg.whatsapp.campaign.duplicate.name",
+                    "A WhatsApp campaign with name `" + campaignName + "` already exists", "campaignName", campaignName);
+        }
+        LOG.error("Unknown WhatsApp campaign data integrity issue.", dve);
         throw new PlatformDataIntegrityException("error.msg.whatsapp.campaign.unknown.data.integrity.issue",
-                "Unknown data integrity issue with resource: " + realCause.getMessage());
+                "Unknown data integrity issue with resource: " + message);
     }
 }

@@ -61,6 +61,12 @@ public class IntegrationHttpClientConfig {
     }
 
     @Bean
+    @Qualifier("metaWhatsAppHttpClient")
+    public OkHttpClient metaWhatsAppHttpClient() {
+        return buildClient("fineract.integrations.meta.whatsapp.http");
+    }
+
+    @Bean
     public RestTemplate restTemplate() {
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
         factory.setConnectTimeout((int) TimeUnit.SECONDS.toMillis(DEFAULT_CONNECT_TIMEOUT_SECONDS));

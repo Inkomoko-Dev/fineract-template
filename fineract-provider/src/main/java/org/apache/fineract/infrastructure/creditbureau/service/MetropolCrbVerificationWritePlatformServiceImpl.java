@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -40,6 +41,7 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuild
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.creditbureau.data.CRBREPORTTYPES;
+import org.apache.fineract.infrastructure.creditbureau.data.CrbRequestType;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
@@ -85,6 +87,7 @@ public class MetropolCrbVerificationWritePlatformServiceImpl implements Metropol
     private final TransUnionCrbConsumerVerificationReadPlatformService verificationReadPlatformService;
     private final MetropolCrbIdentityVerificationRepository metropolCrbIdentityVerificationRepository;
     private final MetropolCrbCreditInfoEnhancedRepository metropolCrbCreditInfoEnhancedRepository;
+    private final CrbDuplicateRequestGuard crbDuplicateRequestGuard;
     private final MetropolCrbAccountInfoRepository accountInfoRepository;
     private final MetropolNumberOfEnquiriesRepository numberOfEnquiriesRepository;
     private final MetropolNumberOfCreditApplicationRepository numberOfCreditApplicationRepository;
@@ -109,6 +112,13 @@ public class MetropolCrbVerificationWritePlatformServiceImpl implements Metropol
         }
 
         Client clientObj = this.clientRepositoryWrapper.findOneWithNotFoundDetection(loan.getClientId());
+        Optional<Long> recentReportId = this.crbDuplicateRequestGuard.acquire(CrbRequestType.METROPOL_IDENTITY, loanId);
+        if (recentReportId.isPresent()) {
+            return new CommandProcessingResultBuilder() //
+                    .withCommandId(command.commandId()) //
+                    .withEntityId(clientObj.getId()).withResourceIdAsString(recentReportId.get().toString()) //
+                    .build();
+        }
         MetropolCrbIdentityReport metropolCrbIdentityReport = null;
         try {
             if (clientObj.getLegalForm().equals(LegalForm.PERSON.getValue())) {
@@ -121,6 +131,7 @@ public class MetropolCrbVerificationWritePlatformServiceImpl implements Metropol
         } catch (Exception e) {
             throw new GeneralPlatformDomainRuleException("Verification failed with error: ", e.getMessage());
         }
+        this.crbDuplicateRequestGuard.complete(CrbRequestType.METROPOL_IDENTITY, loanId, metropolCrbIdentityReport.getId());
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
                 .withEntityId(clientObj.getId()).withResourceIdAsString(metropolCrbIdentityReport.getId().toString()) //
@@ -140,6 +151,13 @@ public class MetropolCrbVerificationWritePlatformServiceImpl implements Metropol
         }
 
         Client clientObj = this.clientRepositoryWrapper.findOneWithNotFoundDetection(loan.getClientId());
+        Optional<Long> recentReportId = this.crbDuplicateRequestGuard.acquire(CrbRequestType.METROPOL_CREDIT_INFO_ENHANCED, loanId);
+        if (recentReportId.isPresent()) {
+            return new CommandProcessingResultBuilder() //
+                    .withCommandId(command.commandId()) //
+                    .withEntityId(clientObj.getId()).withResourceIdAsString(recentReportId.get().toString()) //
+                    .build();
+        }
         MetropolCrbCreditInfoEnhancedReport metropolCrbCreditInfoEnhancedReport = null;
         try {
             if (clientObj.getLegalForm().equals(LegalForm.PERSON.getValue())) {
@@ -152,6 +170,7 @@ public class MetropolCrbVerificationWritePlatformServiceImpl implements Metropol
         } catch (Exception e) {
             throw new GeneralPlatformDomainRuleException("Credit Info Enhanced report failed with error: ", e.getMessage());
         }
+        this.crbDuplicateRequestGuard.complete(CrbRequestType.METROPOL_CREDIT_INFO_ENHANCED, loanId, metropolCrbCreditInfoEnhancedReport.getId());
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
                 .withEntityId(clientObj.getId()).withResourceIdAsString(metropolCrbCreditInfoEnhancedReport.getId().toString()) //
@@ -171,6 +190,13 @@ public class MetropolCrbVerificationWritePlatformServiceImpl implements Metropol
         }
 
         Client clientObj = this.clientRepositoryWrapper.findOneWithNotFoundDetection(loan.getClientId());
+        Optional<Long> recentReportId = this.crbDuplicateRequestGuard.acquire(CrbRequestType.METROPOL_REPORT_JSON, loanId);
+        if (recentReportId.isPresent()) {
+            return new CommandProcessingResultBuilder() //
+                    .withCommandId(command.commandId()) //
+                    .withEntityId(clientObj.getId()).withResourceIdAsString(recentReportId.get().toString()) //
+                    .build();
+        }
         MetropolCrbCreditInfoEnhancedReport metropolCrbCreditInfoEnhancedReport = null;
         try {
             if (clientObj.getLegalForm().equals(LegalForm.PERSON.getValue())) {
@@ -183,6 +209,7 @@ public class MetropolCrbVerificationWritePlatformServiceImpl implements Metropol
         } catch (Exception e) {
             throw new GeneralPlatformDomainRuleException("Report Json failed with error: ", e.getMessage());
         }
+        this.crbDuplicateRequestGuard.complete(CrbRequestType.METROPOL_REPORT_JSON, loanId, metropolCrbCreditInfoEnhancedReport.getId());
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
                 .withEntityId(clientObj.getId()).withResourceIdAsString(metropolCrbCreditInfoEnhancedReport.getId().toString()) //

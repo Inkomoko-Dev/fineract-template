@@ -41,6 +41,7 @@
     </changeSet>
 
     <changeSet id="CGLT-537-stretchy-provisioning-by-category-by-run" author="codex">
+        <validCheckSum>8:7b61695b8169b39379d7ddd368605ce3</validCheckSum>
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Provisioning By Category (By Run)'</sqlCheck>
         </preConditions>
@@ -54,27 +55,27 @@
        ph.executed_at AS run_executed_at,
        created_user.username AS run_by,
        o.name AS office_name,
-       COALESCE(def.category_code, pc.category_code, '-') AS category_code,
+       COALESCE(def.category_code, cat.category_code, '-') AS category_code,
        COALESCE(def.category_name,
-                CASE WHEN e.classification_type = 'WRITTEN_OFF_PORTFOLIO' THEN 'Written-Off Portfolio' ELSE pc.category_name END,
+                CASE WHEN e.classification_type = 'WRITTEN_OFF_PORTFOLIO' THEN 'Written-Off Portfolio' ELSE cat.category_name END,
                 e.classification_type) AS category_label,
        pcv.version_no AS criteria_version_no,
-       pc.criteria_name,
+       crit.criteria_name,
        e.currency_code,
        SUM(e.reseve_amount) AS total_reserved_amount,
        COUNT(*) AS line_count
 FROM m_provisioning_history ph
 JOIN m_loanproduct_provisioning_entry e ON e.history_id = ph.id
 JOIN m_office o ON o.id = e.office_id
-LEFT JOIN m_provisioning_criteria pc ON pc.id = e.criteria_id
+LEFT JOIN m_provisioning_criteria crit ON crit.id = e.criteria_id
 LEFT JOIN m_provisioning_criteria_version pcv ON pcv.id = e.criteria_version_id
 LEFT JOIN m_provisioning_criteria_definition def ON def.id = e.criteria_definition_id
-LEFT JOIN m_provision_category pc ON pc.id = e.category_id
+LEFT JOIN m_provision_category cat ON cat.id = e.category_id
 LEFT JOIN m_appuser created_user ON created_user.id = ph.createdby_id
 WHERE ph.id = ${provisioningEntryId}
   AND o.id = ${officeId}
 GROUP BY provisioning_as_of_date, run_executed_at, run_by, office_name, category_code, category_label,
-         criteria_version_no, pc.criteria_name, e.currency_code
+         criteria_version_no, crit.criteria_name, e.currency_code
 ORDER BY office_name, category_code]]>
             </column>
             <column name="description" value="Provisioning run totals by category using stored definition snapshots (supports N buckets and Written-Off Portfolio)."/>
@@ -117,6 +118,7 @@ ORDER BY office_name, category_code]]>
     </changeSet>
 
     <changeSet id="CGLT-537-update-latest-provisioning-report-snapshot-labels" author="codex">
+        <validCheckSum>8:ea3e64f3360cad9f32d3a9e053650811</validCheckSum>
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="1">SELECT COUNT(*) FROM stretchy_report WHERE report_name = 'Provisioning By Category (Latest Run)'</sqlCheck>
         </preConditions>
@@ -126,27 +128,27 @@ ORDER BY office_name, category_code]]>
        ph.executed_at AS run_executed_at,
        created_user.username AS run_by,
        o.name AS office_name,
-       COALESCE(def.category_code, pc.category_code, ''-'') AS category_code,
+       COALESCE(def.category_code, cat.category_code, ''-'') AS category_code,
        COALESCE(def.category_name,
-                CASE WHEN e.classification_type = ''WRITTEN_OFF_PORTFOLIO'' THEN ''Written-Off Portfolio'' ELSE pc.category_name END,
+                CASE WHEN e.classification_type = ''WRITTEN_OFF_PORTFOLIO'' THEN ''Written-Off Portfolio'' ELSE cat.category_name END,
                 e.classification_type) AS category_label,
        pcv.version_no AS criteria_version_no,
-       pc.criteria_name,
+       crit.criteria_name,
        e.currency_code,
        SUM(e.reseve_amount) AS total_reserved_amount,
        COUNT(*) AS line_count
 FROM m_provisioning_history ph
 JOIN m_loanproduct_provisioning_entry e ON e.history_id = ph.id
 JOIN m_office o ON o.id = e.office_id
-LEFT JOIN m_provisioning_criteria pc ON pc.id = e.criteria_id
+LEFT JOIN m_provisioning_criteria crit ON crit.id = e.criteria_id
 LEFT JOIN m_provisioning_criteria_version pcv ON pcv.id = e.criteria_version_id
 LEFT JOIN m_provisioning_criteria_definition def ON def.id = e.criteria_definition_id
-LEFT JOIN m_provision_category pc ON pc.id = e.category_id
+LEFT JOIN m_provision_category cat ON cat.id = e.category_id
 LEFT JOIN m_appuser created_user ON created_user.id = ph.createdby_id
 WHERE ph.id = (SELECT MAX(id) FROM m_provisioning_history)
   AND o.id = ${officeId}
 GROUP BY provisioning_as_of_date, run_executed_at, run_by, office_name, category_code, category_label,
-         criteria_version_no, pc.criteria_name, e.currency_code
+         criteria_version_no, crit.criteria_name, e.currency_code
 ORDER BY office_name, category_code',
                    description = 'Latest provisioning run: reserved amounts by category snapshot and criteria version (office scope).'
              WHERE report_name = 'Provisioning By Category (Latest Run)';

@@ -1017,6 +1017,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder reverseAccrualTransaction(final Long loanId, final Long transactionId) {
+        this.actionName = "REVERSEACCRUAL";
+        this.entityName = "LOAN";
+        this.entityId = transactionId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/transactions/" + transactionId + "?command=reverseaccrual";
+        return this;
+    }
+
     public CommandWrapperBuilder editDisbursementChargeTransaction(final Long loanId, final Long transactionId) {
         this.actionName = "ADJUST";
         this.entityName = "LOAN";
@@ -1247,6 +1256,15 @@ public class CommandWrapperBuilder {
         this.entityId = loanId;
         this.loanId = loanId;
         this.href = "/loans/" + loanId;
+        return this;
+    }
+
+    /** Makes a credit decision policy version the live one. A checker has to approve it. */
+    public CommandWrapperBuilder activateCreditDecisionVersion(final Long profileId) {
+        this.actionName = "ACTIVATE";
+        this.entityName = "CREDITDECISION";
+        this.entityId = profileId;
+        this.href = "/creditdecision/profiles/" + profileId;
         return this;
     }
 
@@ -3903,6 +3921,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder rectifyLateFees(final Long loanId) {
+        this.actionName = "RECTIFYLATEFEES";
+        this.entityName = "LOAN";
+        this.entityId = loanId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "?command=rectifyLateFees";
+        return this;
+    }
+
     public CommandWrapperBuilder nextWithdrawalDateSavingsAccount(final Long accountId) {
         this.actionName = "NEXTWITHDRAWALDATE";
         this.entityName = "SAVINGSACCOUNT";
@@ -4369,6 +4396,34 @@ public class CommandWrapperBuilder {
         this.entityName = "LOANCLASSIFICATIONCONFIG";
         this.entityId = configId;
         this.href = "/loanclassification/countries/" + configId;
+        return this;
+    }
+
+    public CommandWrapperBuilder createTrancheMilestone(final String loanKey) {
+        this.actionName = "CREATE";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones";
+        return this;
+    }
+
+    public CommandWrapperBuilder approveTrancheMilestone(final String loanKey) {
+        this.actionName = "APPROVE";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones/deadline-exception";
+        return this;
+    }
+
+    public CommandWrapperBuilder cancelTrancheMilestone(final String loanKey) {
+        this.actionName = "CANCEL";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones/cancel-undisbursed";
+        return this;
+    }
+
+    public CommandWrapperBuilder rescheduleTrancheMilestone(final String loanKey) {
+        this.actionName = "RESCHEDULE";
+        this.entityName = "TRANCHEMILESTONE";
+        this.href = "/loans/" + loanKey + "/tranche-milestones/reschedule";
         return this;
     }
 

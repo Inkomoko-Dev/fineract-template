@@ -112,6 +112,18 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
     @Column(name = "principal", scale = 6, precision = 19, nullable = false)
     private BigDecimal principal;
 
+    @Column(name = "previous_tranche_repaid_minimum", scale = 6, precision = 19)
+    private BigDecimal previousTrancheRepaidMinimum;
+
+    @Column(name = "previous_tranche_repaid_as_percentage")
+    private Boolean previousTrancheRepaidAsPercentage;
+
+    @Column(name = "principal_as_percentage")
+    private Boolean principalAsPercentage;
+
+    @Column(name = "principal_percentage", scale = 6, precision = 19)
+    private BigDecimal principalPercentage;
+
     @Setter
     @Getter
     @Column(name = "net_disbursal_amount", scale = 6, precision = 19)
@@ -248,6 +260,38 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
         this.principal = principal;
     }
 
+    public BigDecimal getPreviousTrancheRepaidMinimum() {
+        return this.previousTrancheRepaidMinimum;
+    }
+
+    public void setPreviousTrancheRepaidMinimum(final BigDecimal previousTrancheRepaidMinimum) {
+        this.previousTrancheRepaidMinimum = previousTrancheRepaidMinimum;
+    }
+
+    public Boolean getPreviousTrancheRepaidAsPercentage() {
+        return this.previousTrancheRepaidAsPercentage;
+    }
+
+    public void setPreviousTrancheRepaidAsPercentage(final Boolean previousTrancheRepaidAsPercentage) {
+        this.previousTrancheRepaidAsPercentage = previousTrancheRepaidAsPercentage;
+    }
+
+    public Boolean getPrincipalAsPercentage() {
+        return this.principalAsPercentage;
+    }
+
+    public void setPrincipalAsPercentage(final Boolean principalAsPercentage) {
+        this.principalAsPercentage = principalAsPercentage;
+    }
+
+    public BigDecimal getPrincipalPercentage() {
+        return this.principalPercentage;
+    }
+
+    public void setPrincipalPercentage(final BigDecimal principalPercentage) {
+        this.principalPercentage = principalPercentage;
+    }
+
     public LocalDate getDisbursementDate() {
         return this.actualDisbursementDate;
     }
@@ -255,8 +299,13 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
     public DisbursementData toData() {
         LocalDate expectedDisburseDate = expectedDisbursementDateAsLocalDate();
         BigDecimal waivedChargeAmount = null;
-        return new DisbursementData(getId(), expectedDisburseDate, this.actualDisbursementDate, this.principal, this.netDisbursalAmount,
-                null, null, waivedChargeAmount);
+        final DisbursementData data = new DisbursementData(getId(), expectedDisburseDate, this.actualDisbursementDate, this.principal,
+                this.netDisbursalAmount, null, null, waivedChargeAmount);
+        data.setPreviousTrancheRepaidMinimum(this.previousTrancheRepaidMinimum);
+        data.setPreviousTrancheRepaidAsPercentage(this.previousTrancheRepaidAsPercentage);
+        data.setPrincipalAsPercentage(this.principalAsPercentage);
+        data.setPrincipalPercentage(this.principalPercentage);
+        return data;
     }
 
     public void updateActualDisbursementDate(LocalDate actualDisbursementDate) {

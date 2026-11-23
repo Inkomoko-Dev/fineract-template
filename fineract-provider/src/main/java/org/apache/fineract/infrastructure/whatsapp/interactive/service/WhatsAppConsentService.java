@@ -19,7 +19,6 @@
 package org.apache.fineract.infrastructure.whatsapp.interactive.service;
 
 import lombok.RequiredArgsConstructor;
-import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveSettingsProvider;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConsentRecord;
 import org.apache.fineract.infrastructure.whatsapp.interactive.domain.WhatsAppConsentRecordRepository;
 import org.apache.fineract.portfolio.client.domain.Client;
@@ -36,6 +35,15 @@ public class WhatsAppConsentService {
     @Transactional(readOnly = true)
     public boolean hasActiveConsent(final String phoneNumber) {
         return consentRecordRepository.findLatest(phoneNumber).map(WhatsAppConsentRecord::isConsentGranted).orElse(false);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasActiveConsentOrNotRecorded(final String phoneNumber) {
+        // If no consent record exists, consent is not yet required — allow the message.
+        // If a record exists, respect its granted/revoked status.
+        return consentRecordRepository.findLatest(phoneNumber)
+                .map(WhatsAppConsentRecord::isConsentGranted)
+                .orElse(true);
     }
 
     @Transactional

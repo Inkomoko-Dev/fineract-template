@@ -25,8 +25,15 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEvent;
 import org.apache.fineract.infrastructure.africastalking.domain.CommunicationWebhookEventRepository;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrSessionStatus;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSession;
+import org.apache.fineract.infrastructure.africastalking.voice.ivr.domain.VoiceIvrSessionRepository;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,11 +50,20 @@ class AfricasTalkingWebhookServiceTest {
     @Mock
     private CommunicationWebhookEventRepository webhookEventRepository;
 
+    @Mock
+    private VoiceIvrSessionRepository voiceIvrSessionRepository;
+
     private AfricasTalkingWebhookService webhookService;
 
     @BeforeEach
     void setUp() {
-        webhookService = new AfricasTalkingWebhookService(webhookVerifier, webhookEventRepository);
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
+        webhookService = new AfricasTalkingWebhookService(webhookVerifier, webhookEventRepository, voiceIvrSessionRepository);
+    }
+
+    @AfterEach
+    void tearDown() {
+        ThreadLocalContextUtil.clearTenant();
     }
 
     @Test
@@ -80,5 +96,36 @@ class AfricasTalkingWebhookServiceTest {
 
         assertTrue(result.duplicate());
         verify(webhookEventRepository, never()).save(any());
+    }
+
+    @Test
+    void masksOtpDigitsInVoiceCallbackEventIdWhileAuthenticating() {
+        final String payload = "sessionId=ATV_AUTH&dtmfDigits=654321&callSessionState=Completed";
+        final VoiceIvrSession session = new VoiceIvrSession();
+        session.setSessionStatus(VoiceIvrSessionStatus.AUTHENTICATING);
+        when(voiceIvrSessionRepository.findByExternalSessionIdOrderByLastActivityAtDesc("ATV_AUTH")).thenReturn(List.of(session));
+
+        final String eventId = webhookService.extractEventId(payload, AfricasTalkingClient.sha256Hex(payload));
+
+        assertTrue(eventId.startsWith("ATV_AUTH:OTP:"));
+        assertTrue(eventId.endsWith(":Completed"));
+        assertTrue(!eventId.contains("654321"));
+    }
+
+    @Test
+    void distinctAuthDtmfAttemptsProduceDistinctEventIds() {
+        final VoiceIvrSession session = new VoiceIvrSession();
+        session.setSessionStatus(VoiceIvrSessionStatus.AUTHENTICATING);
+        when(voiceIvrSessionRepository.findByExternalSessionIdOrderByLastActivityAtDesc("ATV_AUTH")).thenReturn(List.of(session));
+
+        final String first = "sessionId=ATV_AUTH&dtmfDigits=111111&callSessionState=Completed";
+        final String second = "sessionId=ATV_AUTH&dtmfDigits=222222&callSessionState=Completed";
+
+        final String firstId = webhookService.extractEventId(first, AfricasTalkingClient.sha256Hex(first));
+        final String secondId = webhookService.extractEventId(second, AfricasTalkingClient.sha256Hex(second));
+
+        assertTrue(!firstId.equals(secondId));
+        assertTrue(!firstId.contains("111111"));
+        assertTrue(!secondId.contains("222222"));
     }
 }

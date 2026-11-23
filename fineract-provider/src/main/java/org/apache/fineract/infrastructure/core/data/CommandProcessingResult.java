@@ -187,6 +187,10 @@ public class CommandProcessingResult implements Serializable {
                 null);
     }
 
+    public String getResourceIdentifier() {
+        return this.resourceIdentifier;
+    }
+
     public Long commandId() {
         return this.commandId;
     }

@@ -19,7 +19,9 @@
 package org.apache.fineract.infrastructure.africastalking.service;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -95,8 +97,10 @@ public class AfricasTalkingClient {
         }
         final JsonArray values = new JsonArray();
         if (bodyValues != null) {
+            final String placeholder = properties.getTemplatePlaceholder();
             for (final String v : bodyValues) {
-                values.add(v == null ? "" : v);
+                final String resolved = StringUtils.isBlank(v) ? placeholder : v;
+                values.add(resolved);
             }
         }
         body.add("bodyValues", values);
@@ -114,6 +118,72 @@ public class AfricasTalkingClient {
                 .addHeader("Accept", "application/json")
                 .addHeader("Content-Type", "application/json").build();
         return executeRequest("send WhatsApp template", request);
+    }
+
+    public AfricasTalkingApiResponse createWhatsAppTemplate(final String templateName, final String language,
+            final String category, final JsonObject components) throws IOException {
+        validateConfigured();
+        final JsonObject requestBody = new JsonObject();
+        requestBody.addProperty("username", properties.getUsername());
+        requestBody.addProperty("waNumber", properties.getWhatsapp().getSenderNumber());
+        requestBody.addProperty("name", templateName);
+        requestBody.addProperty("language", language);
+        requestBody.addProperty("category", category);
+        requestBody.add("components", components);
+
+        final HttpUrl url = HttpUrl.parse(properties.getWhatsappBaseUrl() + AfricasTalkingConstants.WHATSAPP_TEMPLATE_SEND_PATH);
+        final Request request = new Request.Builder().url(url)
+                .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
+                .addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
+                .addHeader("Accept", "application/json")
+                .addHeader("Content-Type", "application/json").build();
+        return executeRequest("create WhatsApp template", request);
+    }
+
+    public AfricasTalkingApiResponse createWhatsAppTemplateFromJson(final String apiRequestBodyAsJson) throws IOException {
+        validateConfigured();
+        if (StringUtils.isBlank(apiRequestBodyAsJson)) {
+            throw new IllegalArgumentException("WhatsApp template request body must not be blank.");
+        }
+        final JsonElement parsed = JsonParser.parseString(apiRequestBodyAsJson);
+        if (parsed == null || !parsed.isJsonObject()) {
+            throw new IllegalArgumentException("WhatsApp template request body must be a JSON object.");
+        }
+        final JsonObject requestBody = parsed.getAsJsonObject();
+        // Always overwrite credentials from server config — never trust client-supplied keys.
+        requestBody.addProperty("username", properties.getUsername());
+        requestBody.addProperty("waNumber", properties.getWhatsapp().getSenderNumber());
+
+        final HttpUrl url = HttpUrl.parse(properties.getWhatsappBaseUrl() + AfricasTalkingConstants.WHATSAPP_TEMPLATE_SEND_PATH);
+        final Request request = new Request.Builder().url(url)
+                .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
+                .addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
+                .addHeader("Accept", "application/json")
+                .addHeader("Content-Type", "application/json").build();
+        return executeRequest("create WhatsApp template from json", request);
+    }
+
+    /**
+     * Send an SMS via Africa's Talking Messaging API. Does not persist the message body in Fineract.
+     */
+    public AfricasTalkingApiResponse sendSms(final String recipientPhoneNumber, final String messageText) throws IOException {
+        validateConfigured();
+        if (StringUtils.isBlank(recipientPhoneNumber) || StringUtils.isBlank(messageText)) {
+            throw new IllegalArgumentException("SMS recipient and message are required");
+        }
+        final StringBuilder formBody = new StringBuilder();
+        formBody.append("username=").append(urlEncode(properties.getUsername()));
+        formBody.append("&to=").append(urlEncode(recipientPhoneNumber));
+        formBody.append("&message=").append(urlEncode(messageText));
+        if (StringUtils.isNotBlank(properties.getSms().getSenderId())) {
+            formBody.append("&from=").append(urlEncode(properties.getSms().getSenderId()));
+        }
+        final HttpUrl url = HttpUrl.parse(properties.getBaseUrl() + AfricasTalkingConstants.SMS_MESSAGING_PATH);
+        final Request request = new Request.Builder().url(url)
+                .post(RequestBody.create(formBody.toString(), MediaType.parse("application/x-www-form-urlencoded")))
+                .addHeader(AfricasTalkingConstants.API_KEY_HEADER, properties.getApiKey())
+                .addHeader("Accept", "application/json").build();
+        return executeRequest("send SMS", request);
     }
 
     public void validateWhatsAppConfigured() {
@@ -192,6 +262,42 @@ public class AfricasTalkingClient {
 
         public boolean isSuccessful() {
             return statusCode >= 200 && statusCode < 300;
+        }
+
+        /**
+         * Africa's Talking Messaging API often returns HTTP 201 with per-recipient failures in JSON.
+         * Treat delivery as successful only when at least one recipient status is Success / statusCode 100.
+         */
+        public boolean isSmsDeliverySuccessful() {
+            if (!isSuccessful() || StringUtils.isBlank(body)) {
+                return false;
+            }
+            try {
+                final JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+                if (!root.has("SMSMessageData") || !root.get("SMSMessageData").isJsonObject()) {
+                    // Some AT sandboxes omit the envelope; fall back to HTTP success.
+                    return true;
+                }
+                final JsonObject data = root.getAsJsonObject("SMSMessageData");
+                if (!data.has("Recipients") || !data.get("Recipients").isJsonArray() || data.getAsJsonArray("Recipients").size() == 0) {
+                    return false;
+                }
+                for (final JsonElement element : data.getAsJsonArray("Recipients")) {
+                    if (!element.isJsonObject()) {
+                        continue;
+                    }
+                    final JsonObject recipient = element.getAsJsonObject();
+                    if (recipient.has("status") && "Success".equalsIgnoreCase(recipient.get("status").getAsString())) {
+                        return true;
+                    }
+                    if (recipient.has("statusCode") && recipient.get("statusCode").getAsInt() == 100) {
+                        return true;
+                    }
+                }
+                return false;
+            } catch (final RuntimeException ex) {
+                return false;
+            }
         }
     }
 }

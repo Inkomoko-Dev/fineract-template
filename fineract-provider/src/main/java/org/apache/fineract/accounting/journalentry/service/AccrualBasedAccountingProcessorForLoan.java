@@ -585,10 +585,10 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         final boolean isReversal = loanTransactionDTO.isReversed();
         final Long paymentTypeId = loanTransactionDTO.getPaymentTypeId();
 
-        this.helper.createAccrualBasedJournalEntriesAndReversalsForLoan(office, currencyCode,
-                AccrualAccountsForLoan.LOAN_PORTFOLIO.getValue(), AccrualAccountsForLoan.OVERPAYMENT.getValue(), loanProductId,
-                paymentTypeId, loanId, transactionId, transactionDate, refundAmount, isReversal, loanTransactionDTO.isCorrection(),
-                loanTransactionDTO.getCorrectionDate());
+        // CGLT-394: cash leaving the institution — Dr overpayment liability, Cr fund source (bank / M-Pesa).
+        this.helper.createAccrualBasedJournalEntriesAndReversalsForLoan(office, currencyCode, AccrualAccountsForLoan.OVERPAYMENT.getValue(),
+                AccrualAccountsForLoan.FUND_SOURCE.getValue(), loanProductId, paymentTypeId, loanId, transactionId, transactionDate,
+                refundAmount, isReversal, loanTransactionDTO.isCorrection(), loanTransactionDTO.getCorrectionDate());
     }
 
     private void createJournalEntriesForRefundForActiveLoan(LoanDTO loanDTO, LoanTransactionDTO loanTransactionDTO, Office office) {

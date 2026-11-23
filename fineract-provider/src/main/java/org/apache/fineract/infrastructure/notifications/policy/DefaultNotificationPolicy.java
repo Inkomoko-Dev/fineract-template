@@ -35,23 +35,36 @@ public class DefaultNotificationPolicy implements NotificationPolicy {
 
     @Override
     public boolean isAllowed(final NotificationCommand command) {
-        return isAllowed(command.getChannel(), command.getPhoneNumber(), command.getPurpose());
+        return denialCode(command.getChannel(), command.getPhoneNumber(), command.getPurpose()) == null;
     }
 
     @Override
     public boolean isAllowed(final NotificationChannel channel, final String phoneNumber, final NotificationPurpose purpose) {
+        return denialCode(channel, phoneNumber, purpose) == null;
+    }
+
+    @Override
+    public String denialCode(final NotificationCommand command) {
+        return denialCode(command.getChannel(), command.getPhoneNumber(), command.getPurpose());
+    }
+
+    @Override
+    public String denialCode(final NotificationChannel channel, final String phoneNumber, final NotificationPurpose purpose) {
         if (channel != NotificationChannel.WHATSAPP || phoneNumber == null) {
-            return true;
+            return null;
         }
         if (purpose == NotificationPurpose.TRANSACTIONAL) {
-            return true;
+            return null;
         }
         if (whatsAppOptOutService.isOptedOut(phoneNumber)) {
-            return false;
+            return "OPTED_OUT";
         }
-        if (purpose == NotificationPurpose.CAMPAIGN || purpose == NotificationPurpose.HOOK || purpose == NotificationPurpose.AD_HOC) {
-            return whatsAppConsentService.hasActiveConsent(phoneNumber);
+        if (purpose == NotificationPurpose.CAMPAIGN) {
+            return whatsAppConsentService.hasActiveConsentOrNotRecorded(phoneNumber) ? null : "CONSENT_REQUIRED";
         }
-        return true;
+        if (purpose == NotificationPurpose.HOOK || purpose == NotificationPurpose.AD_HOC) {
+            return whatsAppConsentService.hasActiveConsent(phoneNumber) ? null : "CONSENT_REQUIRED";
+        }
+        return null;
     }
 }

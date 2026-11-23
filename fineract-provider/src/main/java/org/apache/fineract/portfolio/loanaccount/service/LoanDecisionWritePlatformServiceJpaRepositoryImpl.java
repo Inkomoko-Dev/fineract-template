@@ -28,9 +28,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.persistence.PersistenceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.portfolio.creditdecision.data.DelegatedAuthorityData.EntryData;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionAutoStart;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionDelegatedAuthority;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.loanaccount.domain.DefaultLoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
@@ -64,6 +70,7 @@ import org.apache.fineract.portfolio.loanaccount.api.LoanApprovalMatrixConstants
 import org.apache.fineract.portfolio.loanaccount.data.LoanCashFlowReport;
 import org.apache.fineract.portfolio.loanaccount.data.LoanFinancialRatioData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
 import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfig;
 import org.apache.fineract.portfolio.loanaccount.domain.IcReviewLevelConfigRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -113,6 +120,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private final LoanApprovalMatrixRepository loanApprovalMatrixRepository;
     private final LoanCollateralManagementRepository loanCollateralManagementRepository;
     private final LoanDecisionStateUtilService loanDecisionStateUtilService;
+    private final CreditDecisionLoanService creditDecisionLoanService;
+    private final CreditDecisionAutoStart creditDecisionAutoStart;
+    private final CreditDecisionDelegatedAuthority delegatedAuthority;
     private final DocumentReadPlatformService documentReadPlatformService;
     private final MetropolCrbIdentityVerificationRepository metropolCrbIdentityVerificationRepository;
     private final TransunionCrbHeaderRepository transunionCrbHeaderRepository;
@@ -789,6 +799,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         this.businessEventNotifierService.notifyPostBusinessEvent(
                 new LoanDecisionAcceptedEvent(loan, savedObj, note));
 
+        // the process flow scores every application once its review is accepted, without anyone pressing a button
+        this.creditDecisionAutoStart.schedule(loanId);
+
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
                 .withEntityId(savedObj.getId()) //
@@ -801,6 +814,8 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult rejectLoanApplicationReview(final Long loanId, final JsonCommand command){
+
+        this.creditDecisionLoanService.assertReviewCanBeReturned(loanId);
 
         // Validate the current state
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
@@ -848,6 +863,9 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult applyDueDiligence(Long loanId, JsonCommand command) {
+
+        this.creditDecisionLoanService.assertOutcomeReceived(loanId, "moved to Due Diligence");
+        this.creditDecisionLoanService.assertNotIneligible(loanId, "moved to Due Diligence");
 
         final AppUser currentUser = getAppUserIfPresent();
 
@@ -914,6 +932,12 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         final Integer termPeriodFrequencyEnum = command
                 .integerValueOfParameterNamed(LoanApiConstants.recommendedLoanTermFrequencyTypeParameterName);
 
+        final Integer repaymentEvery = loan.repaymentScheduleDetail().getRepayEvery();
+        final PeriodFrequencyType repaymentFrequencyType = loan.repaymentScheduleDetail().getRepaymentPeriodFrequencyType();
+        final Integer repaymentFrequencyTypeValue = repaymentFrequencyType == null ? null : repaymentFrequencyType.getValue();
+        LoanRepaymentFrequency.assertCompatibleRecommendedTerm(termFrequency, termPeriodFrequencyEnum, repaymentEvery,
+                repaymentFrequencyTypeValue);
+
         if (!isIdeaClient) {
             loanDecision.setIdeaClient(false);
             // check for cashflow and financial ratio. Idea Client does not have a cashflow/ balancesheet
@@ -944,15 +968,63 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
         LoanDecision loanDecisionObj = loanDecisionAssembler.assembleDueDiligenceFrom(command, currentUser, loanDecision);
 
-        loanDecisionObj.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+        // An application the decision engine approved skips IC review. One that needs it, or has no automated decision, goes to IC
+        final boolean skipsIcReview = this.creditDecisionLoanService.bypassesIcReview(loanId);
+        loanDecisionObj.setNextLoanIcReviewDecisionState(
+                (skipsIcReview ? LoanDecisionState.PREPARE_AND_SIGN_CONTRACT : LoanDecisionState.IC_REVIEW_LEVEL_ONE).getValue());
+
+        // An application that needs IC review enters at the level the delegated authority rules give, skipping the ones below
+        List<IcReviewLevelConfig> bypassedLevels = List.of();
+        AppUser designatedApprover = null;
+        String routedTo = null;
+        if (!skipsIcReview && this.creditDecisionLoanService.requiresIcReview(loanId)) {
+            final EntryData entry = this.delegatedAuthority.resolve(loan.getCurrencyCode(),
+                    loanDecisionObj.getDueDiligenceRecommendedAmount(), this.creditDecisionLoanService.riskTier(loanId));
+            final List<IcReviewLevelConfig> levels = entry == null || entry.getEntryLevelNumber() <= 1 ? List.of()
+                    : this.icReviewLevelConfigRepository.findAllActiveOrderByDisplayOrder();
+            int entryIndex = -1;
+            for (int i = 0; i < levels.size(); i++) {
+                if (levels.get(i).getLevelNumber().equals(entry.getEntryLevelNumber())) {
+                    entryIndex = i;
+                }
+            }
+            if (entryIndex > 0) {
+                bypassedLevels = new ArrayList<>(levels.subList(0, entryIndex));
+                final IcReviewLevelConfig entryLevel = levels.get(entryIndex);
+                loanDecisionObj.setNextLoanIcReviewDecisionState(entryLevel.getDecisionStateValue());
+                routedTo = "Sent straight to " + entryLevel.getLevelName() + " under delegated authority " + entry.getDescription()
+                        + ", skipping " + bypassedLevels.stream().map(IcReviewLevelConfig::getLevelName).collect(Collectors.joining(", "));
+                if (entry.getApproverUserId() != null && command.longValueOfParameterNamed("nextApproverUserId") == null) {
+                    designatedApprover = this.appUserRepository.findById(entry.getApproverUserId()).orElse(null);
+                }
+            } else if (entry != null && entry.getEntryLevelNumber() > 1) {
+                log.warn("Delegated authority {} points at IC level {} which is not active; loan {} starts at the first level",
+                        entry.getRuleId(), entry.getEntryLevelNumber(), loanId);
+            }
+        }
         Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
-        final AppUser nextApprover = getNextApprover(command, nextStage);
+        final AppUser nextApprover = designatedApprover != null ? designatedApprover : getNextApprover(command, nextStage);
         setNextApprover(loanDecisionObj,nextStage,nextApprover);
 
         LoanDecision savedObj = loanDecisionRepository.saveAndFlush(loanDecisionObj);
 
         Loan loanObj = loan;
         loanObj.setLoanDecisionState(LoanDecisionState.DUE_DILIGENCE.getValue());
+        if (!bypassedLevels.isEmpty()) {
+            // The skipped levels are recorded as bypassed, so the history shows why they never signed, and the loan sits
+            // just below the level it enters, which is where that level expects it to be.
+            final LocalDate bypassedOn = DateUtils.getBusinessLocalDate();
+            for (final IcReviewLevelConfig level : bypassedLevels) {
+                markLevelBypassed(savedObj, level, bypassedOn, savedObj.getDueDiligenceRecommendedAmount(),
+                        savedObj.getDueDiligenceTermFrequency(), savedObj.getDueDiligenceTermFrequencyType(),
+                        "Bypassed: not needed under the delegated authority rules");
+            }
+            final Integer lastBypassed = bypassedLevels.get(bypassedLevels.size() - 1).getDecisionStateValue();
+            savedObj.setLoanDecisionState(lastBypassed);
+            savedObj = loanDecisionRepository.saveAndFlush(savedObj);
+            loanObj.setLoanDecisionState(lastBypassed);
+            this.creditDecisionLoanService.recordRouting(loanId, routedTo);
+        }
         this.loanRepositoryWrapper.saveAndFlush(loanObj);
 
         Note note = null;
@@ -1104,6 +1176,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelOne(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -1242,6 +1315,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelTwo(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -1380,6 +1454,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelThree(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -1518,6 +1593,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelFour(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -1656,6 +1732,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
 
     @Override
     public CommandProcessingResult acceptIcReviewDecisionLevelFive(Long loanId, JsonCommand command) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
 
         this.loanDecisionTransitionApiJsonValidator.validateIcReviewStage(command.json());
@@ -1797,6 +1874,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     @Override
     public CommandProcessingResult acceptPrepareAndSignContract(Long loanId, JsonCommand command) {
         final AppUser currentUser = getAppUserIfPresent();
+        this.creditDecisionLoanService.assertContractAllowed(loanId, "moved to Prepare and sign contract");
 
         final Collection<DocumentData> documentData = this.documentReadPlatformService.retrieveLoanDocumentsFilterByDocumentType(
                 LoanApiConstants.loanEntityType, loanId, LoanApiConstants.loanDocumentTypeContract);
@@ -2163,6 +2241,7 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
      */
     @Override
     public CommandProcessingResult acceptIcReviewDecisionDynamic(Long loanId, JsonCommand command, Integer levelNumber) {
+        this.creditDecisionLoanService.assertIcReviewAllowed(loanId);
         final AppUser currentUser = getAppUserIfPresent();
         validateDynamicIcReviewPermission(levelNumber, false);
 
@@ -2523,8 +2602,39 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
     private void updateLegacyIcReviewFields(LoanDecision loanDecision, Integer levelNumber, JsonCommand command,
             AppUser currentUser, LocalDate icReviewOn, BigDecimal recommendedAmount,
             Integer termFrequency, Integer termPeriodFrequencyEnum, boolean isReject) {
+        updateLegacyIcReviewFields(loanDecision, levelNumber, command.stringValueOfParameterNamed("note"), currentUser, icReviewOn,
+                recommendedAmount, termFrequency, termPeriodFrequencyEnum, isReject);
+    }
 
-        String note = command.stringValueOfParameterNamed("note");
+    /** Records a level as bypassed under the delegated authority rules, in the legacy fields and in the level table. */
+    private void markLevelBypassed(LoanDecision loanDecision, IcReviewLevelConfig level, LocalDate on, BigDecimal recommendedAmount,
+            Integer termFrequency, Integer termPeriodFrequencyEnum, String note) {
+        LoanDecisionLevel decisionLevel = loanDecisionLevelRepository.findByLoanDecisionIdAndLevelNumber(loanDecision.getId(),
+                level.getLevelNumber());
+        if (decisionLevel == null) {
+            decisionLevel = new LoanDecisionLevel();
+            decisionLevel.setLoanDecision(loanDecision);
+            decisionLevel.setIcReviewLevel(level);
+            decisionLevel.setLevelNumber(level.getLevelNumber());
+        }
+        decisionLevel.setNote(note);
+        decisionLevel.setIsSigned(true);
+        decisionLevel.setIsRejected(false);
+        decisionLevel.setDecisionOn(on);
+        decisionLevel.setDecisionBy(null);
+        decisionLevel.setRecommendedAmount(recommendedAmount);
+        decisionLevel.setTermFrequency(termFrequency);
+        decisionLevel.setTermPeriodFrequencyEnum(termPeriodFrequencyEnum);
+        loanDecisionLevelRepository.save(decisionLevel);
+        if (level.getLevelNumber() <= 5) {
+            updateLegacyIcReviewFields(loanDecision, level.getLevelNumber(), note, null, on, recommendedAmount, termFrequency,
+                    termPeriodFrequencyEnum, false);
+        }
+    }
+
+    private void updateLegacyIcReviewFields(LoanDecision loanDecision, Integer levelNumber, String note,
+            AppUser currentUser, LocalDate icReviewOn, BigDecimal recommendedAmount,
+            Integer termFrequency, Integer termPeriodFrequencyEnum, boolean isReject) {
 
         switch (levelNumber) {
             case 1:

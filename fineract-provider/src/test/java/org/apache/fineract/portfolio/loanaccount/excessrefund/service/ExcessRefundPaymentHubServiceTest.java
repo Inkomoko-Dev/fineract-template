@@ -76,4 +76,25 @@ class ExcessRefundPaymentHubServiceTest {
         assertThat(payload.getLoanId()).isEqualTo(42L);
         assertThat(payload.getNarration()).contains("Excess refund");
     }
+
+    @Test
+    void usesSubmittedMsisdnFromOverrideWrapper() {
+        when(this.loan.getId()).thenReturn(42L);
+        when(this.loan.getAccountNumber()).thenReturn("000000042");
+        when(this.paymentTypeReadPlatformService.retrieveOne(7L)).thenReturn(PaymentTypeData.instance(7L, "MPesa"));
+
+        final LoanExcessRefund refund = new LoanExcessRefund();
+        refund.setAmount(new BigDecimal("150.00"));
+        refund.setCurrencyCode("KES");
+        refund.setPaymentTypeId(7L);
+        refund.setBeneficiaryJson("{" + "\"override\":true,"
+                + "\"original\":{\"channel\":\"MOBILE_MONEY\",\"msisdn\":\"254700000000\",\"beneficiaryName\":\"Original\"},"
+                + "\"submitted\":{\"channel\":\"MOBILE_MONEY\",\"msisdn\":\"254711122233\",\"beneficiaryName\":\"Ada Override\"}"
+                + "}");
+
+        final DisbursementRequestData payload = this.service.buildPayload(this.loan, refund, "cbs_refund_2");
+
+        assertThat(payload.getClientPhoneNumber()).isEqualTo("254711122233");
+        assertThat(payload.getBeneficiaryName()).isEqualTo("Ada Override");
+    }
 }

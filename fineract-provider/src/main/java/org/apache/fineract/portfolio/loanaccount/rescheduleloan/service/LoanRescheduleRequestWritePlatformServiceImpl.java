@@ -531,7 +531,8 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             final List<Long> existingTransactionIds = new ArrayList<>(loan.findExistingTransactionIds());
             final List<Long> existingReversedTransactionIds = new ArrayList<>(loan.findExistingReversedTransactionIds());
 
-            BigDecimal totalChargesOutstanding = getTotalOutstandingOverdueCharges(loan, loanRescheduleRequest.getRescheduleFromDate());
+            final ChargeHandlingOption chargeHandling = loanRescheduleRequest.getChargeHandling();
+            final BigDecimal totalChargesOutstanding = sumOutstandingOverdueCharges(loan, loanRescheduleRequest.getRescheduleFromDate());
 
             ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan,
                     loanRescheduleRequest.getRescheduleFromDate());
@@ -611,6 +612,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             } else {
                 loan.updateLoanSchedule(loanScheduleDTO.getLoanScheduleModel());
             }
+            loan.repairOrInactivateBrokenOverdueInstallmentCharges();
             loan.recalculateAllCharges();
             ChangedTransactionDetail changedTransactionDetail = loan.processTransactions();
 
@@ -622,11 +624,11 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             // update the status of the request
             loanRescheduleRequest.approve(appUser, approvedOnDate);
 
-            ChargeHandlingOption chargeHandling = loanRescheduleRequest.getChargeHandling();
-
             if (chargeHandling == ChargeHandlingOption.CARRY) {
+                inactivateOutstandingOverdueCharges(loan, loanRescheduleRequest.getRescheduleFromDate());
                 Long carryForwardChargeDefId = loanRescheduleRequest.getCarryForwardChargeId();
-                createCarryForwardCharge(loan, carryForwardChargeDefId, loanRescheduleRequest.getCarryForwardChargeDueDate(), jsonCommand, totalChargesOutstanding);
+                createCarryForwardCharge(loan, carryForwardChargeDefId, loanRescheduleRequest.getCarryForwardChargeDueDate(), jsonCommand,
+                        totalChargesOutstanding);
             }
 
             // clear arrears if any, the job will rerun to update the loan arrears state
@@ -644,6 +646,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
                 }
             }
+            rebuildTransactionChargePaymentLinesForJournal(loan);
             postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
 
             this.loanAccountDomainService.recalculateAccruals(loan, true);
@@ -839,6 +842,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                 this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
             }
         }
+        rebuildTransactionChargePaymentLinesForJournal(loan);
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
         this.loanAccountDomainService.recalculateAccruals(loan, true);
         if (noteText != null && !noteText.isBlank()) {
@@ -912,18 +916,58 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
         }
     }
 
-    private BigDecimal getTotalOutstandingOverdueCharges(Loan loan, LocalDate rescheduleDate) {
-
+    private BigDecimal sumOutstandingOverdueCharges(final Loan loan, final LocalDate rescheduleDate) {
         BigDecimal totalChargesOutstanding = BigDecimal.ZERO;
-
-        for (LoanCharge charge : loan.getLoanCharges()) {
-            if (charge.isOverdueInstallmentCharge() && charge.isChargePending() && charge.getDueLocalDate().isAfter(rescheduleDate)) {
+        if (loan.getLoanCharges() == null || rescheduleDate == null) {
+            return totalChargesOutstanding;
+        }
+        for (final LoanCharge charge : loan.getLoanCharges()) {
+            if (charge.isOverdueInstallmentCharge() && charge.isChargePending() && charge.getDueLocalDate() != null
+                    && charge.getDueLocalDate().isAfter(rescheduleDate)) {
                 totalChargesOutstanding = totalChargesOutstanding.add(charge.amountOutstanding());
+            }
+        }
+        return totalChargesOutstanding;
+    }
+
+    private void inactivateOutstandingOverdueCharges(final Loan loan, final LocalDate rescheduleDate) {
+        if (loan.getLoanCharges() == null || rescheduleDate == null) {
+            return;
+        }
+        for (final LoanCharge charge : loan.getLoanCharges()) {
+            if (charge.isOverdueInstallmentCharge() && charge.isChargePending() && charge.getDueLocalDate() != null
+                    && charge.getDueLocalDate().isAfter(rescheduleDate)) {
                 charge.markAsInactive();
             }
         }
+    }
 
-        return totalChargesOutstanding;
+    /**
+     * Before journal posting, rebuild missing {@code LoanChargePaidBy} rows so they match posted fee/penalty portions.
+     * Never reclassifies fees into overpayment.
+     */
+    private void rebuildTransactionChargePaymentLinesForJournal(final Loan loan) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction == null || transaction.isReversed()) {
+                continue;
+            }
+            final int before = transaction.getLoanChargesPaid() == null ? 0 : transaction.getLoanChargesPaid().size();
+            try {
+                if (transaction.rebuildMissingChargePaymentLines(currency, loan.getLoanCharges())) {
+                    final int after = transaction.getLoanChargesPaid() == null ? 0 : transaction.getLoanChargesPaid().size();
+                    LOG.warn(
+                            "Rebuilt charge payment lines for loan {} transaction {}: lines {} -> {}, fee portion {}, penalty portion {}",
+                            loan.getId(), transaction.getId(), before, after, transaction.getFeeChargesPortion(currency).getAmount(),
+                            transaction.getPenaltyChargesPortion(currency).getAmount());
+                }
+            } catch (final IllegalStateException ex) {
+                throw new PlatformDataIntegrityException("error.msg.loan.reschedule.charge.payment.rebuild.failed",
+                        "Unable to rebuild charge payment lines before journaling. Loan: " + loan.getId() + ", transaction: "
+                                + transaction.getId() + ". " + ex.getMessage(),
+                        loan.getId(), transaction.getId());
+            }
+        }
     }
 
     private void createCarryForwardCharge(Loan loan, Long carryForwardChargeDefinitionId, LocalDate dueDate, JsonCommand command, BigDecimal totalOutstanding) {

@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.loanschedule.domain;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collection;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
@@ -110,6 +111,23 @@ public final class LoanScheduleModel {
                 this.totalPrincipalExpected, this.totalPrincipalPaid, this.totalInterestCharged, this.totalFeeChargesCharged,
                 this.totalPenaltyChargesCharged, totalWaived, totalWrittenOff, this.totalRepaymentExpected, totalRepayment,
                 totalPaidInAdvance, totalPaidLate, this.totalOutstanding);
+    }
+
+    /**
+     * Replaces the expected principal with the amount the schedule was shaped around. Interest,
+     * fees, and penalties stay on the totals.
+     */
+    public LoanScheduleModel withExpectedPrincipal(final BigDecimal schedulePrincipal) {
+        final int digits = this.totalPrincipalDisbursed.getCurrency().getDigitsAfterDecimal();
+        final BigDecimal next = schedulePrincipal == null ? BigDecimal.ZERO.setScale(digits, RoundingMode.HALF_UP)
+                : schedulePrincipal.max(BigDecimal.ZERO).setScale(digits, RoundingMode.HALF_UP);
+        final BigDecimal previous = this.totalPrincipalExpected == null ? BigDecimal.ZERO : this.totalPrincipalExpected;
+        final BigDecimal delta = previous.subtract(next);
+        return new LoanScheduleModel(this.periods, this.applicationCurrency, this.loanTermInDays,
+                Money.of(this.totalPrincipalDisbursed.getCurrency(), next), next, this.totalPrincipalPaid, this.totalInterestCharged,
+                this.totalFeeChargesCharged, this.totalPenaltyChargesCharged,
+                this.totalRepaymentExpected == null ? null : this.totalRepaymentExpected.subtract(delta),
+                this.totalOutstanding == null ? null : this.totalOutstanding.subtract(delta));
     }
 
     public Collection<LoanScheduleModelPeriod> getPeriods() {

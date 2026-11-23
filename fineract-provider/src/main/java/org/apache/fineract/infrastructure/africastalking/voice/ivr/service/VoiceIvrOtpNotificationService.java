@@ -21,12 +21,16 @@ package org.apache.fineract.infrastructure.africastalking.voice.ivr.service;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.africastalking.config.AfricasTalkingProperties;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingClient;
 import org.apache.fineract.infrastructure.africastalking.voice.ivr.constants.VoiceIvrAuthConstants;
 import org.apache.fineract.infrastructure.whatsapp.interactive.service.WhatsAppInteractiveMessages;
 import org.springframework.stereotype.Service;
 
+/**
+ * Delivers voice IVR OTP codes by SMS only — never via WhatsApp freeform.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -41,10 +45,15 @@ public class VoiceIvrOtpNotificationService {
             return false;
         }
         try {
-            africasTalkingClient.sendWhatsAppMessage(phoneNumber, WhatsAppInteractiveMessages.otpIssued(languageCode, otp));
+            final var response = africasTalkingClient.sendSms(phoneNumber, WhatsAppInteractiveMessages.otpIssued(languageCode, otp));
+            if (!response.isSmsDeliverySuccessful()) {
+                log.warn("Africa's Talking SMS OTP delivery failed HTTP {} body={}", response.statusCode(),
+                        StringUtils.abbreviate(response.body(), 200));
+                return false;
+            }
             log.debug("Delivered voice IVR OTP via {}", VoiceIvrAuthConstants.OTP_DELIVERY_CHANNEL);
             return true;
-        } catch (final IOException e) {
+        } catch (final IOException | RuntimeException e) {
             log.warn("Failed to deliver voice IVR OTP via {}", VoiceIvrAuthConstants.OTP_DELIVERY_CHANNEL, e);
             return false;
         }
