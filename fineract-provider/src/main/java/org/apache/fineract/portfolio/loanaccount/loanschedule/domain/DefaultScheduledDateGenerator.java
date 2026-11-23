@@ -40,6 +40,9 @@ public class DefaultScheduledDateGenerator implements ScheduledDateGenerator {
     @Override
     public LocalDate getLastRepaymentDate(final LoanApplicationTerms loanApplicationTerms, final HolidayDetailDTO holidayDetailDTO) {
 
+        if (loanApplicationTerms.getPreservedMaturity() != null) {
+            return loanApplicationTerms.getPreservedMaturity();
+        }
         final int numberOfRepayments = loanApplicationTerms.getNumberOfRepayments();
 
         LocalDate lastRepaymentDate = loanApplicationTerms.getExpectedDisbursementDate();

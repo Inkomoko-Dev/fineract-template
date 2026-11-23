@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.portfolio.loanaccount.rescheduleloan.service;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -35,25 +34,6 @@ import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail
 import org.junit.jupiter.api.Test;
 
 class LoanReschedulePreserveTermAndCadenceTest {
-
-    @Test
-    void preserveExtendUsesRemainingTermNotFullConvertedCount() {
-        final LoanRescheduleRequestWritePlatformServiceImpl service = new LoanRescheduleRequestWritePlatformServiceImpl(null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null);
-
-        final Loan loan = mock(Loan.class);
-        when(loan.getNumberOfRepayments()).thenReturn(6);
-        when(loan.getExpectedMaturityDate()).thenReturn(LocalDate.of(2032, 9, 30));
-        final LoanRepaymentScheduleInstallment kept = installment(loan, 1, LocalDate.of(2026, 9, 30));
-        final LoanRepaymentScheduleInstallment from = installment(loan, 2, LocalDate.of(2027, 9, 30));
-        when(loan.getRepaymentScheduleInstallments()).thenReturn(List.of(kept, from));
-
-        // 1 kept + 61 inclusive monthly dues (Sep 2027..Sep 2032) − 6 current = 56
-        final Integer delta = service.calculatePreserveTermExtendPeriods(loan, LocalDate.of(2027, 9, 30), 1,
-                PeriodFrequencyType.MONTHS.getValue());
-        assertEquals(56, delta);
-    }
 
     @Test
     void syncCadenceUpdatesLoanDetailFromRequestAndScheduleSize() {

@@ -20,7 +20,6 @@ package org.apache.fineract.portfolio.loanaccount.loanschedule.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import java.time.LocalDate;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.junit.jupiter.api.Test;
 
@@ -31,17 +30,6 @@ class LoanApplicationTermsPreserveTermTest {
         final Integer converted = LoanApplicationTerms.calculateNumberOfRepaymentsForFrequencyChange(1, PeriodFrequencyType.YEARS, 1,
                 PeriodFrequencyType.MONTHS, 6);
         assertEquals(72, converted);
-    }
-
-    @Test
-    void remainingTermFromMidLoanDoesNotOvershootMaturity() {
-        // Yearly loan reschedule from 30 Sep 2027 to maturity 30 Sep 2032 under monthly cadence.
-        // Calendar intervals = 60; inclusive dues on both from and maturity = 61 (first due = from, last = maturity).
-        final LocalDate from = LocalDate.of(2027, 9, 30);
-        final LocalDate maturity = LocalDate.of(2032, 9, 30);
-        final Integer intervals = LoanApplicationTerms.countRepaymentPeriodsBetween(from, maturity, 1, PeriodFrequencyType.MONTHS);
-        assertEquals(60, intervals);
-        assertEquals(61, intervals + 1);
     }
 
     @Test

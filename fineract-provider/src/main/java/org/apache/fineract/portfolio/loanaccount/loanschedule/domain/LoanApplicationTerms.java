@@ -125,6 +125,8 @@ public final class LoanApplicationTerms {
 
     // added
     private LocalDate loanEndDate;
+    private PreservedTermCadence preservedTermCadence;
+    private LocalDate preservedMaturity;
 
     private final List<DisbursementData> disbursementDatas;
 
@@ -931,6 +933,50 @@ public final class LoanApplicationTerms {
             break;
         }
         return numberOfPeriods;
+    }
+
+    LocalDate getPreservedMaturity() {
+        return this.preservedMaturity;
+    }
+
+    void setPreservedMaturity(final LocalDate maturity) {
+        this.preservedMaturity = maturity;
+    }
+
+    record PreservedTermCadence(int repayEvery, PeriodFrequencyType frequency) {}
+
+    public void preserveTermAtCadence(final int repayEvery, final PeriodFrequencyType frequency) {
+        this.preservedTermCadence = new PreservedTermCadence(repayEvery, frequency);
+    }
+
+    PreservedTermCadence getPreservedTermCadence() {
+        return this.preservedTermCadence;
+    }
+
+    BigDecimal calculatePreservedTermInterestPeriods(final LocalDate startDate, final MathContext mc) {
+        final long remainingDays = ChronoUnit.DAYS.between(startDate, this.preservedMaturity);
+        if (this.interestCalculationPeriodMethod.isDaily() || this.repaymentPeriodFrequencyType == PeriodFrequencyType.DAYS) {
+            return BigDecimal.valueOf(remainingDays);
+        }
+        if (this.repaymentPeriodFrequencyType == PeriodFrequencyType.WEEKS) {
+            return BigDecimal.valueOf(remainingDays).divide(BigDecimal.valueOf(7), mc);
+        }
+        final boolean monthly = this.repaymentPeriodFrequencyType == PeriodFrequencyType.MONTHS;
+        final ChronoUnit unit = monthly ? ChronoUnit.MONTHS : ChronoUnit.YEARS;
+        long wholePeriods = unit.between(startDate, this.preservedMaturity);
+        if (!startDate.plus(wholePeriods + 1, unit).isAfter(this.preservedMaturity)) {
+            wholePeriods++;
+        }
+        final LocalDate stubStart = startDate.plus(wholePeriods, unit);
+        final long stubDays = ChronoUnit.DAYS.between(stubStart, this.preservedMaturity);
+        final long daysPerPeriod;
+        if (monthly) {
+            daysPerPeriod = this.daysInMonthType.isDaysInMonth_30() ? 30 : ChronoUnit.DAYS.between(stubStart, stubStart.plusMonths(1));
+        } else {
+            daysPerPeriod = this.daysInYearType.getValue() > 1 ? this.daysInYearType.getValue()
+                    : ChronoUnit.DAYS.between(stubStart, stubStart.plusYears(1));
+        }
+        return BigDecimal.valueOf(wholePeriods).add(BigDecimal.valueOf(stubDays).divide(BigDecimal.valueOf(daysPerPeriod), mc));
     }
 
     public void updateLoanEndDate(final LocalDate loanEndDate) {
@@ -1905,7 +1951,8 @@ public final class LoanApplicationTerms {
         final java.time.LocalDate anchor = java.time.LocalDate.of(2000, 1, 1);
         final java.time.LocalDate originalEnd = addPeriods(anchor, originalRepaymentEvery, originalRepaymentFrequencyType,
                 originalNumberOfRepayments);
-        return countRepaymentPeriodsBetween(anchor, originalEnd, newRepaymentEvery, newRepaymentFrequencyType);
+        final Integer completePeriods = countRepaymentPeriodsBetween(anchor, originalEnd, newRepaymentEvery, newRepaymentFrequencyType);
+        return completePeriods == null ? null : Math.max(1, completePeriods);
     }
 
     /**
@@ -1940,8 +1987,7 @@ public final class LoanApplicationTerms {
             default:
                 return null;
         }
-        final int periods = (int) (units / repaymentEvery);
-        return Math.max(1, periods);
+        return (int) (units / repaymentEvery);
     }
 
     /**

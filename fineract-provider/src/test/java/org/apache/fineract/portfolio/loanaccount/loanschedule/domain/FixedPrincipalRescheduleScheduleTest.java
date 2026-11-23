@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
@@ -51,6 +53,10 @@ import org.apache.fineract.portfolio.common.domain.DaysInYearType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleDTO;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanSummary;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariationType;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.ScheduleNotAmortisingException;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
@@ -173,6 +179,77 @@ class FixedPrincipalRescheduleScheduleTest {
         assertMoney(PRINCIPAL.toPlainString(), totalPrincipal(periods));
     }
 
+    @Test
+    void yearlyToMonthlyRegenerationPreservesMaturity() throws Exception {
+        final List<LocalDate> dates = dueDates(
+                reschedulePreservingMaturity(6, 1, PeriodFrequencyType.YEARS, PeriodFrequencyType.MONTHS, 1));
+        assertEquals(LocalDate.of(2027, 9, 30), dates.get(0));
+        assertEquals(LocalDate.of(2028, 10, 30), dates.get(1));
+        assertEquals(LocalDate.of(2032, 9, 30), dates.get(dates.size() - 1));
+        assertEquals(49, dates.size());
+    }
+
+    @Test
+    void shortRemainderRegeneratesOnlyMaturityInstallment() throws Exception {
+        final List<LoanRepaymentScheduleInstallment> installments = reschedulePreservingMaturity(4, 7, PeriodFrequencyType.DAYS,
+                PeriodFrequencyType.MONTHS, 2);
+        assertEquals(List.of(LocalDate.of(2026, 10, 7), LocalDate.of(2026, 10, 14), LocalDate.of(2026, 10, 28)), dueDates(installments));
+        assertMoney("2722.22", installments.get(2).getInterestCharged());
+    }
+
+    @Test
+    void monthlyToYearlyRegenerationReducesInstallments() throws Exception {
+        final List<LocalDate> dates = dueDates(
+                reschedulePreservingMaturity(24, 1, PeriodFrequencyType.MONTHS, PeriodFrequencyType.YEARS, 1));
+        assertEquals(3, dates.size());
+        assertEquals(LocalDate.of(2028, 9, 28), dates.get(2));
+    }
+
+    private static List<LocalDate> dueDates(final List<LoanRepaymentScheduleInstallment> installments) {
+        return installments.stream().map(LoanRepaymentScheduleInstallment::getDueDate).toList();
+    }
+
+    private static List<LoanRepaymentScheduleInstallment> reschedulePreservingMaturity(int count, int every, PeriodFrequencyType originalFrequency,
+            PeriodFrequencyType newFrequency, int boundaryIndex) throws Exception {
+        final LocalDate disbursement = LocalDate.of(2026, 9, 30);
+        final MathContext mathContext = new MathContext(8, RoundingMode.HALF_EVEN);
+        ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
+        ThreadLocalContextUtil.setBusinessDates(new HashMap<>(Map.of(BusinessDateType.BUSINESS_DATE, disbursement)));
+        try {
+            final LoanApplicationTerms original = terms(InterestMethod.FLAT, new ArrayList<>(), count, every, originalFrequency,
+                    disbursement, null);
+            final LoanScheduleGenerator generator = new FlatInterestLoanScheduleGenerator();
+            final LoanScheduleModel schedule = generator.generate(mathContext, original, new HashSet<>(), original.getHolidayDetailDTO());
+            final Loan loan = mock(Loan.class);
+            final List<LoanRepaymentScheduleInstallment> installments = schedule.getPeriods().stream()
+                    .filter(LoanScheduleModelPeriod::isRepaymentPeriod)
+                    .map(period -> new LoanRepaymentScheduleInstallment(loan, period.periodNumber(), period.periodFromDate(),
+                            period.periodDueDate(), period.principalDue(), period.interestDue(), period.feeChargesDue(),
+                            period.penaltyChargesDue(), false, period.getLoanCompoundingDetails(), period.rescheduleInterestPortion()))
+                    .toList();
+            when(loan.getRepaymentScheduleInstallments()).thenReturn(installments);
+            when(loan.getCurrency()).thenReturn(original.getPrincipal().getCurrency());
+            final LoanSummary summary = LoanSummary.create(BigDecimal.ZERO);
+            ReflectionTestUtils.setField(summary, "totalInterestCharged", original.getTotalInterestDue().getAmount());
+            when(loan.getLoanSummary()).thenReturn(summary);
+            final LocalDate boundary = installments.get(boundaryIndex).getDueDate();
+            final List<LoanTermVariationsData> variations = new ArrayList<>(List.of(
+                    new LoanTermVariationsData(LoanEnumerations.loanvariationType(LoanTermVariationType.REPAYMENT_EVERY), boundary,
+                            BigDecimal.ONE, null, false),
+                    new LoanTermVariationsData(LoanEnumerations.loanvariationType(LoanTermVariationType.REPAYMENT_FREQUENCY), boundary,
+                            BigDecimal.valueOf(newFrequency.getValue()), null, false)));
+            final LoanApplicationTerms terms = terms(InterestMethod.FLAT, variations, count, every, originalFrequency, disbursement, null);
+            terms.preserveTermAtCadence(1, newFrequency);
+            final LoanScheduleDTO regenerated = generator.rescheduleNextInstallments(mathContext, terms, loan, terms.getHolidayDetailDTO(),
+                    null, boundary);
+            assertMoney(PRINCIPAL.toPlainString(), totalPrincipal(regenerated.getLoanScheduleModel().getPeriods().stream()
+                    .filter(LoanScheduleModelPeriod::isRepaymentPeriod).toList()));
+            return regenerated.getInstallments();
+        } finally {
+            ThreadLocalContextUtil.clear();
+        }
+    }
+
     private static void assertReschedulesToThirtyThousand(List<LoanScheduleModelPeriod> periods) {
         for (int i = 0; i < 6; i++) {
             assertMoney("70000", periods.get(i).principalDue());
@@ -244,6 +321,11 @@ class FixedPrincipalRescheduleScheduleTest {
     }
 
     private static LoanApplicationTerms terms(InterestMethod interestMethod, List<LoanTermVariationsData> variations) throws Exception {
+        return terms(interestMethod, variations, 10, 1, PeriodFrequencyType.MONTHS, DISBURSED, FIRST_REPAYMENT);
+    }
+
+    private static LoanApplicationTerms terms(InterestMethod interestMethod, List<LoanTermVariationsData> variations,
+            int count, int every, PeriodFrequencyType frequency, LocalDate disbursement, LocalDate firstRepayment) throws Exception {
         Constructor<ApplicationCurrency> currencyCtor = ApplicationCurrency.class.getDeclaredConstructor(String.class, String.class,
                 int.class, Integer.class, String.class, String.class);
         currencyCtor.setAccessible(true);
@@ -256,12 +338,12 @@ class FixedPrincipalRescheduleScheduleTest {
         HolidayDetailDTO holidays = new HolidayDetailDTO(false, new ArrayList<>(), workingDays);
 
         Money principal = Money.of(rwf.toData(), PRINCIPAL);
-        return LoanApplicationTerms.assembleFrom(rwf, 10, PeriodFrequencyType.MONTHS, 10, 1, PeriodFrequencyType.MONTHS, null, null,
+        return LoanApplicationTerms.assembleFrom(rwf, count * every, frequency, count, every, frequency, null, null,
                 AmortizationMethod.EQUAL_INSTALLMENTS, interestMethod, new BigDecimal("10"), PeriodFrequencyType.YEARS, new BigDecimal("10"),
-                InterestCalculationPeriodMethod.SAME_AS_REPAYMENT_PERIOD, false, principal, DISBURSED, FIRST_REPAYMENT, FIRST_REPAYMENT,
+                InterestCalculationPeriodMethod.SAME_AS_REPAYMENT_PERIOD, false, principal, disbursement, firstRepayment, firstRepayment,
                 null, null, null, null, null, principal.zero(), false, null, new ArrayList<>(), null, null, DaysInMonthType.DAYS_30,
                 DaysInYearType.DAYS_360, false, null, null, null, null, null, BigDecimal.ZERO, null, null, null, PRINCIPAL, variations,
-                false, null, false, holidays, false, false, false, null, false, false, 10);
+                false, null, false, holidays, false, false, false, null, false, false, count);
     }
 
     private static BigDecimal totalInterest(List<LoanScheduleModelPeriod> periods) {
