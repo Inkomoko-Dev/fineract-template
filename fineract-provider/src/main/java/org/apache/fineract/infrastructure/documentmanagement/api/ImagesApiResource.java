@@ -18,9 +18,14 @@
  */
 package org.apache.fineract.infrastructure.documentmanagement.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Base64;
@@ -64,6 +69,7 @@ import org.springframework.stereotype.Component;
 @Component
 @Scope("singleton")
 @Path("{entity}/{entityId}/images")
+@Tag(name = "Images", description = "Images operations.")
 public class ImagesApiResource {
 
     private final PlatformSecurityContext context;
@@ -76,12 +82,15 @@ public class ImagesApiResource {
     /**
      * Upload images through multi-part form upload
      */
+    @Operation(summary = "Add New Client Image", description = "Add New Client Image.")
     @POST
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @Produces(MediaType.APPLICATION_JSON)
     @RequestBody(description = "Upload new client image", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
-    public String addNewClientImage(@PathParam("entity") final String entityName, @PathParam("entityId") final Long entityId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addNewClientImage(@PathParam("entity") @Parameter(description = "entity") final String entityName,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
             @HeaderParam("Content-Length") final Long fileSize, @FormDataParam("file") final InputStream inputStream,
             @FormDataParam("file") final FormDataContentDisposition fileDetails, @FormDataParam("file") final FormDataBodyPart bodyPart) {
         validateEntityTypeforImage(entityName);
@@ -101,11 +110,13 @@ public class ImagesApiResource {
     /**
      * Upload image as a Data URL (essentially a base64 encoded stream)
      */
+    @Operation(summary = "Add New Client Image", description = "Add New Client Image.")
     @POST
     @Consumes({ MediaType.TEXT_PLAIN, MediaType.TEXT_HTML, MediaType.APPLICATION_JSON })
     @Produces(MediaType.APPLICATION_JSON)
-    public String addNewClientImage(@PathParam("entity") final String entityName, @PathParam("entityId") final Long entityId,
-            final String jsonRequestBody) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String addNewClientImage(@PathParam("entity") @Parameter(description = "entity") final String entityName,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId, final String jsonRequestBody) {
         validateEntityTypeforImage(entityName);
 
         final Base64EncodedImage base64EncodedImage = ContentRepositoryUtils.extractImageFromDataURL(jsonRequestBody);
@@ -119,13 +130,17 @@ public class ImagesApiResource {
      * Returns a images, either as Base64 encoded text/plain or as inline or attachment with image MIME type as
      * Content-Type.
      */
+    @Operation(summary = "Retrieve Image", description = "Retrieve Image.")
     @GET
     @Consumes(MediaType.APPLICATION_JSON)
     // FINERACT-1265: Do NOT specify @Produces(TEXT_PLAIN) here - it may actually not (if it calls the next methods it's
     // octet-stream)
-    public Response retrieveImage(@PathParam("entity") final String entityName, @PathParam("entityId") final Long entityId,
-            @QueryParam("maxWidth") final Integer maxWidth, @QueryParam("maxHeight") final Integer maxHeight,
-            @QueryParam("output") final String output, @HeaderParam("Accept") String acceptHeader) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public Response retrieveImage(@PathParam("entity") @Parameter(description = "entity") final String entityName,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
+            @QueryParam("maxWidth") @Parameter(description = "maxWidth") final Integer maxWidth,
+            @QueryParam("maxHeight") @Parameter(description = "maxHeight") final Integer maxHeight,
+            @QueryParam("output") @Parameter(description = "output") final String output, @HeaderParam("Accept") String acceptHeader) {
         validateEntityTypeforImage(entityName);
         if (EntityTypeForImages.CLIENTS.toString().equalsIgnoreCase(entityName)) {
             this.context.authenticatedUser().validateHasReadPermission("CLIENTIMAGE");
@@ -174,12 +189,15 @@ public class ImagesApiResource {
      * This method is added only for consistency with other URL patterns and for maintaining consistency of usage of the
      * HTTP "verb" at the client side
      */
+    @Operation(summary = "Update Client Image", description = "Update Client Image.")
     @PUT
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     @Produces(MediaType.APPLICATION_JSON)
     @RequestBody(description = "Update client image", content = {
             @Content(mediaType = MediaType.MULTIPART_FORM_DATA, schema = @Schema(implementation = UploadRequest.class)) })
-    public String updateClientImage(@PathParam("entity") final String entityName, @PathParam("entityId") final Long entityId,
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateClientImage(@PathParam("entity") @Parameter(description = "entity") final String entityName,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId,
             @HeaderParam("Content-Length") final Long fileSize, @FormDataParam("file") final InputStream inputStream,
             @FormDataParam("file") final FormDataContentDisposition fileDetails, @FormDataParam("file") final FormDataBodyPart bodyPart) {
         return addNewClientImage(entityName, entityId, fileSize, inputStream, fileDetails, bodyPart);
@@ -191,18 +209,23 @@ public class ImagesApiResource {
      *
      * Upload image as a Data URL (essentially a base64 encoded stream)
      */
+    @Operation(summary = "Update Client Image", description = "Update Client Image.")
     @PUT
     @Consumes({ MediaType.TEXT_PLAIN, MediaType.TEXT_HTML, MediaType.APPLICATION_JSON })
     @Produces(MediaType.APPLICATION_JSON)
-    public String updateClientImage(@PathParam("entity") final String entityName, @PathParam("entityId") final Long entityId,
-            final String jsonRequestBody) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateClientImage(@PathParam("entity") @Parameter(description = "entity") final String entityName,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId, final String jsonRequestBody) {
         return addNewClientImage(entityName, entityId, jsonRequestBody);
     }
 
+    @Operation(summary = "Delete Client Image", description = "Delete Client Image.")
     @DELETE
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public String deleteClientImage(@PathParam("entity") final String entityName, @PathParam("entityId") final Long entityId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String deleteClientImage(@PathParam("entity") @Parameter(description = "entity") final String entityName,
+            @PathParam("entityId") @Parameter(description = "entityId") final Long entityId) {
         validateEntityTypeforImage(entityName);
         this.imageWritePlatformService.deleteImage(entityName, entityId);
         return this.toApiJsonSerializer.serialize(new CommandProcessingResult(entityId));

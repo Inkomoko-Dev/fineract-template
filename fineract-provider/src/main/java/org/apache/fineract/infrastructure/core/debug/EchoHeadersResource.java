@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.infrastructure.core.debug;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
@@ -41,11 +45,14 @@ import org.springframework.stereotype.Component;
 @Component
 @Path("/echo")
 @Scope("singleton")
+@Tag(name = "Echo Headers", description = "Echo Headers operations.")
 public class EchoHeadersResource {
 
+    @Operation(summary = "Get", description = "Get.")
     @GET
     @Consumes({ MediaType.WILDCARD })
     @Produces({ MediaType.TEXT_PLAIN })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String get(@Context HttpHeaders headers) {
         StringBuilder sb = new StringBuilder("Request Headers:\n");
         headers.getRequestHeaders().forEach((k, v) -> sb.append(k).append(" : ").append(v.get(0)).append("\n"));

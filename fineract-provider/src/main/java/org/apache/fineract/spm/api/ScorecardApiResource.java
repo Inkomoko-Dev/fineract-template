@@ -104,11 +104,13 @@ public class ScorecardApiResource {
         this.scorecardService.createScorecard(ScorecardMapper.map(scorecardData, survey, appUser, client));
     }
 
+    @Operation(summary = "Find By Survey And Client", description = "Find By Survey And Client.")
     @GET
     @Path("{surveyId}/clients/{clientId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Transactional
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public List<ScorecardData> findBySurveyAndClient(@PathParam("surveyId") @Parameter(description = "Enter surveyId") final Long surveyId,
             @PathParam("clientId") @Parameter(description = "Enter clientId") final Long clientId) {
         this.securityContext.authenticatedUser();
@@ -118,12 +120,14 @@ public class ScorecardApiResource {
 
     }
 
+    @Operation(summary = "Find By Client", description = "Find By Client.")
     @GET
     @Path("clients/{clientId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Transactional
-    public List<ScorecardData> findByClient(@PathParam("clientId") final Long clientId) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public List<ScorecardData> findByClient(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId) {
         this.securityContext.authenticatedUser();
         this.clientRepositoryWrapper.findOneWithNotFoundDetection(clientId);
         return (List<ScorecardData>) this.scorecardReadPlatformService.retrieveScorecardByClient(clientId);

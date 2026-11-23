@@ -25,6 +25,8 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.HashSet;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
@@ -64,6 +66,7 @@ import org.springframework.stereotype.Component;
 @Path("/smscampaigns")
 @Component
 @Scope("singleton")
+@Tag(name = "Sms Campaign", description = "Sms Campaign operations.")
 public class SmsCampaignApiResource {
 
     private final PlatformSecurityContext platformSecurityContext;
@@ -189,10 +192,12 @@ public class SmsCampaignApiResource {
         return this.toApiJsonSerializer.serialize(result);
     }
 
+    @Operation(summary = "Preview", description = "Preview.")
     @POST
     @Path("preview")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String preview(final String apiRequestBodyAsJson, @Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(SmsCampaignConstants.RESOURCE_NAME);
 

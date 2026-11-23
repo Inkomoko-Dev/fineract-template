@@ -18,6 +18,10 @@
  */
 package org.apache.fineract.infrastructure.security.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Map;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -43,6 +47,7 @@ import org.springframework.stereotype.Component;
 @Component
 @Scope("singleton")
 @ConditionalOnProperty("fineract.security.2fa.enabled")
+@Tag(name = "Two Factor Configuration", description = "Two Factor Configuration operations.")
 public class TwoFactorConfigurationApiResource {
 
     private final String resourceNameForPermissions = "TWOFACTOR_CONFIG";
@@ -62,14 +67,18 @@ public class TwoFactorConfigurationApiResource {
         this.commandsSourceWritePlatformService = commandsSourceWritePlatformService;
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAll() {
         this.context.authenticatedUser().validateHasReadPermission(this.resourceNameForPermissions);
         Map<String, Object> configurationMap = configurationService.retrieveAll();
         return toApiJsonSerializer.serialize(configurationMap);
     }
 
+    @Operation(summary = "Update Configuration", description = "Update Configuration.")
     @PUT
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String updateConfiguration(final String apiRequestBodyAsJson) {
         final CommandWrapper commandRequest = new CommandWrapperBuilder().updateTwoFactorConfiguration().withJson(apiRequestBodyAsJson)
                 .build();

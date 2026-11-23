@@ -18,6 +18,9 @@
  */
 package org.apache.fineract.mix.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -64,9 +67,11 @@ public class MixTaxonomyApiResource {
         this.apiRequestParameterHelper = apiRequestParameterHelper;
     }
 
+    @Operation(summary = "Retrieve All", description = "Retrieve All.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAll(@Context final UriInfo uriInfo) {
 
         // FIXME - KW - no check for permission to read mix taxonomy data.

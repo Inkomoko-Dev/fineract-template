@@ -20,6 +20,10 @@ package org.apache.fineract.infrastructure.gcm.api;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Collection;
 import java.util.HashMap;
@@ -66,9 +70,11 @@ public class DeviceRegistrationApiResource {
         this.deviceRegistrationWritePlatformService = deviceRegistrationWritePlatformService;
     }
 
+    @Operation(summary = "Register Device", description = "Register Device.")
     @POST
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String registerDevice(final String apiRequestBodyAsJson) {
         this.context.authenticatedUser();
         Gson gson = new Gson();
@@ -80,9 +86,11 @@ public class DeviceRegistrationApiResource {
         return response;
     }
 
+    @Operation(summary = "Retrieve All Device Registrations", description = "Retrieve All Device Registrations.")
     @GET
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
     public String retrieveAllDeviceRegistrations(@Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser();
@@ -93,11 +101,14 @@ public class DeviceRegistrationApiResource {
         return this.toApiJsonSerializer.serialize(deviceRegistrationDataList);
     }
 
+    @Operation(summary = "Retrieve Device Registration By Client Id", description = "Retrieve Device Registration By Client Id.")
     @GET
     @Path("client/{clientId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveDeviceRegistrationByClientId(@PathParam("clientId") final Long clientId, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveDeviceRegistrationByClientId(@PathParam("clientId") @Parameter(description = "clientId") final Long clientId,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser();
 
@@ -107,11 +118,14 @@ public class DeviceRegistrationApiResource {
         return this.toApiJsonSerializer.serialize(deviceRegistrationData);
     }
 
+    @Operation(summary = "Retrieve Device Regiistration", description = "Retrieve Device Regiistration.")
     @GET
     @Path("{id}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String retrieveDeviceRegiistration(@PathParam("id") final Long id, @Context final UriInfo uriInfo) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String retrieveDeviceRegiistration(@PathParam("id") @Parameter(description = "id") final Long id,
+            @Context final UriInfo uriInfo) {
 
         this.context.authenticatedUser();
 
@@ -120,11 +134,14 @@ public class DeviceRegistrationApiResource {
         return this.toApiJsonSerializer.serialize(deviceRegistrationData);
     }
 
+    @Operation(summary = "Update Device Registration", description = "Update Device Registration.")
     @PUT
     @Path("{id}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String updateDeviceRegistration(@PathParam("id") final Long id, final String apiRequestBodyAsJson) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String updateDeviceRegistration(@PathParam("id") @Parameter(description = "id") final Long id,
+            final String apiRequestBodyAsJson) {
 
         this.context.authenticatedUser();
 
@@ -138,11 +155,13 @@ public class DeviceRegistrationApiResource {
         return response;
     }
 
+    @Operation(summary = "Delete", description = "Delete.")
     @DELETE
     @Path("{id}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
-    public String delete(@PathParam("id") final Long id) {
+    @ApiResponses({ @ApiResponse(responseCode = "200", description = "OK") })
+    public String delete(@PathParam("id") @Parameter(description = "id") final Long id) {
 
         this.context.authenticatedUser();
         this.deviceRegistrationWritePlatformService.deleteDeviceRegistration(id);
