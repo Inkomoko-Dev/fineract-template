@@ -94,7 +94,7 @@ tx_asat AS (
 ovp_pre_c AS (
     SELECT t.loan_id,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
-          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_pre
+          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20,26,27) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_pre
     FROM m_loan_transaction t
     WHERE t.is_reversed = 0
         AND t.transaction_date < DATE('${asOn}') + INTERVAL 1 DAY
@@ -168,7 +168,7 @@ txb AS (
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END) AS excess_paid,
         SUM(CASE WHEN t.transaction_type_enum <> 8 AND t.transaction_date >= l.writtenoffon_date
                  THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
-          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) AND t.transaction_date >= l.writtenoffon_date
+          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20,26,27) AND t.transaction_date >= l.writtenoffon_date
                  THEN IFNULL(t.amount,0) ELSE 0 END) AS wo_excess,
         MAX(CASE WHEN IFNULL(t.overpayment_portion_derived,0) > 0 THEN t.transaction_date END) AS last_excess_date,
         SUM(CASE WHEN t.transaction_type_enum = 10 THEN IFNULL(t.interest_portion_derived,0) ELSE 0 END) AS accrued_int,
@@ -238,7 +238,7 @@ tx AS (
 ovp_pre AS (
     SELECT t.loan_id,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
-          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_pre
+          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20,26,27) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_pre
     FROM m_loan_transaction t
     WHERE t.is_reversed = 0
         AND t.transaction_date < DATE('${asOn}') + INTERVAL 1 DAY
@@ -634,7 +634,7 @@ SELECT
     a.f_waived AS 'Fee Waived',
     a.pen_waived AS 'Pen Waived',
     CASE WHEN a.st_id = 700 THEN GREATEST(IFNULL(tx.excess_paid, 0), a.ovp_bal)
-         WHEN a.st_id = 601 AND a.wo_ovp_bal > 0.005 THEN a.wo_ovp_bal
+         WHEN a.st_id = 601 AND a.wo_ovp_bal > 0.005 THEN GREATEST(IFNULL(tx.excess_paid, 0), a.wo_ovp_bal)
          ELSE 0 END AS 'Excess Amount Paid',
     a.recovered AS 'Post-Write-Off Recovery',
     ROUND(IFNULL(sagg.int_earned, 0), 6) AS 'Interest As At',
@@ -798,7 +798,7 @@ tx_asat AS (
 ovp_pre_c AS (
     SELECT t.loan_id,
         SUM(CASE WHEN t.transaction_type_enum <> 8 THEN IFNULL(t.overpayment_portion_derived,0) ELSE 0 END)
-          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_pre
+          - SUM(CASE WHEN t.transaction_type_enum IN (16,18,20,26,27) THEN IFNULL(t.amount,0) ELSE 0 END) AS ovp_pre
     FROM m_loan_transaction t
     WHERE t.is_reversed = 0
         AND t.transaction_date < DATE('${asOn}') + INTERVAL 1 DAY
