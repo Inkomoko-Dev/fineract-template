@@ -24,8 +24,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
-import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
 import org.junit.jupiter.api.Test;
 
 public class LoanDisbursementDetailsMfiCodeTest {
@@ -84,33 +82,23 @@ public class LoanDisbursementDetailsMfiCodeTest {
     }
 
     @Test
-    public void firstNonBlankMfiCodeReturnsTrimmedValueFromFirstDetail() {
-        final LoanDisbursementDetails blank = disbursementDetail();
-        blank.applyMfiCodeIfProvided("   ");
-        final LoanDisbursementDetails withCode = disbursementDetail();
-        withCode.applyMfiCodeIfProvided("  ET-MFI-02  ");
-        assertEquals("ET-MFI-02", LoanDisbursementDetails.firstNonBlankMfiCode(List.of(blank, withCode)));
-    }
+    public void nextPostingSelectsOnlyItsOwnTrancheCode() {
+        final Loan loan = new Loan();
+        final LoanDisbursementDetails first = disbursementDetail();
+        first.applyMfiCodeIfProvided("MFI-FIRST");
+        final LoanDisbursementDetails second = new LoanDisbursementDetails(LocalDate.of(2026, 3, 1), null, BigDecimal.TEN,
+                BigDecimal.TEN);
+        final LoanDisbursementDetails third = new LoanDisbursementDetails(LocalDate.of(2026, 4, 1), null, BigDecimal.TEN,
+                BigDecimal.TEN);
+        second.applyMfiCodeIfProvided("MFI-SECOND");
+        loan.getDisbursementDetails().addAll(List.of(third, second, first));
 
-    @Test
-    public void firstNonBlankMfiCodeReturnsNullWhenNonePresent() {
-        final LoanDisbursementDetails blank = disbursementDetail();
-        blank.applyMfiCodeIfProvided("  ");
-        assertNull(LoanDisbursementDetails.firstNonBlankMfiCode(List.of(blank)));
-        assertNull(LoanDisbursementDetails.firstNonBlankMfiCode(null));
-        assertNull(LoanDisbursementDetails.firstNonBlankMfiCode(List.of()));
-    }
-
-    @Test
-    public void paymentDetailInheritsMfiWhenCommandLeftBlank() {
-        final PaymentType paymentType = PaymentType.create("Cash", "Cash", true, false, 1L);
-        final PaymentDetail paymentDetail = PaymentDetail.instance(paymentType, null, null, null, null, null, null);
-        final LoanDisbursementDetails detail = disbursementDetail();
-        detail.applyMfiCodeIfProvided("ET-MFI-02");
-        final String inherited = LoanDisbursementDetails.firstNonBlankMfiCode(List.of(detail));
-        if (paymentDetail.getMfiCode() == null || paymentDetail.getMfiCode().isBlank()) {
-            paymentDetail.setMfiCode(inherited);
-        }
-        assertEquals("ET-MFI-02", paymentDetail.getMfiCode());
+        assertEquals("MFI-FIRST", loan.getNextUndisbursedDisbursementDetail().getMfiCode());
+        first.updateActualDisbursementDate(first.expectedDisbursementDate());
+        assertEquals("MFI-SECOND", loan.getNextUndisbursedDisbursementDetail().getMfiCode());
+        second.updateActualDisbursementDate(second.expectedDisbursementDate());
+        assertNull(loan.getNextUndisbursedDisbursementDetail().getMfiCode());
+        assertEquals("MFI-FIRST", first.getMfiCode());
+        assertEquals("MFI-SECOND", second.getMfiCode());
     }
 }

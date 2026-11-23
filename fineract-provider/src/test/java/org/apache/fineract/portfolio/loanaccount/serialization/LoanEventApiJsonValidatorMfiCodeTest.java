@@ -19,6 +19,8 @@
 package org.apache.fineract.portfolio.loanaccount.serialization;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -136,5 +138,31 @@ public class LoanEventApiJsonValidatorMfiCodeTest {
                 () -> this.validator.validateNewRepaymentTransaction(repaymentPayload("MFI@01")));
         assertTrue(ex.getErrors().stream().anyMatch(
                 e -> e.getDefaultUserMessage() != null && e.getDefaultUserMessage().contains("MFI Code can only contain letters")));
+    }
+
+    @Test
+    public void resolvesPaddedInheritedCodeAtPaymentDetailLimit() {
+        final String code = "A".repeat(50);
+        assertEquals(code, this.validator.resolveDisbursementPaymentMfiCode(" ", "  " + code + " "));
+    }
+
+    @Test
+    public void rejectsOversizedOrInvalidInheritedCodeWithCorrectionMessage() {
+        for (final String storedCode : new String[] { "A".repeat(51), "MFI@01" }) {
+            final PlatformApiDataValidationException exception = assertThrows(PlatformApiDataValidationException.class,
+                    () -> this.validator.resolveDisbursementPaymentMfiCode(null, storedCode));
+            assertTrue(exception.getErrors().stream().anyMatch(
+                    error -> error.getDefaultUserMessage().contains("Enter a corrected MFI Code")));
+        }
+    }
+
+    @Test
+    public void explicitPostingCodeOverridesAnOversizedStoredCode() {
+        assertEquals("MFI-POSTED", this.validator.resolveDisbursementPaymentMfiCode(" MFI-POSTED ", "A".repeat(51)));
+    }
+
+    @Test
+    public void absentPostingAndStoredCodesStayEmpty() {
+        assertNull(this.validator.resolveDisbursementPaymentMfiCode(null, " "));
     }
 }

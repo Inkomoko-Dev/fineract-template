@@ -21,7 +21,6 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Collection;
 import java.util.Objects;
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -210,25 +209,6 @@ public class LoanDisbursementDetails extends AbstractPersistableCustom {
         if (StringUtils.isNotBlank(mfiCode)) {
             this.mfiCode = mfiCode.trim();
         }
-    }
-
-    /**
-     * Returns the first non-blank MFI code from disbursement details (trimmed), or null.
-     */
-    public static String firstNonBlankMfiCode(final Collection<LoanDisbursementDetails> details) {
-        if (details == null || details.isEmpty()) {
-            return null;
-        }
-        for (final LoanDisbursementDetails detail : details) {
-            if (detail == null) {
-                continue;
-            }
-            final String code = StringUtils.trimToNull(detail.getMfiCode());
-            if (code != null) {
-                return code;
-            }
-        }
-        return null;
     }
 
     @Override

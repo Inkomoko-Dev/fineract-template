@@ -500,13 +500,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         PaymentDetail paymentDetail = this.paymentDetailWritePlatformService.createPaymentDetail(command, changes);
         if (paymentDetail != null) {
-            // Inherit MFI from disbursement detail when the disburse payload omits it (request-stage value).
-            if (StringUtils.isBlank(paymentDetail.getMfiCode())) {
-                final String inheritedMfiCode = LoanDisbursementDetails.firstNonBlankMfiCode(loan.getDisbursementDetails());
-                if (inheritedMfiCode != null) {
-                    paymentDetail.setMfiCode(inheritedMfiCode);
-                    changes.put(LoanApiConstants.mfiCodeParameterName, inheritedMfiCode);
-                }
+            final LoanDisbursementDetails postingDetail = loan.getNextUndisbursedDisbursementDetail();
+            final String storedMfiCode = postingDetail == null ? null : postingDetail.getMfiCode();
+            final String postingMfiCode = this.loanEventApiJsonValidator.resolveDisbursementPaymentMfiCode(
+                    paymentDetail.getMfiCode(), storedMfiCode);
+            paymentDetail.setMfiCode(postingMfiCode);
+            if (postingMfiCode != null) {
+                changes.put(LoanApiConstants.mfiCodeParameterName, postingMfiCode);
             }
             paymentDetail = this.paymentDetailWritePlatformService.persistPaymentDetail(paymentDetail);
         }
