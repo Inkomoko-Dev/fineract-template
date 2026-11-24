@@ -199,5 +199,11 @@ public final class CreditDecisionLoanData {
         /** Set once the credit team was told. */
         private final String alertedOn;
         private final String requestId;
+        /** Stable reason tag such as ENGINE_TIMEOUT or MISSING_KYC. */
+        private final String reasonCode;
+        /** Pending maker-checker override id, when one exists. */
+        private final Long pendingOverrideId;
+        private final String pendingOverrideAction;
+        private final String pendingOverrideBy;
     }
 }
