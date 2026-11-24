@@ -82,6 +82,9 @@ public class LoanRepaymentScheduleHistory extends AbstractPersistableCustom {
     @Column(name = "version")
     private Integer version;
 
+    @Column(name = "superseded_on_date")
+    private LocalDate supersededOnDate;
+
     /**
      * LoanRepaymentScheduleHistory constructor
      **/
@@ -125,6 +128,10 @@ public class LoanRepaymentScheduleHistory extends AbstractPersistableCustom {
                 interestCharged, feeChargesCharged, penaltyCharges, createdOnDate, createdByUser, lastModifiedByUser, lastModifiedOnDate,
                 version);
 
+    }
+
+    public void supersededOn(final LocalDate supersededOnDate) {
+        this.supersededOnDate = supersededOnDate;
     }
 
 }

@@ -201,6 +201,8 @@ public class LoanRescheduleRequest extends AbstractPersistableCustom {
      *
      **/
     public void approve(final AppUser approvedByUser, final LocalDate approvedOnDate) {
+        this.approvedByUser = approvedByUser;
+        this.approvedOnDate = approvedOnDate;
         this.statusEnum = LoanStatus.APPROVED.getValue();
     }
 

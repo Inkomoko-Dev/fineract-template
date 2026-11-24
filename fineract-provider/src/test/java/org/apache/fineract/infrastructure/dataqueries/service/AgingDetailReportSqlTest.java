@@ -27,6 +27,7 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
@@ -46,6 +48,7 @@ import org.w3c.dom.NodeList;
 class AgingDetailReportSqlTest {
 
     private static final String CHANGELOG = "src/main/resources/db/changelog/tenant/custom-changelog/CGLT-538_aging_detail_par_category.xml";
+    private static final String BACKFILL_CHANGELOG = "src/main/resources/db/changelog/tenant/custom-changelog/CGLT-538_schedule_history_superseded_on_date.xml";
     private static final String AS_AT = "2026-03-31";
     private static final int REPAYMENT = 2;
     private static final int WRITEOFF = 6;
@@ -56,8 +59,6 @@ class AgingDetailReportSqlTest {
     private static final int WRITEOFF_REVERSAL = 33;
     private static final int FUTURE_INTEREST_CANCELLATION = 34;
     private static final int ORIGINAL_SCHEDULE_PRODUCT = 2;
-    private static final int RESCHEDULE_APPROVED = 200;
-    private static final int RESCHEDULE_PENDING = 100;
 
     @Container
     private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0");
@@ -182,17 +183,65 @@ class AgingDetailReportSqlTest {
         jdbc.update("UPDATE m_loan_repayment_schedule SET interest_amount = 150 WHERE loan_id = 17 AND installment > 1");
         jdbc.update("UPDATE m_loan SET interest_charged_derived = 550 WHERE id = 17");
         payment(17, REPAYMENT, "2026-01-31", 1000, 100, 171);
-        reschedule(1, 17, RESCHEDULE_APPROVED, "2026-04-10");
-        history(17, 1, 1L, "2026-01-31", 1000, 100);
-        history(17, 1, 1L, "2026-02-28", 1000, 100);
-        history(17, 1, 1L, "2026-03-31", 1000, 100);
-        history(17, 1, 1L, "2026-04-30", 1000, 100);
+        history(17, 1, "2026-04-10", "2026-01-31", 1000, 100);
+        history(17, 1, "2026-04-10", "2026-02-28", 1000, 100);
+        history(17, 1, "2026-04-10", "2026-03-31", 1000, 100);
+        history(17, 1, "2026-04-10", "2026-04-30", 1000, 100);
 
         loan(18, 300);
         schedule(18, "2026-01-31");
         payment(18, REPAYMENT, "2026-01-31", 1000, 100, 181);
-        reschedule(2, 18, RESCHEDULE_PENDING, "2026-04-10");
-        history(18, 1, 2L, "2026-01-31", 4000, 100);
+        history(18, 1, null, "2026-01-31", 4000, 100);
+
+        loan(20, 300);
+        schedule(20, "2026-01-31");
+        payment(20, REPAYMENT, "2026-01-31", 1000, 100, 201);
+        history(20, 1, "2026-03-15", "2026-01-31", 1000, 100);
+        history(20, 1, "2026-03-15", "2026-02-28", 1000, 100);
+        history(20, 1, "2026-03-15", "2026-03-31", 1000, 100);
+        history(20, 1, "2026-03-15", "2026-04-30", 1000, 100);
+        history(20, 2, "2026-04-10", "2026-01-31", 1000, 100);
+        history(20, 2, "2026-04-10", "2026-04-30", 1000, 100);
+        history(20, 2, "2026-04-10", "2026-05-31", 1000, 100);
+        history(20, 2, "2026-04-10", "2026-06-30", 1000, 100);
+
+        loan(21, 300);
+        schedule(21, "2026-01-31");
+        jdbc.update("UPDATE m_loan_repayment_schedule SET interest_amount = 150 WHERE loan_id = 21 AND installment > 1");
+        jdbc.update("UPDATE m_loan SET interest_charged_derived = 550, principal_disbursed_derived = 5000 WHERE id = 21");
+        jdbc.update("INSERT INTO m_loan_disbursement_detail VALUES (1, 21, 4000, '2025-08-31'), (2, 21, 1000, '2026-04-10')");
+        payment(21, REPAYMENT, "2026-01-31", 1000, 100, 211);
+        history(21, 1, "2026-04-10", "2026-01-31", 1000, 100);
+        history(21, 1, "2026-04-10", "2026-02-28", 1000, 100);
+        history(21, 1, "2026-04-10", "2026-03-31", 1000, 100);
+        history(21, 1, "2026-04-10", "2026-04-30", 1000, 100);
+
+        loan(22, 300);
+        schedule(22, "2026-01-31");
+        payment(22, REPAYMENT, "2026-01-31", 1000, 100, 221);
+        payment(22, REPAYMENT, "2026-02-28", 1000, 99.7, 222);
+        payment(22, REPAYMENT, "2026-03-31", 1000, 100, 223);
+        payment(22, REPAYMENT, "2026-04-30", 1000, 100, 224);
+        transaction(22, RESIDUAL_BALANCE_ADJUSTMENT, "2026-05-02", 0.3, 0, 0.3, false, null, null);
+        payment(22, REFUND_FOR_ACTIVE_LOAN, "2026-05-20", 100, 0, 224);
+
+        loan(23, 300);
+        schedule(23, "2026-04-30");
+        jdbc.update("UPDATE m_loan_repayment_schedule SET interest_amount = 150 WHERE loan_id = 23 AND installment > 1");
+        jdbc.update("UPDATE m_loan SET interest_charged_derived = 550, rescheduledon_date = '2026-04-12' WHERE id = 23");
+        payment(23, REPAYMENT, "2026-01-31", 1000, 100, 231);
+        jdbc.update(
+                "INSERT INTO m_loan_reschedule_request (id, loan_id, status_enum, submitted_on_date) VALUES (23, 23, 200, '2026-03-20')");
+        jdbc.update(
+                "INSERT INTO m_portfolio_command_source (entity_name, action_name, resource_id, command_as_json, maker_id, made_on_date,"
+                        + " processing_result_enum) VALUES ('RESCHEDULELOAN', 'APPROVE', 23, ?, 5, '2026-04-12 09:00:00', 1)",
+                "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"approvedOnDate\":\"10 April 2026\"}");
+        for (final String due : new String[] { "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30" }) {
+            jdbc.update("INSERT INTO m_loan_repayment_schedule_history (loan_id, loan_reschedule_request_id, version, duedate,"
+                    + " principal_amount, interest_amount, fee_charges_amount, penalty_charges_amount) VALUES (23, 23, 1, ?, 1000, 100, 0, 0)",
+                    due);
+        }
+        loadChangelogSql(BACKFILL_CHANGELOG, "sql").forEach(jdbc::execute);
 
         jdbc.update("UPDATE m_loan SET closedon_date = '2026-02-15', writtenoffon_date = '2026-02-15' WHERE id IN (8, 9, 10)");
         jdbc.update("UPDATE m_loan ml SET interest_cancelled_derived = (SELECT SUM(COALESCE(rs.interest_cancelled_derived, 0))"
@@ -308,8 +357,41 @@ class AgingDetailReportSqlTest {
     }
 
     @Test
-    @DisplayName("AC1: a reschedule that was never approved does not replace the schedule")
-    void pendingRescheduleIsIgnored() {
+    @DisplayName("AC1: a reschedule submitted before the As at date but approved after it is dated from its approval")
+    void rescheduleSubmittedBeforeButApprovedAfterTheAsAtDateIsAgedOnTheArchivedSchedule() {
+        final Map<String, Object> row = run(AS_AT, -1).get("L23");
+        assertAging(row, 1000, 100, 31, "Watch");
+        assertAmount(400, row.get("Original Interest"));
+        assertFalse(run("2026-04-11", -1).containsKey("L23"));
+    }
+
+    @Test
+    @DisplayName("AC1: while an approved reschedule was later undone, the rescheduled schedule applies only between approval and undo")
+    void undoneRescheduleAppliesOnlyBetweenApprovalAndUndo() {
+        assertAging(run("2026-03-10", -1).get("L20"), 1000, 100, 10, "Normal");
+        assertFalse(run(AS_AT, -1).containsKey("L20"));
+        assertAging(run("2026-04-15", -1).get("L20"), 2000, 200, 46, "Watch");
+    }
+
+    @Test
+    @DisplayName("AC1: a tranche disbursed after the As at date is left out of Original Principal and Original Interest")
+    void laterTrancheIsLeftOutOfTheOriginalAmounts() {
+        final Map<String, Object> row = run(AS_AT, -1).get("L21");
+        assertAging(row, 1000, 100, 31, "Watch");
+        assertAmount(4000, row.get("Original Principal"));
+        assertAmount(400, row.get("Original Interest"));
+    }
+
+    @Test
+    @DisplayName("AC1: a residual adjustment settles interest it waived as well as principal it wrote off")
+    void residualAdjustmentSettlesWaivedInterest() {
+        assertFalse(run("2026-05-10", -1).containsKey("L22"));
+        assertAging(run("2026-05-25", -1).get("L22"), 100, 0, 25, "Normal");
+    }
+
+    @Test
+    @DisplayName("AC1: an archive kept for interest recalculation, never superseded, does not replace the schedule")
+    void archiveThatWasNeverSupersededIsIgnored() {
         final Map<String, Object> row = run(AS_AT, -1).get("L18");
         assertAging(row, 1000, 100, 31, "Watch");
         assertAmount(400, row.get("Original Interest"));
@@ -395,23 +477,17 @@ class AgingDetailReportSqlTest {
             final double secondAmount, final String reversedAt, final String secondCreatedAt) {
         final long first = transaction(loanId, FUTURE_INTEREST_CANCELLATION, firstDate, firstAmount, 0, firstAmount, true, null,
                 reversedAt);
-        final long second = transaction(loanId, FUTURE_INTEREST_CANCELLATION, secondDate, secondAmount, 0, secondAmount, false, null,
-                null);
+        final long second = transaction(loanId, FUTURE_INTEREST_CANCELLATION, secondDate, secondAmount, 0, secondAmount, false, null, null);
         jdbc.update("UPDATE m_loan_transaction SET created_on_utc = ? WHERE id = ?", secondCreatedAt, second);
         assertTrue(first < second);
     }
 
-    private static void history(final long loanId, final int version, final Long rescheduleRequestId, final String dueDate,
+    private static void history(final long loanId, final int version, final String supersededOn, final String dueDate,
             final double principal, final double interest) {
         jdbc.update(
-                "INSERT INTO m_loan_repayment_schedule_history (loan_id, loan_reschedule_request_id, version, duedate, principal_amount,"
+                "INSERT INTO m_loan_repayment_schedule_history (loan_id, version, superseded_on_date, duedate, principal_amount,"
                         + " interest_amount, fee_charges_amount, penalty_charges_amount) VALUES (?, ?, ?, ?, ?, ?, 0, 0)",
-                loanId, rescheduleRequestId, version, dueDate, principal, interest);
-    }
-
-    private static void reschedule(final long id, final long loanId, final int status, final String submittedOn) {
-        jdbc.update("INSERT INTO m_loan_reschedule_request (id, loan_id, status_enum, submitted_on_date) VALUES (?, ?, ?, ?)", id, loanId,
-                status, submittedOn);
+                loanId, version, supersededOn, dueDate, principal, interest);
     }
 
     private static void payment(final long loanId, final int type, final String date, final double principal, final double interest,
@@ -440,10 +516,16 @@ class AgingDetailReportSqlTest {
                 + " loan_status_id INT, currency_code VARCHAR(3), disbursedon_date DATE, closedon_date DATE, writtenoffon_date DATE,"
                 + " principal_amount DECIMAL(19,6), principal_disbursed_derived DECIMAL(19,6), interest_charged_derived DECIMAL(19,6),"
                 + " principal_repaid_derived DECIMAL(19,6), interest_repaid_derived DECIMAL(19,6), interest_cancelled_derived DECIMAL(19,6),"
-                + " grace_on_arrears_ageing INT)");
+                + " grace_on_arrears_ageing INT, rescheduledon_date DATE)");
+        jdbc.execute("CREATE TABLE m_loan_reschedule_request (id BIGINT PRIMARY KEY, loan_id BIGINT, status_enum INT,"
+                + " submitted_on_date DATE, approved_on_date DATE, approved_by_user_id BIGINT)");
+        jdbc.execute("CREATE TABLE m_portfolio_command_source (id BIGINT AUTO_INCREMENT PRIMARY KEY, entity_name VARCHAR(50),"
+                + " action_name VARCHAR(50), resource_id BIGINT, command_as_json TEXT, maker_id BIGINT, made_on_date DATETIME,"
+                + " processing_result_enum INT)");
         jdbc.execute("CREATE TABLE m_loan_transaction (id BIGINT PRIMARY KEY, loan_id BIGINT, transaction_type_enum INT,"
                 + " transaction_date DATE, amount DECIMAL(19,6), principal_portion_derived DECIMAL(19,6),"
-                + " interest_portion_derived DECIMAL(19,6), is_reversed TINYINT, original_transaction_id BIGINT,"
+                + " interest_portion_derived DECIMAL(19,6), fee_charges_portion_derived DECIMAL(19,6),"
+                + " penalty_charges_portion_derived DECIMAL(19,6), is_reversed TINYINT, original_transaction_id BIGINT,"
                 + " created_on_utc DATETIME, last_modified_on_utc DATETIME, KEY (loan_id))");
         jdbc.execute("CREATE TABLE m_loan_repayment_schedule (id BIGINT PRIMARY KEY, loan_id BIGINT, installment INT, fromdate DATE,"
                 + " duedate DATE, principal_amount DECIMAL(19,6), interest_amount DECIMAL(19,6), fee_charges_amount DECIMAL(19,6),"
@@ -461,23 +543,16 @@ class AgingDetailReportSqlTest {
         jdbc.execute("CREATE TABLE m_loan_disbursement_detail (id BIGINT PRIMARY KEY, loan_id BIGINT, principal DECIMAL(19,6),"
                 + " disbursedon_date DATE)");
         jdbc.execute("CREATE TABLE m_loan_repayment_schedule_history (id BIGINT AUTO_INCREMENT PRIMARY KEY, loan_id BIGINT,"
-                + " loan_reschedule_request_id BIGINT, version INT, duedate DATE, principal_amount DECIMAL(19,6),"
+                + " loan_reschedule_request_id BIGINT, version INT, superseded_on_date DATE, duedate DATE, principal_amount DECIMAL(19,6),"
                 + " interest_amount DECIMAL(19,6), fee_charges_amount DECIMAL(19,6), penalty_charges_amount DECIMAL(19,6),"
                 + " KEY (loan_id))");
-        jdbc.execute("CREATE TABLE m_loan_reschedule_request (id BIGINT PRIMARY KEY, loan_id BIGINT, status_enum INT,"
-                + " submitted_on_date DATE, approved_on_date DATE, KEY (loan_id))");
         jdbc.execute("CREATE TABLE m_loan_arrears_aging (loan_id BIGINT PRIMARY KEY, principal_overdue_derived DECIMAL(19,6),"
                 + " interest_overdue_derived DECIMAL(19,6), overdue_since_date_derived DATE)");
     }
 
     private static String loadReportSql() throws Exception {
-        Path changelog = Path.of(CHANGELOG);
-        if (!Files.exists(changelog)) {
-            changelog = Path.of("fineract-provider", CHANGELOG);
-        }
-        final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-        final NodeList columns = factory.newDocumentBuilder().parse(changelog.toFile()).getElementsByTagName("column");
+        final Path changelog = changelogPath(CHANGELOG);
+        final NodeList columns = parse(changelog).getElementsByTagName("column");
         for (int index = 0; index < columns.getLength(); index++) {
             final Element column = (Element) columns.item(index);
             if ("report_sql".equals(column.getAttribute("name"))) {
@@ -485,5 +560,25 @@ class AgingDetailReportSqlTest {
             }
         }
         throw new IllegalStateException("report_sql not found in " + changelog);
+    }
+
+    private static List<String> loadChangelogSql(final String file, final String tag) throws Exception {
+        final NodeList statements = parse(changelogPath(file)).getElementsByTagName(tag);
+        final List<String> sql = new ArrayList<>();
+        for (int index = 0; index < statements.getLength(); index++) {
+            sql.add(statements.item(index).getTextContent());
+        }
+        return sql;
+    }
+
+    private static Path changelogPath(final String file) {
+        final Path changelog = Path.of(file);
+        return Files.exists(changelog) ? changelog : Path.of("fineract-provider", file);
+    }
+
+    private static Document parse(final Path changelog) throws Exception {
+        final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        return factory.newDocumentBuilder().parse(changelog.toFile());
     }
 }

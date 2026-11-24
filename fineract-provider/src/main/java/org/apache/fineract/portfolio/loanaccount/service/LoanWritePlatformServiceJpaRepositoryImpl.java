@@ -577,6 +577,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                  */
                 recalculateSchedule = true;
             }
+            archiveScheduleBeforeLaterTranche(loan, actualDisbursementDate);
             regenerateScheduleOnDisbursement(command, loan, recalculateSchedule, scheduleGeneratorDTO, nextPossibleRepaymentDate,
                     rescheduledRepaymentDate);
             if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
@@ -711,6 +712,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     private void updatePostDatedChecks(Set<PostDatedChecks> postDatedChecks) {
         this.postDatedChecksRepository.saveAll(postDatedChecks);
+    }
+
+    void archiveScheduleBeforeLaterTranche(final Loan loan, final LocalDate actualDisbursementDate) {
+        if (loan.status().isActive()) {
+            this.loanScheduleHistoryWritePlatformService.archiveSupersededSchedule(loan, actualDisbursementDate);
+        }
     }
 
     private void createAndSaveLoanScheduleArchive(final Loan loan, ScheduleGeneratorDTO scheduleGeneratorDTO) {
@@ -882,6 +889,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 }
                 LocalDate recalculateFrom = null;
                 final ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
+                archiveScheduleBeforeLaterTranche(loan, actualDisbursementDate);
                 regenerateScheduleOnDisbursement(command, loan, recalculateSchedule, scheduleGeneratorDTO, nextPossibleRepaymentDate,
                         rescheduledRepaymentDate);
                 if (loan.repaymentScheduleDetail().isInterestRecalculationEnabled()) {
@@ -4116,6 +4124,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFromDate);
 
+        this.loanScheduleHistoryWritePlatformService.archiveSupersededSchedule(loan, DateUtils.getBusinessLocalDate());
         final Map<String, Object> changes = loan.undoLastDisbursal(scheduleGeneratorDTO, existingTransactionIds,
                 existingReversedTransactionIds, loan);
         if (!changes.isEmpty()) {

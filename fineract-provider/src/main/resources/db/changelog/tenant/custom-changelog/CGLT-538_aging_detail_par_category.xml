@@ -130,7 +130,9 @@ scope AS (
 live AS (
     SELECT DISTINCT t.id, t.loan_id, t.transaction_type_enum AS type, t.transaction_date AS txn_date, t.amount,
            COALESCE(t.principal_portion_derived, 0) AS principal_portion,
-           COALESCE(t.interest_portion_derived, 0) AS interest_portion
+           COALESCE(t.interest_portion_derived, 0) AS interest_portion,
+           COALESCE(t.fee_charges_portion_derived, 0) AS fee_portion,
+           COALESCE(t.penalty_charges_portion_derived, 0) AS penalty_portion
     FROM scope s
     JOIN m_loan_transaction t ON t.loan_id = s.loan_id
     CROSS JOIN as_at p
@@ -169,7 +171,7 @@ alloc AS (
     GROUP BY sid
 ),
 charge_waived AS (
-    SELECT
+    SELECT STRAIGHT_JOIN
         rs.id AS sid,
         SUM(IF(c.is_penalty = 0, pb.amount, 0)) AS f,
         SUM(IF(c.is_penalty = 1, pb.amount, 0)) AS pen
@@ -184,7 +186,11 @@ charge_waived AS (
 ),
 loan_event AS (
     SELECT loan_id,
-           SUM(IF(type IN (31, 32), amount, 0)) AS writeoff_budget,
+           SUM(IF(type = 31, amount, 0)) AS writeoff_budget,
+           SUM(IF(type = 32, principal_portion, 0)) AS residual_p,
+           SUM(IF(type = 32, interest_portion, 0)) AS residual_i,
+           SUM(IF(type = 32, fee_portion, 0)) AS residual_f,
+           SUM(IF(type = 32, penalty_portion, 0)) AS residual_pen,
            SUM(CASE WHEN type IN (2, 23, 28) THEN principal_portion WHEN type = 18 THEN -principal_portion ELSE 0 END) AS principal_paid,
            SUM(CASE WHEN type IN (2, 23, 28) THEN interest_portion WHEN type = 18 THEN -interest_portion ELSE 0 END) AS interest_paid
     FROM live
@@ -250,9 +256,15 @@ writeoff_split AS (
 ),
 instalment AS (
     SELECT
+        rs.id AS sid,
         rs.loan_id,
         s.original_schedule,
         rs.duedate,
+        rs.installment,
+        COALESCE(le.residual_p, 0) AS residual_p,
+        COALESCE(le.residual_i, 0) AS residual_i,
+        COALESCE(le.residual_f, 0) AS residual_f,
+        COALESCE(le.residual_pen, 0) AS residual_pen,
         rs.duedate < DATE_SUB(p.d, INTERVAL COALESCE(s.grace, 0) DAY) AS is_overdue,
         COALESCE(rs.principal_amount, 0) - COALESCE(a.p, 0) - COALESCE(wf.p, 0) AS principal_due,
         COALESCE(rs.interest_amount, 0) - COALESCE(a.i, 0) - COALESCE(wf.i, 0) - COALESCE(fc.i, 0) AS interest_due,
@@ -272,13 +284,45 @@ instalment AS (
     LEFT JOIN charge_waived w ON w.sid = rs.id
     LEFT JOIN writeoff_split wf ON wf.sid = rs.id
     LEFT JOIN fic_fill fc ON fc.sid = rs.id
+    LEFT JOIN loan_event le ON le.loan_id = rs.loan_id
     WHERE NOT p.is_today
+),
+residual_fill AS (
+    SELECT
+        sid,
+        LEAST(GREATEST(principal_due, 0), GREATEST(residual_p - COALESCE(SUM(GREATEST(principal_due, 0)) OVER w, 0), 0)) AS rp,
+        LEAST(GREATEST(interest_due, 0), GREATEST(residual_i - COALESCE(SUM(GREATEST(interest_due, 0)) OVER w, 0), 0)) AS ri,
+        LEAST(GREATEST(fee_due, 0), GREATEST(residual_f - COALESCE(SUM(GREATEST(fee_due, 0)) OVER w, 0), 0)) AS rf,
+        LEAST(GREATEST(penalty_due, 0), GREATEST(residual_pen - COALESCE(SUM(GREATEST(penalty_due, 0)) OVER w, 0), 0)) AS rpen
+    FROM instalment
+    WHERE residual_p + residual_i + residual_f + residual_pen > 0
+    WINDOW w AS (PARTITION BY loan_id ORDER BY duedate, installment ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+),
+instalment_settled AS (
+    SELECT
+        i.loan_id,
+        i.original_schedule,
+        i.duedate,
+        i.is_overdue,
+        i.principal_due - COALESCE(r.rp, 0) AS principal_due,
+        i.interest_due - COALESCE(r.ri, 0) AS interest_due,
+        i.fee_due - COALESCE(r.rf, 0) AS fee_due,
+        i.penalty_due - COALESCE(r.rpen, 0) AS penalty_due,
+        i.in_advance,
+        i.principal_paid,
+        i.interest_paid,
+        i.principal_settled_unpaid + COALESCE(r.rp, 0) AS principal_settled_unpaid,
+        i.interest_waived + COALESCE(r.ri, 0) AS interest_waived,
+        i.fee_settled + COALESCE(r.rf, 0) AS fee_settled,
+        i.penalty_settled + COALESCE(r.rpen, 0) AS penalty_settled
+    FROM instalment i
+    LEFT JOIN residual_fill r ON r.sid = i.sid
 ),
 instalment_due AS (
     SELECT
         i.*,
         is_overdue AND ROUND(principal_due + interest_due + fee_due + penalty_due, 2) > 0 AS in_arrears
-    FROM instalment i
+    FROM instalment_settled i
 ),
 loan_aging AS (
     SELECT
@@ -296,21 +340,18 @@ loan_aging AS (
     FROM instalment_due
     GROUP BY loan_id
 ),
-resched_version AS (
+superseded_version AS (
     SELECT loan_id, version
     FROM (
-        SELECT rr.loan_id,
-               (SELECT MIN(h.version) FROM m_loan_repayment_schedule_history h WHERE h.loan_reschedule_request_id = rr.id) AS version,
-               ROW_NUMBER() OVER (PARTITION BY rr.loan_id ORDER BY COALESCE(rr.approved_on_date, rr.submitted_on_date), rr.id) AS rn
+        SELECT h.loan_id, h.version,
+               ROW_NUMBER() OVER (PARTITION BY h.loan_id ORDER BY h.superseded_on_date, h.version) AS rn
         FROM scope s
-        JOIN m_loan_reschedule_request rr ON rr.loan_id = s.loan_id
+        JOIN m_loan_repayment_schedule_history h ON h.loan_id = s.loan_id
         CROSS JOIN as_at p
-        WHERE rr.status_enum = 200
-          AND COALESCE(rr.approved_on_date, rr.submitted_on_date) > p.d
+        WHERE h.superseded_on_date > p.d
           AND NOT p.is_today
     ) first_after
     WHERE rn = 1
-      AND version IS NOT NULL
 ),
 archived AS (
     SELECT lp.loan_id, lp.original_schedule, lp.principal_cover, lp.fee_cover, lp.penalty_cover,
@@ -319,7 +360,7 @@ archived AS (
               (SELECT MAX(hv.version) FROM m_loan_repayment_schedule_history hv WHERE hv.loan_id = lp.loan_id),
               rv.version) AS version
     FROM loan_aging lp
-    LEFT JOIN resched_version rv ON rv.loan_id = lp.loan_id
+    LEFT JOIN superseded_version rv ON rv.loan_id = lp.loan_id
     LEFT JOIN fic f ON f.loan_id = lp.loan_id
     WHERE (lp.original_schedule = 1 AND lp.overdue_since IS NOT NULL)
        OR (lp.original_schedule = 0 AND rv.loan_id IS NOT NULL)
@@ -368,7 +409,7 @@ archived_aging AS (
 as_at_aging AS (
     SELECT la.loan_id, la.principal_overdue, la.interest_overdue, la.overdue_since
     FROM loan_aging la
-    LEFT JOIN resched_version rv ON rv.loan_id = la.loan_id
+    LEFT JOIN superseded_version rv ON rv.loan_id = la.loan_id
     WHERE la.original_schedule = 0
       AND rv.loan_id IS NULL
       AND la.total_overdue > la.in_advance
@@ -407,7 +448,7 @@ aging AS (
     FROM as_at_aging a
     JOIN m_loan ml ON ml.id = a.loan_id
     LEFT JOIN loan_event le ON le.loan_id = a.loan_id
-    LEFT JOIN resched_version rv ON rv.loan_id = a.loan_id
+    LEFT JOIN superseded_version rv ON rv.loan_id = a.loan_id
     CROSS JOIN as_at p
     WHERE a.overdue_since IS NOT NULL
 )
