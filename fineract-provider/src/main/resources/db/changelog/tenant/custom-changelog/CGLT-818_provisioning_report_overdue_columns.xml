@@ -50,7 +50,9 @@ live AS (
         t.principal_portion_derived AS p,
         t.interest_portion_derived AS i,
         t.fee_charges_portion_derived AS f,
-        t.penalty_charges_portion_derived AS pen
+        t.penalty_charges_portion_derived AS pen,
+        IF(t.transaction_type_enum = 18
+            OR (t.transaction_type_enum = 29 AND COALESCE(t.fee_charges_portion_derived, 0) > 0), -1, 1) AS sign
     FROM m_loan_transaction t
     JOIN run_loans rl ON rl.loan_id = t.loan_id
     WHERE t.is_reversed = 0
@@ -59,10 +61,10 @@ live AS (
 alloc AS (
     SELECT
         mp.loan_repayment_schedule_id AS sid,
-        SUM(COALESCE(mp.principal_portion_derived, 0)) AS p,
-        SUM(COALESCE(mp.interest_portion_derived, 0)) AS i,
-        SUM(COALESCE(mp.fee_charges_portion_derived, 0)) AS f,
-        SUM(COALESCE(mp.penalty_charges_portion_derived, 0)) AS pen
+        SUM(live.sign * COALESCE(mp.principal_portion_derived, 0)) AS p,
+        SUM(live.sign * COALESCE(mp.interest_portion_derived, 0)) AS i,
+        SUM(live.sign * COALESCE(mp.fee_charges_portion_derived, 0)) AS f,
+        SUM(live.sign * COALESCE(mp.penalty_charges_portion_derived, 0)) AS pen
     FROM live
     JOIN m_loan_transaction_repayment_schedule_mapping mp ON mp.loan_transaction_id = live.id
     GROUP BY mp.loan_repayment_schedule_id

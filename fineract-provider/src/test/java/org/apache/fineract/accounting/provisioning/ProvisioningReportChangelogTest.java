@@ -103,6 +103,17 @@ class ProvisioningReportChangelogTest {
     }
 
     @Test
+    void refundsAndChargeBalanceRestoresPutAmountsBackOnTheInstalment() {
+        assertTrue(cte("live").contains("IF(t.transaction_type_enum = 18\n"
+                + "            OR (t.transaction_type_enum = 29 AND COALESCE(t.fee_charges_portion_derived, 0) > 0), -1, 1) AS sign"));
+        final String alloc = cte("alloc");
+        for (final String component : List.of("principal", "interest", "fee_charges", "penalty_charges")) {
+            assertTrue(alloc.contains("SUM(live.sign * COALESCE(mp." + component + "_portion_derived, 0))"),
+                    "mapping " + component + " portion must carry the transaction sign");
+        }
+    }
+
+    @Test
     void writeOffsCountOnlyWhenPostedOnOrBeforeTheCutOff() {
         final String writtenOff = cte("written_off");
         assertTrue(writtenOff.contains("FROM live"));
