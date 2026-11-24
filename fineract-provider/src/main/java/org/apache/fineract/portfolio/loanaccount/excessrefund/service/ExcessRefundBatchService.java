@@ -167,7 +167,8 @@ public class ExcessRefundBatchService {
         final LoanExcessRefundBatch batch = this.batchRepository.findById(command.entityId())
                 .orElseThrow(() -> new GeneralPlatformDomainRuleException("error.msg.excess.refund.batch.not.found",
                         "Excess refund batch not found: " + command.entityId()));
-        if (batch.getStatusEnum() != STATUS_PENDING_APPROVAL) {
+        if (batch.getStatusEnum() != STATUS_PENDING_APPROVAL && this.refundRepository.findByBatchId(batch.getId()).stream()
+                .noneMatch(line -> line.getStatus() == LoanExcessRefundStatus.PENDING_APPROVAL)) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.invalid.status",
                     "Only pending batches can be approved.");
         }
@@ -205,32 +206,8 @@ public class ExcessRefundBatchService {
             }
         }
 
-        final int finalApproved = approved;
-        final int finalFailed = failed;
-        requiresNew.execute(status -> {
-            final LoanExcessRefundBatch managed = this.batchRepository.findById(batch.getId()).orElseThrow();
-            if (finalApproved == 0) {
-                managed.setStatusEnum(STATUS_PENDING_APPROVAL);
-            } else if (finalFailed > 0) {
-                managed.setStatusEnum(STATUS_PARTIALLY_COMPLETED);
-            } else {
-                managed.setStatusEnum(STATUS_APPROVED);
-            }
-            if (finalApproved > 0) {
-                managed.setApprover(user);
-                managed.setApprovedAt(DateUtils.getLocalDateTimeOfTenant());
-            }
-            String note = command.stringValueOfParameterNamedAllowingNull(NOTE_PARAM);
-            if (!lineErrors.isEmpty()) {
-                note = StringUtils.abbreviate(StringUtils.defaultString(note) + "\nLine errors:\n" + String.join("\n", lineErrors), 4000);
-            }
-            managed.setApprovalNote(note);
-            managed.setSuccessCount(finalApproved);
-            managed.setFailedCount(finalFailed);
-            managed.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-            this.batchRepository.saveAndFlush(managed);
-            return null;
-        });
+        refreshBatchDecision(batch.getId(), user, command.stringValueOfParameterNamedAllowingNull(NOTE_PARAM),
+                lineErrors, approved > 0);
 
         final Map<String, Object> changes = new HashMap<>();
         changes.put("approvedCount", approved);
@@ -245,7 +222,8 @@ public class ExcessRefundBatchService {
         final LoanExcessRefundBatch batch = this.batchRepository.findById(command.entityId())
                 .orElseThrow(() -> new GeneralPlatformDomainRuleException("error.msg.excess.refund.batch.not.found",
                         "Excess refund batch not found: " + command.entityId()));
-        if (batch.getStatusEnum() != STATUS_PENDING_APPROVAL) {
+        if (batch.getStatusEnum() != STATUS_PENDING_APPROVAL && this.refundRepository.findByBatchId(batch.getId()).stream()
+                .noneMatch(line -> line.getStatus() == LoanExcessRefundStatus.PENDING_APPROVAL)) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.invalid.status",
                     "Only pending batches can be rejected.");
         }
@@ -259,6 +237,7 @@ public class ExcessRefundBatchService {
         final String rejectionNote = command.stringValueOfParameterNamedAllowingNull(NOTE_PARAM);
         final Set<Long> refundIds = parseRefundIds(command);
         int rejected = 0;
+        final List<String> lineErrors = new ArrayList<>();
         for (final LoanExcessRefund line : this.refundRepository.findByBatchId(batch.getId())) {
             if (line.getStatus() != LoanExcessRefundStatus.PENDING_APPROVAL) {
                 continue;
@@ -266,37 +245,58 @@ public class ExcessRefundBatchService {
             if (refundIds != null && !refundIds.contains(line.getId())) {
                 continue;
             }
-            requiresNew.execute(status -> {
-                final JsonObject body = new JsonObject();
-                if (StringUtils.isNotBlank(rejectionNote)) {
-                    body.addProperty("note", rejectionNote);
-                }
-                final JsonCommand rejectCommand = JsonCommand.from(body.toString(), body, this.fromJsonHelper, "EXCESS_REFUND",
-                        line.getId(), null, null, null, null, null, null, null, null, null, null);
-                this.writePlatformService.reject(rejectCommand);
-                return null;
-            });
-            rejected++;
+            try {
+                requiresNew.execute(status -> {
+                    final JsonObject body = new JsonObject();
+                    if (StringUtils.isNotBlank(rejectionNote)) {
+                        body.addProperty("note", rejectionNote);
+                    }
+                    final JsonCommand rejectCommand = JsonCommand.from(body.toString(), body, this.fromJsonHelper, "EXCESS_REFUND",
+                            line.getId(), null, null, null, null, null, null, null, null, null, null);
+                    this.writePlatformService.reject(rejectCommand);
+                    return null;
+                });
+                rejected++;
+            } catch (RuntimeException ex) {
+                lineErrors.add("refundId=" + line.getId() + ": " + summarizeException(ex));
+            }
         }
 
-        final int finalRejected = rejected;
-        requiresNew.execute(status -> {
-            final LoanExcessRefundBatch managed = this.batchRepository.findById(batch.getId()).orElseThrow();
-            final boolean anyPendingLeft = this.refundRepository.findByBatchId(batch.getId()).stream()
-                    .anyMatch(line -> line.getStatus() == LoanExcessRefundStatus.PENDING_APPROVAL);
-            if (!anyPendingLeft && finalRejected > 0) {
-                managed.setStatusEnum(STATUS_REJECTED);
+        refreshBatchDecision(batch.getId(), user, rejectionNote, lineErrors, rejected > 0);
+        return new CommandProcessingResultBuilder().withEntityId(batch.getId())
+                .with(Map.of("rejectedCount", rejected, "failedCount", lineErrors.size(), "lineErrors", lineErrors)).build();
+    }
+
+    private void refreshBatchDecision(final Long batchId, final AppUser user, final String note, final List<String> lineErrors,
+            final boolean decisionRecorded) {
+        newRequiresNewTemplate().executeWithoutResult(status -> {
+            final LoanExcessRefundBatch batch = this.batchRepository.findByIdForUpdate(batchId).orElseThrow();
+            final List<LoanExcessRefund> lines = this.refundRepository.findByBatchId(batchId);
+            final int approved = (int) lines.stream().filter(line -> line.getApprovedAt() != null).count();
+            final int rejected = (int) lines.stream().filter(line -> line.getStatus() == LoanExcessRefundStatus.REJECTED).count();
+            final boolean pending = lines.stream().anyMatch(line -> line.getStatus() == LoanExcessRefundStatus.PENDING_APPROVAL);
+            if (pending || lines.isEmpty()) {
+                batch.setStatusEnum(STATUS_PENDING_APPROVAL);
+            } else if (approved == 0) {
+                batch.setStatusEnum(STATUS_REJECTED);
+            } else {
+                batch.setStatusEnum(approved == lines.size() ? STATUS_APPROVED : STATUS_PARTIALLY_COMPLETED);
             }
-            if (finalRejected > 0) {
-                managed.setApprover(user);
-                managed.setApprovedAt(DateUtils.getLocalDateTimeOfTenant());
+            batch.setSuccessCount(approved);
+            batch.setFailedCount(rejected);
+            if (decisionRecorded) {
+                batch.setApprover(user);
+                batch.setApprovedAt(DateUtils.getLocalDateTimeOfTenant());
             }
-            managed.setApprovalNote(rejectionNote);
-            managed.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-            this.batchRepository.saveAndFlush(managed);
-            return null;
+            final String decisionNote = StringUtils.defaultString(note)
+                    + (lineErrors.isEmpty() ? "" : "\nLine errors:\n" + String.join("\n", lineErrors));
+            if (StringUtils.isNotBlank(decisionNote)) {
+                batch.setApprovalNote(StringUtils.abbreviate(
+                        StringUtils.defaultString(batch.getApprovalNote()) + "\n" + decisionNote, 4000));
+            }
+            batch.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
+            this.batchRepository.saveAndFlush(batch);
         });
-        return new CommandProcessingResultBuilder().withEntityId(batch.getId()).build();
     }
 
     private TransactionTemplate newRequiresNewTemplate() {
@@ -332,7 +332,7 @@ public class ExcessRefundBatchService {
         }
         final JsonArray array = parsed.getAsJsonObject().getAsJsonArray(REFUND_IDS_PARAM);
         if (array == null || array.size() == 0) {
-            return null;
+            return Set.of();
         }
         final Set<Long> ids = new HashSet<>();
         for (final JsonElement element : array) {

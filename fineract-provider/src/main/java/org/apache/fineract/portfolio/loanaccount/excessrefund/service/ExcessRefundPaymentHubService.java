@@ -55,20 +55,24 @@ public class ExcessRefundPaymentHubService {
 
     private final Environment environment;
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
-    private final OkHttpClient client = new OkHttpClient();
+    private final OkHttpClient client = new OkHttpClient.Builder().retryOnConnectionFailure(false).build();
     private final Gson gson = new Gson();
 
     public String submitRefund(final Loan loan, final LoanExcessRefund refund, final String requestId) {
-        final String token = authenticate();
-        final DisbursementRequestData payload = buildPayload(loan, refund, requestId);
-        final String requestJson = this.gson.toJson(payload);
-        final String url = getConfigProperty("fineract.integrations.inkomoko.rest.initiate.refund");
-        if (StringUtils.isBlank(url)) {
-            throw new GeneralPlatformDomainRuleException("integration.excessRefund.config.missing",
-                    "Payment Hub refund URL is not configured (fineract.integrations.inkomoko.rest.initiate.refund).");
+        final Request request;
+        try {
+            final DisbursementRequestData payload = buildPayload(loan, refund, requestId);
+            final String url = getConfigProperty("fineract.integrations.inkomoko.rest.initiate.refund");
+            if (StringUtils.isBlank(url) || "XXXXXX".equals(url)) {
+                throw new GeneralPlatformDomainRuleException("integration.excessRefund.config.missing",
+                        "Payment Hub refund URL is not configured.");
+            }
+            request = new Request.Builder().url(url).addHeader("Authorization", "Bearer " + authenticate())
+                    .post(RequestBody.create(this.gson.toJson(payload), JSON)).build();
+        } catch (RuntimeException ex) {
+            LOG.warn("Could not prepare Payment Hub refund requestId={}", requestId, ex);
+            throw new RefundNotSentException(ex);
         }
-        final Request request = new Request.Builder().url(url).addHeader("Authorization", "Bearer " + token)
-                .post(RequestBody.create(requestJson, JSON)).build();
         try (Response response = this.client.newCall(request).execute()) {
             String responseBody = response.body() != null ? response.body().string() : null;
             if (response.isSuccessful()) {
@@ -86,7 +90,14 @@ public class ExcessRefundPaymentHubService {
         } catch (IOException e) {
             LOG.error("Payment Hub refund connection failure loanId={}, refundId={}", loan.getId(), refund.getId(), e);
             throw new GeneralPlatformDomainRuleException("integration.excessRefund.connectionFailed",
-                    "There was a connection issue while sending the refund to the Payment Hub. Please try again.");
+                    "The Payment Hub submission outcome is unknown. The refund will remain pending reconciliation.");
+        }
+    }
+
+    static final class RefundNotSentException extends RuntimeException {
+
+        RefundNotSentException(final RuntimeException cause) {
+            super("The refund was not sent. Check Payment Hub configuration and try again.", cause);
         }
     }
 

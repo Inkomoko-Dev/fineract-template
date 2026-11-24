@@ -255,6 +255,10 @@ public class LoanRepositoryWrapper {
         return this.repository.findNonClosedLoanByAccountNumber(accountNumber);
     }
 
+    public Loan findLoanAccountByAccountNumber(final String accountNumber) {
+        return this.repository.findLoanAccountByAccountNumber(accountNumber);
+    }
+
     public boolean existLoanByExternalId(final String externalId) {
         return this.repository.existsByExternalId(externalId);
     }

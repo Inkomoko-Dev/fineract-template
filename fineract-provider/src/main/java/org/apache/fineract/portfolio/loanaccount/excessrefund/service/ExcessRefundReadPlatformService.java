@@ -36,6 +36,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.OfficeHierarchyService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRedrawAccount;
@@ -46,6 +47,7 @@ import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessR
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
 import org.apache.fineract.portfolio.loanaccount.service.ClientBankDetailsResolver;
 import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatformService;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -60,6 +62,7 @@ public class ExcessRefundReadPlatformService {
     private final LoanRedrawAccountRepository loanRedrawAccountRepository;
     private final ClientBankDetailsResolver clientBankDetailsResolver;
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
+    private final OfficeHierarchyService officeHierarchyService;
 
     public ExcessRefundData retrieveOne(final Long id) {
         this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
@@ -94,25 +97,32 @@ public class ExcessRefundReadPlatformService {
     }
 
     public Map<String, Object> retrieveTemplate(final Long loanId) {
-        this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
+        final AppUser user = this.context.authenticatedUser();
+        user.validateHasReadPermission("EXCESS_REFUND");
         final Loan loan = this.loanRepository.findOneWithNotFoundDetection(loanId);
-        return buildTemplate(loan);
+        return buildTemplate(loan, user);
     }
 
     public Map<String, Object> retrieveTemplateByAccountNo(final String accountNo) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
+        final AppUser user = this.context.authenticatedUser();
+        user.validateHasPermissionTo("READ_EXCESS_REFUND");
         if (StringUtils.isBlank(accountNo)) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.id.invalid", "Loan account number is required.");
         }
-        final Loan loan = this.loanRepository.findNonClosedLoanByAccountNumber(StringUtils.trim(accountNo));
+        final Loan loan = this.loanRepository.findLoanAccountByAccountNumber(StringUtils.trim(accountNo));
         if (loan == null) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.id.invalid",
                     "Loan with account number " + accountNo + " does not exist.");
         }
-        return buildTemplate(loan);
+        return buildTemplate(loan, user);
     }
 
-    private Map<String, Object> buildTemplate(final Loan loan) {
+    private Map<String, Object> buildTemplate(final Loan loan, final AppUser user) {
+        final Long officeId = loan.getOfficeId();
+        if (officeId == null || !this.officeHierarchyService.validateUserAccessToOffice(user, officeId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.office.denied",
+                    "User does not have access to the loan office for this excess refund.");
+        }
         final Map<String, Object> template = new HashMap<>();
         template.put("loanId", loan.getId());
         template.put("accountNo", loan.getAccountNumber());

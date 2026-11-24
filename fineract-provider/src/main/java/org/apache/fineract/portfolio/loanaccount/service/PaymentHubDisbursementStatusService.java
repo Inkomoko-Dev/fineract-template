@@ -116,6 +116,14 @@ public class PaymentHubDisbursementStatusService {
             if (!PaymentHubTransactionStatus.PENDING.equals(poll.getStatus())) {
                 return statusData(poll, "This payment status was already checked.");
             }
+            if (isExcessRefundRequest(poll.getRequestId())) {
+                if (hubStatus.isSuccess() || hubStatus.isFailed()) {
+                    this.excessRefundWritePlatformService.applyHubCallback(poll.getRequestId(), hubStatus.isSuccess(),
+                            hubStatus.getTransactionRef(), hubStatus.getReason());
+                    return statusData(poll, "The Payment Hub refund outcome was recorded.");
+                }
+                return statusData(poll, "The refund is awaiting a definitive Payment Hub outcome.");
+            }
             if (hubStatus.isPending()) {
                 poll.recordStillPending(hubStatus);
                 this.pollRepository.save(poll);
@@ -124,19 +132,11 @@ public class PaymentHubDisbursementStatusService {
                 return statusData(poll, "The payment is still pending at the Payment Hub.");
             }
             if (hubStatus.isSuccess()) {
-                if (isExcessRefundRequest(poll.getRequestId())) {
-                    completeExcessRefund(poll, hubStatus);
-                } else {
-                    completeDisbursement(poll, hubStatus);
-                }
+                completeDisbursement(poll, hubStatus);
                 return statusData(poll, "The payment succeeded and the loan disbursement was posted.");
             }
             if (hubStatus.isFailed() || hubStatus.isPendingError()) {
-                if (isExcessRefundRequest(poll.getRequestId())) {
-                    failExcessRefund(poll, hubStatus, hubStatus.getReason());
-                } else {
-                    failDisbursement(poll, hubStatus, fineractResultCode(hubStatus), hubStatus.getReason());
-                }
+                failDisbursement(poll, hubStatus, fineractResultCode(hubStatus), hubStatus.getReason());
                 return statusData(poll, hubStatus.isPendingError() ? "The Payment Hub stopped checking this payment."
                         : "The payment failed at the Payment Hub.");
             }
@@ -157,10 +157,9 @@ public class PaymentHubDisbursementStatusService {
             }
             final String reason = StringUtils.defaultIfBlank(errorMessage, "No payment matches this Payment Hub request.");
             if (isExcessRefundRequest(poll.getRequestId())) {
-                failExcessRefund(poll, null, reason);
-            } else {
-                failDisbursement(poll, null, "404", reason);
+                return statusData(poll, "The Payment Hub has no record yet. The refund remains pending reconciliation.");
             }
+            failDisbursement(poll, null, "404", reason);
             return statusData(poll, "The Payment Hub has no record of this disbursement.");
         });
     }
@@ -172,26 +171,6 @@ public class PaymentHubDisbursementStatusService {
 
     private static boolean isExcessRefundRequest(final String requestId) {
         return StringUtils.startsWith(requestId, "cbs_refund_");
-    }
-
-    private void completeExcessRefund(final PaymentHubDisbursementPoll poll, final PaymentHubTransactionStatus hubStatus) {
-        this.excessRefundWritePlatformService.applyHubCallback(poll.getRequestId(), true, hubStatus.getTransactionRef(),
-                hubStatus.getReason());
-        poll.markTerminal(PaymentHubTransactionStatus.SUCCESS, hubStatus, hubStatus.getReason());
-        this.pollRepository.save(poll);
-        LOG.info("Payment Hub excess refund completed from status query loanId={}, requestId={}, transactionRef={}", poll.getLoanId(),
-                poll.getRequestId(), hubStatus.getTransactionRef());
-    }
-
-    private void failExcessRefund(final PaymentHubDisbursementPoll poll, final PaymentHubTransactionStatus hubStatus,
-            final String reason) {
-        this.excessRefundWritePlatformService.applyHubCallback(poll.getRequestId(), false,
-                hubStatus == null ? null : hubStatus.getTransactionRef(), reason);
-        poll.markTerminal(hubStatus != null && hubStatus.isPendingError() ? PaymentHubTransactionStatus.PENDING_ERROR
-                : PaymentHubTransactionStatus.FAILED, hubStatus, reason);
-        this.pollRepository.save(poll);
-        LOG.info("Payment Hub excess refund finished unsuccessfully loanId={}, requestId={}, status={}", poll.getLoanId(),
-                poll.getRequestId(), poll.getStatus());
     }
 
     private void completeDisbursement(final PaymentHubDisbursementPoll poll, final PaymentHubTransactionStatus hubStatus) {

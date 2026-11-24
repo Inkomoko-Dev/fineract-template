@@ -27,6 +27,7 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.serialization.DefaultToApiJsonSerializer;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -52,7 +53,8 @@ public class ExcessRefundIntegrationApiResource {
         final JsonElement element = this.fromApiJsonHelper.parse(apiRequestBodyAsJson);
         final JsonObject body = element.getAsJsonObject();
         final String requestId = body.get("requestId").getAsString();
-        final String resultCode = body.has("resultCode") ? body.get("resultCode").getAsString() : "500";
+        final String resultCode = body.has("resultCode") && !body.get("resultCode").isJsonNull()
+                ? body.get("resultCode").getAsString() : null;
         final String transactionRef = body.has("transactionRef") && !body.get("transactionRef").isJsonNull()
                 ? body.get("transactionRef").getAsString()
                 : null;
@@ -60,6 +62,10 @@ public class ExcessRefundIntegrationApiResource {
                 ? body.get("resultMessage").getAsString()
                 : null;
         final boolean success = "200".equals(resultCode) || "0".equals(resultCode) || "SUCCESS".equalsIgnoreCase(resultCode);
+        if (!success && !"500".equals(resultCode) && !"FAILED".equalsIgnoreCase(resultCode)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.hub.outcome.unknown",
+                    "The refund is awaiting a definitive Payment Hub outcome.");
+        }
         final CommandProcessingResult result = this.writePlatformService.applyHubCallback(requestId, success, transactionRef, resultMessage);
         return this.toApiJsonSerializer.serialize(result);
     }
