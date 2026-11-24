@@ -274,8 +274,10 @@ public class BulkRescheduleApiResource {
     @Operation(summary = "Get bulk reschedule workflow audit history")
     public String getAuditHistory(@PathParam("executionId") final Long executionId) {
         final var user = platformSecurityContext.authenticatedUser();
-        user.validateHasPermissionTo("READ_AUDIT");
         final BulkRescheduleExecution execution = findAccessibleExecution(executionId, user);
+        if (user.hasNotPermissionForAnyOf("ALL_FUNCTIONS_READ", "READ_AUDIT")) {
+            validateCanViewExecution(user, execution);
+        }
         final var items = auditRepository.findByExecutionIdOrdered(execution.getId()).stream().map(audit -> {
             final Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", audit.getId());
@@ -301,8 +303,8 @@ public class BulkRescheduleApiResource {
 
     private void validateCanViewExecution(final org.apache.fineract.useradministration.domain.AppUser user,
             final BulkRescheduleExecution execution) {
-        if (!execution.getUser().getId().equals(user.getId()) && !hasPermission(user, "READ_RESCHEDULELOAN")
-                && !hasPermission(user, "CREATE_RESCHEDULELOAN") && !hasPermission(user, "APPROVE_RESCHEDULELOAN")) {
+        if (!execution.getUser().getId().equals(user.getId()) && user.hasNotPermissionForAnyOf("ALL_FUNCTIONS_READ",
+                "READ_RESCHEDULELOAN", "CREATE_RESCHEDULELOAN", "APPROVE_RESCHEDULELOAN")) {
             throw new GeneralPlatformDomainRuleException("error.msg.bulk.reschedule.execution.read.denied",
                     "User does not have permission to view this bulk reschedule execution");
         }
@@ -588,8 +590,8 @@ public class BulkRescheduleApiResource {
                 status, officeId, limit, offset);
 
         final var user = platformSecurityContext.authenticatedUser();
-        if (!hasPermission(user, "READ_RESCHEDULELOAN") && !hasPermission(user, "CREATE_RESCHEDULELOAN")
-                && !hasPermission(user, "APPROVE_RESCHEDULELOAN")) {
+        if (user.hasNotPermissionForAnyOf("ALL_FUNCTIONS_READ", "READ_RESCHEDULELOAN", "CREATE_RESCHEDULELOAN",
+                "APPROVE_RESCHEDULELOAN")) {
             user.validateHasPermissionTo("READ_RESCHEDULELOAN");
         }
 
