@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.creditdecision.service;
 
+import com.google.common.base.Splitter;
 import java.util.Locale;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData;
 
@@ -73,8 +74,8 @@ public final class CreditDecisionReasonCodes {
         if (codes == null || tag == null || tag.isBlank()) {
             return false;
         }
-        for (final String part : codes.split(",")) {
-            if (tag.equalsIgnoreCase(part.trim())) {
+        for (final String part : Splitter.on(',').trimResults().omitEmptyStrings().split(codes)) {
+            if (tag.equalsIgnoreCase(part)) {
                 return true;
             }
         }
