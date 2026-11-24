@@ -56,7 +56,7 @@ public class ExcessRefundApiResource {
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveAll(@QueryParam("loanId") final Long loanId, @QueryParam("status") final Integer status,
             @QueryParam("batchId") final Long batchId) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
+        this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
         final Collection<ExcessRefundData> results = this.readPlatformService.retrieveAll(loanId, status, batchId);
         return this.toApiJsonSerializer.serialize(results);
     }
@@ -73,7 +73,7 @@ public class ExcessRefundApiResource {
     @Path("export")
     @Produces({ "text/csv" })
     public Response export(@QueryParam("status") final Integer status) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
+        this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
         final String csv = this.readPlatformService.exportCsv(status);
         return Response.ok(csv).header("Content-Disposition", "attachment; filename=excess-refunds.csv").build();
     }
