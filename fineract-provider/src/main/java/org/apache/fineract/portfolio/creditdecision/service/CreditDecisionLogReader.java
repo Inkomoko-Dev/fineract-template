@@ -55,7 +55,7 @@ public class CreditDecisionLogReader {
             "created_on ASC, id ASC", "score_desc", "score DESC, id DESC", "score_asc", "score IS NULL, score ASC, id ASC");
 
     private static final String LIST_COLUMNS = "id, application_ref, loan_id, customer_ref, profile_id, profile_name, version_no, mode, "
-            + "provider, status, decision, score, reason_codes, reply_ms, next_step, created_on, risk_tier, max_exposure, model_version, request_id";
+            + "provider, status, decision, score, reason_codes, reply_ms, next_step, created_on, risk_tier, max_exposure, model_version, request_id, request_hash, reply_hash";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -175,13 +175,27 @@ public class CreditDecisionLogReader {
     }
 
     private static LogEntryData entry(final java.sql.ResultSet rs, final boolean withBodies) throws java.sql.SQLException {
+        final String requestJson = withBodies ? rs.getString("request_json") : null;
+        final String replyJson = withBodies ? rs.getString("reply_json") : null;
+        final String requestHash = rs.getString("request_hash");
+        final String replyHash = rs.getString("reply_hash");
         return new LogEntryData(rs.getLong("id"), rs.getString("application_ref"), (Long) rs.getObject("loan_id"),
                 rs.getString("customer_ref"), (Long) rs.getObject("profile_id"), rs.getString("profile_name"),
                 (Integer) rs.getObject("version_no"), rs.getString("mode"), rs.getString("provider"), rs.getString("status"),
                 rs.getString("decision"), rs.getBigDecimal("score"), rs.getString("reason_codes"), (Integer) rs.getObject("reply_ms"),
-                rs.getString("next_step"), withBodies ? rs.getString("request_json") : null,
-                withBodies ? rs.getString("reply_json") : null, rs.getTimestamp("created_on").toLocalDateTime().toString(),
-                rs.getString("risk_tier"), rs.getBigDecimal("max_exposure"), rs.getString("model_version"), rs.getString("request_id"));
+                rs.getString("next_step"), requestJson, replyJson, rs.getTimestamp("created_on").toLocalDateTime().toString(),
+                rs.getString("risk_tier"), rs.getBigDecimal("max_exposure"), rs.getString("model_version"), rs.getString("request_id"),
+                requestHash, replyHash, withBodies ? integrity(requestJson, requestHash, replyJson, replyHash) : null);
+    }
+
+    /** INTACT when every stored body still hashes to its stored value, CHANGED when one does not, null without hashes. */
+    static String integrity(final String requestJson, final String requestHash, final String replyJson, final String replyHash) {
+        if (requestHash == null && replyHash == null) {
+            return null;
+        }
+        final boolean requestOk = requestHash == null || CreditDecisionHash.matches(requestJson, requestHash);
+        final boolean replyOk = replyHash == null || CreditDecisionHash.matches(replyJson, replyHash);
+        return requestOk && replyOk ? "INTACT" : "CHANGED";
     }
 
     private static String decision(final String raw, final Map<String, String> problems) {

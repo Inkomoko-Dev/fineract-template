@@ -178,4 +178,7 @@
     <include file="parts/CGLT-846_loan_credit_decision.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-846_policy_maker_checker.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-848_delegated_authority.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-847_decision_log_hashes.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-849_kill_switch.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-849_exception_override.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>
