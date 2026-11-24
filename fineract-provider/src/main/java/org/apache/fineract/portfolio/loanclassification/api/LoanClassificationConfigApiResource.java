@@ -82,7 +82,7 @@ public class LoanClassificationConfigApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveCodes(@Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_LOANCLASSIFICATIONCONFIG");
+        this.context.authenticatedUser().validateHasReadPermission("LOANCLASSIFICATIONCONFIG");
         final Collection<LoanClassificationThresholdData> codes = Arrays.stream(LoanClassificationCodes.values())
                 .map(code -> new LoanClassificationThresholdData(code.getCode(), code.getLabel(), null, null)).collect(Collectors.toList());
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
@@ -94,7 +94,7 @@ public class LoanClassificationConfigApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveTemplate(@Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_LOANCLASSIFICATIONCONFIG");
+        this.context.authenticatedUser().validateHasReadPermission("LOANCLASSIFICATIONCONFIG");
         final LoanClassificationCountryConfigData template = this.readPlatformService.retrieveTemplate();
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.toApiJsonSerializer.serialize(settings, template);
@@ -105,7 +105,7 @@ public class LoanClassificationConfigApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveCountries(@Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_LOANCLASSIFICATIONCONFIG");
+        this.context.authenticatedUser().validateHasReadPermission("LOANCLASSIFICATIONCONFIG");
         final Collection<LoanClassificationCountryConfigData> configs = this.readPlatformService.retrieveAllCountryConfigs();
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.toApiJsonSerializer.serialize(settings, configs);
@@ -116,7 +116,7 @@ public class LoanClassificationConfigApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     public String retrieveCountry(@PathParam("configId") final Long configId, @Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_LOANCLASSIFICATIONCONFIG");
+        this.context.authenticatedUser().validateHasReadPermission("LOANCLASSIFICATIONCONFIG");
         final LoanClassificationCountryConfigData config = this.readPlatformService.retrieveCountryConfig(configId);
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.toApiJsonSerializer.serialize(settings, config);
@@ -164,7 +164,7 @@ public class LoanClassificationConfigApiResource {
     public String retrieveSummary(@QueryParam("countryId") final Long countryId, @QueryParam("officeId") final Long officeId,
             @QueryParam("loanProductId") final Long loanProductId, @QueryParam("fromDate") final String fromDate,
             @QueryParam("toDate") final String toDate, @Context final UriInfo uriInfo) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_LOANCLASSIFICATIONCONFIG");
+        this.context.authenticatedUser().validateHasReadPermission("LOANCLASSIFICATIONCONFIG");
         final Collection<LoanClassificationSummaryRowData> rows = this.readPlatformService.retrieveSummary(countryId, officeId,
                 loanProductId, parseIsoDate(fromDate), parseIsoDate(toDate));
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
