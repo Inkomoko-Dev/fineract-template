@@ -79,14 +79,33 @@ JOIN m_loan l ON l.id = r.loan_id
 SET r.approved_on_date = l.rescheduledon_date
 WHERE r.approved_on_date IS NULL
   AND l.rescheduledon_date >= r.submitted_on_date]]></sql>
-        <sql><![CDATA[UPDATE m_loan_reschedule_request
-SET approved_on_date = submitted_on_date
-WHERE status_enum IN (200, 800)
-  AND approved_on_date IS NULL]]></sql>
         <sql><![CDATA[UPDATE m_loan_repayment_schedule_history h
 JOIN m_loan_reschedule_request r ON r.id = h.loan_reschedule_request_id
 SET h.superseded_on_date = r.approved_on_date
 WHERE h.superseded_on_date IS NULL
   AND r.status_enum IN (200, 800)]]></sql>
+    </changeSet>
+
+    <changeSet id="CGLT-538-8-backfill-foreclosure-supersession" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="m_loan_repayment_schedule_history" columnName="superseded_on_date"/>
+        </preConditions>
+        <sql><![CDATA[UPDATE m_loan_repayment_schedule_history h
+JOIN (
+    SELECT * FROM (
+        SELECT hv.loan_id, hv.version, MAX(hv.duedate) AS last_due
+        FROM m_loan_repayment_schedule_history hv
+        WHERE hv.loan_reschedule_request_id IS NULL
+          AND hv.superseded_on_date IS NULL
+          AND hv.version = (SELECT MAX(hm.version) FROM m_loan_repayment_schedule_history hm WHERE hm.loan_id = hv.loan_id)
+        GROUP BY hv.loan_id, hv.version
+    ) latest_undated
+) foreclosed ON foreclosed.loan_id = h.loan_id AND foreclosed.version = h.version
+JOIN m_loan l ON l.id = h.loan_id
+SET h.superseded_on_date = l.closedon_date
+WHERE h.superseded_on_date IS NULL
+  AND l.loan_status_id = 600
+  AND foreclosed.last_due > l.closedon_date
+  AND (SELECT MAX(s.duedate) FROM m_loan_repayment_schedule s WHERE s.loan_id = h.loan_id) = l.closedon_date]]></sql>
     </changeSet>
 </databaseChangeLog>

@@ -4167,7 +4167,6 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         changes.put("transactionDate", transactionDate);
 
         String noteText = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.noteParamName, element);
-        LoanRescheduleRequest loanRescheduleRequest = null;
         for (LoanDisbursementDetails loanDisbursementDetails : loan.getDisbursementDetails()) {
             if (!loanDisbursementDetails.expectedDisbursementDateAsLocalDate().isAfter(transactionDate)
                     && loanDisbursementDetails.actualDisbursementDate() == null) {
@@ -4176,8 +4175,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                         defaultUserMessage, transactionDate);
             }
         }
-        this.loanScheduleHistoryWritePlatformService.createAndSaveLoanScheduleArchive(loan.getRepaymentScheduleInstallments(), loan,
-                loanRescheduleRequest);
+        this.loanScheduleHistoryWritePlatformService.archiveForeclosedSchedule(loan, transactionDate);
 
         final Map<String, Object> modifications = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, false);
         changes.putAll(modifications);

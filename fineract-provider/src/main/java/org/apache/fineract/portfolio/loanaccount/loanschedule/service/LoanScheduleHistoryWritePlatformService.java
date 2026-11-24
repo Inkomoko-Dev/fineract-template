@@ -35,4 +35,6 @@ public interface LoanScheduleHistoryWritePlatformService {
 
     void archiveSupersededSchedule(Loan loan, LocalDate supersededOnDate);
 
+    void archiveForeclosedSchedule(Loan loan, LocalDate foreclosedOnDate);
+
 }

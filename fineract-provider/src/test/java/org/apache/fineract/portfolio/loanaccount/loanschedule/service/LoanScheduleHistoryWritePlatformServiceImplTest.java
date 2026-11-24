@@ -98,6 +98,24 @@ class LoanScheduleHistoryWritePlatformServiceImplTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void foreclosedScheduleIsArchivedDatedOnTheForeclosureForEveryProduct() {
+        final Loan loan = loan(true);
+        when(readService.fetchCurrentVersionNumber(7L)).thenReturn(1);
+
+        service.archiveForeclosedSchedule(loan, SUPERSEDED_ON);
+
+        final ArgumentCaptor<List<LoanRepaymentScheduleHistory>> saved = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(saved.capture());
+        assertEquals(2, saved.getValue().size());
+        for (final LoanRepaymentScheduleHistory history : saved.getValue()) {
+            assertEquals(2, history.getVersion());
+            assertEquals(SUPERSEDED_ON, history.getSupersededOnDate());
+            assertNull(history.getLoanRescheduleRequest());
+        }
+    }
+
+    @Test
     void archivesKeptForOtherReasonsHaveNoSupersededDate() {
         final Loan loan = loan(false);
         when(readService.fetchCurrentVersionNumber(7L)).thenReturn(0);

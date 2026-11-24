@@ -51,7 +51,8 @@ class ScheduleHistorySupersededBackfillSqlTest {
     static void createSchemaAndRunBackfill() throws Exception {
         jdbc = new JdbcTemplate(new DriverManagerDataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword()));
         backfill = loadBackfillSql();
-        jdbc.execute("CREATE TABLE m_loan (id BIGINT PRIMARY KEY, rescheduledon_date DATE)");
+        jdbc.execute("CREATE TABLE m_loan (id BIGINT PRIMARY KEY, rescheduledon_date DATE, loan_status_id INT, closedon_date DATE)");
+        jdbc.execute("CREATE TABLE m_loan_repayment_schedule (id BIGINT AUTO_INCREMENT PRIMARY KEY, loan_id BIGINT, duedate DATE)");
         jdbc.execute("CREATE TABLE m_loan_reschedule_request (id BIGINT PRIMARY KEY, loan_id BIGINT, status_enum INT,"
                 + " submitted_on_date DATE, approved_on_date DATE, approved_by_user_id BIGINT)");
         jdbc.execute("CREATE TABLE m_loan_repayment_schedule_history (id BIGINT AUTO_INCREMENT PRIMARY KEY, loan_id BIGINT,"
@@ -74,22 +75,48 @@ class ScheduleHistorySupersededBackfillSqlTest {
         jdbc.update("INSERT INTO m_portfolio_command_source (entity_name, action_name, resource_id, command_as_json, maker_id,"
                 + " made_on_date, processing_result_enum) VALUES ('RESCHEDULELOAN', 'APPROVE', 7, '{}', 17, '2026-10-01 10:00:00', 0)");
         request(9, 9, 200, "2026-04-01");
-        jdbc.update("INSERT INTO m_loan VALUES (9, '2026-04-20')");
+        rescheduledLoan(9, "2026-04-20");
         request(10, 10, 200, "2026-04-23");
         request(11, 10, 200, "2026-04-23");
-        jdbc.update("INSERT INTO m_loan VALUES (10, '2026-04-24')");
+        rescheduledLoan(10, "2026-04-24");
         request(12, 12, 200, "2026-05-10");
         request(13, 12, 800, "2026-05-12");
         approval(13, "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"approvedOnDate\":\"12 May 2026\"}", 18, "2026-05-12 09:00:00");
-        jdbc.update("INSERT INTO m_loan VALUES (12, '2026-05-30')");
+        rescheduledLoan(12, "2026-05-30");
         request(14, 14, 200, "2026-06-10");
-        jdbc.update("INSERT INTO m_loan VALUES (14, '2026-06-01')");
+        rescheduledLoan(14, "2026-06-01");
         for (long id = 1; id <= 7; id++) {
             jdbc.update("INSERT INTO m_loan_repayment_schedule_history (loan_id, loan_reschedule_request_id, version, duedate)"
                     + " VALUES (?, ?, 1, '2026-01-31')", id, id);
         }
         jdbc.update("INSERT INTO m_loan_repayment_schedule_history (loan_id, loan_reschedule_request_id, version, duedate)"
                 + " VALUES (8, NULL, 1, '2026-01-31')");
+
+        foreclosedLoan(30, 600, "2026-03-15", "2026-03-15");
+        archive(30, null, 1, "2026-04-30");
+
+        foreclosedLoan(31, 600, "2026-05-20", "2026-05-20");
+        request(31, 31, 200, "2026-02-01");
+        approval(31, "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"approvedOnDate\":\"3 February 2026\"}", 19,
+                "2026-02-03 09:00:00");
+        archive(31, 31L, 1, "2026-04-30");
+        archive(31, null, 2, "2026-07-31");
+
+        foreclosedLoan(32, 700, null, "2026-03-15");
+        archive(32, null, 1, "2026-04-30");
+
+        foreclosedLoan(33, 600, "2026-03-15", "2026-04-30");
+        archive(33, null, 1, "2026-04-30");
+
+        foreclosedLoan(34, 600, "2026-05-20", "2026-05-20");
+        request(34, 34, 200, "2026-02-01");
+        approval(34, "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"approvedOnDate\":\"3 February 2026\"}", 20,
+                "2026-02-03 09:00:00");
+        archive(34, null, 1, "2026-07-31");
+        archive(34, 34L, 2, "2026-07-31");
+
+        foreclosedLoan(35, 300, null, "2026-03-15");
+        archive(35, null, 1, "2026-04-30");
 
         backfill.forEach(jdbc::execute);
     }
@@ -111,9 +138,9 @@ class ScheduleHistorySupersededBackfillSqlTest {
     }
 
     @Test
-    void approvalWithoutASuccessfulCommandFallsBackToTheSubmissionDate() {
-        assertApproved(3, "2026-06-01", null);
-        assertApproved(7, "2026-10-01", null);
+    void approvalWithoutASuccessfulCommandStaysUndated() {
+        assertUndated(3);
+        assertUndated(7);
     }
 
     @Test
@@ -123,10 +150,10 @@ class ScheduleHistorySupersededBackfillSqlTest {
     }
 
     @Test
-    void earlierOrStaleApprovalsWithoutACommandKeepTheSubmissionDate() {
-        assertApproved(10, "2026-04-23", null);
-        assertApproved(12, "2026-05-10", null);
-        assertApproved(14, "2026-06-10", null);
+    void earlierOrStaleApprovalsWithoutACommandStayUndated() {
+        assertUndated(10);
+        assertUndated(12);
+        assertUndated(14);
     }
 
     @Test
@@ -139,9 +166,24 @@ class ScheduleHistorySupersededBackfillSqlTest {
     void archivedSchedulesAreSupersededOnTheirApprovalDate() {
         assertEquals(LocalDate.parse("2026-04-03"), supersededOn(1));
         assertEquals(LocalDate.parse("2026-07-02"), supersededOn(4));
-        assertEquals(LocalDate.parse("2026-06-01"), supersededOn(3));
+        assertNull(supersededOn(3));
         assertNull(
                 jdbc.queryForObject("SELECT superseded_on_date FROM m_loan_repayment_schedule_history WHERE loan_id = 8", LocalDate.class));
+    }
+
+    @Test
+    void foreclosedScheduleIsSupersededOnTheForeclosureDate() {
+        assertEquals(LocalDate.parse("2026-03-15"), archiveSupersededOn(30, 1));
+        assertEquals(LocalDate.parse("2026-05-20"), archiveSupersededOn(31, 2));
+        assertEquals(LocalDate.parse("2026-02-03"), archiveSupersededOn(31, 1));
+    }
+
+    @Test
+    void archivesWithoutTheForeclosureFootprintStayUndated() {
+        assertNull(archiveSupersededOn(32, 1));
+        assertNull(archiveSupersededOn(33, 1));
+        assertNull(archiveSupersededOn(34, 1));
+        assertNull(archiveSupersededOn(35, 1));
     }
 
     @Test
@@ -156,6 +198,19 @@ class ScheduleHistorySupersededBackfillSqlTest {
         assertEquals(userId, jdbc.queryForObject("SELECT approved_by_user_id FROM m_loan_reschedule_request WHERE id = ?", Long.class, id));
     }
 
+    private static void assertUndated(final long id) {
+        assertNull(approvedOn(id));
+        assertNull(jdbc.queryForObject("SELECT approved_by_user_id FROM m_loan_reschedule_request WHERE id = ?", Long.class, id));
+        assertNull(jdbc.queryForObject(
+                "SELECT MAX(superseded_on_date) FROM m_loan_repayment_schedule_history WHERE loan_reschedule_request_id = ?",
+                LocalDate.class, id));
+    }
+
+    private static LocalDate archiveSupersededOn(final long loanId, final int version) {
+        return jdbc.queryForObject("SELECT MAX(superseded_on_date) FROM m_loan_repayment_schedule_history WHERE loan_id = ? AND version = ?",
+                LocalDate.class, loanId, version);
+    }
+
     private static LocalDate approvedOn(final long id) {
         return jdbc.queryForObject("SELECT approved_on_date FROM m_loan_reschedule_request WHERE id = ?", LocalDate.class, id);
     }
@@ -168,6 +223,20 @@ class ScheduleHistorySupersededBackfillSqlTest {
     private static String snapshot() {
         return jdbc.queryForList("SELECT id, approved_on_date, approved_by_user_id FROM m_loan_reschedule_request ORDER BY id").toString()
                 + jdbc.queryForList("SELECT id, superseded_on_date FROM m_loan_repayment_schedule_history ORDER BY id").toString();
+    }
+
+    private static void rescheduledLoan(final long id, final String rescheduledOn) {
+        jdbc.update("INSERT INTO m_loan (id, rescheduledon_date, loan_status_id) VALUES (?, ?, 300)", id, rescheduledOn);
+    }
+
+    private static void foreclosedLoan(final long id, final int status, final String closedOn, final String lastDueDate) {
+        jdbc.update("INSERT INTO m_loan (id, loan_status_id, closedon_date) VALUES (?, ?, ?)", id, status, closedOn);
+        jdbc.update("INSERT INTO m_loan_repayment_schedule (loan_id, duedate) VALUES (?, '2026-01-31'), (?, ?)", id, id, lastDueDate);
+    }
+
+    private static void archive(final long loanId, final Long requestId, final int version, final String lastDueDate) {
+        jdbc.update("INSERT INTO m_loan_repayment_schedule_history (loan_id, loan_reschedule_request_id, version, duedate)"
+                + " VALUES (?, ?, ?, '2026-01-31'), (?, ?, ?, ?)", loanId, requestId, version, loanId, requestId, version, lastDueDate);
     }
 
     private static void request(final long id, final int status, final String submittedOn) {

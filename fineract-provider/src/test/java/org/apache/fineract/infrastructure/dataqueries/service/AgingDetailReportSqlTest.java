@@ -241,6 +241,20 @@ class AgingDetailReportSqlTest {
                     + " principal_amount, interest_amount, fee_charges_amount, penalty_charges_amount) VALUES (23, 23, 1, ?, 1000, 100, 0, 0)",
                     due);
         }
+
+        loan(24, 600);
+        schedule(24, "2026-01-31");
+        jdbc.update("UPDATE m_loan_repayment_schedule SET duedate = '2026-04-15', principal_amount = 2000, interest_amount = 50"
+                + " WHERE loan_id = 24 AND installment = 4");
+        jdbc.update("DELETE FROM m_loan_repayment_schedule WHERE loan_id = 24 AND installment = 3");
+        jdbc.update("UPDATE m_loan_repayment_schedule SET installment = 3 WHERE loan_id = 24 AND installment = 4");
+        jdbc.update("UPDATE m_loan SET interest_charged_derived = 250, closedon_date = '2026-04-15' WHERE id = 24");
+        payment(24, REPAYMENT, "2026-01-31", 1000, 100, 241);
+        payment(24, REPAYMENT, "2026-04-15", 2000, 50, 244);
+        for (final String due : new String[] { "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30" }) {
+            history(24, 1, null, due, 1000, 100);
+        }
+
         loadChangelogSql(BACKFILL_CHANGELOG, "sql").forEach(jdbc::execute);
 
         jdbc.update("UPDATE m_loan SET closedon_date = '2026-02-15', writtenoffon_date = '2026-02-15' WHERE id IN (8, 9, 10)");
@@ -380,6 +394,18 @@ class AgingDetailReportSqlTest {
         assertAging(row, 1000, 100, 31, "Watch");
         assertAmount(4000, row.get("Original Principal"));
         assertAmount(400, row.get("Original Interest"));
+    }
+
+    @Test
+    @DisplayName("AC1: a loan foreclosed after the As at date shows the interest it was charged before the foreclosure")
+    void loanForeclosedAfterTheAsAtDateKeepsTheInterestChargedBeforeIt() {
+        final Map<String, Object> before = run("2026-03-10", -1).get("L24");
+        assertAging(before, 1000, 100, 10, "Normal");
+        assertAmount(400, before.get("Original Interest"));
+        final Map<String, Object> atAsAt = run(AS_AT, -1).get("L24");
+        assertAging(atAsAt, 1000, 100, 31, "Watch");
+        assertAmount(400, atAsAt.get("Original Interest"));
+        assertFalse(run("2026-04-20", -1).containsKey("L24"));
     }
 
     @Test
