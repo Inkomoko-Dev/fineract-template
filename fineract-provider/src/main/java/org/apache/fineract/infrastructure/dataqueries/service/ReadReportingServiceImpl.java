@@ -24,8 +24,6 @@ import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -73,8 +71,6 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.owasp.esapi.ESAPI;
-import org.owasp.esapi.codecs.UnixCodec;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -473,72 +469,43 @@ public class ReadReportingServiceImpl implements ReadReportingService {
     }
 
     @Override
-    public String retrieveReportPDF(final String reportName, final String type, final Map<String, String> queryParams,
+    public byte[] retrieveReportPDF(final String reportName, final String type, final Map<String, String> queryParams,
             final boolean isSelfServiceUserReport, final Integer limit, final Integer offset) {
-
-        final String fileLocation = fineractProperties.getContent().getFilesystem().getRootFolder() + File.separator + "";
-        if (!new File(fileLocation).isDirectory()) {
-            new File(fileLocation).mkdirs();
-        }
-
-        final String genaratePdf = fileLocation + File.separator + reportName + ".pdf";
-
         try {
             final GenericResultsetData result = retrieveGenericResultset(reportName, type, queryParams, isSelfServiceUserReport, limit,
                     offset, false);
-
-            final List<ResultsetColumnHeaderData> columnHeaders = result.getColumnHeaders();
-            final List<ResultsetRowData> data = result.getData();
-            List<String> row;
-
-            log.info("NO. of Columns: {}", columnHeaders.size());
-            final Integer chSize = columnHeaders.size();
-
-            final Document document = new Document(PageSize.B0.rotate());
-
-            String validatedFileName = ESAPI.encoder().encodeForOS(new UnixCodec(), reportName);
-            PdfWriter.getInstance(document, new FileOutputStream(fileLocation + validatedFileName + ".pdf"));
-            document.open();
-
-            final PdfPTable table = new PdfPTable(chSize);
-            table.setWidthPercentage(100);
-
-            for (int i = 0; i < chSize; i++) {
-
-                table.addCell(columnHeaders.get(i).getColumnName());
-
-            }
-            table.completeRow();
-
-            Integer rSize;
-            String currColType;
-            String currVal;
-            log.info("NO. of Rows: {}", data.size());
-            for (ResultsetRowData element : data) {
-                row = element.getRow();
-                rSize = row.size();
-                for (int j = 0; j < rSize; j++) {
-                    currColType = columnHeaders.get(j).getColumnType();
-                    currVal = row.get(j);
-                    if (currVal != null) {
-                        if (currColType.equals("DECIMAL") || currColType.equals("DOUBLE") || currColType.equals("BIGINT")
-                                || currColType.equals("SMALLINT") || currColType.equals("INT")) {
-
-                            table.addCell(currVal.toString());
-                        } else {
-                            table.addCell(currVal.toString());
-                        }
-                    }
-                }
-            }
-            table.completeRow();
-            document.add(table);
-            document.close();
-            return genaratePdf;
+            return renderPdf(result.getColumnHeaders(), result.getData());
         } catch (final Exception e) {
             log.error("error.msg.reporting.error:", e);
             throw new PlatformDataIntegrityException("error.msg.exception.error", e.getMessage(), e);
         }
+    }
+
+    static byte[] renderPdf(final List<ResultsetColumnHeaderData> columnHeaders, final List<ResultsetRowData> data) {
+        final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        final Document document = new Document(PageSize.B0.rotate());
+        PdfWriter.getInstance(document, outputStream);
+        document.open();
+        document.add(buildPdfTable(columnHeaders, data));
+        document.close();
+        return outputStream.toByteArray();
+    }
+
+    static PdfPTable buildPdfTable(final List<ResultsetColumnHeaderData> columnHeaders, final List<ResultsetRowData> data) {
+        final int columnCount = columnHeaders.size();
+        final PdfPTable table = new PdfPTable(columnCount);
+        table.setWidthPercentage(100);
+        for (final ResultsetColumnHeaderData header : columnHeaders) {
+            table.addCell(header.getColumnName());
+        }
+        for (final ResultsetRowData element : data) {
+            final List<String> row = element.getRow();
+            for (int j = 0; j < columnCount; j++) {
+                final String value = j < row.size() ? row.get(j) : null;
+                table.addCell(value == null ? "" : value);
+            }
+        }
+        return table;
     }
 
     @Override

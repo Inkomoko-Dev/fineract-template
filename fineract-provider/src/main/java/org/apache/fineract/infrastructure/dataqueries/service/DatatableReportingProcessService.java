@@ -38,7 +38,6 @@ import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.ResponseBuilder;
 import javax.ws.rs.core.StreamingOutput;
-import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -84,19 +83,12 @@ public class DatatableReportingProcessService implements ReportingProcessService
         }
         final Map<String, String> reportParams = getReportParams(queryParams);
 
-        // PDF format
         if (exportPdf) {
-
-            final String pdfFileName = this.readExtraDataAndReportingService.retrieveReportPDF(reportName, parameterTypeValue, reportParams,
+            final byte[] pdfBytes = this.readExtraDataAndReportingService.retrieveReportPDF(reportName, parameterTypeValue, reportParams,
                     isSelfServiceUserReport, limit, offset);
 
-            final File file = new File(pdfFileName);
-
-            final ResponseBuilder response = Response.ok(file);
-            response.header("Content-Disposition", "attachment; filename=\"" + pdfFileName + "\"");
-            response.header("content-Type", "application/pdf");
-
-            return response.build();
+            return Response.ok().entity(pdfBytes).type("application/pdf")
+                    .header("Content-Disposition", "attachment;filename=" + reportName.replaceAll(" ", "") + ".pdf").build();
         }
 
         if (exportXLSX) {

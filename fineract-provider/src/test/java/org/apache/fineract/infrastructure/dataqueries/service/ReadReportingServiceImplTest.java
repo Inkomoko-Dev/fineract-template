@@ -29,18 +29,27 @@ import static org.assertj.core.api.Assertions.assertThatIOException;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.lowagie.text.pdf.PdfPCell;
+import com.lowagie.text.pdf.PdfPRow;
+import com.lowagie.text.pdf.PdfPTable;
+import com.lowagie.text.pdf.PdfReader;
+import com.lowagie.text.pdf.parser.PdfTextExtractor;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
+import org.apache.fineract.infrastructure.dataqueries.data.ResultsetColumnHeaderData;
+import org.apache.fineract.infrastructure.dataqueries.data.ResultsetRowData;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.service.SqlInjectionPreventerService;
 import org.apache.fineract.infrastructure.security.utils.SQLInjectionException;
@@ -411,5 +420,38 @@ public class ReadReportingServiceImplTest {
             given(rs.getObject(i + 1)).willReturn(values[i]);
         }
         return rs;
+    }
+
+    @Test
+    public void pdfKeepsEveryCellUnderItsHeaderWhenValuesAreNull() {
+        final List<ResultsetColumnHeaderData> headers = List.of(ResultsetColumnHeaderData.basic("Client Name", "VARCHAR"),
+                ResultsetColumnHeaderData.basic("Last Expected Repayment Date", "DATE"),
+                ResultsetColumnHeaderData.basic("Total Amount Overdue", "DECIMAL"));
+        final List<ResultsetRowData> rows = List.of(ResultsetRowData.create(Arrays.asList(null, null, "0.00")),
+                ResultsetRowData.create(Arrays.asList("Jane", "2026-08-07", "923.00")));
+
+        final PdfPTable table = ReadReportingServiceImpl.buildPdfTable(headers, rows);
+
+        assertThat(table.getRows()).hasSize(3);
+        assertThat(cellTexts(table.getRows().get(0))).containsExactly("Client Name", "Last Expected Repayment Date", "Total Amount Overdue");
+        assertThat(cellTexts(table.getRows().get(1))).containsExactly("", "", "0.00");
+        assertThat(cellTexts(table.getRows().get(2))).containsExactly("Jane", "2026-08-07", "923.00");
+    }
+
+    @Test
+    public void pdfIsRenderedInMemoryWithHeadersAndValues() throws Exception {
+        final List<ResultsetColumnHeaderData> headers = List.of(ResultsetColumnHeaderData.basic("Loan ID", "BIGINT"),
+                ResultsetColumnHeaderData.basic("Total Amount Overdue", "DECIMAL"));
+        final List<ResultsetRowData> rows = List.of(ResultsetRowData.create(List.of("422097", "923.00")));
+
+        final byte[] pdf = ReadReportingServiceImpl.renderPdf(headers, rows);
+
+        assertThat(new String(pdf, 0, 5, StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
+        final String text = new PdfTextExtractor(new PdfReader(pdf)).getTextFromPage(1);
+        assertThat(text).contains("Total Amount Overdue").contains("422097").contains("923.00");
+    }
+
+    private static List<String> cellTexts(final PdfPRow row) {
+        return Arrays.stream(row.getCells()).map(PdfPCell::getPhrase).map(phrase -> phrase == null ? "" : phrase.getContent()).toList();
     }
 }
