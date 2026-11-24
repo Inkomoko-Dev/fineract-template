@@ -31,6 +31,7 @@ import java.util.Map;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -88,7 +89,7 @@ public class CreditDecisionMetrics {
         }
         CreditDecisionRules.throwIfAny(problems);
 
-        final LocalDate end = to == null ? LocalDate.now() : to;
+        final LocalDate end = to == null ? DateUtils.getLocalDateOfTenant() : to;
         final LocalDate start = from == null ? end.minusDays(29) : from;
         if (ChronoUnit.DAYS.between(start, end) > MAX_RANGE_DAYS) {
             problems.put("to", "The range can be at most " + MAX_RANGE_DAYS + " days");
