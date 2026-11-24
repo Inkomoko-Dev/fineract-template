@@ -18,6 +18,9 @@
  */
 package org.apache.fineract.infrastructure.africastalking.service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -30,9 +33,21 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class AfricasTalkingWebhookVerifier {
 
+    public static final String TRUSTED_PROXY_HEADER = "X-Inkomoko-Webhook-Proxy-Token";
+    private static final Set<String> TRUSTED_PROXY_EVENTS = Set.of("WHATSAPP_INBOUND", "WHATSAPP_STATUS", "VOICE_CALLBACK", "VOICE_EVENT");
+
     private final AfricasTalkingProperties properties;
 
-    public void verify(final String rawPayload, final String signatureHeader, final String userAgent) {
+    public void verify(final String eventType, final String rawPayload, final String signatureHeader, final String userAgent,
+            final String proxyCredential) {
+        if (properties.getWebhook().isTrustedProxyEnabled() && TRUSTED_PROXY_EVENTS.contains(eventType)) {
+            final String expected = properties.getWebhook().getTrustedProxyCredential();
+            if (StringUtils.isBlank(expected) || StringUtils.isBlank(proxyCredential)
+                    || !MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), proxyCredential.getBytes(StandardCharsets.UTF_8))) {
+                throw new AfricasTalkingWebhookAuthenticationException("Invalid AfricasTalking webhook proxy credential");
+            }
+            return;
+        }
         final String secret = properties.getWebhook().getSecret();
         if (StringUtils.isNotBlank(secret)) {
             if (!AfricasTalkingClient.verifyHmacSha256(rawPayload, signatureHeader, secret)) {

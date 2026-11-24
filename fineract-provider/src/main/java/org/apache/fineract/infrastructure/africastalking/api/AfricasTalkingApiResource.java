@@ -43,6 +43,7 @@ import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingC
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingVoiceService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookAuthenticationException;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService;
+import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookVerifier;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService.WebhookProcessingResult;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppTemplateCreateOutcome;
@@ -232,7 +233,7 @@ public class AfricasTalkingApiResource {
             final String signature = headers.getHeaderString(properties.getWebhook().getSignatureHeader());
             final String userAgent = headers.getHeaderString(HttpHeaders.USER_AGENT);
             final WebhookProcessingResult result = webhookService.processWebhook("VOICE_CALLBACK", payload == null ? "" : payload, signature,
-                    userAgent);
+                    userAgent, headers.getHeaderString(AfricasTalkingWebhookVerifier.TRUSTED_PROXY_HEADER));
             if (result.duplicate()) {
                 // Do not re-enter IVR (would re-issue OTP / create duplicate callbacks).
                 // Replay last XML so AT retries keep the caller on the same prompt.
@@ -258,7 +259,7 @@ public class AfricasTalkingApiResource {
             final String signature = headers.getHeaderString(properties.getWebhook().getSignatureHeader());
             final String userAgent = headers.getHeaderString(HttpHeaders.USER_AGENT);
             final WebhookProcessingResult result = webhookService.processWebhook(eventType, payload == null ? "" : payload, signature,
-                    userAgent);
+                    userAgent, headers.getHeaderString(AfricasTalkingWebhookVerifier.TRUSTED_PROXY_HEADER));
             if (!result.duplicate()) {
                 processBusinessEvent(eventType, payload);
             }

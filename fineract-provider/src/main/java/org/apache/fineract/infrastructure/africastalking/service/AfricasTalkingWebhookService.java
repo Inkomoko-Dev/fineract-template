@@ -45,8 +45,8 @@ public class AfricasTalkingWebhookService {
 
     @Transactional
     public WebhookProcessingResult processWebhook(final String eventType, final String rawPayload, final String signatureHeader,
-            final String userAgent) {
-        webhookVerifier.verify(rawPayload, signatureHeader, userAgent);
+            final String userAgent, final String proxyCredential) {
+        webhookVerifier.verify(eventType, rawPayload, signatureHeader, userAgent, proxyCredential);
         final String payloadHash = AfricasTalkingClient.sha256Hex(rawPayload);
         final String eventId = extractEventId(rawPayload, payloadHash);
         if (webhookEventRepository.existsByEventId(eventId)) {

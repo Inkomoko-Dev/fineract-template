@@ -43,26 +43,59 @@ class AfricasTalkingWebhookVerifierTest {
         final String secret = "test-secret";
         properties.getWebhook().setSecret(secret);
         final String signature = computeSignature(payload, secret);
-        assertDoesNotThrow(() -> verifier.verify(payload, signature, null));
+        assertDoesNotThrow(() -> verifier.verify("WHATSAPP_INBOUND", payload, signature, null, null));
     }
 
     @Test
     void rejectsInvalidHmacSignature() {
         properties.getWebhook().setSecret("test-secret");
         assertThrows(AfricasTalkingWebhookAuthenticationException.class,
-                () -> verifier.verify("{\"id\":\"ATX_123\"}", "invalid", null));
+                () -> verifier.verify("WHATSAPP_INBOUND", "{\"id\":\"ATX_123\"}", "invalid", null, null));
     }
 
     @Test
     void fallsBackToUserAgentWhenSecretMissing() {
-        assertDoesNotThrow(() -> verifier.verify("{}", null, "AfricasTalking/v1"));
+        assertDoesNotThrow(() -> verifier.verify("WHATSAPP_INBOUND", "{}", null, "AfricasTalking/v1", null));
     }
 
     @Test
     void rejectsMissingUserAgentWhenSecretMissing() {
         final AfricasTalkingWebhookAuthenticationException exception = assertThrows(
-                AfricasTalkingWebhookAuthenticationException.class, () -> verifier.verify("{}", null, "curl/8.0"));
+                AfricasTalkingWebhookAuthenticationException.class, () -> verifier.verify("WHATSAPP_INBOUND", "{}", null, "curl/8.0", null));
         assertTrue(exception.getMessage().contains("User-Agent"));
+    }
+
+    @Test
+    void acceptsProxyCredentialOnlyForSupportedCallbacks() {
+        properties.getWebhook().setTrustedProxyEnabled(true);
+        properties.getWebhook().setTrustedProxyCredential("proxy-test-credential");
+        properties.getWebhook().setSecret("signing-test-secret");
+
+        for (final String eventType : java.util.List.of("WHATSAPP_INBOUND", "WHATSAPP_STATUS", "VOICE_CALLBACK", "VOICE_EVENT")) {
+            assertDoesNotThrow(() -> verifier.verify(eventType, "{}", null, null, "proxy-test-credential"));
+            assertThrows(AfricasTalkingWebhookAuthenticationException.class,
+                    () -> verifier.verify(eventType, "{}", computeSignature("{}", "signing-test-secret"), "AfricasTalking/v1", null));
+            assertThrows(AfricasTalkingWebhookAuthenticationException.class,
+                    () -> verifier.verify(eventType, "{}", null, null, "wrong-credential"));
+        }
+        assertThrows(AfricasTalkingWebhookAuthenticationException.class,
+                () -> verifier.verify("PING", "{}", null, null, "proxy-test-credential"));
+        assertDoesNotThrow(() -> verifier.verify("PING", "{}", computeSignature("{}", "signing-test-secret"), null, null));
+    }
+
+    @Test
+    void rejectsBlankProxyConfiguration() {
+        properties.getWebhook().setTrustedProxyEnabled(true);
+        assertThrows(AfricasTalkingWebhookAuthenticationException.class,
+                () -> verifier.verify("VOICE_CALLBACK", "{}", null, "AfricasTalking/v1", null));
+    }
+
+    @Test
+    void proxyCredentialDoesNotEnableProxyMode() {
+        properties.getWebhook().setTrustedProxyCredential("proxy-test-credential");
+        properties.getWebhook().setSecret("signing-test-secret");
+        assertThrows(AfricasTalkingWebhookAuthenticationException.class,
+                () -> verifier.verify("VOICE_CALLBACK", "{}", null, null, "proxy-test-credential"));
     }
 
     private static String computeSignature(final String payload, final String secret) {

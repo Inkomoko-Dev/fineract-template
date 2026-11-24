@@ -79,7 +79,7 @@ class AfricasTalkingWebhookServiceTest {
         when(webhookEventRepository.existsByEventId("ATX_456")).thenReturn(false);
         when(webhookEventRepository.save(any(CommunicationWebhookEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        final var result = webhookService.processWebhook("WHATSAPP_STATUS", payload, null, "AfricasTalking/v1");
+        final var result = webhookService.processWebhook("WHATSAPP_STATUS", payload, null, "AfricasTalking/v1", null);
 
         assertTrue(!result.duplicate());
         final ArgumentCaptor<CommunicationWebhookEvent> captor = ArgumentCaptor.forClass(CommunicationWebhookEvent.class);
@@ -92,7 +92,7 @@ class AfricasTalkingWebhookServiceTest {
         final String payload = "{\"id\":\"ATX_789\"}";
         when(webhookEventRepository.existsByEventId("ATX_789")).thenReturn(true);
 
-        final var result = webhookService.processWebhook("WHATSAPP_STATUS", payload, null, "AfricasTalking/v1");
+        final var result = webhookService.processWebhook("WHATSAPP_STATUS", payload, null, "AfricasTalking/v1", null);
 
         assertTrue(result.duplicate());
         verify(webhookEventRepository, never()).save(any());
