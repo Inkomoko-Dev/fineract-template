@@ -278,8 +278,9 @@ public class CreditDecisionLoanService {
                     missing = missing + ". " + stale.replaceAll("\\.$", "");
                 }
             }
+            // next_step is a short log hint; full missing list goes on the loan event / error_message (MAX_NOTE).
             final LogEntryData heldEntry = entry(loan, profile, "HELD", null, null, null, null,
-                    "Complete the missing details: " + missing, requestJson, null);
+                    "Complete the missing details (" + built.getHeld().size() + ")", requestJson, null);
             heldEntry.setRequestId(requestId);
             final Long heldLog = profiles.recordLog(heldEntry);
             jdbc.update("UPDATE m_loan_credit_decision SET error_message = ?, last_attempt_on = ? WHERE loan_id = ?",
