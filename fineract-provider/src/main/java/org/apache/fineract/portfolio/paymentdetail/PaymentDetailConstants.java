@@ -35,6 +35,7 @@ public final class PaymentDetailConstants {
     public static final String receiptNumberParamName = "receiptNumber";
     public static final String bankNumberParamName = "bankNumber";
     public static final String mfiCodeParamName = "mfiCode";
+    public static final String topUpPaymentTypeName = "Top-up payment";
     public static final String actualTransactionTypeParamName = "actualTransactionType";
 
     // template related part of response

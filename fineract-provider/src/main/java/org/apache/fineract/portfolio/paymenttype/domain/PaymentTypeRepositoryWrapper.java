@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.paymenttype.domain;
 
+import java.util.Optional;
 import org.apache.fineract.portfolio.paymenttype.exception.PaymentTypeNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,10 @@ public class PaymentTypeRepositoryWrapper {
 
     public PaymentType findOneWithNotFoundDetection(final Long id) {
         return this.repository.findById(id).orElseThrow(() -> new PaymentTypeNotFoundException(id));
+    }
+
+    public Optional<PaymentType> findByName(final String name) {
+        return this.repository.findFirstByNameIgnoreCase(name);
     }
 
 }
