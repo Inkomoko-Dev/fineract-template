@@ -52,6 +52,7 @@ class AgingDetailReportSqlTest {
     private static final String AS_AT = "2026-03-31";
     private static final int REPAYMENT = 2;
     private static final int WRITEOFF = 6;
+    private static final int CHARGE_PAYMENT = 17;
     private static final int REFUND_FOR_ACTIVE_LOAN = 18;
     private static final int GOODWILL_CREDIT = 23;
     private static final int PARTIAL_WRITEOFF = 31;
@@ -264,6 +265,20 @@ class AgingDetailReportSqlTest {
             history(25, 1, "2026-04-10", due, 1000, 100);
         }
 
+        loan(26, 300);
+        schedule(26, "2026-01-31");
+        payment(26, REPAYMENT, "2026-01-31", 1000, 100, 261);
+        jdbc.update("UPDATE m_loan SET closedon_date = '2026-02-15' WHERE id = 26");
+
+        loan(27, 300);
+        schedule(27, "2026-01-31");
+        jdbc.update("UPDATE m_loan_repayment_schedule SET fee_charges_amount = 50 WHERE id = 271");
+        payment(27, REPAYMENT, "2026-01-31", 1000, 100, 271);
+        final long chargePayment = transaction(27, CHARGE_PAYMENT, "2026-02-10", 50, 0, 0, false, null, null);
+        jdbc.update("INSERT INTO m_loan_transaction_repayment_schedule_mapping (loan_transaction_id, loan_repayment_schedule_id,"
+                + " principal_portion_derived, interest_portion_derived, fee_charges_portion_derived) VALUES (?, 271, 0, 0, 50)",
+                chargePayment);
+
         loadChangelogSql(BACKFILL_CHANGELOG, "sql").forEach(jdbc::execute);
 
         jdbc.update("UPDATE m_loan SET closedon_date = '2026-02-15', writtenoffon_date = '2026-02-15' WHERE id IN (8, 9, 10)");
@@ -422,6 +437,19 @@ class AgingDetailReportSqlTest {
     void originalInterestFollowsTheScheduleInForceAcrossAnInterestRecalculation() {
         assertAmount(400, run(AS_AT, -1).get("L25").get("Original Interest"));
         assertAmount(320, run("2026-04-20", -1).get("L25").get("Original Interest"));
+    }
+
+    @Test
+    @DisplayName("AC1: an active loan that was closed and reopened is aged even though its old close date was never cleared")
+    void reopenedActiveLoanWithAStaleCloseDateIsStillAged() {
+        assertAging(run(AS_AT, -1).get("L26"), 1000, 100, 31, "Watch");
+    }
+
+    @Test
+    @DisplayName("AC1: a charge payment settles the fee it is mapped to from its own date")
+    void chargePaymentSettlesTheFeeItIsMappedTo() {
+        assertFalse(run("2026-02-20", -1).containsKey("L27"));
+        assertAging(run(AS_AT, -1).get("L27"), 1000, 100, 31, "Watch");
     }
 
     @Test
