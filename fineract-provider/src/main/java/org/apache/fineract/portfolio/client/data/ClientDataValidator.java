@@ -41,6 +41,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.client.api.ClientApiConstants;
 import org.apache.fineract.portfolio.client.domain.LegalForm;
+import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -55,6 +56,14 @@ public final class ClientDataValidator {
             final ConfigurationReadPlatformService configurationReadPlatformService) {
         this.fromApiJsonHelper = fromApiJsonHelper;
         this.configurationReadPlatformService = configurationReadPlatformService;
+    }
+
+    public void validateMayCreateMigrated(final String json, final AppUser currentUser) {
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        if (this.fromApiJsonHelper.parameterExists(ClientApiConstants.migratedParamName, element)
+                && Boolean.TRUE.equals(this.fromApiJsonHelper.extractBooleanNamed(ClientApiConstants.migratedParamName, element))) {
+            currentUser.validateHasPermissionTo(ClientApiConstants.CREATE_MIGRATED_CLIENT_PERMISSION);
+        }
     }
 
     public void validateForCreate(final String json) {
@@ -241,7 +250,8 @@ public final class ClientDataValidator {
                 && Boolean.TRUE.equals(this.fromApiJsonHelper.extractBooleanNamed(ClientApiConstants.migratedParamName, element));
 
         final LocalDate migratedOnDate = this.fromApiJsonHelper.extractLocalDateNamed(ClientApiConstants.migratedOnDateParamName, element);
-        final Long migratedFromOfficeId = this.fromApiJsonHelper.extractLongNamed(ClientApiConstants.migratedFromOfficeIdParamName, element);
+        final Long migratedFromOfficeId = this.fromApiJsonHelper.extractLongNamed(ClientApiConstants.migratedFromOfficeIdParamName,
+                element);
 
         if (migrated) {
             baseDataValidator.reset().parameter(ClientApiConstants.migratedOnDateParamName).value(migratedOnDate).notNull()
@@ -249,8 +259,8 @@ public final class ClientDataValidator {
             baseDataValidator.reset().parameter(ClientApiConstants.migratedFromOfficeIdParamName).value(migratedFromOfficeId).notNull()
                     .integerGreaterThanZero();
         } else {
-            baseDataValidator.reset().parameter(ClientApiConstants.migratedOnDateParamName).value(migratedOnDate).mustBeBlankWhenParameterProvidedIs(
-                    ClientApiConstants.migratedParamName, Boolean.FALSE);
+            baseDataValidator.reset().parameter(ClientApiConstants.migratedOnDateParamName).value(migratedOnDate)
+                    .mustBeBlankWhenParameterProvidedIs(ClientApiConstants.migratedParamName, Boolean.FALSE);
             baseDataValidator.reset().parameter(ClientApiConstants.migratedFromOfficeIdParamName).value(migratedFromOfficeId)
                     .mustBeBlankWhenParameterProvidedIs(ClientApiConstants.migratedParamName, Boolean.FALSE);
         }

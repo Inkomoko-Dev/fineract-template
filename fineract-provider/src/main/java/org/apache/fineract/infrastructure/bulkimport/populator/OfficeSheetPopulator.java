@@ -29,12 +29,20 @@ import org.apache.poi.ss.usermodel.Workbook;
 public class OfficeSheetPopulator extends AbstractWorkbookPopulator {
 
     private List<OfficeData> offices;
+    private List<OfficeData> migratedFromOffices;
 
     private static final int ID_COL = 0;
     private static final int OFFICE_NAME_COL = 1;
+    private static final int MIGRATED_FROM_ID_COL = 3;
+    private static final int MIGRATED_FROM_OFFICE_NAME_COL = 4;
 
     public OfficeSheetPopulator(final List<OfficeData> offices) {
         this.offices = offices;
+    }
+
+    public OfficeSheetPopulator(final List<OfficeData> offices, final List<OfficeData> migratedFromOffices) {
+        this.offices = offices;
+        this.migratedFromOffices = migratedFromOffices;
     }
 
     @Override
@@ -44,6 +52,7 @@ public class OfficeSheetPopulator extends AbstractWorkbookPopulator {
         setLayout(officeSheet);
 
         populateOffices(officeSheet, rowIndex);
+        populateMigratedFromOffices(officeSheet);
         officeSheet.protectSheet("");
     }
 
@@ -54,6 +63,34 @@ public class OfficeSheetPopulator extends AbstractWorkbookPopulator {
             writeString(OFFICE_NAME_COL, row, office.name().trim().replaceAll("[ )(/%-]", "_"));
             rowIndex++;
         }
+    }
+
+    private void populateMigratedFromOffices(Sheet officeSheet) {
+        if (migratedFromOffices == null) {
+            return;
+        }
+        Row rowHeader = officeSheet.getRow(TemplatePopulateImportConstants.ROWHEADER_INDEX);
+        writeString(MIGRATED_FROM_ID_COL, rowHeader, "Migrated From ID");
+        writeString(MIGRATED_FROM_OFFICE_NAME_COL, rowHeader, "Migrated From Office");
+        officeSheet.setColumnWidth(MIGRATED_FROM_ID_COL, TemplatePopulateImportConstants.SMALL_COL_SIZE);
+        officeSheet.setColumnWidth(MIGRATED_FROM_OFFICE_NAME_COL, TemplatePopulateImportConstants.MEDIUM_COL_SIZE);
+        int rowIndex = 1;
+        for (OfficeData office : migratedFromOffices) {
+            Row row = officeSheet.getRow(rowIndex);
+            if (row == null) {
+                row = officeSheet.createRow(rowIndex);
+            }
+            writeLong(MIGRATED_FROM_ID_COL, row, office.getId());
+            writeString(MIGRATED_FROM_OFFICE_NAME_COL, row, office.name().trim().replaceAll("[ )(/%-]", "_"));
+            rowIndex++;
+        }
+    }
+
+    public String getMigratedFromOfficeRangeFormula() {
+        if (migratedFromOffices == null) {
+            return TemplatePopulateImportConstants.OFFICE_SHEET_NAME + "!$B$2:$B$" + (offices.size() + 1);
+        }
+        return TemplatePopulateImportConstants.OFFICE_SHEET_NAME + "!$E$2:$E$" + (migratedFromOffices.size() + 1);
     }
 
     private void setLayout(Sheet worksheet) {

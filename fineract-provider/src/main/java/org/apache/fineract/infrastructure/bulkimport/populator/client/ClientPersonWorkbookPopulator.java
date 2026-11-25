@@ -272,7 +272,7 @@ public class ClientPersonWorkbookPopulator extends AbstractWorkbookPopulator {
         DataValidationConstraint migratedConstraint = validationHelper.createExplicitListConstraint(new String[] { "True", "False" });
         DataValidationConstraint migratedOnDateConstraint = validationHelper
                 .createDateConstraint(DataValidationConstraint.OperatorType.BETWEEN, "01 January 1900", "=TODAY()", dateformat);
-        DataValidationConstraint migratedFromOfficeConstraint = validationHelper.createFormulaListConstraint("Office");
+        DataValidationConstraint migratedFromOfficeConstraint = validationHelper.createFormulaListConstraint("MigratedFromOffice");
         DataValidationConstraint genderConstraint = validationHelper.createFormulaListConstraint("Gender");
         DataValidationConstraint clientClassificationConstraint = validationHelper.createFormulaListConstraint("ClientClassification");
         DataValidationConstraint enabledAddressConstraint = validationHelper.createExplicitListConstraint(new String[] { "True", "False" });
@@ -327,6 +327,10 @@ public class ClientPersonWorkbookPopulator extends AbstractWorkbookPopulator {
         Name officeGroup = clientWorkbook.createName();
         officeGroup.setNameName("Office");
         officeGroup.setRefersToFormula(TemplatePopulateImportConstants.OFFICE_SHEET_NAME + "!$B$2:$B$" + (offices.size() + 1));
+
+        Name migratedFromOfficeGroup = clientWorkbook.createName();
+        migratedFromOfficeGroup.setNameName("MigratedFromOffice");
+        migratedFromOfficeGroup.setRefersToFormula(officeSheetPopulator.getMigratedFromOfficeRangeFormula());
 
         Name clientTypeGroup = clientWorkbook.createName();
         clientTypeGroup.setNameName("ClientTypes");
