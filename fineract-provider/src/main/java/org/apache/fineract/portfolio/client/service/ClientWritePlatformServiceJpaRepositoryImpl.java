@@ -263,6 +263,7 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
             final AppUser currentUser = this.context.authenticatedUser();
 
             this.fromApiJsonDeserializer.validateForCreate(command.json());
+            this.fromApiJsonDeserializer.validateMayCreateMigrated(command.json(), currentUser);
 
             final GlobalConfigurationPropertyData businessOwner = this.configurationReadPlatformService
                     .retrieveGlobalConfiguration("Enable-businessOwners");

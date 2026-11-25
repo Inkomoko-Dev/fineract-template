@@ -25,6 +25,7 @@ import java.util.Comparator;
 import java.util.List;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.ResponseBuilder;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.accounting.glaccount.data.GLAccountData;
 import org.apache.fineract.accounting.glaccount.service.GLAccountReadPlatformService;
 import org.apache.fineract.infrastructure.bulkimport.constants.TemplatePopulateImportConstants;
@@ -122,6 +123,7 @@ import org.springframework.stereotype.Service;
 public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkbookPopulatorService {
 
     private static final Logger LOG = LoggerFactory.getLogger(BulkImportWorkbookPopulatorServiceImpl.class);
+    private static final String DEFAULT_TEMPLATE_DATE_FORMAT = "dd MMMM yyyy";
     private final PlatformSecurityContext context;
     private final OfficeReadPlatformService officeReadPlatformService;
     private final StaffReadPlatformService staffReadPlatformService;
@@ -225,7 +227,7 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
             } else {
                 throw new GeneralPlatformDomainRuleException("error.msg.unable.to.find.resource", "Unable to find requested resource");
             }
-            populator.populate(workbook, dateFormat);
+            populator.populate(workbook, StringUtils.isBlank(dateFormat) ? DEFAULT_TEMPLATE_DATE_FORMAT : dateFormat);
             return buildResponse(workbook, entityType);
         } else {
             throw new GeneralPlatformDomainRuleException("error.msg.given.entity.type.null", "Given Entity type is null");
@@ -236,6 +238,7 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
         this.context.authenticatedUser().validateHasReadPermission(TemplatePopulateImportConstants.OFFICE_ENTITY_TYPE);
         this.context.authenticatedUser().validateHasReadPermission(TemplatePopulateImportConstants.STAFF_ENTITY_TYPE);
         List<OfficeData> offices = fetchOffices(officeId);
+        List<OfficeData> migratedFromOffices = fetchOffices(null);
         List<StaffData> staff = fetchStaff(staffId);
         List<CodeValueData> clientTypeCodeValues = fetchCodeValuesByCodeName("ClientType");
         List<CodeValueData> clientClassification = fetchCodeValuesByCodeName("ClientClassification");
@@ -244,15 +247,15 @@ public class BulkImportWorkbookPopulatorServiceImpl implements BulkImportWorkboo
         List<CodeValueData> countryCodeValues = fetchCodeValuesByCodeName("COUNTRY");
         if (entityType.trim().equalsIgnoreCase(GlobalEntityType.CLIENTS_PERSON.toString())) {
             List<CodeValueData> genderCodeValues = fetchCodeValuesByCodeName("Gender");
-            return new ClientPersonWorkbookPopulator(new OfficeSheetPopulator(offices), new PersonnelSheetPopulator(staff, offices),
-                    clientTypeCodeValues, genderCodeValues, clientClassification, addressTypesCodeValues, stateProvinceCodeValues,
-                    countryCodeValues);
+            return new ClientPersonWorkbookPopulator(new OfficeSheetPopulator(offices, migratedFromOffices),
+                    new PersonnelSheetPopulator(staff, offices), clientTypeCodeValues, genderCodeValues, clientClassification,
+                    addressTypesCodeValues, stateProvinceCodeValues, countryCodeValues);
         } else if (entityType.trim().equalsIgnoreCase(GlobalEntityType.CLIENTS_ENTITY.toString())) {
             List<CodeValueData> constitutionCodeValues = fetchCodeValuesByCodeName("Constitution");
             List<CodeValueData> mainBusinessline = fetchCodeValuesByCodeName("Main Business Line");
-            return new ClientEntityWorkbookPopulator(new OfficeSheetPopulator(offices), new PersonnelSheetPopulator(staff, offices),
-                    clientTypeCodeValues, constitutionCodeValues, mainBusinessline, clientClassification, addressTypesCodeValues,
-                    stateProvinceCodeValues, countryCodeValues);
+            return new ClientEntityWorkbookPopulator(new OfficeSheetPopulator(offices, migratedFromOffices),
+                    new PersonnelSheetPopulator(staff, offices), clientTypeCodeValues, constitutionCodeValues, mainBusinessline,
+                    clientClassification, addressTypesCodeValues, stateProvinceCodeValues, countryCodeValues);
         }
         return null;
     }
