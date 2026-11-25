@@ -332,6 +332,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
 
     @Transient
     private boolean accountNumberRequiresAutoGeneration = false;
+
+    @Transient
+    private List<LoanRepaymentScheduleInstallment> scheduleSupersededByRecalculation;
     @Transient
     private LoanRepaymentScheduleTransactionProcessorFactory transactionProcessorFactory;
 
@@ -6614,6 +6617,49 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         return changedTransactionDetail;
     }
 
+    void applyRecalculatedSchedule(final Collection<LoanRepaymentScheduleInstallment> recalculatedSchedule) {
+        keepScheduleSupersededByRecalculation(recalculatedSchedule);
+        updateLoanSchedule(recalculatedSchedule);
+    }
+
+    void keepScheduleSupersededByRecalculation(final Collection<LoanRepaymentScheduleInstallment> recalculatedSchedule) {
+        if (this.scheduleSupersededByRecalculation != null || !scheduleChangedBy(recalculatedSchedule)) {
+            return;
+        }
+        final MonetaryCurrency currency = getCurrency();
+        this.scheduleSupersededByRecalculation = getRepaymentScheduleInstallments().stream()
+                .map(installment -> new LoanRepaymentScheduleInstallment(null, installment.getInstallmentNumber(), installment.getFromDate(),
+                        installment.getDueDate(), installment.getPrincipal(currency).getAmount(),
+                        installment.getInterestCharged(currency).getAmount(), installment.getFeeChargesCharged(currency).getAmount(),
+                        installment.getPenaltyChargesCharged(currency).getAmount(), false, null))
+                .collect(Collectors.toList());
+    }
+
+    public List<LoanRepaymentScheduleInstallment> takeScheduleSupersededByRecalculation() {
+        final List<LoanRepaymentScheduleInstallment> superseded = this.scheduleSupersededByRecalculation;
+        this.scheduleSupersededByRecalculation = null;
+        return superseded == null ? List.of() : superseded;
+    }
+
+    private boolean scheduleChangedBy(final Collection<LoanRepaymentScheduleInstallment> recalculatedSchedule) {
+        final List<LoanRepaymentScheduleInstallment> current = getRepaymentScheduleInstallments();
+        if (current.isEmpty() || current.size() != recalculatedSchedule.size()) {
+            return !current.isEmpty();
+        }
+        final MonetaryCurrency currency = getCurrency();
+        for (final LoanRepaymentScheduleInstallment recalculated : recalculatedSchedule) {
+            final LoanRepaymentScheduleInstallment existing = current.stream()
+                    .filter(installment -> installment.getInstallmentNumber().equals(recalculated.getInstallmentNumber())).findFirst()
+                    .orElse(null);
+            if (existing == null || !existing.getDueDate().equals(recalculated.getDueDate())
+                    || !existing.getPrincipal(currency).isEqualTo(recalculated.getPrincipal(currency))
+                    || !existing.getInterestCharged(currency).isEqualTo(recalculated.getInterestCharged(currency))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void regenerateRepaymentScheduleWithInterestRecalculation(final ScheduleGeneratorDTO generatorDTO) {
 
         LocalDate lastTransactionDate = getLastUserTransactionDate();
@@ -6621,7 +6667,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom {
         if (loanSchedule == null) {
             return;
         }
-        updateLoanSchedule(loanSchedule.getInstallments());
+        applyRecalculatedSchedule(loanSchedule.getInstallments());
         this.interestRecalculatedOn = DateUtils.getBusinessLocalDate();
         LocalDate lastRepaymentDate = this.getLastRepaymentPeriodDueDate(true);
         Set<LoanCharge> charges = this.charges();

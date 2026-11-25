@@ -19,13 +19,12 @@
 package org.apache.fineract.infrastructure.dataqueries.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatIOException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
-
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.assertj.core.api.Assertions.assertThatIOException;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -35,10 +34,14 @@ import java.io.Writer;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
@@ -47,6 +50,7 @@ import org.apache.fineract.infrastructure.security.utils.SQLInjectionException;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.office.domain.OfficeAccessScope;
 import org.apache.fineract.useradministration.domain.AppUser;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -237,9 +241,32 @@ public class ReadReportingServiceImplTest {
 
     @Test
     public void parameterValuesAreRevalidatedAtTheSubstitutionPoint() {
-        assertThatExceptionOfType(SQLInjectionException.class)
-                .isThrownBy(() -> service.buildReportSql(PLAIN_REPORT, Map.of("${officeId}", "1 UNION SELECT password FROM m_appuser"),
-                        false, null, null));
+        assertThatExceptionOfType(SQLInjectionException.class).isThrownBy(() -> service.buildReportSql(PLAIN_REPORT,
+                Map.of("${officeId}", "1 UNION SELECT password FROM m_appuser"), false, null, null));
+    }
+
+    @AfterEach
+    public void clearBusinessDate() {
+        ThreadLocalContextUtil.clear();
+    }
+
+    @Test
+    public void todayResolvesToTheTenantBusinessDate() {
+        final HashMap<BusinessDateType, LocalDate> businessDates = new HashMap<>();
+        businessDates.put(BusinessDateType.BUSINESS_DATE, LocalDate.of(2026, 9, 3));
+        ThreadLocalContextUtil.setBusinessDates(businessDates);
+
+        final String sql = service.buildReportSql("SELECT DATE('${asAtDate}') = CURDATE()", Map.of("${asAtDate}", "today"), false, null,
+                null);
+
+        assertThat(sql).contains("DATE('2026-09-03') = '2026-09-03'");
+    }
+
+    @Test
+    public void explicitDatesAreNotRewritten() {
+        final String sql = service.buildReportSql("SELECT DATE('${asAtDate}')", Map.of("${asAtDate}", "2026-08-31"), false, null, null);
+
+        assertThat(sql).contains("DATE('2026-08-31')");
     }
 
     @Test

@@ -550,6 +550,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
 
             Collection<LoanRepaymentScheduleHistory> loanRepaymentScheduleHistoryList = this.loanScheduleHistoryWritePlatformService
                     .createLoanScheduleArchive(loan.getRepaymentScheduleInstallments(), loan, loanRescheduleRequest);
+            loanRepaymentScheduleHistoryList.forEach(history -> history.supersededOn(approvedOnDate));
 
             final LoanApplicationTerms loanApplicationTerms = loan.constructLoanApplicationTerms(scheduleGeneratorDTO);
 
@@ -843,6 +844,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     history.getDueDate(), history.getPrincipal(), history.getInterestCharged(), history.getFeeChargesCharged(),
                     history.getPenaltyCharges(), false, null));
         }
+        this.loanScheduleHistoryWritePlatformService.archiveSupersededSchedule(loan, DateUtils.getBusinessLocalDate());
         restoreChargesAfterRescheduleUndo(loan, loanRescheduleRequest);
         loan.updateLoanSchedule(restored);
         if (originalInterestRatePerPeriod != null) {

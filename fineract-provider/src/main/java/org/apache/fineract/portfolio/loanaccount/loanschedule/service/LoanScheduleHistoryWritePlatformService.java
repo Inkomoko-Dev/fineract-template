@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.loanschedule.service;
 
+import java.time.LocalDate;
 import java.util.List;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -31,5 +32,11 @@ public interface LoanScheduleHistoryWritePlatformService {
 
     void createAndSaveLoanScheduleArchive(List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments, Loan loan,
             LoanRescheduleRequest loanRescheduleRequest);
+
+    void archiveSupersededSchedule(Loan loan, LocalDate supersededOnDate);
+
+    void archiveForeclosedSchedule(Loan loan, LocalDate foreclosedOnDate);
+
+    void archiveSupersededSchedule(Loan loan, List<LoanRepaymentScheduleInstallment> supersededSchedule, LocalDate supersededOnDate);
 
 }

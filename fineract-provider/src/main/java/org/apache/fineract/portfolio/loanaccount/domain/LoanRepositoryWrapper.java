@@ -32,6 +32,7 @@ import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundStatus;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.repository.LoanExcessRefundRepository;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.data.repository.query.Param;
@@ -52,6 +53,7 @@ public class LoanRepositoryWrapper {
     private final LoanRedrawAccountRepository loanRedrawAccountRepository;
     private final LoanTransactionRepository loanTransactionRepository;
     private final LoanExcessRefundRepository loanExcessRefundRepository;
+    private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
 
     @Transactional(readOnly = true)
     public Loan findOneWithNotFoundDetection(final Long id) {
@@ -82,16 +84,29 @@ public class LoanRepositoryWrapper {
     }
 
     public Loan saveAndFlush(final Loan loan) {
-        return this.repository.saveAndFlush(loan);
+        final Loan saved = this.repository.saveAndFlush(loan);
+        archiveScheduleSupersededByRecalculation(loan);
+        return saved;
     }
 
     @Transactional
     public Loan save(final Loan loan) {
-        return this.repository.save(loan);
+        final Loan saved = this.repository.save(loan);
+        archiveScheduleSupersededByRecalculation(loan);
+        return saved;
     }
 
     public List<Loan> save(List<Loan> loans) {
-        return this.repository.saveAll(loans);
+        final List<Loan> saved = this.repository.saveAll(loans);
+        loans.forEach(this::archiveScheduleSupersededByRecalculation);
+        return saved;
+    }
+
+    private void archiveScheduleSupersededByRecalculation(final Loan loan) {
+        final List<LoanRepaymentScheduleInstallment> superseded = loan.takeScheduleSupersededByRecalculation();
+        if (!superseded.isEmpty()) {
+            this.loanScheduleHistoryWritePlatformService.archiveSupersededSchedule(loan, superseded, DateUtils.getBusinessLocalDate());
+        }
     }
 
     public void flush() {
