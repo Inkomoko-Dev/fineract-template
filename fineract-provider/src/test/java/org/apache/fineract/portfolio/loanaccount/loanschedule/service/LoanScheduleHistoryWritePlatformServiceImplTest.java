@@ -116,6 +116,32 @@ class LoanScheduleHistoryWritePlatformServiceImplTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void scheduleReplacedByARecalculationIsArchivedFromItsOwnInstalments() {
+        final Loan loan = loan(false);
+        when(readService.fetchCurrentVersionNumber(7L)).thenReturn(4);
+        final List<LoanRepaymentScheduleInstallment> superseded = List.of(new LoanRepaymentScheduleInstallment(null, 1,
+                LocalDate.of(2026, 3, 31), LocalDate.of(2026, 4, 30), new BigDecimal("1000"), new BigDecimal("125"), BigDecimal.ZERO,
+                BigDecimal.ZERO, false, null));
+
+        service.archiveSupersededSchedule(loan, superseded, SUPERSEDED_ON);
+
+        final ArgumentCaptor<List<LoanRepaymentScheduleHistory>> saved = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(saved.capture());
+        assertEquals(1, saved.getValue().size());
+        assertEquals(5, saved.getValue().get(0).getVersion());
+        assertEquals(SUPERSEDED_ON, saved.getValue().get(0).getSupersededOnDate());
+        assertEquals(0, new BigDecimal("125").compareTo(saved.getValue().get(0).getInterestCharged()));
+    }
+
+    @Test
+    void originalScheduleProductsKeepTheirHistoryWhenRecalculated() {
+        service.archiveSupersededSchedule(loan(true), loan(true).getRepaymentScheduleInstallments(), SUPERSEDED_ON);
+
+        verify(repository, never()).saveAll(any());
+    }
+
+    @Test
     void archivesKeptForOtherReasonsHaveNoSupersededDate() {
         final Loan loan = loan(false);
         when(readService.fetchCurrentVersionNumber(7L)).thenReturn(0);

@@ -255,6 +255,15 @@ class AgingDetailReportSqlTest {
             history(24, 1, null, due, 1000, 100);
         }
 
+        loan(25, 300);
+        schedule(25, "2026-01-31");
+        jdbc.update("UPDATE m_loan_repayment_schedule SET interest_amount = 80 WHERE loan_id = 25");
+        jdbc.update("UPDATE m_loan SET interest_charged_derived = 320 WHERE id = 25");
+        payment(25, REPAYMENT, "2026-01-31", 1000, 80, 251);
+        for (final String due : new String[] { "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30" }) {
+            history(25, 1, "2026-04-10", due, 1000, 100);
+        }
+
         loadChangelogSql(BACKFILL_CHANGELOG, "sql").forEach(jdbc::execute);
 
         jdbc.update("UPDATE m_loan SET closedon_date = '2026-02-15', writtenoffon_date = '2026-02-15' WHERE id IN (8, 9, 10)");
@@ -406,6 +415,13 @@ class AgingDetailReportSqlTest {
         assertAging(atAsAt, 1000, 100, 31, "Watch");
         assertAmount(400, atAsAt.get("Original Interest"));
         assertFalse(run("2026-04-20", -1).containsKey("L24"));
+    }
+
+    @Test
+    @DisplayName("AC1: Original Interest is the interest on the schedule in force on the As at date, and today's total only once that schedule is current")
+    void originalInterestFollowsTheScheduleInForceAcrossAnInterestRecalculation() {
+        assertAmount(400, run(AS_AT, -1).get("L25").get("Original Interest"));
+        assertAmount(320, run("2026-04-20", -1).get("L25").get("Original Interest"));
     }
 
     @Test
