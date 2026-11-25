@@ -181,4 +181,5 @@
     <include file="parts/CGLT-847_decision_log_hashes.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-849_kill_switch.xml" relativeToChangelogFile="true"/>
     <include file="parts/CGLT-849_exception_override.xml" relativeToChangelogFile="true"/>
+    <include file="parts/CGLT-849_log_next_step_widen.xml" relativeToChangelogFile="true"/>
 </databaseChangeLog>

@@ -578,10 +578,20 @@ public class CreditDecisionService {
                 entry.getApplicationRef().trim(), entry.getLoanId(), entry.getCustomerRef(), entry.getProfileId(), entry.getProfileName(),
                 entry.getVersionNo(), entry.getMode(),
                 entry.getProvider() == null || entry.getProvider().isBlank() ? conn.getProvider() : entry.getProvider(), status,
-                entry.getDecision(), entry.getScore(), entry.getReasonCodes(), entry.getReplyMs(), entry.getNextStep(),
+                entry.getDecision(), entry.getScore(), entry.getReasonCodes(), entry.getReplyMs(), truncateNextStep(entry.getNextStep()),
                 entry.getRequestJson(), entry.getReplyJson(), Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem()), entry.getRiskTier(),
                 entry.getMaxExposure(), entry.getModelVersion(), entry.getRequestId(), CreditDecisionHash.sha256(entry.getRequestJson()),
                 CreditDecisionHash.sha256(entry.getReplyJson()));
+    }
+
+    /** Matches m_credit_decision_log.next_step (VARCHAR(500) after CGLT-849 widen). */
+    private static final int MAX_NEXT_STEP = 500;
+
+    private static String truncateNextStep(final String nextStep) {
+        if (nextStep == null || nextStep.length() <= MAX_NEXT_STEP) {
+            return nextStep;
+        }
+        return nextStep.substring(0, MAX_NEXT_STEP);
     }
 
     /** Clears the live-profile cache immediately so kill-switch and mode changes take effect on the next lookup. */
