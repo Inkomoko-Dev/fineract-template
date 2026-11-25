@@ -357,7 +357,8 @@ archived AS (
     SELECT lp.loan_id, lp.original_schedule, lp.principal_cover, lp.fee_cover, lp.penalty_cover,
            lp.interest_cover + IF(lp.original_schedule = 1, 0, COALESCE(f.amount, 0)) AS interest_cover,
            IF(lp.original_schedule = 1,
-              (SELECT MAX(hv.version) FROM m_loan_repayment_schedule_history hv WHERE hv.loan_id = lp.loan_id),
+              (SELECT MAX(hv.version) FROM m_loan_repayment_schedule_history hv
+               WHERE hv.loan_id = lp.loan_id AND (hv.loan_reschedule_request_id IS NOT NULL OR hv.superseded_on_date IS NULL)),
               rv.version) AS version
     FROM loan_aging lp
     LEFT JOIN superseded_version rv ON rv.loan_id = lp.loan_id

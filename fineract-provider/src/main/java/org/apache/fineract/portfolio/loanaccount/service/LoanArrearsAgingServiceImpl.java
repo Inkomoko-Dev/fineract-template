@@ -452,6 +452,7 @@ public class LoanArrearsAgingServiceImpl implements LoanArrearsAgingService {
                     + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "COALESCE(ml.grace_on_arrears_ageing, 0)", "day") + " and ");
             scheduleDetail.append("ml.id IN(").append(loanIdsAsString).append(") and  mr.version = (");
             scheduleDetail.append("select max(lrs.version) from m_loan_repayment_schedule_history lrs where mr.loan_id = lrs.loan_id");
+            scheduleDetail.append(" and (lrs.loan_reschedule_request_id is not null or lrs.superseded_on_date is null)");
             scheduleDetail.append(") order by ml.id,mr.duedate");
             this.schema = scheduleDetail.toString();
         }

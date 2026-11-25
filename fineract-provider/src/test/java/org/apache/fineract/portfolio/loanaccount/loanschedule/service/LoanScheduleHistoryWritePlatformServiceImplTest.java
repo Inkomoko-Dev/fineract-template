@@ -91,10 +91,15 @@ class LoanScheduleHistoryWritePlatformServiceImplTest {
     }
 
     @Test
-    void originalScheduleProductsKeepTheirHistoryForTheAgingJob() {
+    @SuppressWarnings("unchecked")
+    void originalScheduleProductsAlsoArchiveTheScheduleTheyReplaceDated() {
+        when(readService.fetchCurrentVersionNumber(7L)).thenReturn(1);
+
         service.archiveSupersededSchedule(loan(true), SUPERSEDED_ON);
 
-        verify(repository, never()).saveAll(any());
+        final ArgumentCaptor<List<LoanRepaymentScheduleHistory>> saved = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(saved.capture());
+        saved.getValue().forEach(history -> assertEquals(SUPERSEDED_ON, history.getSupersededOnDate()));
     }
 
     @Test
@@ -135,10 +140,17 @@ class LoanScheduleHistoryWritePlatformServiceImplTest {
     }
 
     @Test
-    void originalScheduleProductsKeepTheirHistoryWhenRecalculated() {
-        service.archiveSupersededSchedule(loan(true), loan(true).getRepaymentScheduleInstallments(), SUPERSEDED_ON);
+    @SuppressWarnings("unchecked")
+    void originalScheduleProductsArchiveTheScheduleARecalculationReplacedDated() {
+        final Loan loan = loan(true);
+        when(readService.fetchCurrentVersionNumber(7L)).thenReturn(1);
 
-        verify(repository, never()).saveAll(any());
+        service.archiveSupersededSchedule(loan, loan.getRepaymentScheduleInstallments(), SUPERSEDED_ON);
+
+        final ArgumentCaptor<List<LoanRepaymentScheduleHistory>> saved = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(saved.capture());
+        assertEquals(2, saved.getValue().size());
+        saved.getValue().forEach(history -> assertEquals(SUPERSEDED_ON, history.getSupersededOnDate()));
     }
 
     @Test

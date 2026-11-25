@@ -279,6 +279,19 @@ class AgingDetailReportSqlTest {
                 + " principal_portion_derived, interest_portion_derived, fee_charges_portion_derived) VALUES (?, 271, 0, 0, 50)",
                 chargePayment);
 
+        loan(28, 300, ORIGINAL_SCHEDULE_PRODUCT);
+        schedule(28, "2026-01-31");
+        jdbc.update("UPDATE m_loan_repayment_schedule SET interest_amount = 80 WHERE loan_id = 28");
+        jdbc.update("UPDATE m_loan SET interest_charged_derived = 320 WHERE id = 28");
+        payment(28, REPAYMENT, "2026-01-31", 1000, 100, 281);
+        payment(28, REPAYMENT, "2026-02-28", 500, 100, 282);
+        for (final String due : new String[] { "2026-01-31", "2026-02-28", "2026-03-31" }) {
+            history(28, 1, null, due, 1200, 100);
+        }
+        for (final String due : new String[] { "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30" }) {
+            history(28, 2, "2026-04-10", due, 1000, 100);
+        }
+
         loadChangelogSql(BACKFILL_CHANGELOG, "sql").forEach(jdbc::execute);
 
         jdbc.update("UPDATE m_loan SET closedon_date = '2026-02-15', writtenoffon_date = '2026-02-15' WHERE id IN (8, 9, 10)");
@@ -450,6 +463,15 @@ class AgingDetailReportSqlTest {
     void chargePaymentSettlesTheFeeItIsMappedTo() {
         assertFalse(run("2026-02-20", -1).containsKey("L27"));
         assertAging(run(AS_AT, -1).get("L27"), 1000, 100, 31, "Watch");
+    }
+
+    @Test
+    @DisplayName("AC1: a recalculated original-schedule loan is still aged on its original schedule, with the interest in force on the As at date")
+    void recalculatedOriginalScheduleLoanKeepsItsOriginalScheduleAndShowsTheInterestThenInForce() {
+        final Map<String, Object> row = run(AS_AT, -1).get("L28");
+        assertAging(row, 900, 0, 31, "Watch");
+        assertAmount(400, row.get("Original Interest"));
+        assertAmount(320, run("2026-04-20", -1).get("L28").get("Original Interest"));
     }
 
     @Test

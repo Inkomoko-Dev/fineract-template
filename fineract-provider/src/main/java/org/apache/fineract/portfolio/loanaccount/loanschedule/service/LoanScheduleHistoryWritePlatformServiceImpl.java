@@ -113,9 +113,6 @@ public class LoanScheduleHistoryWritePlatformServiceImpl implements LoanSchedule
     @Override
     public void archiveSupersededSchedule(final Loan loan, final List<LoanRepaymentScheduleInstallment> supersededSchedule,
             final LocalDate supersededOnDate) {
-        if (loan.getLoanProduct() != null && loan.getLoanProduct().isArrearsBasedOnOriginalSchedule()) {
-            return;
-        }
         final List<LoanRepaymentScheduleHistory> archive = createLoanScheduleArchive(supersededSchedule, loan, null);
         archive.forEach(history -> history.supersededOn(supersededOnDate));
         this.loanRepaymentScheduleHistoryRepository.saveAll(archive);
