@@ -96,13 +96,13 @@ public final class LoanEventApiJsonValidator {
         } else {
             disbursementParameters = new HashSet<>(Arrays.asList("actualDisbursementDate", "externalId", "note", "locale", "dateFormat",
                     "resultCode", "paymentTypeId", "accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber",
-                    "adjustRepaymentDate", LoanApiConstants.principalDisbursedParameterName, LoanApiConstants.emiAmountParameterName,
-                    LoanApiConstants.postDatedChecks, LoanApiConstants.disbursementNetDisbursalAmountParameterName,
-                    LoanApiConstants.disbursementTypeParameterName, LoanApiConstants.fxRateParameterName,
-                    LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName, LoanApiConstants.fxTimestampParameterName,
-                    LoanApiConstants.disbursementDataParameterName, LoanApiConstants.disbursementDateParameterName,
-                    LoanApiConstants.approvedLoanAmountParameterName, LoanApiConstants.BUDGET_LOCATION_PARAM,
-                    LoanApiConstants.BUDGET_REVIEW_REQUIRED_PARAM));
+                    LoanApiConstants.mfiCodeParameterName, "adjustRepaymentDate", LoanApiConstants.principalDisbursedParameterName,
+                    LoanApiConstants.emiAmountParameterName, LoanApiConstants.postDatedChecks,
+                    LoanApiConstants.disbursementNetDisbursalAmountParameterName, LoanApiConstants.disbursementTypeParameterName,
+                    LoanApiConstants.fxRateParameterName, LoanApiConstants.usdAmountParameterName, LoanApiConstants.fxSourceParameterName,
+                    LoanApiConstants.fxTimestampParameterName, LoanApiConstants.disbursementDataParameterName,
+                    LoanApiConstants.disbursementDateParameterName, LoanApiConstants.approvedLoanAmountParameterName,
+                    LoanApiConstants.BUDGET_LOCATION_PARAM, LoanApiConstants.BUDGET_REVIEW_REQUIRED_PARAM));
         }
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
@@ -332,12 +332,34 @@ public final class LoanEventApiJsonValidator {
         }
     }
 
+    private static final int PAYMENT_MFI_CODE_MAX_LENGTH = 50;
+    private static final String PAYMENT_MFI_CODE_PATTERN = "^[A-Za-z0-9 _/-]*$";
+
+    /**
+     * Resolves the payment MFI for posting. Request validation already checks an explicit posting code.
+     */
+    public String resolveDisbursementPaymentMfiCode(final String postingCode, final String storedCode) {
+        final String explicitCode = StringUtils.trimToNull(postingCode);
+        if (explicitCode != null) {
+            return explicitCode;
+        }
+        final String inheritedCode = StringUtils.trimToNull(storedCode);
+        if (inheritedCode != null
+                && (inheritedCode.length() > PAYMENT_MFI_CODE_MAX_LENGTH || !inheritedCode.matches(PAYMENT_MFI_CODE_PATTERN))) {
+            throwExceptionIfValidationWarningsExist(List.of(ApiParameterError.parameterError(
+                    "validation.msg.loan.mfiCode.invalid.inherited.mfi.code",
+                    "Enter a corrected MFI Code of up to 50 characters using only letters, numbers, spaces, - _ /.",
+                    LoanApiConstants.mfiCodeParameterName)));
+        }
+        return inheritedCode;
+    }
+
     private void validatePaymentDetails(final DataValidatorBuilder baseDataValidator, final JsonElement element) {
         // Validate all string payment detail fields for max length
         final Integer paymentTypeId = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("paymentTypeId", element);
         baseDataValidator.reset().parameter("paymentTypeId").value(paymentTypeId).ignoreIfNull().integerGreaterThanZero();
         final Set<String> paymentDetailParameters = new HashSet<>(
-                Arrays.asList("accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber", "mfiCode"));
+                Arrays.asList("accountNumber", "checkNumber", "routingCode", "receiptNumber", "bankNumber"));
         for (final String paymentDetailParameterName : paymentDetailParameters) {
             final String paymentDetailParameterValue = this.fromApiJsonHelper.extractStringNamed(paymentDetailParameterName, element);
             baseDataValidator.reset().parameter(paymentDetailParameterName).value(paymentDetailParameterValue).ignoreIfNull()
@@ -346,8 +368,8 @@ public final class LoanEventApiJsonValidator {
 
         // MFI code must be alphanumeric (letters, numbers, hyphens, underscores, spaces, slashes only)
         final String mfiCode = this.fromApiJsonHelper.extractStringNamed("mfiCode", element);
-        baseDataValidator.reset().parameter("mfiCode").value(mfiCode).ignoreIfNull()
-                .matchesRegularExpression("^[A-Za-z0-9 _/-]*$");
+        baseDataValidator.reset().parameter("mfiCode").value(mfiCode).ignoreIfNull().notExceedingLengthOf(PAYMENT_MFI_CODE_MAX_LENGTH)
+                .matchesRegularExpression(PAYMENT_MFI_CODE_PATTERN, "MFI Code can only contain letters, numbers, spaces, - _ /");
     }
 
     public void validateTransactionWithNoAmount(final String json) {

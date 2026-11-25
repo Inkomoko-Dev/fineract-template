@@ -498,7 +498,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         this.entityDisbursementDefaultsService.applyDisbursementDefaults(loan, actualDisbursementDate, command, changes);
 
-        final PaymentDetail paymentDetail = this.paymentDetailWritePlatformService.createAndPersistPaymentDetail(command, changes);
+        PaymentDetail paymentDetail = this.paymentDetailWritePlatformService.createPaymentDetail(command, changes);
+        if (paymentDetail != null) {
+            final LoanDisbursementDetails postingDetail = loan.getNextUndisbursedDisbursementDetail();
+            final String storedMfiCode = postingDetail == null ? null : postingDetail.getMfiCode();
+            final String postingMfiCode = this.loanEventApiJsonValidator.resolveDisbursementPaymentMfiCode(
+                    paymentDetail.getMfiCode(), storedMfiCode);
+            paymentDetail.setMfiCode(postingMfiCode);
+            if (postingMfiCode != null) {
+                changes.put(LoanApiConstants.mfiCodeParameterName, postingMfiCode);
+            }
+            paymentDetail = this.paymentDetailWritePlatformService.persistPaymentDetail(paymentDetail);
+        }
         if (paymentDetail != null && paymentDetail.getPaymentType() != null && paymentDetail.getPaymentType().isCashPayment()) {
             BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
             this.cashierTransactionDataValidator.validateOnLoanDisbursal(currentUser, loan.getCurrencyCode(), transactionAmount);

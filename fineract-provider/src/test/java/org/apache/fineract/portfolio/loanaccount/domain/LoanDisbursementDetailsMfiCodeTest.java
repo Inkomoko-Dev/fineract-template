@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 public class LoanDisbursementDetailsMfiCodeTest {
@@ -78,5 +79,26 @@ public class LoanDisbursementDetailsMfiCodeTest {
         detail.applyMfiCodeIfProvided(null);
 
         assertNull(detail.getMfiCode());
+    }
+
+    @Test
+    public void nextPostingSelectsOnlyItsOwnTrancheCode() {
+        final Loan loan = new Loan();
+        final LoanDisbursementDetails first = disbursementDetail();
+        first.applyMfiCodeIfProvided("MFI-FIRST");
+        final LoanDisbursementDetails second = new LoanDisbursementDetails(LocalDate.of(2026, 3, 1), null, BigDecimal.TEN,
+                BigDecimal.TEN);
+        final LoanDisbursementDetails third = new LoanDisbursementDetails(LocalDate.of(2026, 4, 1), null, BigDecimal.TEN,
+                BigDecimal.TEN);
+        second.applyMfiCodeIfProvided("MFI-SECOND");
+        loan.getDisbursementDetails().addAll(List.of(third, second, first));
+
+        assertEquals("MFI-FIRST", loan.getNextUndisbursedDisbursementDetail().getMfiCode());
+        first.updateActualDisbursementDate(first.expectedDisbursementDate());
+        assertEquals("MFI-SECOND", loan.getNextUndisbursedDisbursementDetail().getMfiCode());
+        second.updateActualDisbursementDate(second.expectedDisbursementDate());
+        assertNull(loan.getNextUndisbursedDisbursementDetail().getMfiCode());
+        assertEquals("MFI-FIRST", first.getMfiCode());
+        assertEquals("MFI-SECOND", second.getMfiCode());
     }
 }
