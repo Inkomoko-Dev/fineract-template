@@ -145,9 +145,11 @@ public class BulkRescheduleLoanWorker {
      */
     CrashRecoveryResolution resolveCrashRecoveryRequestId(final Long loanId, final BulkRescheduleResult result,
             final BulkRescheduleExecution execution, final BigDecimal targetInterestRate) {
+        // Early-persisted id is written only after approve succeeds — safe to trust for crash recovery.
         if (result != null && result.getRescheduleRequestId() != null) {
             return CrashRecoveryResolution.succeeded(result.getRescheduleRequestId());
         }
+        // Journal/approve failure leaves no request id: never invent SUCCEEDED from rate-only heuristics.
         if (targetInterestRate == null) {
             return CrashRecoveryResolution.failed("Crash recovery failed: target interest rate is missing");
         }

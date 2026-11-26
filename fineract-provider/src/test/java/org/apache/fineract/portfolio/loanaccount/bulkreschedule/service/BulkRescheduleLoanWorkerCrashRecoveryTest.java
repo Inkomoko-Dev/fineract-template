@@ -147,6 +147,21 @@ class BulkRescheduleLoanWorkerCrashRecoveryTest {
     }
 
     @Test
+    void journalFailureShapeWithoutRequestIdDoesNotSucceed() {
+        // Approve threw during journal posting: no early-persisted request id, no attributable approved request.
+        final BulkRescheduleResult result = resultWithId(66L);
+        assertThat(result.getRescheduleRequestId()).isNull();
+        final BulkRescheduleExecution execution = executionStartedAt(7L, LocalDateTime.of(2024, 11, 1, 10, 0));
+        when(loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(anyLong(), anyInt())).thenReturn(List.of());
+
+        final BulkRescheduleLoanWorker.CrashRecoveryResolution resolution = worker.resolveCrashRecoveryRequestId(407618L, result, execution,
+                new BigDecimal("10"));
+
+        assertThat(resolution.getStatus()).isNotEqualTo(BulkRescheduleResultStatus.SUCCEEDED);
+        assertThat(resolution.getRequestId()).isNull();
+    }
+
+    @Test
     void multipleMatchesYieldsFailedNotSucceeded() {
         final BulkRescheduleResult result = resultWithId(44L);
         final BulkRescheduleExecution execution = executionStartedAt(7L, LocalDateTime.of(2024, 11, 1, 10, 0));

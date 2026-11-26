@@ -26,6 +26,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -52,6 +53,7 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.organisation.monetary.domain.ApplicationCurrency;
 import org.apache.fineract.organisation.monetary.domain.ApplicationCurrencyRepositoryWrapper;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
+import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.account.service.AccountTransfersWritePlatformService;
 import org.apache.fineract.portfolio.charge.domain.Charge;
@@ -62,7 +64,9 @@ import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction.ChargePaymentLineSnapshot;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentReminderRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -617,6 +621,8 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             final LoanScheduleDTO loanScheduleDTO = loanScheduleGenerator.rescheduleNextInstallments(mathContext, loanApplicationTerms, loan,
                     loanApplicationTerms.getHolidayDetailDTO(), loanRepaymentScheduleTransactionProcessor, rescheduleFromDate);
 
+            // Repair before schedule swap (accruals/apply can touch overdue charges) and again after (links orphan).
+            loan.repairOrInactivateBrokenOverdueInstallmentCharges();
             // Either the installments got recalculated or the model
             if (loanScheduleDTO.getInstallments() != null) {
                 loan.updateLoanSchedule(loanScheduleDTO.getInstallments());
@@ -625,6 +631,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             }
             loan.repairOrInactivateBrokenOverdueInstallmentCharges();
             loan.recalculateAllCharges();
+            final Map<Long, List<ChargePaymentLineSnapshot>> chargePaymentSnapshots = snapshotChargePaymentLines(loan);
             ChangedTransactionDetail changedTransactionDetail = loan.processTransactions();
 
             this.loanRepaymentScheduleHistoryRepository.saveAll(loanRepaymentScheduleHistoryList);
@@ -657,7 +664,8 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
                 }
             }
-            rebuildTransactionChargePaymentLinesForJournal(loan);
+            prepareTransactionChargePaymentLinesForJournal(loan, existingTransactionIds, existingReversedTransactionIds,
+                    chargePaymentSnapshots);
             postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
 
             this.loanAccountDomainService.recalculateAccruals(loan, true);
@@ -844,11 +852,14 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     history.getPenaltyCharges(), false, null));
         }
         restoreChargesAfterRescheduleUndo(loan, loanRescheduleRequest);
+        loan.repairOrInactivateBrokenOverdueInstallmentCharges();
         loan.updateLoanSchedule(restored);
+        loan.repairOrInactivateBrokenOverdueInstallmentCharges();
         if (originalInterestRatePerPeriod != null) {
             loan.repaymentScheduleDetail().updateNominalInterestRate(originalInterestRatePerPeriod, this.aprCalculator);
         }
         loan.recalculateAllCharges();
+        final Map<Long, List<ChargePaymentLineSnapshot>> chargePaymentSnapshots = snapshotChargePaymentLines(loan);
         final ChangedTransactionDetail changedTransactionDetail = loan.processTransactions();
         loanRescheduleRequest.undo();
         loan.updateRescheduledOnDate(null);
@@ -862,7 +873,8 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                 this.accountTransfersWritePlatformService.updateLoanTransaction(mapEntry.getKey(), mapEntry.getValue());
             }
         }
-        rebuildTransactionChargePaymentLinesForJournal(loan);
+        prepareTransactionChargePaymentLinesForJournal(loan, existingTransactionIds, existingReversedTransactionIds,
+                chargePaymentSnapshots);
         postJournalEntries(loan, existingTransactionIds, existingReversedTransactionIds);
         this.loanAccountDomainService.recalculateAccruals(loan, true);
         if (noteText != null && !noteText.isBlank()) {
@@ -962,9 +974,83 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
         }
     }
 
+    private Map<Long, List<ChargePaymentLineSnapshot>> snapshotChargePaymentLines(final Loan loan) {
+        final Map<Long, List<ChargePaymentLineSnapshot>> snapshots = new HashMap<>();
+        if (loan.getLoanTransactions() == null) {
+            return snapshots;
+        }
+        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction == null || transaction.getId() == null || transaction.isReversed()) {
+                continue;
+            }
+            final List<ChargePaymentLineSnapshot> lines = new ArrayList<>();
+            if (transaction.getLoanChargesPaid() != null) {
+                for (final LoanChargePaidBy paidBy : transaction.getLoanChargesPaid()) {
+                    if (paidBy == null || paidBy.getLoanCharge() == null || paidBy.getLoanCharge().getId() == null
+                            || paidBy.getAmount() == null) {
+                        continue;
+                    }
+                    lines.add(new ChargePaymentLineSnapshot(paidBy.getLoanCharge().getId(), paidBy.getAmount(),
+                            paidBy.getInstallmentNumber(), paidBy.getLoanCharge().isPenaltyCharge()));
+                }
+            }
+            snapshots.put(transaction.getId(), lines);
+        }
+        return snapshots;
+    }
+
     /**
-     * Before journal posting, rebuild missing {@code LoanChargePaidBy} rows so they match posted fee/penalty portions.
-     * Never reclassifies fees into overpayment.
+     * Before journal posting: restore charge-payment lines on newly reversed transactions from the pre-replay
+     * snapshot, then rebuild missing lines on non-reversed transactions. Never reclassifies fees into overpayment.
+     */
+    private void prepareTransactionChargePaymentLinesForJournal(final Loan loan, final List<Long> existingTransactionIds,
+            final List<Long> existingReversedTransactionIds, final Map<Long, List<ChargePaymentLineSnapshot>> chargePaymentSnapshots) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        final Set<Long> existingIds = existingTransactionIds == null ? Set.of() : new HashSet<>(existingTransactionIds);
+        final Set<Long> alreadyReversed = existingReversedTransactionIds == null ? Set.of()
+                : new HashSet<>(existingReversedTransactionIds);
+
+        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction == null || transaction.getId() == null || !transaction.isReversed()) {
+                continue;
+            }
+            if (!existingIds.contains(transaction.getId()) || alreadyReversed.contains(transaction.getId())) {
+                continue;
+            }
+            final Money fee = transaction.getFeeChargesPortion(currency);
+            final Money penalty = transaction.getPenaltyChargesPortion(currency);
+            if (!fee.isGreaterThanZero() && !penalty.isGreaterThanZero()) {
+                continue;
+            }
+            final List<ChargePaymentLineSnapshot> snapshot = chargePaymentSnapshots == null ? null
+                    : chargePaymentSnapshots.get(transaction.getId());
+            boolean restored = transaction.restoreChargePaymentLinesFromSnapshot(loan.getLoanCharges(), snapshot);
+            if (!restored) {
+                try {
+                    restored = transaction.rebuildMissingChargePaymentLines(currency, loan.getLoanCharges());
+                } catch (final IllegalStateException ex) {
+                    throw new PlatformDataIntegrityException("error.msg.loan.reschedule.charge.payment.rebuild.failed",
+                            "Unable to restore charge payment lines for newly reversed transaction before journaling. Loan: "
+                                    + loan.getId() + ", transaction: " + transaction.getId() + ". " + ex.getMessage(),
+                            loan.getId(), transaction.getId());
+                }
+            }
+            if (!restored && (transaction.getLoanChargesPaid() == null || transaction.getLoanChargesPaid().isEmpty())) {
+                throw new PlatformDataIntegrityException("error.msg.loan.reschedule.charge.payment.rebuild.failed",
+                        "Newly reversed transaction has fee/penalty portions but no charge payment lines. Loan: " + loan.getId()
+                                + ", transaction: " + transaction.getId(),
+                        loan.getId(), transaction.getId());
+            }
+            LOG.warn("Restored charge payment lines for newly reversed loan {} transaction {} (fee {}, penalty {})", loan.getId(),
+                    transaction.getId(), fee.getAmount(), penalty.getAmount());
+        }
+
+        rebuildTransactionChargePaymentLinesForJournal(loan);
+    }
+
+    /**
+     * Before journal posting, rebuild missing {@code LoanChargePaidBy} rows on non-reversed transactions so they match
+     * posted fee/penalty portions. Never reclassifies fees into overpayment.
      */
     private void rebuildTransactionChargePaymentLinesForJournal(final Loan loan) {
         final MonetaryCurrency currency = loan.getCurrency();
