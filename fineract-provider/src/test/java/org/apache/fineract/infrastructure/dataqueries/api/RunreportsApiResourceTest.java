@@ -50,7 +50,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class RunreportsApiResourceTest {
 
-    private static final String REPORT = "Interest and Penalty Received - Transactions";
+    private static final String REPORT = "Interest and Penalty Received Report";
 
     @Mock
     private PlatformSecurityContext context;

@@ -49,7 +49,7 @@ import org.springframework.dao.DataAccessResourceFailureException;
 @ExtendWith(MockitoExtension.class)
 class ReportRunAuditServiceImplTest {
 
-    private static final String REPORT = "Interest and Penalty Receivable - Loan Summary";
+    private static final String REPORT = "Interest and Penalty Receivable Report";
 
     @Mock
     private PlatformSecurityContext context;
