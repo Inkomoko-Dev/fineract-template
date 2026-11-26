@@ -38,10 +38,15 @@ import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.security.exception.NoAuthorizationException;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.organisation.office.domain.Office;
+import org.apache.fineract.portfolio.loanaccount.bulkreschedule.service.OfficeHierarchyService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRedrawAccountRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.api.ExcessRefundApiResource;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.service.ExcessRefundReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.service.ClientBankDetailsResolver;
+import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatformService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.Permission;
 import org.apache.fineract.useradministration.domain.Role;
@@ -60,13 +65,21 @@ class ExcessRefundReadPermissionTest {
     private final PlatformSecurityContext context = mock(PlatformSecurityContext.class);
     private final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
     private final LoanRepositoryWrapper loanRepository = mock(LoanRepositoryWrapper.class);
+    private final OfficeHierarchyService offices = mock(OfficeHierarchyService.class);
+    private final ClientBankDetailsResolver bankDetails = mock(ClientBankDetailsResolver.class);
     private final ExcessRefundReadPlatformService readService = new ExcessRefundReadPlatformService(this.context, this.jdbcTemplate,
-            this.loanRepository);
+            this.loanRepository, mock(LoanRedrawAccountRepository.class), this.bankDetails,
+            mock(PaymentTypeReadPlatformService.class), this.offices);
 
     @BeforeEach
     void setTenant() {
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
-        when(this.loanRepository.findOneWithNotFoundDetection(416456L)).thenReturn(mock(Loan.class));
+        final Loan loan = mock(Loan.class);
+        when(loan.getOfficeId()).thenReturn(1L);
+        when(this.loanRepository.findOneWithNotFoundDetection(416456L)).thenReturn(loan);
+        when(this.bankDetails.resolve(ArgumentMatchers.any(), ArgumentMatchers.eq(LoanDisbursementDetails.PaymentToType.CLIENT.getValue()),
+                ArgumentMatchers.isNull(), ArgumentMatchers.isNull(), ArgumentMatchers.isNull()))
+                .thenReturn(new ClientBankDetailsResolver.ResolvedClientPaymentDetails(null, null, null));
     }
 
     @AfterEach
@@ -120,6 +133,7 @@ class ExcessRefundReadPermissionTest {
 
     private void actAs(final AppUser user) {
         when(this.context.authenticatedUser()).thenReturn(user);
+        when(this.offices.validateUserAccessToOffice(user, 1L)).thenReturn(true);
     }
 
     private Permission permission(final String action, final String entity) {

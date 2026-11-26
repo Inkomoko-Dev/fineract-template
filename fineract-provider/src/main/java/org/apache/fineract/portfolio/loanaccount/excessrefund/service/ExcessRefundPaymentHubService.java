@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.excessrefund.service;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
@@ -51,6 +52,8 @@ import org.springframework.stereotype.Service;
 public class ExcessRefundPaymentHubService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ExcessRefundPaymentHubService.class);
+    private static final int BAD_REQUEST = 400;
+    private static final int UNPROCESSABLE_ENTITY = 422;
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     private final Environment environment;
@@ -84,13 +87,53 @@ public class ExcessRefundPaymentHubService {
                     .parsePaymentHubErrorResponse(responseBody);
             final String category = DisbursementRequestServiceImpl.disbursementFailureCategory(code, parsed);
             final String userMessage = DisbursementRequestServiceImpl.failureMessage(category, parsed);
-            LOG.error("Payment Hub refund rejected loanId={}, refundId={}, status={}, body={}", loan.getId(), refund.getId(), code,
-                    responseBody);
+            LOG.warn("Payment Hub refund returned requestId={}, HTTP status={}", requestId, code);
+            if (isDefinitiveValidationRejection(code, responseBody)) {
+                throw new RefundRejectedException(category, userMessage);
+            }
             throw new GeneralPlatformDomainRuleException("integration.excessRefund." + category, userMessage);
         } catch (IOException e) {
             LOG.error("Payment Hub refund connection failure loanId={}, refundId={}", loan.getId(), refund.getId(), e);
             throw new GeneralPlatformDomainRuleException("integration.excessRefund.connectionFailed",
                     "The Payment Hub submission outcome is unknown. The refund will remain pending reconciliation.");
+        }
+    }
+
+    static boolean isDefinitiveValidationRejection(final int code, final String responseBody) {
+        if (code != BAD_REQUEST && code != UNPROCESSABLE_ENTITY) {
+            return false;
+        }
+        try {
+            final JsonElement element = JsonParser.parseString(StringUtils.defaultString(responseBody));
+            if (element.isJsonObject()) {
+                final JsonObject body = element.getAsJsonObject();
+                final String status = jsonString(body, "status");
+                final String errorCode = jsonString(body, "code");
+                if (StringUtils.equalsAnyIgnoreCase(status, "SUCCESS", "PENDING", "PENDING_ERROR", "ACCEPTED", "DUPLICATE",
+                        "ALREADY_EXISTS") || StringUtils.equalsAnyIgnoreCase(errorCode, "DUPLICATE", "DUPLICATE_REQUEST", "ALREADY_EXISTS")
+                        || StringUtils.isNotBlank(jsonString(body, "transactionId"))
+                        || StringUtils.isNotBlank(jsonString(body, "transactionRef"))) {
+                    return false;
+                }
+            }
+        } catch (RuntimeException ex) {
+            // Validation errors may have a plain-text body.
+            return true;
+        }
+        return true;
+    }
+
+    static final class RefundRejectedException extends RuntimeException {
+
+        private final String category;
+
+        RefundRejectedException(final String category, final String message) {
+            super(message);
+            this.category = category;
+        }
+
+        GeneralPlatformDomainRuleException toDomainException() {
+            return new GeneralPlatformDomainRuleException("integration.excessRefund." + this.category, getMessage());
         }
     }
 

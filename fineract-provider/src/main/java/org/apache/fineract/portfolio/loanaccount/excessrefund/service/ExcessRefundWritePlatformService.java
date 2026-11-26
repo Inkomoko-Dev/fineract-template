@@ -253,6 +253,10 @@ public class ExcessRefundWritePlatformService {
         final String response;
         try {
             response = this.paymentHubService.submitRefund(submission.loan(), submission.refund(), submission.requestId());
+        } catch (ExcessRefundPaymentHubService.RefundRejectedException ex) {
+            newRequiresNewTemplate().executeWithoutResult(status -> applyHubCallback(submission.requestId(), false, null,
+                    ex.getMessage()));
+            throw ex.toDomainException();
         } catch (ExcessRefundPaymentHubService.RefundNotSentException ex) {
             newRequiresNewTemplate().executeWithoutResult(status -> applyHubCallback(submission.requestId(), false, null,
                     ex.getMessage()));

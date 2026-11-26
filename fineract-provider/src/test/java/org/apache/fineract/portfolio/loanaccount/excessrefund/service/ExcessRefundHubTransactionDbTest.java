@@ -25,10 +25,14 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.gson.JsonParser;
+import com.sun.net.httpserver.HttpServer;
 import java.math.BigDecimal;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
@@ -64,6 +68,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -81,6 +86,7 @@ class ExcessRefundHubTransactionDbTest {
     private JdbcTemplate jdbc;
     private ExcessRefundWritePlatformService service;
     private ExcessRefundPaymentHubService hub;
+    private ExcessRefundGlPoster glPoster;
     private TransactionTemplate transaction;
 
     @BeforeEach
@@ -142,8 +148,9 @@ class ExcessRefundHubTransactionDbTest {
             return Optional.of(poll);
         });
         hub = mock(ExcessRefundPaymentHubService.class);
+        glPoster = mock(ExcessRefundGlPoster.class);
         service = new ExcessRefundWritePlatformService(context, loans, refunds, mock(NoteRepository.class), new FromJsonHelper(),
-                mock(ExcessRefundGlPoster.class), hub, offices, mock(ClientBankDetailsResolver.class), manager, polls);
+                glPoster, hub, offices, mock(ClientBankDetailsResolver.class), manager, polls);
     }
 
     @AfterEach
@@ -208,6 +215,66 @@ class ExcessRefundHubTransactionDbTest {
             releaseHub.countDown();
             workers.shutdownNow();
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = { 400, 422, 408, 409, 500, 504 })
+    void persistsOnlyDefinitiveHubRejections(final int httpStatus) throws Exception {
+        setTenantContext();
+        final HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        stub.createContext("/auth", exchange -> {
+            final byte[] body = "{\"access_token\":\"test-token\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        stub.createContext("/refund", exchange -> {
+            final byte[] body = "{\"message\":\"Rejected by test hub\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(httpStatus, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        stub.start();
+        try {
+            final String base = "http://127.0.0.1:" + stub.getAddress().getPort();
+            final String prefix = "fineract.integrations.inkomoko.rest.";
+            final var environment = new MockEnvironment().withProperty(prefix + "username", "test")
+                    .withProperty(prefix + "password", "test").withProperty(prefix + "authenticationUrl", base + "/auth")
+                    .withProperty(prefix + "initiate.refund", base + "/refund");
+            final var httpHub = new ExcessRefundPaymentHubService(environment, null);
+            when(hub.submitRefund(any(), any(), eq("cbs_refund_2"))).thenAnswer(call ->
+                    httpHub.submitRefund(call.getArgument(0), call.getArgument(1), call.getArgument(2)));
+            assertThatThrownBy(() -> service.sendToPaymentHub(command()))
+                    .isInstanceOf(GeneralPlatformDomainRuleException.class);
+            verifyNoInteractions(glPoster);
+            final boolean definitive = httpStatus == 400 || httpStatus == 422;
+            assertThat(loadRefund(false).getStatus())
+                    .isEqualTo(definitive ? LoanExcessRefundStatus.PAYMENT_FAILED : LoanExcessRefundStatus.PAYMENT_SUBMITTED);
+            assertThat(jdbc.queryForObject("SELECT poll_state FROM " + table + " WHERE id = 2", String.class))
+                    .isEqualTo(definitive ? "FAILED" : "PENDING");
+            if (!definitive) {
+                assertThatThrownBy(() -> service.sendToPaymentHub(command())).hasMessageContaining("already submitted");
+            }
+        } finally {
+            stub.stop(0);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "PAID", "POSTED" })
+    void preservesPaymentWhenARejectionArrivesLate(final String terminalState) {
+        setTenantContext();
+        when(hub.submitRefund(any(), any(), eq("cbs_refund_2"))).thenAnswer(call -> {
+            transaction.executeWithoutResult(status -> jdbc.update(
+                    "UPDATE " + table + " SET state = ?, poll_state = 'SUCCESS' WHERE id = 2", terminalState));
+            throw new ExcessRefundPaymentHubService.RefundRejectedException("validationFailed", "Late rejection");
+        });
+        assertThatThrownBy(() -> service.sendToPaymentHub(command())).hasMessageContaining("Late rejection");
+        assertThat(loadRefund(false).getStatus().name()).isEqualTo(terminalState);
+        assertThat(jdbc.queryForObject("SELECT poll_state FROM " + table + " WHERE id = 2", String.class)).isEqualTo("SUCCESS");
+        verifyNoInteractions(glPoster);
     }
 
     @Test

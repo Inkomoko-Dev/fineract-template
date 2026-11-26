@@ -26,7 +26,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -50,6 +49,7 @@ import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatform
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -65,9 +65,7 @@ public class ExcessRefundReadPlatformService {
     private final OfficeHierarchyService officeHierarchyService;
 
     public ExcessRefundData retrieveOne(final Long id) {
-        this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
-        final ExcessRefundMapper mapper = new ExcessRefundMapper();
-        final List<ExcessRefundData> results = this.jdbcTemplate.query(mapper.schema() + " where r.id = ?", mapper, id);
+        final List<ExcessRefundData> results = queryRefunds(id, null, null, null);
         if (results.isEmpty()) {
             throw new GeneralPlatformDomainRuleException("error.msg.excess.refund.not.found", "Excess refund not found: " + id);
         }
@@ -75,25 +73,39 @@ public class ExcessRefundReadPlatformService {
     }
 
     public Collection<ExcessRefundData> retrieveAll(final Long loanId, final Integer status, final Long batchId) {
-        this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
+        return queryRefunds(null, loanId, status, batchId);
+    }
+
+    private List<ExcessRefundData> queryRefunds(final Long id, final Long loanId, final Integer status, final Long batchId) {
+        final AppUser user = this.context.authenticatedUser();
+        user.validateHasReadPermission("EXCESS_REFUND");
+        final List<Long> officeIds = this.officeHierarchyService.getUserAccessibleOffices(user);
+        if (officeIds.isEmpty()) {
+            return List.of();
+        }
         final ExcessRefundMapper mapper = new ExcessRefundMapper();
         final StringBuilder sql = new StringBuilder(mapper.schema());
-        final List<Object> params = new ArrayList<>();
-        sql.append(" where 1=1");
+        final Map<String, Object> params = new HashMap<>();
+        sql.append(" where coalesce(l.office_id, lc.office_id, lg.office_id) in (:officeIds)");
+        params.put("officeIds", officeIds);
+        if (id != null) {
+            sql.append(" and r.id = :id");
+            params.put("id", id);
+        }
         if (loanId != null) {
-            sql.append(" and r.loan_id = ?");
-            params.add(loanId);
+            sql.append(" and r.loan_id = :loanId");
+            params.put("loanId", loanId);
         }
         if (status != null) {
-            sql.append(" and r.status_enum = ?");
-            params.add(status);
+            sql.append(" and r.status_enum = :status");
+            params.put("status", status);
         }
         if (batchId != null) {
-            sql.append(" and r.batch_id = ?");
-            params.add(batchId);
+            sql.append(" and r.batch_id = :batchId");
+            params.put("batchId", batchId);
         }
         sql.append(" order by r.submitted_at desc");
-        return this.jdbcTemplate.query(sql.toString(), mapper, params.toArray());
+        return new NamedParameterJdbcTemplate(this.jdbcTemplate).query(sql.toString(), params, mapper);
     }
 
     public Map<String, Object> retrieveTemplate(final Long loanId) {
@@ -227,6 +239,8 @@ public class ExcessRefundReadPlatformService {
                     + "from m_loan_excess_refund r "
                     + "join m_loan l on l.id = r.loan_id "
                     + "left join m_client c on c.id = r.client_id "
+                    + "left join m_client lc on lc.id = l.client_id "
+                    + "left join m_group lg on lg.id = l.group_id "
                     + "left join m_appuser u on u.id = r.submitted_by";
         }
 

@@ -48,6 +48,18 @@ class ExcessRefundPaymentHubServiceTest {
     private ExcessRefundPaymentHubService service;
 
     @Test
+    void classifiesOnlyDefinitiveValidationResponses() {
+        for (final int code : new int[] { 400, 422 }) {
+            assertThat(ExcessRefundPaymentHubService.isDefinitiveValidationRejection(code, "Invalid beneficiary")).isTrue();
+            assertThat(ExcessRefundPaymentHubService.isDefinitiveValidationRejection(code, "{\"status\":\"ACCEPTED\"}")).isFalse();
+            assertThat(ExcessRefundPaymentHubService.isDefinitiveValidationRejection(code, "{\"transactionId\":\"payout-1\"}")).isFalse();
+        }
+        for (final int code : new int[] { 401, 408, 409, 429, 500, 504 }) {
+            assertThat(ExcessRefundPaymentHubService.isDefinitiveValidationRejection(code, null)).isFalse();
+        }
+    }
+
+    @Test
     void buildsDisbursementParityRefundPayload() {
         when(this.loan.getId()).thenReturn(42L);
         when(this.loan.getAccountNumber()).thenReturn("000000042");
