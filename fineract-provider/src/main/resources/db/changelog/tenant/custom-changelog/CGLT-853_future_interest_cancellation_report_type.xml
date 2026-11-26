@@ -69,4 +69,20 @@
                 'Interest and Penalty Reconciliation - Exceptions')
         ]]></sql>
     </changeSet>
+    <changeSet id="CGLT-853-3-statement-label-future-interest-cancellation" author="wmnjugunaink">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT COUNT(*) FROM r_enum_value
+                WHERE enum_name = 'transaction_type_enum' AND enum_id = 34
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="r_enum_value">
+            <column name="enum_name" value="transaction_type_enum"/>
+            <column name="enum_id" valueNumeric="34"/>
+            <column name="enum_message_property" value="Future Interest Cancellation"/>
+            <column name="enum_value" value="Future Interest Cancellation"/>
+            <column name="enum_type" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+
 </databaseChangeLog>
