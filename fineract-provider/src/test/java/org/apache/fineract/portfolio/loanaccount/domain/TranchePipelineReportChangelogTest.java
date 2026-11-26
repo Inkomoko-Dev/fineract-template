@@ -117,6 +117,18 @@ public class TranchePipelineReportChangelogTest {
         assertTrue(xml.contains("CGLT-832-pipeline-report-columns"));
     }
 
+    @Test
+    public void pipelineReportShowsTheManualReviewNoteAfterTheApprover() throws Exception {
+        final String xml = Files.readString(changelog());
+        assertTrue(xml.contains("CGLT-866-pipeline-report-review-note"));
+        assertTrue(xml.contains("THEN mile.deadline_exception_note"));
+        assertTrue(xml.contains("pipeline.manual_review_approver AS `Manual review Approver`,\n"
+                + "    pipeline.manual_review_note AS `Manual Review Note`,"));
+        final int note = xml.lastIndexOf("AS `Manual Review Note`");
+        final int approver = xml.lastIndexOf("AS `Manual review Approver`");
+        assertTrue(approver > -1 && note > approver);
+    }
+
     private static Path changelog() {
         final String relative = "src/main/resources/db/changelog/tenant/custom-changelog/CGLT-832-pipeline-reporting.xml";
         final Path fromModule = Path.of(relative);

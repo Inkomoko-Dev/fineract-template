@@ -1732,4 +1732,37 @@ ORDER BY pipeline.loan_account_number
         </sql>
     </changeSet>
 
+    <changeSet author="inkomoko" id="CGLT-866-pipeline-report-review-note">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT COUNT(*) FROM stretchy_report
+                WHERE report_name = 'Multi-tranche pipeline Report'
+                  AND report_sql LIKE '%Manual review Approver%'
+                  AND report_sql NOT LIKE '%Manual Review Note%'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            <![CDATA[
+            UPDATE stretchy_report
+            SET report_sql = REPLACE(
+                REPLACE(
+                    report_sql,
+                    'END AS manual_review_approver',
+                    'END AS manual_review_approver,
+        CASE
+            WHEN mile.review_decision IN (''EXTEND'', ''CANCEL'', ''RESCHEDULE'')
+                THEN mile.deadline_exception_note
+            ELSE NULL
+        END AS manual_review_note'
+                ),
+                'pipeline.manual_review_approver AS `Manual review Approver`,',
+                'pipeline.manual_review_approver AS `Manual review Approver`,
+    pipeline.manual_review_note AS `Manual Review Note`,'
+            )
+            WHERE report_name = 'Multi-tranche pipeline Report'
+              AND report_sql NOT LIKE '%Manual Review Note%';
+            ]]>
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>
