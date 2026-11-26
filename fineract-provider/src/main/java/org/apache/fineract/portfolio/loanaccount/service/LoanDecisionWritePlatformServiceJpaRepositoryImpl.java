@@ -973,11 +973,13 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
         loanDecisionObj.setNextLoanIcReviewDecisionState(
                 (skipsIcReview ? LoanDecisionState.PREPARE_AND_SIGN_CONTRACT : LoanDecisionState.IC_REVIEW_LEVEL_ONE).getValue());
 
-        // An application that needs IC review enters at the level the delegated authority rules give, skipping the ones below
+        // An application that needs IC review enters at the level the delegated authority rules give, skipping the ones below.
+        // Kill switch / MANUAL_IC override always force IC Level 1 (CGLT-849).
         List<IcReviewLevelConfig> bypassedLevels = List.of();
         AppUser designatedApprover = null;
         String routedTo = null;
-        if (!skipsIcReview && this.creditDecisionLoanService.requiresIcReview(loanId)) {
+        final boolean forceIcLevelOne = this.creditDecisionLoanService.forcesIcLevelOne(loanId);
+        if (!skipsIcReview && this.creditDecisionLoanService.requiresIcReview(loanId) && !forceIcLevelOne) {
             final EntryData entry = this.delegatedAuthority.resolve(loan.getCurrencyCode(),
                     loanDecisionObj.getDueDiligenceRecommendedAmount(), this.creditDecisionLoanService.riskTier(loanId));
             final List<IcReviewLevelConfig> levels = entry == null || entry.getEntryLevelNumber() <= 1 ? List.of()
@@ -1001,6 +1003,10 @@ public class LoanDecisionWritePlatformServiceJpaRepositoryImpl implements LoanAp
                 log.warn("Delegated authority {} points at IC level {} which is not active; loan {} starts at the first level",
                         entry.getRuleId(), entry.getEntryLevelNumber(), loanId);
             }
+        } else if (forceIcLevelOne && !skipsIcReview && this.creditDecisionLoanService.requiresIcReview(loanId)) {
+            loanDecisionObj.setNextLoanIcReviewDecisionState(LoanDecisionState.IC_REVIEW_LEVEL_ONE.getValue());
+            this.creditDecisionLoanService.recordRouting(loanId,
+                    "Forced to IC Level 1 by kill switch or exception MANUAL_IC override (delegated authority skipped)");
         }
         Integer nextStage = loanDecisionObj.getNextLoanIcReviewDecisionState();
         final AppUser nextApprover = designatedApprover != null ? designatedApprover : getNextApprover(command, nextStage);

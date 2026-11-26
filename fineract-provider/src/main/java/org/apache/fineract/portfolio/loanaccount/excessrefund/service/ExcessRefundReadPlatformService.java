@@ -62,7 +62,7 @@ public class ExcessRefundReadPlatformService {
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
 
     public ExcessRefundData retrieveOne(final Long id) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
+        this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
         final ExcessRefundMapper mapper = new ExcessRefundMapper();
         final List<ExcessRefundData> results = this.jdbcTemplate.query(mapper.schema() + " where r.id = ?", mapper, id);
         if (results.isEmpty()) {
@@ -72,7 +72,7 @@ public class ExcessRefundReadPlatformService {
     }
 
     public Collection<ExcessRefundData> retrieveAll(final Long loanId, final Integer status, final Long batchId) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
+        this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
         final ExcessRefundMapper mapper = new ExcessRefundMapper();
         final StringBuilder sql = new StringBuilder(mapper.schema());
         final List<Object> params = new ArrayList<>();
@@ -94,7 +94,7 @@ public class ExcessRefundReadPlatformService {
     }
 
     public Map<String, Object> retrieveTemplate(final Long loanId) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
+        this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
         final Loan loan = this.loanRepository.findOneWithNotFoundDetection(loanId);
         return buildTemplate(loan);
     }
@@ -138,7 +138,7 @@ public class ExcessRefundReadPlatformService {
     }
 
     public String exportCsv(final Integer status) {
-        this.context.authenticatedUser().validateHasPermissionTo("READ_EXCESS_REFUND");
+        this.context.authenticatedUser().validateHasReadPermission("EXCESS_REFUND");
         final Collection<ExcessRefundData> rows = retrieveAll(null, status, null);
         final StringBuilder csv = new StringBuilder(
                 "id,loanId,loanAccountNo,clientId,clientDisplayName,amount,currency,status,paymentMode,channel,accountOrMsisdn,paymentReference,hubRequestId,manualPaymentRef,paidOn,submittedAt\n");

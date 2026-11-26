@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.organisation.monetary.domain.ApplicationCurrency;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
@@ -1017,6 +1019,12 @@ public final class LoanApplicationTerms {
                         .percentageOf(this.fixedPrincipalPercentagePerInstallment, mc.getRoundingMode())
                         .plus(this.adjustPrincipalForFlatLoans);
             } else {
+                if (totalRepaymentsWithCapitalPayment <= 0) {
+                    throw new PlatformApiDataValidationException(List.of(ApiParameterError.parameterError(
+                            "validation.msg.loan.no.principal.repayment.periods",
+                            "The repayment schedule must include at least one installment that pays principal.",
+                            "graceOnPrincipalPayment", this.principalGrace)));
+                }
                 principalPerPeriod = this.principal.minus(totalPrincipalAccounted)
                         .dividedBy(totalRepaymentsWithCapitalPayment, mc.getRoundingMode()).plus(this.adjustPrincipalForFlatLoans);
             }

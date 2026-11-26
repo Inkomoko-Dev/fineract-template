@@ -574,13 +574,29 @@ public class CreditDecisionService {
         return insert(
                 "INSERT INTO m_credit_decision_log (application_ref, loan_id, customer_ref, profile_id, profile_name, version_no, mode, "
                         + "provider, status, decision, score, reason_codes, reply_ms, next_step, request_json, reply_json, created_on, "
-                        + "risk_tier, max_exposure, model_version, request_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        + "risk_tier, max_exposure, model_version, request_id, request_hash, reply_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 entry.getApplicationRef().trim(), entry.getLoanId(), entry.getCustomerRef(), entry.getProfileId(), entry.getProfileName(),
                 entry.getVersionNo(), entry.getMode(),
                 entry.getProvider() == null || entry.getProvider().isBlank() ? conn.getProvider() : entry.getProvider(), status,
-                entry.getDecision(), entry.getScore(), entry.getReasonCodes(), entry.getReplyMs(), entry.getNextStep(),
+                entry.getDecision(), entry.getScore(), entry.getReasonCodes(), entry.getReplyMs(), truncateNextStep(entry.getNextStep()),
                 entry.getRequestJson(), entry.getReplyJson(), Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem()), entry.getRiskTier(),
-                entry.getMaxExposure(), entry.getModelVersion(), entry.getRequestId());
+                entry.getMaxExposure(), entry.getModelVersion(), entry.getRequestId(), CreditDecisionHash.sha256(entry.getRequestJson()),
+                CreditDecisionHash.sha256(entry.getReplyJson()));
+    }
+
+    /** Matches m_credit_decision_log.next_step (VARCHAR(500) after CGLT-849 widen). */
+    private static final int MAX_NEXT_STEP = 500;
+
+    private static String truncateNextStep(final String nextStep) {
+        if (nextStep == null || nextStep.length() <= MAX_NEXT_STEP) {
+            return nextStep;
+        }
+        return nextStep.substring(0, MAX_NEXT_STEP);
+    }
+
+    /** Clears the live-profile cache immediately so kill-switch and mode changes take effect on the next lookup. */
+    public void invalidateActiveProfileCache() {
+        dropCachedActive();
     }
 
     // ------------------------------------------------------------------ helpers

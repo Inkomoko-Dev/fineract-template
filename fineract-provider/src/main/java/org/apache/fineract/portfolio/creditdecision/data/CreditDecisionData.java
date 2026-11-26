@@ -227,6 +227,11 @@ public final class CreditDecisionData {
         private String modelVersion;
         /** The identifier the request carried, shared by the sends of one request that was retried. */
         private String requestId;
+        /** SHA-256 of the request and of the reply as they were exchanged. Empty for rows from before hashing. */
+        private String requestHash;
+        private String replyHash;
+        /** Only on detail: INTACT when bodies still match hashes, CHANGED when they do not. */
+        private String integrity;
     }
 
     /** How many log rows each outcome has, under every filter except the outcome itself, so the filter tabs can show counts. */

@@ -54,8 +54,14 @@ import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionPolicy;
 import org.apache.fineract.portfolio.creditdecision.data.CreditDecisionLoanData.VerifyRequest;
 import org.apache.fineract.portfolio.creditdecision.data.DelegatedAuthorityData.RuleRequest;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionDelegatedAuthority;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionExceptionOverride;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionExceptionOverride.DecideBody;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionExceptionOverride.RequestBody;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionKillSwitch;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionKillSwitch.SwitchRequest;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLoanService;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionLogReader;
+import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionMetrics;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionPolicyWorkflow;
 import org.apache.fineract.portfolio.creditdecision.service.CreditDecisionService;
 import org.springframework.context.annotation.Scope;
@@ -81,6 +87,9 @@ public class CreditDecisionApiResource {
     private final CreditDecisionLogReader logReader;
     private final CreditDecisionLoanService loanService;
     private final CreditDecisionDelegatedAuthority delegatedAuthority;
+    private final CreditDecisionKillSwitch killSwitch;
+    private final CreditDecisionExceptionOverride exceptionOverride;
+    private final CreditDecisionMetrics metricsService;
     private final DefaultToApiJsonSerializer<Object> toApiJsonSerializer;
     private final FromJsonHelper fromJsonHelper;
 
@@ -309,6 +318,63 @@ public class CreditDecisionApiResource {
     public String exceptions() {
         context.authenticatedUser().validateHasReadPermission(LOAN_RESOURCE);
         return toApiJsonSerializer.serialize(loanService.exceptions());
+    }
+
+    @POST
+    @Path("exceptions/{loanId}/override")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Request maker-checker exception resolution: REEVALUATE or MANUAL_IC")
+    public String requestExceptionOverride(@PathParam("loanId") final Long loanId, final String body) {
+        context.authenticatedUser().validateHasPermissionTo("CREATE_CREDITDECISIONEXCEPTIONOVERRIDE");
+        return toApiJsonSerializer.serialize(exceptionOverride.request(loanId, parse(body, RequestBody.class)));
+    }
+
+    @POST
+    @Path("exceptions/overrides/{overrideId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "command=approve or cancel a pending exception override")
+    public String decideExceptionOverride(@PathParam("overrideId") final Long overrideId,
+            @QueryParam("command") @DefaultValue("") final String command, final String body) {
+        switch (command) {
+            case "approve":
+                context.authenticatedUser().validateHasPermissionTo("APPROVE_CREDITDECISIONEXCEPTIONOVERRIDE");
+                return toApiJsonSerializer.serialize(exceptionOverride.approve(overrideId, parse(body, DecideBody.class)));
+            case "cancel":
+                return toApiJsonSerializer.serialize(exceptionOverride.cancel(overrideId, parse(body, DecideBody.class)));
+            default:
+                throw new UnrecognizedQueryParamException("command", command, "approve", "cancel");
+        }
+    }
+
+    @GET
+    @Path("killswitch")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Emergency kill switches by global, country or product scope")
+    public String killSwitches() {
+        context.authenticatedUser().validateHasPermissionTo("READ_CREDITDECISIONKILLSWITCH");
+        return toApiJsonSerializer.serialize(killSwitch.list());
+    }
+
+    @PUT
+    @Path("killswitch")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Enable or disable a kill switch scope")
+    public String upsertKillSwitch(final String body) {
+        context.authenticatedUser().validateHasPermissionTo("UPDATE_CREDITDECISIONKILLSWITCH");
+        return toApiJsonSerializer.serialize(killSwitch.upsert(parse(body, SwitchRequest.class)));
+    }
+
+    @GET
+    @Path("metrics")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Operational throughput, rates and TAT for the credit decision control framework")
+    public String metrics(@QueryParam("from") final String from, @QueryParam("to") final String to,
+            @QueryParam("currency") final String currency, @QueryParam("productId") final Long productId) {
+        context.authenticatedUser().validateHasReadPermission(LOAN_RESOURCE);
+        return toApiJsonSerializer.serialize(metricsService.metrics(from, to, currency, productId));
     }
 
     @GET

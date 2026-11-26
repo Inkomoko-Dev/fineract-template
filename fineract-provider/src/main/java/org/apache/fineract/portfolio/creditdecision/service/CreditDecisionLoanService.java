@@ -94,6 +94,7 @@ public class CreditDecisionLoanService {
     private final ApplicationEventPublisher events;
     private final CreditDecisionCircuitBreaker breaker;
     private final CreditDecisionBackoff backoff;
+    private final CreditDecisionKillSwitch killSwitch;
 
     // ------------------------------------------------------------------ read
 
@@ -277,8 +278,9 @@ public class CreditDecisionLoanService {
                     missing = missing + ". " + stale.replaceAll("\\.$", "");
                 }
             }
+            // next_step is a short log hint; full missing list goes on the loan event / error_message (MAX_NOTE).
             final LogEntryData heldEntry = entry(loan, profile, "HELD", null, null, null, null,
-                    "Complete the missing details: " + missing, requestJson, null);
+                    "Complete the missing details (" + built.getHeld().size() + ")", requestJson, null);
             heldEntry.setRequestId(requestId);
             final Long heldLog = profiles.recordLog(heldEntry);
             jdbc.update("UPDATE m_loan_credit_decision SET error_message = ?, last_attempt_on = ? WHERE loan_id = ?",
@@ -332,24 +334,37 @@ public class CreditDecisionLoanService {
 
         final Timestamp now = Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem());
         if (failure == null) {
+            String decision = reply.getDecision();
+            String reasonCodes = reply.getReasonCodes();
+            final boolean liveMode = "LIVE".equals(profile.getMode());
+            // Kill only rewrites LIVE auto-approval; SHADOW stays observational.
+            final CreditDecisionKillSwitch.KillHit kill = killSwitch.evaluate(loan.currencyCode, loan.productId);
+            if (liveMode && kill.isKilled() && CreditDecisionOutcome.AUTO_APPROVE.equals(decision)) {
+                decision = CreditDecisionOutcome.IC_REVIEW_REQUIRED;
+                final String killNote = "Kill switch " + kill.getScope() + "/" + kill.getScopeKey()
+                        + " forced manual IC Level 1 instead of AUTO_APPROVE"
+                        + (kill.getReason() == null || kill.getReason().isBlank() ? "" : ": " + kill.getReason());
+                reasonCodes = reasonCodes == null || reasonCodes.isBlank() ? CreditDecisionReasonCodes.KILL_SWITCH
+                        : reasonCodes + "," + CreditDecisionReasonCodes.KILL_SWITCH;
+                event(loanId, CreditDecisionLoanData.EVENT_ROUTED, truncate(killNote, MAX_NOTE), decision, reply.getScore(), null);
+            }
             jdbc.update("UPDATE m_loan_credit_decision SET request_status = ?, profile_id = ?, profile_name = ?, version_no = ?, "
                     + "requested_by = ?, requested_on = ?, decision = ?, score = ?, reason_codes = ?, risk_tier = ?, max_exposure = ?, "
                     + "model_version = ?, reply_ms = ?, error_message = NULL, request_json = ?, reply_json = ?, request_id = ?, "
                     + "last_attempt_on = ?, failure_count = 0, next_retry_on = NULL, alerted_on = NULL WHERE loan_id = ?",
                     CreditDecisionLoanData.DECIDED, profile.getProfileId(), profile.getProfileName(), profile.getVersionNo(), username(),
-                    now, reply.getDecision(), reply.getScore(), reply.getReasonCodes(), reply.getRiskTier(), reply.getMaxExposure(),
+                    now, decision, reply.getScore(), reasonCodes, reply.getRiskTier(), reply.getMaxExposure(),
                     reply.getModelVersion(), replyMs, requestJson, replyJson, requestId, now, loanId);
-            final boolean live = "LIVE".equals(profile.getMode());
-            final LogEntryData logged = entry(loan, profile, "DECIDED", reply.getDecision(), reply.getScore(), reply.getReasonCodes(),
-                    replyMs, nextStep(reply.getDecision(), live), requestJson, replyJson);
+            final LogEntryData logged = entry(loan, profile, "DECIDED", decision, reply.getScore(), reasonCodes,
+                    replyMs, nextStep(decision, liveMode), requestJson, replyJson);
             logged.setRiskTier(reply.getRiskTier());
             logged.setMaxExposure(reply.getMaxExposure());
             logged.setModelVersion(reply.getModelVersion());
             logged.setRequestId(requestId);
             final Long logId = profiles.recordLog(logged);
-            event(loanId, CreditDecisionLoanData.EVENT_DECIDED, reply.getReasonCodes() == null ? null : truncate(reply.getReasonCodes(), MAX_NOTE),
-                    reply.getDecision(), reply.getScore(), logId);
-            events.publishEvent(new CreditDecisionOutcomeRecorded(loanId, reply.getDecision(), reply.getReasonCodes(), live));
+            event(loanId, CreditDecisionLoanData.EVENT_DECIDED, reasonCodes == null ? null : truncate(reasonCodes, MAX_NOTE),
+                    decision, reply.getScore(), logId);
+            events.publishEvent(new CreditDecisionOutcomeRecorded(loanId, decision, reasonCodes, liveMode));
         } else {
             final int failures = (earlier == null ? 0 : earlier.failureCount) + 1;
             final boolean alertInstead = ON_NO_REPLY_ALERT.equals(connection.getOnNoReply());
@@ -463,6 +478,33 @@ public class CreditDecisionLoanService {
                 && CreditDecisionOutcome.IC_REVIEW_REQUIRED.equals(row.decision) && live(loanId);
     }
 
+    /**
+     * Kill switch or approved MANUAL_IC override: enter at IC Level 1 and skip delegated-authority level jumps.
+     */
+    @Transactional(readOnly = true)
+    public boolean forcesIcLevelOne(final Long loanId) {
+        final DecisionRow row = decision(loanId);
+        if (row == null || row.reasonCodes == null) {
+            return false;
+        }
+        return CreditDecisionReasonCodes.contains(row.reasonCodes, CreditDecisionReasonCodes.KILL_SWITCH)
+                || CreditDecisionReasonCodes.contains(row.reasonCodes, CreditDecisionReasonCodes.EXCEPTION_OVERRIDE_MANUAL_IC);
+    }
+
+    /** True when this loan currently matches the exception-queue criteria (FAILED / HELD / STUCK). */
+    @Transactional(readOnly = true)
+    public boolean isOnExceptionQueue(final Long loanId) {
+        final Timestamp now = now();
+        final Timestamp stale = staleBefore(profiles.connection(), now);
+        final Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM m_loan_credit_decision d JOIN m_loan l ON l.id = d.loan_id "
+                        + "WHERE d.loan_id = ? AND d.required = TRUE AND l.loan_status_id = ? AND (d.request_status = ? "
+                        + "OR (d.request_status = ? AND d.error_message IS NOT NULL) OR d.send_started_on < ?)",
+                Integer.class, loanId, SUBMITTED_AND_PENDING_APPROVAL, CreditDecisionLoanData.FAILED,
+                CreditDecisionLoanData.NOT_SENT, stale);
+        return count != null && count > 0;
+    }
+
     /** The risk tier the engine gave this application, null when it gave none or has not decided. */
     @Transactional(readOnly = true)
     public String riskTier(final Long loanId) {
@@ -513,9 +555,12 @@ public class CreditDecisionLoanService {
         final Timestamp now = now();
         final Timestamp stale = staleBefore(profiles.connection(), now);
         return jdbc.query("SELECT d.loan_id, l.account_no, c.account_no AS client_account_no, p.name AS product_name, d.request_status, "
-                + "d.error_message, d.failure_count, d.last_attempt_on, d.next_retry_on, d.alerted_on, d.request_id, d.send_started_on "
+                + "d.error_message, d.failure_count, d.last_attempt_on, d.next_retry_on, d.alerted_on, d.request_id, d.send_started_on, "
+                + "o.id AS override_id, o.action AS override_action, o.requested_by AS override_by "
                 + "FROM m_loan_credit_decision d JOIN m_loan l ON l.id = d.loan_id JOIN m_product_loan p ON p.id = l.product_id "
-                + "LEFT JOIN m_client c ON c.id = l.client_id WHERE d.required = TRUE AND l.loan_status_id = ? AND (d.request_status = ? "
+                + "LEFT JOIN m_client c ON c.id = l.client_id "
+                + "LEFT JOIN m_credit_decision_exception_override o ON o.loan_id = d.loan_id AND o.status = 'PENDING' "
+                + "WHERE d.required = TRUE AND l.loan_status_id = ? AND (d.request_status = ? "
                 + "OR (d.request_status = ? AND d.error_message IS NOT NULL) OR d.send_started_on < ?) "
                 + "ORDER BY COALESCE(d.last_attempt_on, d.send_started_on) ASC, d.loan_id ASC LIMIT " + MAX_EXCEPTIONS,
                 (rs, i) -> {
@@ -530,9 +575,53 @@ public class CreditDecisionLoanService {
                             .customerRef(rs.getString("client_account_no")).productName(rs.getString("product_name")).kind(kind)
                             .message(message).failureCount(rs.getInt("failure_count")).lastAttemptOn(iso(rs.getTimestamp("last_attempt_on")))
                             .nextRetryOn(iso(rs.getTimestamp("next_retry_on"))).alertedOn(iso(rs.getTimestamp("alerted_on")))
-                            .requestId(rs.getString("request_id")).build();
+                            .requestId(rs.getString("request_id")).reasonCode(CreditDecisionReasonCodes.forException(kind, message))
+                            .pendingOverrideId((Long) rs.getObject("override_id")).pendingOverrideAction(rs.getString("override_action"))
+                            .pendingOverrideBy(rs.getString("override_by")).build();
                 },
                 SUBMITTED_AND_PENDING_APPROVAL, CreditDecisionLoanData.FAILED, CreditDecisionLoanData.NOT_SENT, stale);
+    }
+
+    /**
+     * Clears the exception state and records IC_REVIEW_REQUIRED so the application enters manual IC Level 1.
+     * Only valid for loans currently on the exception queue; never rewrites a final AUTO_APPROVE / INELIGIBLE outcome.
+     */
+    @Transactional
+    public void forceManualIc(final Long loanId, final String note) {
+        if (!isOnExceptionQueue(loanId)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.exception.override.not.eligible",
+                    "Manual IC can only be applied to applications on the exception queue.");
+        }
+        final DecisionRow row = decision(loanId);
+        if (row != null && CreditDecisionLoanData.DECIDED.equals(row.requestStatus)
+                && (CreditDecisionOutcome.AUTO_APPROVE.equals(row.decision) || CreditDecisionOutcome.INELIGIBLE.equals(row.decision))) {
+            throw new GeneralPlatformDomainRuleException("error.msg.creditdecision.exception.override.outcome.final",
+                    "This application already has a final credit decision and cannot be forced to manual IC.");
+        }
+        final Timestamp now = Timestamp.valueOf(DateUtils.getLocalDateTimeOfSystem());
+        final String reason = appendReason(row == null ? null : row.reasonCodes, CreditDecisionReasonCodes.EXCEPTION_OVERRIDE_MANUAL_IC);
+        jdbc.update("UPDATE m_loan_credit_decision SET request_status = ?, decision = ?, reason_codes = ?, "
+                + "error_message = NULL, failure_count = 0, next_retry_on = NULL, alerted_on = NULL, send_started_on = NULL, "
+                + "last_attempt_on = ? WHERE loan_id = ?",
+                CreditDecisionLoanData.DECIDED, CreditDecisionOutcome.IC_REVIEW_REQUIRED, reason, now, loanId);
+        event(loanId, CreditDecisionLoanData.EVENT_ROUTED,
+                truncate("Exception override MANUAL_IC approved — forced IC Level 1"
+                        + (note == null || note.isBlank() ? "" : ": " + note), MAX_NOTE),
+                CreditDecisionOutcome.IC_REVIEW_REQUIRED, null, null);
+    }
+
+    private static String appendReason(final String existing, final String tag) {
+        if (existing == null || existing.isBlank()) {
+            return tag;
+        }
+        if (CreditDecisionReasonCodes.contains(existing, tag)) {
+            return existing;
+        }
+        return existing + "," + tag;
+    }
+
+    public void recordOverrideEvent(final Long loanId, final String detail) {
+        event(loanId, CreditDecisionLoanData.EVENT_ROUTED, detail == null ? null : truncate(detail, MAX_NOTE), null, null, null);
     }
 
     // ------------------------------------------------------------------ history
@@ -839,12 +928,13 @@ public class CreditDecisionLoanService {
 
     private LoanRow loan(final Long loanId) {
         final List<LoanRow> rows = jdbc.query(
-                "SELECT l.id, l.account_no, l.product_id, l.loan_status_id, l.loan_decision_state, p.name AS product_name, "
+                "SELECT l.id, l.account_no, l.product_id, l.loan_status_id, l.loan_decision_state, l.currency_code, p.name AS product_name, "
                         + "c.account_no AS client_account_no "
                         + "FROM m_loan l JOIN m_product_loan p ON p.id = l.product_id LEFT JOIN m_client c ON c.id = l.client_id "
                         + "WHERE l.id = ?",
                 (rs, i) -> new LoanRow(rs.getLong("id"), rs.getString("account_no"), rs.getLong("product_id"), rs.getInt("loan_status_id"),
-                        (Integer) rs.getObject("loan_decision_state"), rs.getString("product_name"), rs.getString("client_account_no")),
+                        (Integer) rs.getObject("loan_decision_state"), rs.getString("product_name"), rs.getString("client_account_no"),
+                        rs.getString("currency_code")),
                 loanId);
         if (rows.isEmpty()) {
             throw new LoanNotFoundException(loanId);
@@ -905,9 +995,10 @@ public class CreditDecisionLoanService {
         final Integer decisionState;
         final String productName;
         final String clientAccountNo;
+        final String currencyCode;
 
         LoanRow(final long id, final String accountNo, final long productId, final int statusId, final Integer decisionState,
-                final String productName, final String clientAccountNo) {
+                final String productName, final String clientAccountNo, final String currencyCode) {
             this.id = id;
             this.accountNo = accountNo;
             this.productId = productId;
@@ -915,6 +1006,7 @@ public class CreditDecisionLoanService {
             this.decisionState = decisionState;
             this.productName = productName;
             this.clientAccountNo = clientAccountNo;
+            this.currencyCode = currencyCode;
         }
     }
 

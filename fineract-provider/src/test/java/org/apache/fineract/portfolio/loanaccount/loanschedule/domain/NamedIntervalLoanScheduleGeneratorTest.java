@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.loanschedule.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.lang.reflect.Constructor;
@@ -31,6 +32,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -38,6 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.organisation.monetary.domain.ApplicationCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
@@ -121,6 +124,23 @@ class NamedIntervalLoanScheduleGeneratorTest {
                 LocalDate.of(2026, 10, 15), LocalDate.of(2027, 1, 15), LocalDate.of(2027, 4, 15));
     }
 
+    @Test
+    void quarterlyFlatScheduleRejectsPrincipalGraceCoveringEveryInstallment() {
+        final ExecutionException exception = assertThrows(ExecutionException.class, () -> generate(InterestMethod.FLAT, 3, 2, 2));
+        assertEquals(PlatformApiDataValidationException.class, exception.getCause().getClass());
+    }
+
+    @Test
+    void quarterlyFlatScheduleAmortizesPrincipalAfterGrace() throws Exception {
+        final List<LoanScheduleModelPeriod> periods = generate(InterestMethod.FLAT, 3, 6, 2);
+        assertEquals(6, periods.size());
+        assertEquals(0, BigDecimal.ZERO.compareTo(totalPrincipal(periods.subList(0, 2))));
+        assertEquals(0, PRINCIPAL.compareTo(totalPrincipal(periods)));
+        for (int i = 0; i < periods.size(); i++) {
+            assertEquals(FIRST_REPAYMENT.plusMonths(3L * i), periods.get(i).periodDueDate());
+        }
+    }
+
     private void assertNamedIntervalSchedule(final InterestMethod interestMethod, final int repayEvery, final int expectedInstallments,
             final LocalDate... expectedDueDates) throws Exception {
         final List<LoanScheduleModelPeriod> periods = generate(interestMethod, repayEvery, expectedInstallments);
@@ -135,6 +155,11 @@ class NamedIntervalLoanScheduleGeneratorTest {
 
     private static List<LoanScheduleModelPeriod> generate(final InterestMethod interestMethod, final int repayEvery,
             final int numberOfRepayments) throws Exception {
+        return generate(interestMethod, repayEvery, numberOfRepayments, 0);
+    }
+
+    private static List<LoanScheduleModelPeriod> generate(final InterestMethod interestMethod, final int repayEvery,
+            final int numberOfRepayments, final int principalGrace) throws Exception {
         final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
             final Thread t = new Thread(r, "named-interval-schedule-generator");
             t.setDaemon(true);
@@ -145,6 +170,8 @@ class NamedIntervalLoanScheduleGeneratorTest {
                 ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
                 ThreadLocalContextUtil.setBusinessDates(new HashMap<>(Map.of(BusinessDateType.BUSINESS_DATE, LocalDate.of(2026, 1, 15))));
                 final LoanApplicationTerms terms = terms(interestMethod, repayEvery, numberOfRepayments);
+                terms.updatePrincipalGrace(principalGrace);
+                terms.updatePeriodNumberApplicableForPrincipalOrInterestGrace(1);
                 final LoanScheduleGenerator generator = interestMethod.isDecliningBalnce()
                         ? new DecliningBalanceInterestLoanScheduleGenerator()
                         : new FlatInterestLoanScheduleGenerator();

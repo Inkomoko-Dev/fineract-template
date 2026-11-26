@@ -28,6 +28,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -241,7 +242,15 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                 if (localDate != null) {
                     // get installment by due date
                     LoanRepaymentScheduleInstallment installment = loan.getRepaymentScheduleInstallment(localDate);
-                    rescheduleFromInstallment = installment.getInstallmentNumber();
+
+                    if (installment != null) {
+                        rescheduleFromInstallment = installment.getInstallmentNumber();
+                    } else {
+                        // CGLT-857: DB column reschedule_from_installment is NOT NULL — derive next installment.
+                        rescheduleFromInstallment = RescheduleFromInstallmentResolver
+                                .resolveInstallmentNumber(loan.getRepaymentScheduleInstallments(), localDate)
+                                .orElseThrow(LoanRescheduleRequestWritePlatformServiceImpl::installmentDoesNotExistValidationException);
+                    }
 
                     // update the value of the "rescheduleFromDate" variable
                     rescheduleFromDate = localDate;
@@ -282,30 +291,32 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             // create a new entry in the m_loan_reschedule_request table
             // read optional parameter from request
             final JsonElement chargeHandlingObject = jsonCommand.jsonElement(RescheduleLoansApiConstants.overdueChargeHandlingParamName);
+            if (chargeHandlingObject != null && !chargeHandlingObject.isJsonNull()) {
+                final JsonObject chargeHandlingjson = chargeHandlingObject.getAsJsonObject();
 
-            final JsonObject chargeHandlingjson = chargeHandlingObject.getAsJsonObject();
+                String chargeHandlingParam = chargeHandlingjson.get("name").getAsString();
 
-            String chargeHandlingParam = chargeHandlingjson.get("name").getAsString();
+                String chargeHandlingEnum;
 
-            String chargeHandlingEnum;
+                if (RescheduleLoansApiConstants.IGNORE_CHARGES.equalsIgnoreCase(chargeHandlingParam)) {
+                    chargeHandlingEnum = "IGNORE";
+                } else if (RescheduleLoansApiConstants.CARRY_CHARGES_FORWARD.equalsIgnoreCase(chargeHandlingParam)) {
+                    chargeHandlingEnum = "CARRY";
+                } else {
+                    chargeHandlingEnum = "";
+                }
 
-            if (RescheduleLoansApiConstants.IGNORE_CHARGES.equalsIgnoreCase(chargeHandlingParam))
-                chargeHandlingEnum = "IGNORE";
-            else if  (RescheduleLoansApiConstants.CARRY_CHARGES_FORWARD.equalsIgnoreCase(chargeHandlingParam))
-                chargeHandlingEnum = "CARRY";
-            else chargeHandlingEnum = "";
+                ChargeHandlingOption chargeHandling = ChargeHandlingOption.fromString(chargeHandlingEnum);
 
+                Long carryForwardChargeId = jsonCommand.longValueOfParameterNamed(
+                        RescheduleLoansApiConstants.carryForwardChargeIdParamName);
+                LocalDate carryForwardChargeDueDate = jsonCommand.localDateValueOfParameterNamed(
+                        RescheduleLoansApiConstants.carryForwardChargeDueDateParamName);
 
-            ChargeHandlingOption chargeHandling = ChargeHandlingOption.fromString(chargeHandlingEnum);
-
-            Long carryForwardChargeId = jsonCommand.longValueOfParameterNamed(
-                    RescheduleLoansApiConstants.carryForwardChargeIdParamName);
-            LocalDate carryForwardChargeDueDate = jsonCommand.localDateValueOfParameterNamed(
-                    RescheduleLoansApiConstants.carryForwardChargeDueDateParamName);
-
-            loanRescheduleRequest.setChargeHandling(chargeHandling);
-            loanRescheduleRequest.setCarryForwardChargeId(carryForwardChargeId);
-            loanRescheduleRequest.setCarryForwardChargeDueDate(carryForwardChargeDueDate);
+                loanRescheduleRequest.setChargeHandling(chargeHandling);
+                loanRescheduleRequest.setCarryForwardChargeId(carryForwardChargeId);
+                loanRescheduleRequest.setCarryForwardChargeDueDate(carryForwardChargeDueDate);
+            }
 
             // Set the repayment frequency and every fields
             if (repaymentEvery != null) {
@@ -653,6 +664,15 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             return CommandProcessingResult.empty();
         }
     }
+    private static PlatformApiDataValidationException installmentDoesNotExistValidationException() {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder dataValidatorBuilder = new DataValidatorBuilder(dataValidationErrors).resource(
+                RescheduleLoansApiConstants.ENTITY_NAME.toLowerCase(Locale.ROOT));
+        dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.rescheduleFromDateParamName)
+                .failWithCode("repayment.schedule.installment.does.not.exist", "Repayment schedule installment does not exist");
+        return new PlatformApiDataValidationException(dataValidationErrors);
+    }
+
     private Loan saveAndFlushLoanWithDataIntegrityViolationChecks(final Loan loan) {
         try {
             List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
