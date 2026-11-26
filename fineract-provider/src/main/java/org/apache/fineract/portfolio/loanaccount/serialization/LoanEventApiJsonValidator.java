@@ -231,6 +231,10 @@ public final class LoanEventApiJsonValidator {
     }
 
     public void validateNewRepaymentTransaction(final String json) {
+        validateNewRepaymentTransaction(json, true);
+    }
+
+    public void validateNewRepaymentTransaction(final String json, final boolean paymentTypeRequired) {
 
         if (StringUtils.isBlank(json)) {
             throw new InvalidJsonException();
@@ -261,11 +265,34 @@ public final class LoanEventApiJsonValidator {
         baseDataValidator.reset().parameter("note").value(note).notExceedingLengthOf(1000);
 
         validatePaymentDetails(baseDataValidator, element);
+        if (paymentTypeRequired) {
+            validatePaymentTypeIsPresent(baseDataValidator, element);
+        }
         final Long originalTransactionId = this.fromApiJsonHelper.extractLongNamed("originalTransactionId", element);
         if (originalTransactionId != null) {
             baseDataValidator.reset().parameter("originalTransactionId").value(originalTransactionId).longGreaterThanZero();
         }
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    public void validateRepaymentAdjustment(final String json) {
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        final BigDecimal transactionAmount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed("transactionAmount", element);
+        if (transactionAmount == null || transactionAmount.signum() <= 0) {
+            return;
+        }
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
+        validatePaymentTypeIsPresent(baseDataValidator, element);
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    private void validatePaymentTypeIsPresent(final DataValidatorBuilder baseDataValidator, final JsonElement element) {
+        final String paymentTypeId = this.fromApiJsonHelper.extractStringNamed("paymentTypeId", element);
+        baseDataValidator.reset().parameter("paymentTypeId").value(StringUtils.trimToNull(paymentTypeId)).notNull();
     }
 
     public void validateRecoveryPaymentReversal(final String json) {

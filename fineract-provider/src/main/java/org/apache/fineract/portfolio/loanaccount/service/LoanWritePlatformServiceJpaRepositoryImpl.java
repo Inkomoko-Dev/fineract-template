@@ -250,6 +250,7 @@ import org.apache.fineract.portfolio.loanproduct.exception.LinkedAccountRequired
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
+import org.apache.fineract.portfolio.paymentdetail.PaymentDetailConstants;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
 import org.apache.fineract.portfolio.paymentdetail.service.PaymentDetailWritePlatformService;
 import org.apache.fineract.portfolio.paymenttype.domain.PaymentType;
@@ -1267,7 +1268,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
 
             this.loanUtilService.validateRepaymentTransactionType(repaymentTransactionType, isPayOff);
-            this.loanEventApiJsonValidator.validateNewRepaymentTransaction(command.json());
+            this.loanEventApiJsonValidator.validateNewRepaymentTransaction(command.json(),
+                    repaymentTransactionType.isRepayment() || repaymentTransactionType.isPayOff());
 
             final LocalDate transactionDate = command.localDateValueOfParameterNamed("transactionDate");
             final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
@@ -1487,6 +1489,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         checkClientOrGroupActive(loan);
         final LoanTransaction transactionToAdjust = this.loanTransactionRepository.findById(transactionId)
                 .orElseThrow(() -> new LoanTransactionNotFoundException(transactionId));
+        if (transactionToAdjust.isRepaymentType() || transactionToAdjust.isRecoveryRepayment()) {
+            this.loanEventApiJsonValidator.validateRepaymentAdjustment(command.json());
+        }
         businessEventNotifierService.notifyPreBusinessEvent(
                 new LoanAdjustTransactionBusinessEvent(new LoanAdjustTransactionBusinessEvent.Data(transactionToAdjust)));
         if (this.accountTransfersReadPlatformService.isAccountTransfer(transactionId, PortfolioAccountType.LOAN)) {
@@ -2836,12 +2841,28 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
         final Locale locale = command.extractLocale();
         final DateTimeFormatter fmt = DateTimeFormatter.ofPattern(command.dateFormat()).withLocale(locale);
+        final PaymentDetail topUpPaymentDetail = topUpPaymentDetail(loan);
         final AccountTransferDTO accountTransferDTO = new AccountTransferDTO(transactionDate, amount, PortfolioAccountType.LOAN,
                 PortfolioAccountType.LOAN, loan.getId(), loan.getTopupLoanDetails().getLoanIdToClose(), "Loan Topup", locale, fmt,
-                LoanTransactionType.DISBURSEMENT.getValue(), LoanTransactionType.REPAYMENT.getValue(), txnExternalId, loan, null);
+                topUpPaymentDetail, LoanTransactionType.DISBURSEMENT.getValue(), LoanTransactionType.REPAYMENT.getValue(), txnExternalId,
+                loan, null);
         AccountTransferDetails accountTransferDetails = this.accountTransfersWritePlatformService.repayLoanWithTopup(accountTransferDTO);
         loan.getTopupLoanDetails().setAccountTransferDetails(accountTransferDetails.getId());
         loan.getTopupLoanDetails().setTopupAmount(amount);
+    }
+
+    private PaymentDetail topUpPaymentDetail(final Loan loan) {
+        final Optional<PaymentType> topUpPayment = this.paymentTypeRepositoryWrapper
+                .findByName(PaymentDetailConstants.topUpPaymentTypeName);
+        if (topUpPayment.isEmpty()) {
+            log.warn("Payment type '{}' is missing, so the top-up closure of loan {} is posted without a payment type",
+                    PaymentDetailConstants.topUpPaymentTypeName, loan.getTopupLoanDetails().getLoanIdToClose());
+            return null;
+        }
+        final PaymentDetail paymentDetail = PaymentDetail.instance(topUpPayment.get(), null, null, null, loan.getAccountNumber(), null,
+                null);
+        this.paymentDetailWritePlatformService.persistPaymentDetail(paymentDetail);
+        return paymentDetail;
     }
 
     public void disburseLoanToSavings(final Loan loan, final JsonCommand command, final Money amount, final PaymentDetail paymentDetail) {

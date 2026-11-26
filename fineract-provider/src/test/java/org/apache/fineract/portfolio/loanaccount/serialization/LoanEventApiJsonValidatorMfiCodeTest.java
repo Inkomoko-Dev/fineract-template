@@ -38,12 +38,12 @@ public class LoanEventApiJsonValidatorMfiCodeTest {
 
     private String repaymentPayload(final String mfiCode) {
         return "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"transactionDate\":\"01 February 2026\","
-                + "\"transactionAmount\":5000,\"mfiCode\":\"" + mfiCode + "\"}";
+                + "\"transactionAmount\":5000,\"paymentTypeId\":103,\"mfiCode\":\"" + mfiCode + "\"}";
     }
 
     private String repaymentPayloadWithoutMfi() {
         return "{\"locale\":\"en\",\"dateFormat\":\"dd MMMM yyyy\",\"transactionDate\":\"01 February 2026\","
-                + "\"transactionAmount\":5000}";
+                + "\"transactionAmount\":5000,\"paymentTypeId\":103}";
     }
 
     @Test
