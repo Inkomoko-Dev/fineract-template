@@ -21,15 +21,27 @@ package org.apache.fineract.portfolio.loanaccount.excessrefund.repository;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import javax.persistence.LockModeType;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefund;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface LoanExcessRefundRepository extends JpaRepository<LoanExcessRefund, Long>, JpaSpecificationExecutor<LoanExcessRefund> {
 
     boolean existsByLoanIdAndStatusEnumIn(Long loanId, Collection<Integer> statusEnums);
 
-    Optional<LoanExcessRefund> findByHubRequestId(String hubRequestId);
+    @Query("select refund.loanId from LoanExcessRefund refund where refund.id = :id")
+    Optional<Long> findLoanId(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select refund from LoanExcessRefund refund where refund.id = :id")
+    Optional<LoanExcessRefund> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<LoanExcessRefund> findOneByHubRequestId(String hubRequestId);
 
     List<LoanExcessRefund> findByBatchId(Long batchId);
 

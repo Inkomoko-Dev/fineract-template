@@ -178,8 +178,7 @@ class PaymentHubDisbursementStatusServiceTest {
 
         verify(this.excessRefundWritePlatformService).applyHubCallback(eq("cbs_refund_20"), eq(true), eq("REF-1"), eq("ok"));
         verify(this.loanWritePlatformService, never()).disburseLoan(anyLong(), any(), anyBoolean(), anyBoolean());
-        verify(this.pollRepository).save(poll);
-        assertThat(poll.getStatus()).isEqualTo(PaymentHubTransactionStatus.SUCCESS);
+        verify(this.pollRepository, never()).save(poll);
     }
 
     private static void setEntityId(final AbstractPersistableCustom entity, final Long id) throws Exception {

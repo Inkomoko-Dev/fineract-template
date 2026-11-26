@@ -125,6 +125,14 @@ public class PaymentHubDisbursementPoll extends AbstractPersistableCustom {
         this.lastCheckedOn = DateUtils.getLocalDateTimeOfTenant();
     }
 
+    /** Records the terminal outcome of a refund payout and its Hub reference. */
+    public void markRefundOutcome(final boolean success, final String reference, final String reason) {
+        if (StringUtils.isNotBlank(reference)) {
+            this.transactionRef = reference;
+        }
+        markTerminal(success ? PaymentHubTransactionStatus.SUCCESS : PaymentHubTransactionStatus.FAILED, null, reason);
+    }
+
     public boolean isSuccess() {
         return PaymentHubTransactionStatus.SUCCESS.equals(this.status);
     }

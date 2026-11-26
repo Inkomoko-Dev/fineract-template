@@ -31,7 +31,11 @@ import static org.mockito.Mockito.when;
 import com.google.gson.JsonParser;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+import org.apache.fineract.infrastructure.businessdate.domain.BusinessDateType;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
@@ -53,6 +57,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -92,6 +98,7 @@ class ExcessRefundWritePlatformServiceTest {
 
     @BeforeEach
     void setUp() {
+        ThreadLocalContextUtil.setBusinessDates(new HashMap<>(Map.of(BusinessDateType.BUSINESS_DATE, LocalDate.of(2026, 11, 24))));
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Africa/Nairobi", null));
         when(this.context.authenticatedUser()).thenReturn(this.checker);
         lenient().when(this.checker.getId()).thenReturn(2L);
@@ -154,13 +161,15 @@ class ExcessRefundWritePlatformServiceTest {
     }
 
     @Test
-    void sendToPaymentHubPersistsFailedWhenSubmitThrows() throws Exception {
+    void sendToPaymentHubKeepsClaimPendingWhenSubmitThrows() throws Exception {
         final LoanExcessRefund refund = new LoanExcessRefund();
         setEntityId(refund, 20L);
         refund.setLoanId(5L);
         refund.setAmount(new BigDecimal("100.00"));
         refund.setStatus(LoanExcessRefundStatus.APPROVED);
-        when(this.refundRepository.findById(20L)).thenReturn(java.util.Optional.of(refund));
+        when(this.refundRepository.findLoanId(20L)).thenReturn(java.util.Optional.of(5L));
+        when(this.refundRepository.findByIdForUpdate(20L)).thenReturn(java.util.Optional.of(refund));
+        when(this.refundRepository.findOneByHubRequestId("cbs_refund_20")).thenReturn(java.util.Optional.of(refund));
         final java.util.List<LoanExcessRefundStatus> savedStatuses = new java.util.ArrayList<>();
         when(this.refundRepository.saveAndFlush(any(LoanExcessRefund.class))).thenAnswer(invocation -> {
             final LoanExcessRefund saved = invocation.getArgument(0);
@@ -170,6 +179,7 @@ class ExcessRefundWritePlatformServiceTest {
 
         final Loan loan = org.mockito.Mockito.mock(Loan.class);
         when(loan.getOfficeId()).thenReturn(1L);
+        when(this.loanRepository.findOneWithNotFoundDetection(5L)).thenReturn(loan);
         when(loan.getTotalOverpaid()).thenReturn(new BigDecimal("100.00"));
         when(this.loanRepository.findOneForUpdate(5L)).thenReturn(loan);
         when(this.officeHierarchyService.validateUserAccessToOffice(this.checker, 1L)).thenReturn(true);
@@ -184,21 +194,32 @@ class ExcessRefundWritePlatformServiceTest {
         assertThatThrownBy(() -> this.service.sendToPaymentHub(command)).isInstanceOf(GeneralPlatformDomainRuleException.class)
                 .hasMessageContaining("Hub unavailable");
 
-        verify(this.refundRepository, times(2)).saveAndFlush(any(LoanExcessRefund.class));
-        assertThat(savedStatuses).containsExactly(LoanExcessRefundStatus.PAYMENT_SUBMITTED, LoanExcessRefundStatus.PAYMENT_FAILED);
-        assertThat(refund.getFailureReason()).contains("Hub unavailable");
-        verify(this.paymentHubDisbursementPollRepository, never()).save(any());
+        assertThatThrownBy(() -> this.service.sendToPaymentHub(command)).isInstanceOf(GeneralPlatformDomainRuleException.class)
+                .hasMessageContaining("already submitted");
+        verify(this.paymentHubService).submitRefund(loan, refund, "cbs_refund_20");
+        verify(this.refundRepository, times(1)).saveAndFlush(any(LoanExcessRefund.class));
+        assertThat(savedStatuses).containsExactly(LoanExcessRefundStatus.PAYMENT_SUBMITTED);
+        assertThat(refund.getFailureReason()).isNull();
+        verify(this.paymentHubDisbursementPollRepository).save(any());
+
+        this.service.applyHubCallback("cbs_refund_20", true, "hub-reference", null);
+        this.service.applyHubCallback("cbs_refund_20", false, null, "late failure");
+        assertThat(refund.getStatus()).isEqualTo(LoanExcessRefundStatus.PAID);
+        assertThat(refund.getHubTransactionRef()).isEqualTo("hub-reference");
+        verify(this.paymentHubService).submitRefund(loan, refund, "cbs_refund_20");
     }
 
-    @Test
-    void sendToPaymentHubAppliesImmediateFailedWithoutPoll() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = { "SUCCESS", "FAILED" })
+    void sendToPaymentHubAppliesImmediateTerminalStatus(final String hubStatus) throws Exception {
         final LoanExcessRefund refund = new LoanExcessRefund();
         setEntityId(refund, 21L);
         refund.setLoanId(5L);
         refund.setAmount(new BigDecimal("100.00"));
         refund.setStatus(LoanExcessRefundStatus.APPROVED);
-        when(this.refundRepository.findById(21L)).thenReturn(java.util.Optional.of(refund));
-        when(this.refundRepository.findByHubRequestId("cbs_refund_21")).thenReturn(java.util.Optional.of(refund));
+        when(this.refundRepository.findLoanId(21L)).thenReturn(java.util.Optional.of(5L));
+        when(this.refundRepository.findByIdForUpdate(21L)).thenReturn(java.util.Optional.of(refund));
+        when(this.refundRepository.findOneByHubRequestId("cbs_refund_21")).thenReturn(java.util.Optional.of(refund));
         when(this.refundRepository.saveAndFlush(any(LoanExcessRefund.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         final Loan loan = org.mockito.Mockito.mock(Loan.class);
@@ -211,16 +232,21 @@ class ExcessRefundWritePlatformServiceTest {
         lenient().when(this.noteRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         when(this.paymentHubService.submitRefund(any(Loan.class), any(LoanExcessRefund.class), any()))
-                .thenReturn("{\"status\":\"FAILED\",\"statusCode\":500,\"reason\":\"Insufficient funds\",\"transactionRef\":null}");
+                .thenReturn("{\"status\":\"" + hubStatus + "\",\"reason\":\"Insufficient funds\",\"transactionRef\":\"ref-21\"}");
 
         final JsonCommand command = JsonCommand.fromExistingCommand(1L, "{}", JsonParser.parseString("{}"), this.fromJsonHelper,
                 "EXCESS_REFUND", 21L, null, null, null, null, null, null, null, null, null, null);
 
         this.service.sendToPaymentHub(command);
 
-        assertThat(refund.getStatus()).isEqualTo(LoanExcessRefundStatus.PAYMENT_FAILED);
-        assertThat(refund.getFailureReason()).contains("Insufficient funds");
-        verify(this.paymentHubDisbursementPollRepository, never()).save(any());
+        if ("SUCCESS".equals(hubStatus)) {
+            assertThat(refund.getStatus()).isEqualTo(LoanExcessRefundStatus.PAID);
+            assertThat(refund.getHubTransactionRef()).isEqualTo("ref-21");
+        } else {
+            assertThat(refund.getStatus()).isEqualTo(LoanExcessRefundStatus.PAYMENT_FAILED);
+            assertThat(refund.getFailureReason()).contains("Insufficient funds");
+        }
+        verify(this.paymentHubDisbursementPollRepository).save(any());
     }
 
     private static void setEntityId(final AbstractPersistableCustom entity, final Long id) throws Exception {

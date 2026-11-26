@@ -18,9 +18,19 @@
  */
 package org.apache.fineract.portfolio.loanaccount.excessrefund.repository;
 
+import java.util.Optional;
+import javax.persistence.LockModeType;
 import org.apache.fineract.portfolio.loanaccount.excessrefund.domain.LoanExcessRefundBatch;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface LoanExcessRefundBatchRepository
-        extends JpaRepository<LoanExcessRefundBatch, Long>, JpaSpecificationExecutor<LoanExcessRefundBatch> {}
+        extends JpaRepository<LoanExcessRefundBatch, Long>, JpaSpecificationExecutor<LoanExcessRefundBatch> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select batch from LoanExcessRefundBatch batch where batch.id = :id")
+    Optional<LoanExcessRefundBatch> findByIdForUpdate(@Param("id") Long id);
+}

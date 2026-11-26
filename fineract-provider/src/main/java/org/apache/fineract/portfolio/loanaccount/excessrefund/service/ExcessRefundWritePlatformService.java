@@ -55,7 +55,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
@@ -80,13 +80,12 @@ import org.apache.fineract.portfolio.loanaccount.excessrefund.repository.LoanExc
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.useradministration.domain.AppUser;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -94,7 +93,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class ExcessRefundWritePlatformService {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ExcessRefundWritePlatformService.class);
     private static final List<Integer> OPEN_STATUS_VALUES = LoanExcessRefundStatus.openStatusEnumValues();
 
     private final PlatformSecurityContext context;
@@ -245,102 +243,66 @@ public class ExcessRefundWritePlatformService {
         return result(refund, loan);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CommandProcessingResult sendToPaymentHub(final JsonCommand command) {
         final AppUser user = this.context.authenticatedUser();
         user.validateHasPermissionTo("SEND_TO_PAYMENTHUB_EXCESS_REFUND");
-        final LoanExcessRefund refund = findRefund(command.entityId());
-        assertMaySendToPaymentHub(refund);
-        if (!(refund.getStatus() == APPROVED || refund.getStatus() == PAYMENT_FAILED)) {
-            throw invalidStatus(refund);
+        final HubSubmission submission = newRequiresNewTemplate().execute(status -> claimHubSubmission(command.entityId(), user));
+
+        // A transport error cannot establish whether the payout was accepted. The committed poll remains pending.
+        final String response;
+        try {
+            response = this.paymentHubService.submitRefund(submission.loan(), submission.refund(), submission.requestId());
+        } catch (ExcessRefundPaymentHubService.RefundRejectedException ex) {
+            newRequiresNewTemplate().executeWithoutResult(status -> applyHubCallback(submission.requestId(), false, null,
+                    ex.getMessage()));
+            throw ex.toDomainException();
+        } catch (ExcessRefundPaymentHubService.RefundNotSentException ex) {
+            newRequiresNewTemplate().executeWithoutResult(status -> applyHubCallback(submission.requestId(), false, null,
+                    ex.getMessage()));
+            throw new GeneralPlatformDomainRuleException("integration.excessRefund.notSent", ex.getMessage());
         }
-        final Loan loan = this.loanRepository.findOneForUpdate(refund.getLoanId());
+        final PaymentHubTransactionStatus hubStatus = PaymentHubTransactionStatus.parse(response);
+        return newRequiresNewTemplate().execute(status -> {
+            if (hubStatus != null && (hubStatus.isSuccess() || hubStatus.isFailed())) {
+                return applyHubCallback(submission.requestId(), hubStatus.isSuccess(), hubStatus.getTransactionRef(),
+                        hubStatus.getReason());
+            }
+            return result(findRefund(submission.refund().getId()), submission.loan());
+        });
+    }
+
+    private HubSubmission claimHubSubmission(final Long refundId, final AppUser user) {
+        final Long loanId = this.refundRepository.findLoanId(refundId).orElseThrow(() -> refundNotFound(refundId));
+        final Loan loan = this.loanRepository.findOneForUpdate(loanId);
+        final LoanExcessRefund refund = this.refundRepository.findByIdForUpdate(refundId).orElseThrow(() -> refundNotFound(refundId));
+        assertMaySendToPaymentHub(refund);
         assertOfficeAccess(user, loan);
         validateOverpaymentAmount(loan, refund.getAmount());
 
-        final String requestId = StringUtils.isNotBlank(refund.getHubRequestId()) ? refund.getHubRequestId()
-                : "cbs_refund_" + refund.getId();
-        persistPaymentHubSubmission(refund.getId(), requestId);
-
-        final String responseBody;
-        try {
-            responseBody = this.paymentHubService.submitRefund(loan, refund, requestId);
-        } catch (GeneralPlatformDomainRuleException ex) {
-            persistPaymentHubFailure(refund.getId(), ex.getDefaultUserMessage());
-            throw ex;
+        final String previousRequestId = refund.getHubRequestId();
+        if (refund.getStatus() != APPROVED && (refund.getStatus() != PAYMENT_FAILED || StringUtils.isBlank(previousRequestId)
+                || this.paymentHubDisbursementPollRepository.findByRequestId(previousRequestId)
+                        .filter(poll -> PaymentHubTransactionStatus.FAILED.equals(poll.getStatus())).isEmpty())) {
+            throw invalidStatus(refund);
         }
-        applyImmediateOrRegisterPendingHubStatus(loan, refund, requestId, responseBody);
-        saveLoanNote(loan, "Excess refund #" + refund.getId() + " sent to Payment Hub requestId=" + requestId);
-        return result(findRefund(refund.getId()), loan);
-    }
+        final String requestId = "cbs_refund_" + refundId
+                + (StringUtils.isBlank(previousRequestId) ? "" : "_" + UUID.randomUUID());
+        refund.setHubRequestId(requestId);
+        refund.setStatus(PAYMENT_SUBMITTED);
+        refund.setPaymentMode(LoanExcessRefundPaymentMode.PAYMENT_HUB);
+        refund.setFailureReason(null);
+        refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
+        saveRefund(refund);
 
-    private void applyImmediateOrRegisterPendingHubStatus(final Loan loan, final LoanExcessRefund refund, final String requestId,
-            final String responseBody) {
-        final PaymentHubTransactionStatus hubStatus = PaymentHubTransactionStatus.parse(responseBody);
-        if (hubStatus != null && hubStatus.isSuccess()) {
-            applyHubCallback(requestId, true, hubStatus.getTransactionRef(), hubStatus.getReason());
-            return;
-        }
-        if (hubStatus != null && (hubStatus.isFailed() || hubStatus.isPendingError())) {
-            applyHubCallback(requestId, false, hubStatus.getTransactionRef(), hubStatus.getReason());
-            return;
-        }
-        registerPendingPaymentHubRefund(loan, refund, requestId, responseBody);
-    }
-
-    private void persistPaymentHubSubmission(final Long refundId, final String requestId) {
-        newRequiresNewTemplate().execute(status -> {
-            final LoanExcessRefund managed = findRefund(refundId);
-            final LocalDateTime now = DateUtils.getLocalDateTimeOfTenant();
-            managed.setHubRequestId(requestId);
-            managed.setStatus(PAYMENT_SUBMITTED);
-            managed.setPaymentMode(LoanExcessRefundPaymentMode.PAYMENT_HUB);
-            managed.setFailureReason(null);
-            managed.setUpdatedAt(now);
-            saveRefund(managed);
-            return null;
-        });
-    }
-
-    private void persistPaymentHubFailure(final Long refundId, final String userMessage) {
-        newRequiresNewTemplate().execute(status -> {
-            final LoanExcessRefund managed = findRefund(refundId);
-            managed.setStatus(PAYMENT_FAILED);
-            managed.setFailureReason(StringUtils.abbreviate(userMessage, 500));
-            managed.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
-            saveRefund(managed);
-            return null;
-        });
-    }
-
-    private void registerPendingPaymentHubRefund(final Loan loan, final LoanExcessRefund refund, final String requestId,
-            final String responseBody) {
-        final PaymentHubTransactionStatus hubStatus = PaymentHubTransactionStatus.parse(responseBody);
-        if (!shouldPollPaymentHubStatus(hubStatus)) {
-            return;
-        }
-        final String transactionId = hubStatus == null ? null : hubStatus.getTransactionId();
-        final Long paymentTypeId = refund.getPaymentTypeId();
         final LocalDate businessDate = DateUtils.getBusinessLocalDate();
-        final Optional<PaymentHubDisbursementPoll> existing = this.paymentHubDisbursementPollRepository.findByRequestId(requestId);
-        if (existing.isPresent()) {
-            final PaymentHubDisbursementPoll poll = existing.get();
-            poll.reopenPending(transactionId, paymentTypeId, businessDate, null);
-            this.paymentHubDisbursementPollRepository.save(poll);
-        } else {
-            this.paymentHubDisbursementPollRepository.save(PaymentHubDisbursementPoll.pending(loan.getId(), null, requestId, transactionId,
-                    paymentTypeId, businessDate));
-        }
-        LOG.info("Registered pending Payment Hub excess refund for status polling loanId={}, refundId={}, requestId={}, transactionId={}",
-                loan.getId(), refund.getId(), requestId, transactionId);
+        this.paymentHubDisbursementPollRepository.save(
+                PaymentHubDisbursementPoll.pending(loanId, null, requestId, null, refund.getPaymentTypeId(), businessDate));
+        saveLoanNote(loan, "Excess refund #" + refundId + " claimed for Payment Hub requestId=" + requestId);
+        return new HubSubmission(loan, refund, requestId);
     }
 
-    private static boolean shouldPollPaymentHubStatus(final PaymentHubTransactionStatus status) {
-        if (status == null || StringUtils.isBlank(status.getStatus())) {
-            return true;
-        }
-        return status.isPending();
-    }
+    private record HubSubmission(Loan loan, LoanExcessRefund refund, String requestId) {}
 
     private TransactionTemplate newRequiresNewTemplate() {
         final TransactionTemplate template = new TransactionTemplate(this.transactionManager);
@@ -351,10 +313,11 @@ public class ExcessRefundWritePlatformService {
     @Transactional
     public CommandProcessingResult applyHubCallback(final String hubRequestId, final boolean success, final String transactionRef,
             final String message) {
-        final LoanExcessRefund refund = this.refundRepository.findByHubRequestId(hubRequestId)
+        final LoanExcessRefund refund = this.refundRepository.findOneByHubRequestId(hubRequestId)
                 .orElseThrow(() -> new GeneralPlatformDomainRuleException("error.msg.excess.refund.not.found",
                         "Excess refund not found for hub request " + hubRequestId));
         if (refund.getStatus() == PAID || refund.getStatus() == POSTED) {
+            reconcileHubPoll(hubRequestId, true, refund.getHubTransactionRef(), null);
             final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
             return result(refund, loan);
         }
@@ -372,10 +335,18 @@ public class ExcessRefundWritePlatformService {
         }
         refund.setUpdatedAt(DateUtils.getLocalDateTimeOfTenant());
         saveRefund(refund);
+        reconcileHubPoll(hubRequestId, success, transactionRef, message);
         final Loan loan = this.loanRepository.findOneWithNotFoundDetection(refund.getLoanId());
         saveLoanNote(loan, success ? "Excess refund #" + refund.getId() + " Payment Hub success ref=" + transactionRef
                 : "Excess refund #" + refund.getId() + " Payment Hub failed: " + message);
         return result(refund, loan);
+    }
+
+    private void reconcileHubPoll(final String requestId, final boolean success, final String transactionRef, final String reason) {
+        this.paymentHubDisbursementPollRepository.findByRequestId(requestId).filter(poll -> !poll.isSuccess()).ifPresent(poll -> {
+            poll.markRefundOutcome(success, transactionRef, reason);
+            this.paymentHubDisbursementPollRepository.save(poll);
+        });
     }
 
     @Transactional
@@ -582,8 +553,11 @@ public class ExcessRefundWritePlatformService {
     }
 
     private LoanExcessRefund findRefund(final Long id) {
-        return this.refundRepository.findById(id).orElseThrow(
-                () -> new GeneralPlatformDomainRuleException("error.msg.excess.refund.not.found", "Excess refund not found: " + id));
+        return this.refundRepository.findById(id).orElseThrow(() -> refundNotFound(id));
+    }
+
+    private GeneralPlatformDomainRuleException refundNotFound(final Long id) {
+        return new GeneralPlatformDomainRuleException("error.msg.excess.refund.not.found", "Excess refund not found: " + id);
     }
 
     private void saveRefund(final LoanExcessRefund refund) {
