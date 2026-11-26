@@ -43,8 +43,10 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentFrequency;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.RescheduleLoansApiConstants;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
+import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequestRepository;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.service.RescheduleFromInstallmentResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -53,6 +55,7 @@ import org.springframework.stereotype.Component;
 public class LoanRescheduleRequestDataValidator {
 
     private final FromJsonHelper fromJsonHelper;
+    private final LoanRescheduleRequestRepository loanRescheduleRequestRepository;
     private static final Set<String> CREATE_REQUEST_DATA_PARAMETERS = new HashSet<>(Arrays.asList(
             RescheduleLoansApiConstants.localeParamName, RescheduleLoansApiConstants.dateFormatParamName,
             RescheduleLoansApiConstants.graceOnPrincipalParamName,
@@ -82,8 +85,10 @@ public class LoanRescheduleRequestDataValidator {
     public static final Set<String> UNDO_REQUEST_DATA_PARAMETERS = new HashSet<>(Arrays.asList(RescheduleLoansApiConstants.notesParamName));
 
     @Autowired
-    public LoanRescheduleRequestDataValidator(FromJsonHelper fromJsonHelper) {
+    public LoanRescheduleRequestDataValidator(FromJsonHelper fromJsonHelper,
+            LoanRescheduleRequestRepository loanRescheduleRequestRepository) {
         this.fromJsonHelper = fromJsonHelper;
+        this.loanRescheduleRequestRepository = loanRescheduleRequestRepository;
     }
 
     /**
@@ -116,6 +121,15 @@ public class LoanRescheduleRequestDataValidator {
             dataValidatorBuilder.reset().failWithCodeNoParameterAddedToErrorCode("loan.is.not.active", "Loan is not active");
         }
 
+        if (loan.getId() != null && this.loanRescheduleRequestRepository != null) {
+            final List<LoanRescheduleRequest> pending = this.loanRescheduleRequestRepository.findByLoanIdAndStatusEnum(loan.getId(),
+                    LoanStatus.SUBMITTED_AND_PENDING_APPROVAL.getValue());
+            if (pending != null && !pending.isEmpty()) {
+                dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.loanIdParamName).failWithCode(
+                        "loan.already.has.pending.reschedule.request", "Loan already has a pending reschedule request");
+            }
+        }
+
         final Long loanId = this.fromJsonHelper.extractLongNamed(RescheduleLoansApiConstants.loanIdParamName, jsonElement);
         dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.loanIdParamName).value(loanId).notNull()
                 .integerGreaterThanZero();
@@ -143,10 +157,14 @@ public class LoanRescheduleRequestDataValidator {
         dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.graceOnInterestParamName).value(graceOnInterest).ignoreIfNull()
                 .integerGreaterThanZero();
 
+        final Boolean preserveLoanTermDuration = this.fromJsonHelper
+                .extractBooleanNamed(RescheduleLoansApiConstants.preserveLoanTermDurationParamName, jsonElement);
         final Integer extraTerms = this.fromJsonHelper.extractIntegerWithLocaleNamed(RescheduleLoansApiConstants.extraTermsParamName,
                 jsonElement);
-        dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.extraTermsParamName).value(extraTerms).ignoreIfNull()
-                .integerGreaterThanZero();
+        if (!Boolean.TRUE.equals(preserveLoanTermDuration)) {
+            dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.extraTermsParamName).value(extraTerms).ignoreIfNull()
+                    .integerGreaterThanZero();
+        }
 
         final Long rescheduleReasonId = this.fromJsonHelper.extractLongNamed(RescheduleLoansApiConstants.rescheduleReasonIdParamName,
                 jsonElement);
@@ -182,13 +200,25 @@ public class LoanRescheduleRequestDataValidator {
             }
         }
 
-        final Boolean preserveLoanTermDuration = this.fromJsonHelper
-                .extractBooleanNamed(RescheduleLoansApiConstants.preserveLoanTermDurationParamName, jsonElement);
         dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.preserveLoanTermDurationParamName)
                 .value(preserveLoanTermDuration).ignoreIfNull();
 
         // Validation: preserveLoanTermDuration can only be used when changing repayment frequency
-        if (preserveLoanTermDuration != null && preserveLoanTermDuration) {
+        if (Boolean.TRUE.equals(preserveLoanTermDuration)) {
+            if (extraTerms != null && extraTerms != 0) {
+                dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.extraTermsParamName)
+                        .failWithCode("incompatible.with.preserve.loan.term.duration",
+                                "Extra terms must be zero when preserving the loan term duration");
+            }
+            for (final String parameter : List.of(RescheduleLoansApiConstants.adjustedDueDateParamName,
+                    RescheduleLoansApiConstants.emiParamName, RescheduleLoansApiConstants.newPrincipalDueFixedAmount,
+                    RescheduleLoansApiConstants.newFixedPrincipalPercentagePerInstallment)) {
+                if (this.fromJsonHelper.parameterExists(parameter, jsonElement)) {
+                    dataValidatorBuilder.reset().parameter(parameter)
+                            .failWithCode("incompatible.with.preserve.loan.term.duration",
+                                    "This adjustment cannot be combined with preserving the original maturity");
+                }
+            }
             if (repaymentEvery == null || repaymentFrequencyType == null) {
                 dataValidatorBuilder.reset().parameter(RescheduleLoansApiConstants.preserveLoanTermDurationParamName)
                         .failWithCode("preserve.loan.term.duration.requires.frequency.change",

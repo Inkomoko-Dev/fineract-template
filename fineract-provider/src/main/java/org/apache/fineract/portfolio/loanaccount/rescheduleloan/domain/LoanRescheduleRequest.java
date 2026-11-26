@@ -37,10 +37,12 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
+import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRescheduleRequestToTermVariationMapping;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariations;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.data.ChargeHandlingOption;
 import org.apache.fineract.useradministration.domain.AppUser;
 
@@ -241,6 +243,17 @@ public class LoanRescheduleRequest extends AbstractPersistableCustom {
             }
         }
         return null;
+    }
+
+    public void configurePreservedTerm(final LoanApplicationTerms terms) {
+        if (getPreserveLoanTermDuration() && repaymentEvery != null && repaymentFrequencyType != null) {
+            terms.preserveTermAtCadence(repaymentEvery, PeriodFrequencyType.fromInt(repaymentFrequencyType));
+        }
+    }
+
+    public boolean isLegacyPreserveTermExtension(final LoanTermVariations variation) {
+        return getPreserveLoanTermDuration() && variation.getTermType().isExtendRepaymentPeriod()
+                && variation.parent() == null;
     }
 
     public Integer getRepaymentEvery() {

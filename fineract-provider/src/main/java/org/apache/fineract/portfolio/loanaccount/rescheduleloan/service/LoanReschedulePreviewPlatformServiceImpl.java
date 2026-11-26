@@ -109,7 +109,10 @@ public class LoanReschedulePreviewPlatformServiceImpl implements LoanRescheduleP
                     adjustedApplicableDate = loanRescheduleRequestToTermVariationMapping.getLoanTermVariations().fetchDateValue();
                     loanRescheduleRequestToTermVariationMapping.getLoanTermVariations().setTermApplicableFrom(rescheduleFromDate);
                 }
-                loanTermVariationsData.add(loanRescheduleRequestToTermVariationMapping.getLoanTermVariations().toData());
+                final LoanTermVariations variation = loanRescheduleRequestToTermVariationMapping.getLoanTermVariations();
+                if (!loanRescheduleRequest.isLegacyPreserveTermExtension(variation)) {
+                    loanTermVariationsData.add(variation.toData());
+                }
             }
         }
 
@@ -134,6 +137,7 @@ public class LoanReschedulePreviewPlatformServiceImpl implements LoanRescheduleP
         final LoanScheduleGenerator loanScheduleGenerator = this.loanScheduleFactory.create(loanApplicationTerms.getInterestMethod());
         final LoanLifecycleStateMachine loanLifecycleStateMachine = null;
         loan.setHelpers(loanLifecycleStateMachine, this.loanSummaryWrapper, this.loanRepaymentScheduleTransactionProcessorFactory);
+        loanRescheduleRequest.configurePreservedTerm(loanApplicationTerms);
         final LoanScheduleDTO loanSchedule = loanScheduleGenerator.rescheduleNextInstallments(mathContext, loanApplicationTerms, loan,
                 loanApplicationTerms.getHolidayDetailDTO(), loanRepaymentScheduleTransactionProcessor, rescheduleFromDate);
         final LoanScheduleModel loanScheduleModel = loanSchedule.getLoanScheduleModel();

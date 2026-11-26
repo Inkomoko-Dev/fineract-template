@@ -127,6 +127,8 @@ public final class LoanApplicationTerms {
 
     // added
     private LocalDate loanEndDate;
+    private PreservedTermCadence preservedTermCadence;
+    private LocalDate preservedMaturity;
 
     private final List<DisbursementData> disbursementDatas;
 
@@ -933,6 +935,50 @@ public final class LoanApplicationTerms {
             break;
         }
         return numberOfPeriods;
+    }
+
+    LocalDate getPreservedMaturity() {
+        return this.preservedMaturity;
+    }
+
+    void setPreservedMaturity(final LocalDate maturity) {
+        this.preservedMaturity = maturity;
+    }
+
+    record PreservedTermCadence(int repayEvery, PeriodFrequencyType frequency) {}
+
+    public void preserveTermAtCadence(final int repayEvery, final PeriodFrequencyType frequency) {
+        this.preservedTermCadence = new PreservedTermCadence(repayEvery, frequency);
+    }
+
+    PreservedTermCadence getPreservedTermCadence() {
+        return this.preservedTermCadence;
+    }
+
+    BigDecimal calculatePreservedTermInterestPeriods(final LocalDate startDate, final MathContext mc) {
+        final long remainingDays = ChronoUnit.DAYS.between(startDate, this.preservedMaturity);
+        if (this.interestCalculationPeriodMethod.isDaily() || this.repaymentPeriodFrequencyType == PeriodFrequencyType.DAYS) {
+            return BigDecimal.valueOf(remainingDays);
+        }
+        if (this.repaymentPeriodFrequencyType == PeriodFrequencyType.WEEKS) {
+            return BigDecimal.valueOf(remainingDays).divide(BigDecimal.valueOf(7), mc);
+        }
+        final boolean monthly = this.repaymentPeriodFrequencyType == PeriodFrequencyType.MONTHS;
+        final ChronoUnit unit = monthly ? ChronoUnit.MONTHS : ChronoUnit.YEARS;
+        long wholePeriods = unit.between(startDate, this.preservedMaturity);
+        if (!startDate.plus(wholePeriods + 1, unit).isAfter(this.preservedMaturity)) {
+            wholePeriods++;
+        }
+        final LocalDate stubStart = startDate.plus(wholePeriods, unit);
+        final long stubDays = ChronoUnit.DAYS.between(stubStart, this.preservedMaturity);
+        final long daysPerPeriod;
+        if (monthly) {
+            daysPerPeriod = this.daysInMonthType.isDaysInMonth_30() ? 30 : ChronoUnit.DAYS.between(stubStart, stubStart.plusMonths(1));
+        } else {
+            daysPerPeriod = this.daysInYearType.getValue() > 1 ? this.daysInYearType.getValue()
+                    : ChronoUnit.DAYS.between(stubStart, stubStart.plusYears(1));
+        }
+        return BigDecimal.valueOf(wholePeriods).add(BigDecimal.valueOf(stubDays).divide(BigDecimal.valueOf(daysPerPeriod), mc));
     }
 
     public void updateLoanEndDate(final LocalDate loanEndDate) {
@@ -1886,8 +1932,8 @@ public final class LoanApplicationTerms {
     /**
      * Calculates the number of repayments when changing repayment frequency while preserving loan term duration.
      *
-     * <p>Uses calendar-accurate arithmetic (via {@link java.time.temporal.ChronoUnit}) anchored to a fixed reference
-     * date so that real-world month and year lengths are respected, avoiding rounding discrepancies (NFR3).</p>
+     * <p>Counts calendar periods of the new frequency from a fixed anchor until the original term end date. Day-ratio
+     * division is avoided because month lengths vary (e.g. 6 years / January-days wrongly yields 70 instead of 72).</p>
      *
      * @param originalRepaymentEvery the original repayment every value
      * @param originalRepaymentFrequencyType the original repayment frequency type
@@ -1909,29 +1955,47 @@ public final class LoanApplicationTerms {
             return null;
         }
 
-        // Use a fixed reference anchor date for calendar-accurate arithmetic.
         // Anchoring to the first of a month avoids month-boundary edge cases.
         final java.time.LocalDate anchor = java.time.LocalDate.of(2000, 1, 1);
-
-        // Calculate the end of the original loan term relative to the anchor
         final java.time.LocalDate originalEnd = addPeriods(anchor, originalRepaymentEvery, originalRepaymentFrequencyType,
                 originalNumberOfRepayments);
+        final Integer completePeriods = countRepaymentPeriodsBetween(anchor, originalEnd, newRepaymentEvery, newRepaymentFrequencyType);
+        return completePeriods == null ? null : Math.max(1, completePeriods);
+    }
 
-        // Calculate the end of one new period relative to the anchor
-        final java.time.LocalDate onePeriodEnd = addPeriods(anchor, newRepaymentEvery, newRepaymentFrequencyType, 1);
-
-        // Total days in original term and days in one new period
-        long totalDays = java.time.temporal.ChronoUnit.DAYS.between(anchor, originalEnd);
-        long onePeriodDays = java.time.temporal.ChronoUnit.DAYS.between(anchor, onePeriodEnd);
-
-        if (onePeriodDays == 0) {
+    /**
+     * Counts how many repayment periods of the given cadence fit from {@code startInclusive} until {@code endInclusive}.
+     * Uses {@link java.time.temporal.ChronoUnit} for months/years so day-of-month drift does not overshoot maturity.
+     *
+     * @return period count, or {@code null} when inputs are invalid; 0 when end is not after start
+     */
+    public static Integer countRepaymentPeriodsBetween(final java.time.LocalDate startInclusive,
+            final java.time.LocalDate endInclusive, final Integer repaymentEvery, final PeriodFrequencyType frequencyType) {
+        if (startInclusive == null || endInclusive == null || repaymentEvery == null || frequencyType == null
+                || repaymentEvery <= 0) {
             return null;
         }
-
-        int newNumberOfRepayments = (int) (totalDays / onePeriodDays);
-
-        // Ensure at least 1 repayment
-        return Math.max(1, newNumberOfRepayments);
+        if (!endInclusive.isAfter(startInclusive)) {
+            return 0;
+        }
+        final long units;
+        switch (frequencyType) {
+            case DAYS:
+                units = java.time.temporal.ChronoUnit.DAYS.between(startInclusive, endInclusive);
+                break;
+            case WEEKS:
+                units = java.time.temporal.ChronoUnit.WEEKS.between(startInclusive, endInclusive);
+                break;
+            case MONTHS:
+                units = java.time.temporal.ChronoUnit.MONTHS.between(startInclusive, endInclusive);
+                break;
+            case YEARS:
+                units = java.time.temporal.ChronoUnit.YEARS.between(startInclusive, endInclusive);
+                break;
+            default:
+                return null;
+        }
+        return (int) (units / repaymentEvery);
     }
 
     /**
@@ -1943,7 +2007,7 @@ public final class LoanApplicationTerms {
      * @param count the number of periods to add
      * @return the resulting date after adding the periods
      */
-    private static java.time.LocalDate addPeriods(final java.time.LocalDate anchor, final Integer frequency,
+    static java.time.LocalDate addPeriods(final java.time.LocalDate anchor, final Integer frequency,
             final PeriodFrequencyType frequencyType, final Integer count) {
         if (anchor == null || frequency == null || frequencyType == null || count == null) {
             return anchor;

@@ -286,7 +286,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             // create term variations for flat and declining balance loans
             createLoanTermVariationsForRegularLoans(loan, graceOnPrincipal, graceOnInterest, extraTerms, interestRate, rescheduleFromDate,
                     adjustedDueDate, loanRescheduleRequest, loanRescheduleRequestToTermVariationMappings, isActive, isSpecificToInstallment,
-                    decimalValue, dueDate, endDate, emi, newPrincipalDueFixedAmount, repaymentEvery, repaymentFrequencyType, preserveLoanTermDuration);
+                    decimalValue, dueDate, endDate, emi, newPrincipalDueFixedAmount, repaymentEvery, repaymentFrequencyType);
 
             // create a new entry in the m_loan_reschedule_request table
             // read optional parameter from request
@@ -350,8 +350,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             final LoanRescheduleRequest loanRescheduleRequest,
             List<LoanRescheduleRequestToTermVariationMapping> loanRescheduleRequestToTermVariationMappings, final Boolean isActive,
             final boolean isSpecificToInstallment, BigDecimal decimalValue, LocalDate dueDate, LocalDate endDate, final BigDecimal emi,
-            final BigDecimal newPrincipalDueFixedAmount, final Integer repaymentEvery, final Integer repaymentFrequencyType,
-            final Boolean preserveLoanTermDuration) {
+            final BigDecimal newPrincipalDueFixedAmount, final Integer repaymentEvery, final Integer repaymentFrequencyType) {
 
         if (rescheduleFromDate != null && endDate != null && emi != null) {
             createEMIVariation(loan, rescheduleFromDate, loanRescheduleRequest, loanRescheduleRequestToTermVariationMappings, isActive,
@@ -399,7 +398,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     parent);
         }
 
-        if (rescheduleFromDate != null && extraTerms != null) {
+        if (rescheduleFromDate != null && extraTerms != null && extraTerms != 0) {
             LoanTermVariations parent = null;
             final Integer termType = LoanTermVariationType.EXTEND_REPAYMENT_PERIOD.getValue();
             createLoanTermVariations(loanRescheduleRequest, termType, loan, rescheduleFromDate, dueDate,
@@ -424,41 +423,28 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
                     parent);
         }
 
-        // If preserveLoanTermDuration is true and frequency is changing, calculate and apply new number of repayments
-        if (preserveLoanTermDuration != null && preserveLoanTermDuration && repaymentEvery != null && repaymentFrequencyType != null) {
-            final Integer originalRepaymentEvery = loan.repaymentScheduleDetail().getRepayEvery();
-            final Integer originalRepaymentFrequencyType = loan.repaymentScheduleDetail().getRepaymentPeriodFrequencyType() != null
-                    ? loan.repaymentScheduleDetail().getRepaymentPeriodFrequencyType().getValue() : null;
-            final Integer originalNumberOfRepayments = loan.getNumberOfRepayments();
-
-            if (originalRepaymentEvery != null && originalRepaymentFrequencyType != null && originalNumberOfRepayments != null) {
-                final Integer newNumberOfRepayments = LoanApplicationTerms.calculateNumberOfRepaymentsForFrequencyChange(
-                        originalRepaymentEvery,
-                        loan.repaymentScheduleDetail().getRepaymentPeriodFrequencyType(),
-                        repaymentEvery,
-                        org.apache.fineract.portfolio.common.domain.PeriodFrequencyType.fromInt(repaymentFrequencyType),
-                        originalNumberOfRepayments);
-
-                if (newNumberOfRepayments != null && !newNumberOfRepayments.equals(originalNumberOfRepayments)) {
-                    // Calculate the difference and create an EXTEND_REPAYMENT_PERIOD variation only when
-                    // the new number of repayments is GREATER than the original (i.e. loan is being extended).
-                    // When the frequency increases (e.g. monthly → weekly) the difference is negative;
-                    // passing a negative value to EXTEND_REPAYMENT_PERIOD produces undefined schedule behaviour,
-                    // so we skip it — the reduced repayment count is already captured by the REPAYMENT_EVERY /
-                    // REPAYMENT_FREQUENCY term variations applied above.
-                    final Integer termsDifference = newNumberOfRepayments - originalNumberOfRepayments;
-                    if (termsDifference > 0) {
-                        LoanTermVariations parent = null;
-                        final Integer termType = LoanTermVariationType.EXTEND_REPAYMENT_PERIOD.getValue();
-                        createLoanTermVariations(loanRescheduleRequest, termType, loan, rescheduleFromDate, dueDate,
-                                loanRescheduleRequestToTermVariationMappings, isActive, isSpecificToInstallment,
-                                BigDecimal.valueOf(termsDifference), parent);
-                    }
-                }
-            }
-        }
-
         loanRescheduleRequest.updateLoanRescheduleRequestToTermVariationMappings(loanRescheduleRequestToTermVariationMappings);
+    }
+
+    /**
+     * Persist repayment cadence on {@code m_loan} so Account Detail matches the approved schedule (not stale product
+     * fields after a frequency reschedule).
+     */
+    void syncLoanRepaymentCadenceFromRescheduleRequest(final Loan loan, final LoanRescheduleRequest loanRescheduleRequest) {
+        if (loan == null || loanRescheduleRequest == null || loan.repaymentScheduleDetail() == null) {
+            return;
+        }
+        if (loanRescheduleRequest.getRepaymentEvery() != null) {
+            loan.repaymentScheduleDetail().setRepayEvery(loanRescheduleRequest.getRepaymentEvery());
+        }
+        if (loanRescheduleRequest.getRepaymentFrequencyType() != null) {
+            loan.repaymentScheduleDetail().setRepaymentPeriodFrequencyType(
+                    org.apache.fineract.portfolio.common.domain.PeriodFrequencyType.fromInt(loanRescheduleRequest.getRepaymentFrequencyType()));
+        }
+        final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        if (installments != null && !installments.isEmpty()) {
+            loan.updateNumberOfRepayments(installments.size());
+        }
     }
 
     private void createEMIVariation(Loan loan, LocalDate rescheduleFromDate, LoanRescheduleRequest loanRescheduleRequest,
@@ -587,7 +573,8 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             }
             for (LoanRescheduleRequestToTermVariationMapping mapping : loanRescheduleRequest
                     .getLoanRescheduleRequestToTermVariationMappings()) {
-                mapping.getLoanTermVariations().updateIsActive(true);
+                mapping.getLoanTermVariations().updateIsActive(!loanRescheduleRequest.isLegacyPreserveTermExtension(
+                        mapping.getLoanTermVariations()));
             }
             applyInterestRateChangeToLoan(loan, loanRescheduleRequest, loanApplicationTerms);
             BigDecimal annualNominalInterestRate = null;
@@ -614,6 +601,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             final LoanScheduleGenerator loanScheduleGenerator = this.loanScheduleFactory.create(loanApplicationTerms.getInterestMethod());
             final LoanLifecycleStateMachine loanLifecycleStateMachine = null;
             loan.setHelpers(loanLifecycleStateMachine, this.loanSummaryWrapper, this.loanRepaymentScheduleTransactionProcessorFactory);
+            loanRescheduleRequest.configurePreservedTerm(loanApplicationTerms);
             final LoanScheduleDTO loanScheduleDTO = loanScheduleGenerator.rescheduleNextInstallments(mathContext, loanApplicationTerms, loan,
                     loanApplicationTerms.getHolidayDetailDTO(), loanRepaymentScheduleTransactionProcessor, rescheduleFromDate);
 
@@ -623,6 +611,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             } else {
                 loan.updateLoanSchedule(loanScheduleDTO.getLoanScheduleModel());
             }
+            syncLoanRepaymentCadenceFromRescheduleRequest(loan, loanRescheduleRequest);
             loan.repairOrInactivateBrokenOverdueInstallmentCharges();
             loan.recalculateAllCharges();
             ChangedTransactionDetail changedTransactionDetail = loan.processTransactions();

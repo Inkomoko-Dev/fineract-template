@@ -21,6 +21,8 @@ package org.apache.fineract.integrationtests;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.builder.ResponseSpecBuilder;
 import io.restassured.http.ContentType;
@@ -28,9 +30,12 @@ import io.restassured.path.json.JsonPath;
 import io.restassured.specification.RequestSpecification;
 import io.restassured.specification.ResponseSpecification;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import org.apache.fineract.integrationtests.common.ClientHelper;
 import org.apache.fineract.integrationtests.common.CollateralManagementHelper;
 import org.apache.fineract.integrationtests.common.LoanRescheduleRequestHelper;
@@ -309,6 +314,7 @@ public class LoanRescheduleRequestTest {
 
     @Test
     public void testApproveLoanRescheduleChangeRepaymentFrequencyWithPreserveLoanTermDuration() {
+        final List<?> originalDueDates = repaymentDueDates();
         this.createLoanRescheduleChangeRepaymentFrequencyWithPreserveLoanTermDurationRequest();
 
         final Integer repaymentEvery = (Integer) this.loanRescheduleRequestHelper.getLoanRescheduleRequest(this.loanRescheduleRequestId,
@@ -345,11 +351,122 @@ public class LoanRescheduleRequestTest {
         Assertions.assertTrue(numberOfRepayments > 0,
                 "NUMBER OF REPAYMENTS must be at least 1 after frequency change");
 
+        final List<?> approvedDueDates = repaymentDueDates();
+        assertEquals(originalDueDates.get(originalDueDates.size() - 1), approvedDueDates.get(approvedDueDates.size() - 1));
+        assertEquals(numberOfRepayments.intValue(), approvedDueDates.size() - 1);
+
         // Verify outstanding balance is unchanged after reschedule (FR4)
         final HashMap loanSummaryAfter = this.loanTransactionHelper.getLoanSummary(requestSpec, generalResponseSpec, loanId);
         final Float totalOutstandingAfter = (Float) loanSummaryAfter.get("totalOutstanding");
         assertEquals(totalOutstandingBefore, totalOutstandingAfter,
                 0.01f, "OUTSTANDING BALANCE must remain unchanged after frequency reschedule with preserveLoanTermDuration");
+    }
+
+    @Test
+    void yearlyToMonthlyPreservesSeptember2032Maturity() {
+        createPreserveTermFixture(6, 1, 3, "30 September 2026");
+        final List<?> original = repaymentDueDates();
+        assertEquals(List.of(2032, 9, 30), original.get(original.size() - 1));
+
+        final List<?> approved = previewAndApprovePreservedTerm(original, 2, 2, "30 September 2026");
+        assertEquals(original.get(1), approved.get(1));
+        final LocalDate firstReplacement = localDate((List<?>) approved.get(2));
+        final LocalDate rescheduleFrom = localDate((List<?>) original.get(2));
+        assertEquals(rescheduleFrom, firstReplacement);
+        assertEquals(50, approved.size() - 1);
+    }
+
+    @Test
+    void remainderShorterThanOneMonthHasOneReplacementAtMaturity() {
+        createPreserveTermFixture(4, 7, 0, "04 September 2014");
+        final List<?> original = repaymentDueDates();
+        final List<?> approved = previewAndApprovePreservedTerm(original, 3, 2, "04 September 2014");
+        assertEquals(4, approved.size());
+        assertEquals(original.subList(1, 3), approved.subList(1, 3));
+    }
+
+    @Test
+    void monthlyToYearlyReducesCountAndPreservesMaturity() {
+        createPreserveTermFixture(24, 1, 2, "04 September 2014");
+        final List<?> original = repaymentDueDates();
+        final List<?> approved = previewAndApprovePreservedTerm(original, 2, 3, "04 September 2014");
+        assertTrue(approved.size() < original.size());
+        assertEquals(original.get(1), approved.get(1));
+    }
+
+    @Test
+    void preserveTermRejectsExtraInstallments() {
+        final String body = new LoanRescheduleRequestTestBuilder().updateGraceOnPrincipal(null).updateGraceOnInterest(null)
+                .updateExtraTerms("1").updateRepaymentEvery("2").updateRepaymentFrequencyType("2")
+                .updatePreserveLoanTermDuration(true).build(loanId.toString());
+        final List<String> errors = Utils.performServerPost(requestSpec, new ResponseSpecBuilder().expectStatusCode(400).build(),
+                "/fineract-provider/api/v1/rescheduleloans?" + Utils.TENANT_IDENTIFIER, body,
+                "errors.userMessageGlobalisationCode");
+        assertTrue(errors.stream().anyMatch(code -> code.contains("incompatible.with.preserve.loan.term.duration")));
+    }
+
+    private void createPreserveTermFixture(int count, int every, int frequency, String disbursement) {
+        final String countValue = String.valueOf(count);
+        final String everyValue = String.valueOf(every);
+        final JsonObject product = JsonParser.parseString(new LoanProductTestBuilder().withPrincipal(loanPrincipalAmount)
+                .withNumberOfRepayments(countValue).withRepaymentAfterEvery(everyValue).withinterestRatePerPeriod(interestRatePerPeriod)
+                .withInterestRateFrequencyTypeAsYear().build(null)).getAsJsonObject();
+        product.addProperty("repaymentFrequencyType", frequency);
+        final Integer productId = this.loanTransactionHelper.getLoanProductId(product.toString());
+        List<HashMap> collateral = new ArrayList<>();
+        final Integer collateralId = CollateralManagementHelper.createCollateralProduct(requestSpec, responseSpec);
+        final Integer clientCollateralId = CollateralManagementHelper.createClientCollateral(requestSpec, responseSpec,
+                clientId.toString(), collateralId);
+        addCollaterals(collateral, clientCollateralId, BigDecimal.ONE);
+        final JsonObject application = JsonParser.parseString(new LoanApplicationTestBuilder().withPrincipal(loanPrincipalAmount)
+                .withLoanTermFrequency(String.valueOf(count * every)).withLoanTermFrequencyAsMonths().withNumberOfRepayments(countValue)
+                .withRepaymentEveryAfter(everyValue).withRepaymentFrequencyTypeAsMonths().withAmortizationTypeAsEqualInstallments()
+                .withInterestCalculationPeriodTypeAsDays().withInterestRatePerPeriod(interestRatePerPeriod).withSubmittedOnDate(disbursement)
+                .withExpectedDisbursementDate(disbursement).withCollaterals(collateral)
+                .build(clientId.toString(), productId.toString(), null)).getAsJsonObject();
+        application.addProperty("loanTermFrequencyType", frequency);
+        application.addProperty("repaymentFrequencyType", frequency);
+        loanId = this.loanTransactionHelper.getLoanId(application.toString());
+        this.loanTransactionHelper.approveLoan(disbursement, loanId);
+        this.loanTransactionHelper.disburseLoan(disbursement, loanId, loanPrincipalAmount);
+    }
+
+    private List<?> previewAndApprovePreservedTerm(List<?> original, int boundaryIndex, int frequency, String submittedOn) {
+        final String from = localDate((List<?>) original.get(boundaryIndex))
+                .format(DateTimeFormatter.ofPattern("dd MMMM yyyy", Locale.ENGLISH));
+        final LoanRescheduleRequestTestBuilder builder = new LoanRescheduleRequestTestBuilder().updateGraceOnPrincipal(null)
+                .updateGraceOnInterest(null).updateExtraTerms(null).updateRepaymentEvery("1")
+                .updateRepaymentFrequencyType(String.valueOf(frequency)).updatePreserveLoanTermDuration(true)
+                .updateSubmittedOnDate(submittedOn).updateRescheduleFromDate(from);
+        final Integer requestId = this.loanRescheduleRequestHelper.createLoanRescheduleRequest(withIgnoreCharges(builder.build(loanId.toString())));
+        final List<?> preview = Utils.performServerGet(requestSpec, responseSpec, "/fineract-provider/api/v1/rescheduleloans/" + requestId
+                + "?command=previewLoanReschedule&" + Utils.TENANT_IDENTIFIER, "periods.dueDate");
+        this.loanRescheduleRequestHelper.approveLoanRescheduleRequest(requestId, builder.getApproveLoanRescheduleRequestJSON());
+        final List<?> approved = repaymentDueDates();
+        assertEquals(original.get(original.size() - 1), approved.get(approved.size() - 1));
+        assertEquals(approved.subList(1, approved.size()), preview.subList(1, preview.size()));
+        assertEquals(approved.size() - 1,
+                this.loanTransactionHelper.getLoanDetail(requestSpec, generalResponseSpec, loanId, "numberOfRepayments"));
+        assertEquals(frequency,
+                this.loanTransactionHelper.getLoanDetail(requestSpec, generalResponseSpec, loanId, "repaymentFrequencyType.id"));
+        return approved;
+    }
+
+    private static String withIgnoreCharges(final String request) {
+        final JsonObject payload = JsonParser.parseString(request).getAsJsonObject();
+        final JsonObject chargeHandling = new JsonObject();
+        chargeHandling.addProperty("name", "Ignore Charges");
+        payload.add("overdueChargeHandling", chargeHandling);
+        return payload.toString();
+    }
+
+    private static LocalDate localDate(List<?> date) {
+        return LocalDate.of((Integer) date.get(0), (Integer) date.get(1), (Integer) date.get(2));
+    }
+
+    private List<?> repaymentDueDates() {
+        return (List<?>) this.loanTransactionHelper.getLoanDetail(requestSpec, generalResponseSpec, loanId,
+                "repaymentSchedule.periods.dueDate");
     }
 
     private void createLoanRescheduleChangeRepaymentFrequencyWithPreserveLoanTermDurationRequest() {
@@ -361,7 +478,7 @@ public class LoanRescheduleRequestTest {
                 .updatePreserveLoanTermDuration(true)
                 .updateRescheduleFromDate("04 December 2014").build(this.loanId.toString());
 
-        this.loanRescheduleRequestId = this.loanRescheduleRequestHelper.createLoanRescheduleRequest(requestJSON);
+        this.loanRescheduleRequestId = this.loanRescheduleRequestHelper.createLoanRescheduleRequest(withIgnoreCharges(requestJSON));
         this.loanRescheduleRequestHelper.verifyCreationOfLoanRescheduleRequest(this.loanRescheduleRequestId);
 
         LOG.info("Successfully created loan reschedule request (ID: {} )", this.loanRescheduleRequestId);
