@@ -3921,6 +3921,14 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder applyStoredInstallmentPenalty() {
+        this.actionName = "APPLYSTOREDPENALTY";
+        this.entityName = "LOAN";
+        this.entityId = null;
+        this.href = "/loans/closed-installment-penalties";
+        return this;
+    }
+
     public CommandWrapperBuilder nextWithdrawalDateSavingsAccount(final Long accountId) {
         this.actionName = "NEXTWITHDRAWALDATE";
         this.entityName = "SAVINGSACCOUNT";

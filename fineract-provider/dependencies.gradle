@@ -183,5 +183,6 @@ dependencies {
         exclude group: 'javax.activation'
         exclude group: 'org.skyscreamer'
     }
+    testImplementation 'com.h2database:h2'
 
 }
