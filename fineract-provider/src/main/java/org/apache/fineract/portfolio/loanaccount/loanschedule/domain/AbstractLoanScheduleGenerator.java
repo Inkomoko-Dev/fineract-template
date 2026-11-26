@@ -2675,6 +2675,9 @@ public abstract class AbstractLoanScheduleGenerator implements LoanScheduleGener
                 if (!nextDate.isAfter(repaymentDate)) {
                     throw new ScheduleDateException("Repayment cadence must advance the schedule", nextDate);
                 }
+                if (period == 1 && !nextDate.isAfter(maturity)) {
+                    dates.add(rescheduleFrom);
+                }
                 final AdjustedDateDetailsDTO adjusted = this.scheduledDateGenerator.adjustRepaymentDate(nextDate, terms, holidays);
                 repaymentDate = terms.getLoanCalendar() != null && adjusted.getChangedActualRepaymentDate().isAfter(repaymentDate)
                         ? adjusted.getChangedActualRepaymentDate() : nextDate;

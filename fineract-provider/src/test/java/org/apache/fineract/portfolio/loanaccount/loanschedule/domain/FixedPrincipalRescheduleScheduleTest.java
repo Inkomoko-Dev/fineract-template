@@ -184,9 +184,10 @@ class FixedPrincipalRescheduleScheduleTest {
         final List<LocalDate> dates = dueDates(
                 reschedulePreservingMaturity(6, 1, PeriodFrequencyType.YEARS, PeriodFrequencyType.MONTHS, 1));
         assertEquals(LocalDate.of(2027, 9, 30), dates.get(0));
-        assertEquals(LocalDate.of(2028, 10, 30), dates.get(1));
+        assertEquals(LocalDate.of(2028, 9, 30), dates.get(1));
+        assertEquals(LocalDate.of(2028, 10, 30), dates.get(2));
         assertEquals(LocalDate.of(2032, 9, 30), dates.get(dates.size() - 1));
-        assertEquals(49, dates.size());
+        assertEquals(50, dates.size());
     }
 
     @Test
@@ -201,8 +202,22 @@ class FixedPrincipalRescheduleScheduleTest {
     void monthlyToYearlyRegenerationReducesInstallments() throws Exception {
         final List<LocalDate> dates = dueDates(
                 reschedulePreservingMaturity(24, 1, PeriodFrequencyType.MONTHS, PeriodFrequencyType.YEARS, 1));
-        assertEquals(3, dates.size());
-        assertEquals(LocalDate.of(2028, 9, 28), dates.get(2));
+        assertEquals(List.of(LocalDate.of(2026, 10, 30), LocalDate.of(2026, 11, 30), LocalDate.of(2027, 11, 30),
+                LocalDate.of(2028, 9, 28)), dates);
+    }
+
+    @Test
+    void exactOnePeriodRemainderKeepsBoundaryAndMaturity() throws Exception {
+        final List<LocalDate> dates = dueDates(
+                reschedulePreservingMaturity(2, 1, PeriodFrequencyType.MONTHS, PeriodFrequencyType.MONTHS, 0));
+        assertEquals(List.of(LocalDate.of(2026, 10, 30), LocalDate.of(2026, 11, 30)), dates);
+    }
+
+    @Test
+    void rescheduleFromMaturityProducesOneMaturityDue() throws Exception {
+        final List<LocalDate> dates = dueDates(
+                reschedulePreservingMaturity(2, 1, PeriodFrequencyType.MONTHS, PeriodFrequencyType.YEARS, 1));
+        assertEquals(List.of(LocalDate.of(2026, 10, 30), LocalDate.of(2026, 11, 30)), dates);
     }
 
     private static List<LocalDate> dueDates(final List<LoanRepaymentScheduleInstallment> installments) {

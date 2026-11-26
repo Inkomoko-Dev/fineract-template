@@ -372,8 +372,8 @@ public class LoanRescheduleRequestTest {
         assertEquals(original.get(1), approved.get(1));
         final LocalDate firstReplacement = localDate((List<?>) approved.get(2));
         final LocalDate rescheduleFrom = localDate((List<?>) original.get(2));
-        assertTrue(firstReplacement.isAfter(rescheduleFrom));
-        assertTrue(firstReplacement.isBefore(rescheduleFrom.plusMonths(2)));
+        assertEquals(rescheduleFrom, firstReplacement);
+        assertEquals(50, approved.size() - 1);
     }
 
     @Test
