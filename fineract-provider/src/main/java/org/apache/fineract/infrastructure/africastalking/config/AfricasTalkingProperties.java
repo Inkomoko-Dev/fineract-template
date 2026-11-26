@@ -102,6 +102,7 @@ public class AfricasTalkingProperties {
     public static class Webhook {
 
         private String secret;
+        private String allowedCidrs = "";
         private String signatureHeader = "X-AfricasTalking-Signature";
     }
 
