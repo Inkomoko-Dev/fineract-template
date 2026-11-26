@@ -323,29 +323,53 @@
                              constraintName="uk_cd_rule_version_scope_key"/>
     </changeSet>
 
-    <!-- Versions made before the policy existed get the values of the Credit Scoring Process Flow, for everyone. -->
+    <!-- Versions made before the policy existed get the values of the Credit Scoring Process Flow, for everyone.
+         Each insert skips a version that already has that global rule (for example one written by the app or an earlier
+         run), so the seed never collides with an existing row. validCheckSum ANY keeps databases that ran the earlier
+         text from failing on the checksum change. -->
     <changeSet id="CGLT-846-credit-decision-seed-starter-policy" author="omoi">
+        <validCheckSum>ANY</validCheckSum>
         <sql>
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'minAge', 18 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'minAge', 18 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'minAge');
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'maxDaysPastDue', 30 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'maxDaysPastDue', 30 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'maxDaysPastDue');
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'arrearsTolerance', 0 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'arrearsTolerance', 0 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'arrearsTolerance');
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'minMonthsInBusiness', 6 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'minMonthsInBusiness', 6 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'minMonthsInBusiness');
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'lowRiskMinScore', 750 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'lowRiskMinScore', 750 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'lowRiskMinScore');
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'mediumRiskMinScore', 650 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'mediumRiskMinScore', 650 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'mediumRiskMinScore');
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'weightInternalHistory', 40 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'weightInternalHistory', 40 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'weightInternalHistory');
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'weightBureauHistory', 30 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'weightBureauHistory', 30 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'weightBureauHistory');
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'weightBusinessFinancials', 20 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'weightBusinessFinancials', 20 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'weightBusinessFinancials');
             INSERT INTO m_credit_decision_version_rule (version_id, scope, scope_key, rule_key, rule_value)
-            SELECT v.id, 'GLOBAL', '*', 'weightDemographics', 10 FROM m_credit_decision_profile_version v;
+            SELECT v.id, 'GLOBAL', '*', 'weightDemographics', 10 FROM m_credit_decision_profile_version v
+            WHERE NOT EXISTS (SELECT 1 FROM m_credit_decision_version_rule r WHERE r.version_id = v.id
+                AND r.scope = 'GLOBAL' AND r.scope_key = '*' AND r.rule_key = 'weightDemographics');
         </sql>
     </changeSet>
 
