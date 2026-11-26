@@ -19,6 +19,11 @@
 
 package org.apache.fineract.infrastructure.core.config;
 
+import java.io.IOException;
+import javax.servlet.ServletException;
+import org.apache.catalina.connector.Request;
+import org.apache.catalina.connector.Response;
+import org.apache.catalina.valves.ValveBase;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
@@ -29,8 +34,20 @@ import org.springframework.stereotype.Component;
 @ConditionalOnClass(name = "org.apache.coyote.http11.Http11Nio2Protocol")
 public class TomcatConnectorCustomizer implements WebServerFactoryCustomizer<ConfigurableServletWebServerFactory> {
 
+    public static final String TCP_PEER_ADDRESS_ATTRIBUTE = TomcatConnectorCustomizer.class.getName() + ".tcpPeerAddress";
+
     @Override
     public void customize(ConfigurableServletWebServerFactory factory) {
-        ((TomcatServletWebServerFactory) factory).setProtocol("org.apache.coyote.http11.Http11Nio2Protocol");
+        final var tomcat = (TomcatServletWebServerFactory) factory;
+        tomcat.setProtocol("org.apache.coyote.http11.Http11Nio2Protocol");
+        tomcat.addEngineValves(new ValveBase(true) {
+
+            @Override
+            public void invoke(final Request request, final Response response) throws IOException, ServletException {
+                // Capture the connection address before servlet filters can apply forwarded headers.
+                request.setAttribute(TCP_PEER_ADDRESS_ATTRIBUTE, request.getPeerAddr());
+                getNext().invoke(request, response);
+            }
+        });
     }
 }

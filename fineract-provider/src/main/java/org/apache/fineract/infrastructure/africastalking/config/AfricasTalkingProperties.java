@@ -102,8 +102,7 @@ public class AfricasTalkingProperties {
     public static class Webhook {
 
         private String secret;
-        private boolean trustedProxyEnabled;
-        private String trustedProxyCredential;
+        private String allowedCidrs = "";
         private String signatureHeader = "X-AfricasTalking-Signature";
     }
 

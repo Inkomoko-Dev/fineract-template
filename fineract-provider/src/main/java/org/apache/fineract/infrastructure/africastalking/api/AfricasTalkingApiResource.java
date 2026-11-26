@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.africastalking.api;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.io.IOException;
 import java.util.List;
+import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -43,7 +44,6 @@ import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingC
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingVoiceService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookAuthenticationException;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService;
-import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookVerifier;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWebhookService.WebhookProcessingResult;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppService;
 import org.apache.fineract.infrastructure.africastalking.service.AfricasTalkingWhatsAppTemplateCreateOutcome;
@@ -53,6 +53,7 @@ import org.apache.fineract.infrastructure.africastalking.service.CommunicationMe
 import org.apache.fineract.infrastructure.campaigns.whatsapp.constants.WhatsAppCampaignConstants;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.domain.WhatsAppAtTemplate;
 import org.apache.fineract.infrastructure.campaigns.whatsapp.service.WhatsAppAtTemplateCatalogService;
+import org.apache.fineract.infrastructure.core.config.TomcatConnectorCustomizer;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
@@ -205,35 +206,38 @@ public class AfricasTalkingApiResource {
     @Consumes({ MediaType.WILDCARD })
     @Produces({ MediaType.TEXT_PLAIN })
     public Response pingWebhook(final String payload, @Context final HttpHeaders headers) {
-        return handleWebhook("PING", payload, headers, MediaType.TEXT_PLAIN);
+        return handleWebhook("PING", payload, headers, null);
     }
 
     @POST
     @Path("webhooks/whatsapp/inbound")
     @Consumes({ MediaType.WILDCARD })
     @Produces({ MediaType.TEXT_PLAIN })
-    public Response whatsappInbound(final String payload, @Context final HttpHeaders headers) {
-        return handleWebhook("WHATSAPP_INBOUND", payload, headers, MediaType.TEXT_PLAIN);
+    public Response whatsappInbound(final String payload, @Context final HttpHeaders headers,
+            @Context final HttpServletRequest request) {
+        return handleWebhook("WHATSAPP_INBOUND", payload, headers, peerAddress(request));
     }
 
     @POST
     @Path("webhooks/whatsapp/status")
     @Consumes({ MediaType.WILDCARD })
     @Produces({ MediaType.TEXT_PLAIN })
-    public Response whatsappStatus(final String payload, @Context final HttpHeaders headers) {
-        return handleWebhook("WHATSAPP_STATUS", payload, headers, MediaType.TEXT_PLAIN);
+    public Response whatsappStatus(final String payload, @Context final HttpHeaders headers,
+            @Context final HttpServletRequest request) {
+        return handleWebhook("WHATSAPP_STATUS", payload, headers, peerAddress(request));
     }
 
     @POST
     @Path("webhooks/voice/callback")
     @Consumes({ MediaType.WILDCARD })
     @Produces({ MediaType.APPLICATION_XML })
-    public Response voiceCallback(final String payload, @Context final HttpHeaders headers) {
+    public Response voiceCallback(final String payload, @Context final HttpHeaders headers,
+            @Context final HttpServletRequest request) {
         try {
             final String signature = headers.getHeaderString(properties.getWebhook().getSignatureHeader());
             final String userAgent = headers.getHeaderString(HttpHeaders.USER_AGENT);
             final WebhookProcessingResult result = webhookService.processWebhook("VOICE_CALLBACK", payload == null ? "" : payload, signature,
-                    userAgent, headers.getHeaderString(AfricasTalkingWebhookVerifier.TRUSTED_PROXY_HEADER));
+                    userAgent, peerAddress(request));
             if (result.duplicate()) {
                 // Do not re-enter IVR (would re-issue OTP / create duplicate callbacks).
                 // Replay last XML so AT retries keep the caller on the same prompt.
@@ -250,26 +254,28 @@ public class AfricasTalkingApiResource {
     @Path("webhooks/voice/events")
     @Consumes({ MediaType.WILDCARD })
     @Produces({ MediaType.TEXT_PLAIN })
-    public Response voiceEvents(final String payload, @Context final HttpHeaders headers) {
-        return handleWebhook("VOICE_EVENT", payload, headers, MediaType.TEXT_PLAIN);
+    public Response voiceEvents(final String payload, @Context final HttpHeaders headers,
+            @Context final HttpServletRequest request) {
+        return handleWebhook("VOICE_EVENT", payload, headers, peerAddress(request));
     }
 
-    private Response handleWebhook(final String eventType, final String payload, final HttpHeaders headers, final String responseType) {
+    private Response handleWebhook(final String eventType, final String payload, final HttpHeaders headers, final String peerAddress) {
         try {
             final String signature = headers.getHeaderString(properties.getWebhook().getSignatureHeader());
             final String userAgent = headers.getHeaderString(HttpHeaders.USER_AGENT);
             final WebhookProcessingResult result = webhookService.processWebhook(eventType, payload == null ? "" : payload, signature,
-                    userAgent, headers.getHeaderString(AfricasTalkingWebhookVerifier.TRUSTED_PROXY_HEADER));
+                    userAgent, peerAddress);
             if (!result.duplicate()) {
                 processBusinessEvent(eventType, payload);
             }
-            if (MediaType.APPLICATION_XML.equals(responseType)) {
-                return Response.ok("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>", responseType).build();
-            }
-            return Response.ok(result.duplicate() ? "DUPLICATE" : "OK", responseType).build();
+            return Response.ok(result.duplicate() ? "DUPLICATE" : "OK", MediaType.TEXT_PLAIN).build();
         } catch (AfricasTalkingWebhookAuthenticationException e) {
             return Response.status(Response.Status.UNAUTHORIZED).entity("UNAUTHORIZED").type(MediaType.TEXT_PLAIN).build();
         }
+    }
+
+    private static String peerAddress(final HttpServletRequest request) {
+        return (String) request.getAttribute(TomcatConnectorCustomizer.TCP_PEER_ADDRESS_ATTRIBUTE);
     }
 
     private void processBusinessEvent(final String eventType, final String payload) {
