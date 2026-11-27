@@ -415,7 +415,7 @@ emi AS (
     SELECT loan_id, emi FROM (
         SELECT loan_id, emi_val AS emi,
             ROW_NUMBER() OVER (PARTITION BY loan_id ORDER BY COUNT(*) DESC, emi_val DESC) rn
-        FROM schx GROUP BY loan_id, emi_val
+        FROM schx WHERE emi_val > 0 GROUP BY loan_id, emi_val
     ) z WHERE rn = 1
 ),
 chg AS (
@@ -610,7 +610,7 @@ SELECT
     CASE WHEN a.st_id = 700 THEN a.ovp_bal
          WHEN a.st_id = 601 AND a.wo_ovp_bal > 0.005 THEN a.wo_ovp_bal
          ELSE 0 END AS 'Excess Balance',
-    CASE WHEN a.is_wo THEN 0 ELSE IFNULL(sagg.advance_bal, 0) END AS 'Advance Payment Balance',
+    CASE WHEN a.st_id = 300 THEN IFNULL(sagg.advance_bal, 0) ELSE 0 END AS 'Advance Payment Balance',
     a.writtenoff AS 'Written-Off Amount',
 
     CASE WHEN a.is_wo THEN 0 ELSE LEAST(IFNULL(sagg.past_due_p, 0), a.p_bal) + LEAST(IFNULL(sagg.past_due_i, 0), a.i_bal)

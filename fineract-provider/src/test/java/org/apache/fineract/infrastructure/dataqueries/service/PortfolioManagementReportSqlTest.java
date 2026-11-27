@@ -151,6 +151,18 @@ public class PortfolioManagementReportSqlTest {
     }
 
     @Test
+    @DisplayName("EMI is the most common instalment among instalments that have something due")
+    public void emiIgnoresEmptyInstalments() {
+        assertTrue(cte(reportSql, "emi").contains("FROM schx WHERE emi_val > 0 GROUP BY loan_id, emi_val"));
+    }
+
+    @Test
+    @DisplayName("Advance Payment Balance is held only by active loans")
+    public void advanceOnlyOnActiveLoans() {
+        assertTrue(reportSql.contains("CASE WHEN a.st_id = 300 THEN IFNULL(sagg.advance_bal, 0) ELSE 0 END AS 'Advance Payment Balance'"));
+    }
+
+    @Test
     @DisplayName("Status labels follow the product wording")
     public void statusLabels() {
         assertTrue(reportSql.contains("'Written Off (Overpaid)'"));

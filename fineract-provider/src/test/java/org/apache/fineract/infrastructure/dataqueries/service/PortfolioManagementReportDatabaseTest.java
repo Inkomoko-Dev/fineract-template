@@ -42,7 +42,7 @@ public class PortfolioManagementReportDatabaseTest {
     private static Connection connection;
 
     private record Row(String status, BigDecimal excessBalance, BigDecimal excessAmountPaid, BigDecimal amountPastDue,
-            int installmentsInArrears, int daysInArrears) {}
+            int installmentsInArrears, int daysInArrears, BigDecimal emi, BigDecimal advance) {}
 
     @BeforeAll
     static void connect() throws Exception {
@@ -78,7 +78,8 @@ public class PortfolioManagementReportDatabaseTest {
             try (ResultSet rs = st.executeQuery(sql)) {
                 assertTrue(rs.next(), "loan " + loanId + " not in the report at " + asOn);
                 return new Row(rs.getString("Loan Status"), rs.getBigDecimal("Excess Balance"), rs.getBigDecimal("Excess Amount Paid"),
-                        rs.getBigDecimal("Amount Past Due"), rs.getInt("Installment in Arrears"), rs.getInt("Days in Arrears"));
+                        rs.getBigDecimal("Amount Past Due"), rs.getInt("Installment in Arrears"), rs.getInt("Days in Arrears"),
+                        rs.getBigDecimal("EMI"), rs.getBigDecimal("Advance Payment Balance"));
             }
         } finally {
             connection.rollback();
@@ -182,5 +183,19 @@ public class PortfolioManagementReportDatabaseTest {
         assertTrue(overdue.amountPastDue().signum() > 0);
         assertEquals(1, overdue.installmentsInArrears());
         assertTrue(overdue.daysInArrears() > 0);
+    }
+
+    @Test
+    @DisplayName("A bullet loan after empty grace instalments reports its real instalment as EMI")
+    public void emiOfBulletLoanAfterGraceInstalments() throws SQLException {
+        assertAmount("150000", run(421094, "2026-08-12").emi());
+    }
+
+    @Test
+    @DisplayName("A loan that is closed holds no advance payment balance")
+    public void closedLoanHoldsNoAdvance() throws SQLException {
+        final Row row = run(388537, "2026-08-12");
+        assertEquals("Closed", row.status());
+        assertAmount("0", row.advance());
     }
 }
